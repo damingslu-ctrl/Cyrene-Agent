@@ -17,7 +17,7 @@ import { ensureGpuSandboxAcl } from "../gpu-sandbox-acl";
 import { configureVergeIdentity } from "../app-identity";
 import { getExternalContentPaths } from "../external-content-paths";
 import { migrateStagedExternalContent } from "../external-content-migration";
-import { logger, LogTag } from "../logger";
+import { logger, LogTag, installMainLogSink } from "../logger";
 import { renderBanner } from "../../shared/banner";
 import { IPC } from "../../shared/ipc-channels";
 import { isDev } from "../env";
@@ -307,7 +307,17 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
 
     prepare: () => prepareBeforeReady({
       configureIdentity: () => {
-        configureVergeIdentity(app, app.getPath("appData"));
+        const identity = configureVergeIdentity(app, app.getPath("appData"));
+        // 落盘接收器必须晚于身份：installFileLogSink 会把传入的 userData 永久绑进闭包，
+        // 早一步（模块顶层）就会绑到上游 %APPDATA%\Cyrene。
+        installMainLogSink();
+        if (identity.explicitUserDataDir) {
+          // 默认可见级别是 warn，info 会被吞掉，所以这条优先级让路提示用 warn。
+          logger.warn(
+            LogTag.Runtime,
+            `检测到显式 --user-data-dir，跳过 fork 的 userData 覆盖，本次实际使用：${identity.userDataPath}`,
+          );
+        }
       },
       installSingleInstance: (onSecondInstance) => installSingleInstanceGuard(app, onSecondInstance),
       migrateLegacyUserData: () => {

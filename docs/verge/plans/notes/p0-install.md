@@ -282,8 +282,9 @@ pnpm install --frozen-lockfile --store-dir "D:\\pnpm-store"   # 退出码 0，Do
 
 ## 9. Task 3 实测记录：实例身份与 userData 隔离（R6）
 
-三条裁决的实测口径都在这一节：§9.1 更正 plan 里"切身份会复制旧数据"的说法，§9.2 是给下游的
-硬约束（`--user-data-dir` 从此失效），§9.3 记隔离取证与顺序测试。
+三条裁决的实测口径都在这一节：§9.1 更正 plan 里"切身份会复制旧数据"的说法，并记下 R6 **没覆盖**的
+channels 密钥轮换例外；§9.2 记 `--user-data-dir` 与身份覆盖的优先级（修复轮已改成显式开关赢）；
+§9.3 记隔离取证；§9.4 记顺序测试；§9.5 记修复轮新增的顺序约束——日志落盘目录不能在模块加载期捕获。
 
 ### 9.1 切身份后的首启行为 = 全新用户态，不复制任何东西（更正 Task 3 Step 4 的"后果"段）
 
@@ -307,10 +308,33 @@ plan 原文写"身份一改，`migrateLegacyUserData()` 的搬运目标变成 `c
 - ⇒ R6 的真实语义：**fork 与上游各写各的账本，且 fork 起步就是新用户**（全新 profile）。
   连带后果见 §9.2。
 
-### 9.2 下游硬约束：`--user-data-dir` 已被身份配置覆盖（影响 P1 所有屏幕层验收）
+**R6 没有覆盖全部账本：identity 一变，channels 的混淆密钥就轮换**（修复轮补记，Important #3）
 
-`configureVergeIdentity` 在 `app.ready` 之前调 `app.setPath("userData", …)`，优先级高于命令行开关。
-实测（同一构建，临时探针）：
+上面"各写各的账本"只说到目录，没说**同一份数据跨目录搬运后还能不能解出来**。有一个子系统会坏：
+
+- 机制（源码事实）：`src/main/channels/settings-store.ts:51-56` 的 `getMachineKey()` 用
+  **`app.getPath("userData")` 绝对路径 + `app.getName()`** 做 SHA256 当 XOR 混淆 seed；
+  同文件 `:71-82` 的 `deobfuscate()` 只做前缀判断、没有完整性校验，解错了也**不报错**。
+  所以 seed 一变（目录从 `…\live2d-cyrene`/`…\Cyrene` 变成 `…\cyrene-verge`，名字也从 `Cyrene`
+  变成 `cyrene-verge`，两个因子同时变），`obf:<base64>` 字段会**静默解成乱码**。
+- 触发条件：**装了旧版、存在 `%APPDATA%\live2d-cyrene` 的机器**。那种机器上
+  `user-data-migration.ts:79-90` 走 `renamed`（旧目录整体改名成新目录）或 `merged`（逐项并入）分支，
+  把 `channels-settings.json` **原字节**搬进 `cyrene-verge` —— 文件还在、字段还带 `obf:` 前缀、
+  载入不抛错，但飞书/QQ 的 AppSecret、Token、Encrypt Key 解密结果是垃圾，机器人凭证当场失效且无提示。
+  本机不触发：`live2d-cyrene` 不存在，迁移返回 `status="none"`，一个字节都没搬（见上面的实测）。
+- 不受影响的：`enc:` 字段走 safeStorage（Windows DPAPI 绑的是**登录账户**，不是目录/应用名），
+  搬过去照样能解；`plain:` 本来就没密钥。
+- 本任务**不修**（P0/P1 完全不碰 channels），也没有可用的观测点：这条只能在"有 `obf:` 存量数据
+  的机器"上才会暴露。后续真要修的方向（任选，别默认它已经发生）：让 seed 与 userData/应用名解耦
+  （存一份随目录走的固定 key），或给 `deobfuscate` 加完整性校验（MAC/校验位）从而能报"密钥变了"
+  而不是返回垃圾，或在 `decryptField` 失败时降级成"要求用户重新填"的显式状态。
+  **在那之前，任何"把上游 userData 搬进 fork 目录"的任务都要先把这条列进风险。**
+
+### 9.2 `--user-data-dir` 与身份覆盖的优先级（修复轮已改：显式开关赢）
+
+**历史（bc37b32b 当时）**：`configureVergeIdentity` 在 `app.ready` 之前无条件调
+`app.setPath("userData", …)`，而 `setPath` 的优先级**高于** Chromium 的命令行开关，于是显式给的
+`--user-data-dir` 被静默吞掉。实测（同一构建，临时探针）：
 
 ```
 [probe] argv=["--user-data-dir=D:/task3-udd-probe"] userData=C:\Users\damin\AppData\Roaming\cyrene-verge
@@ -318,9 +342,22 @@ plan 原文写"身份一改，`migrateLegacyUserData()` 的搬运目标变成 `c
 
 开关写法正确、目录 `D:/task3-udd-probe` 也被 Chromium 建了出来，但 `app.getPath("userData")` 仍解析到
 `%APPDATA%\cyrene-verge`。⇒ §6.1 里"用 `--user-data-dir=D:\cyrene-p0-probe` 拿一个已同意免责的 profile
-来验宠物窗"这条路**在 Task 3 之后失效**。后续屏幕层验收改成：直接往 `%APPDATA%\cyrene-verge` 预置
-`app-settings.json`（`disclaimerAcceptedVersion` 填当前版本），或给 `configureIdentity` 加一个显式的
-逃生开关（后者要另立任务，不在 R6 范围内，本任务不加）。
+来验宠物窗"这条路当时失效，且**没有任何日志说明被覆盖**（优先级反转是静默的）。
+
+**修复轮（本任务之后的提交）**：`configureVergeIdentity(app, appDataDir, argv = process.argv)` 先认开关
+（纯函数 `hasExplicitUserDataDir(argv)`，认 `--user-data-dir=<path>` 与 Chromium 等价的单短横线写法），
+显式给过就**跳过 `setPath`**，返回值里的 `userDataPath` 改成 `app.getPath("userData")` 真正解析出来的那个，
+并打一条 warn（默认可见级别就是 warn，用 info 会被吞）：
+
+```
+WARN  Runtime          检测到显式 --user-data-dir，跳过 fork 的 userData 覆盖，本次实际使用：D:\task3fix-udd-probe
+```
+
+实测（15:33:34，`electron . --user-data-dir=D:/task3fix-udd-probe`）：Chromium 子进程（gpu-process /
+network service / renderer）的命令行都变成 `--user-data-dir="D:\task3fix-udd-probe"`，日志与账本都落在
+该目录（`logs/cyrene.log`、`cyrene.sqlite`、`Local Storage/` …），`%APPDATA%\cyrene-verge` 那一轮**没有**
+新增字节。⇒ **§6.1 的屏幕层验收路径恢复可用**（Task 1 定的 `--user-data-dir=D:\cyrene-p0-probe` 喂免责声明
+的机制重新有效）。`setName` 仍无条件执行：单实例锁按名字建，显式指定的目录同样与上游账本隔离，R6 不受影响。
 
 ### 9.3 隔离取证（替代 plan Step 5 的"关掉上游做对照"）
 
@@ -359,3 +396,25 @@ plan 原文写"身份一改，`migrateLegacyUserData()` 的搬运目标变成 `c
   `app-identity.test.ts`（3 条）与新增顺序用例（1 条），无测试丢失。
 - `pnpm run check:main` 通过（`PreReadyDependencies` 新增必填成员后组合根仍编译；组合根只有
   `default-dependencies.ts` 一处实现，`application.ts` 不感知）。
+
+### 9.5 修复轮的顺序约束：`userData` 的**捕获点**也必须晚于身份（Important #1）
+
+"身份要在取锁前配好"还不够——**任何把 `app.getPath("userData")` 的结果长期记住的东西**都算一个读取点。
+`src/main/logger.ts` 原来在模块顶层就 `installFileLogSink(app.getPath("userData"))`，而入口
+`src/main/index.ts` 的 import 图（`index → application/default-dependencies.ts → ../logger`）
+早于 `application.prepareBeforeReady()`，那一刻 `productName`（`package.json:3` = `Cyrene`）决定的还是
+上游目录；`log-sink-file.ts:85-87` 把路径闭包进 sink（`mkdirSync(userDataDir/logs)` + 每行 `appendFileSync`），
+于是 fork 的启动 warn/error **永久**写进 `%APPDATA%\Cyrene\logs\cyrene.log`。目录侧的痕迹本机可见：
+`%APPDATA%\Cyrene\logs\`（空目录，mtime 2026-10-17 13:04:37）就是修复前的构建留下的。
+
+修复：模块顶层只留级别解析，落盘接收器改由导出的 `installMainLogSink()` 安装，调用点唯一——
+`default-dependencies.ts` 的 `configureIdentity` 闭包里紧跟 `configureVergeIdentity()` 之后。
+实测（15:24:00，`electron .` + `CYRENE_LOG_LEVEL=info`）：日志落在
+`%APPDATA%\cyrene-verge\logs\cyrene.log`（2575 字节），`%APPDATA%\Cyrene\logs\` 前后都**零文件**、
+mtime 未变，整棵 `%APPDATA%\Cyrene` 子树 `find -newermt 15:00` 零命中。
+测试锁在 `src/main/logger.test.ts`：仅 import 不得创建上游目录的 `logs/`，安装后的 sink 绑的是
+身份改动之后的目录，且重复安装幂等。
+
+**给下游的规则**：新代码不要在模块顶层读 `app.getPath("userData")` 并缓存结果；要么延迟到调用时读，
+要么挂到 `configureIdentity()` 之后。
+

@@ -11,6 +11,8 @@ export interface PreReadyDependencies {
   /**
    * 必须先于 installSingleInstance：单实例锁与 userData 都按应用名解析。
    * 下面所有步骤（取锁、迁移目标目录、GPU 开关读设置）都以这里的身份为准。
+   * 实现方（组合根）还必须在同一个闭包里、身份改动之后才绑定日志落盘目录，
+   * 否则落盘接收器会把上游 userData 永久记住（见 src/main/logger.ts）。
    */
   configureIdentity(): void;
   installSingleInstance(onSecondInstance: () => void): boolean;
