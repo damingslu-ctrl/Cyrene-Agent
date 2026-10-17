@@ -2,12 +2,14 @@
 
 日期：2026-10-17。机器：Windows 11（Git Bash/MSYS2），当前账号**不在** Administrators 组。
 基线提交：`6228ea8e`（branch `verge`）。Node：v24.18.0（满足 engines `>=24 <25`）。
+首版记录 commit `1f88c543`；本轮按 review 修订的是**记录本身**（§1/§2/§4/§5/§6/§6.1/§7/§8）加两次补测，
+安装未重做、store 未删，`node_modules` / `D:\pnpm-store` / 构建产物都是既有状态。
 
 ## 1. pnpm 调用形式（Step 1，R3 偏离之一）
 
 - `corepack enable` 按预期失败（非管理员，要写 `C:\Program Files\nodejs\pnpm.CMD`）：
   `EPERM: operation not permitted, open 'C:\Program Files\nodejs\pnpm.CMD'`
-- **实际可用的调用形式**（brief 给出的备选路径一，install-directory 版）：
+- **实际可用的调用形式**（见下方偏离说明；这不是 brief 的预案）：
 
   ```bash
   export COREPACK_HOME='D:\corepack-home'                     # corepack 缓存钉在 D:，不落 C:
@@ -17,6 +19,13 @@
   pnpm --version   # → 10.33.0（仓库内按 package.json packageManager 解析；仓库外会回落 12.14.0，注意）
   ```
 
+- **偏离定性（修正）**：brief:19 给出的唯一备选是改成 `corepack pnpm@10.33.0 install …` 的调用形式；
+  `corepack enable --install-directory` **不在 brief 里**，是本任务自己的偏离（R3 记一条）。
+  偏离理由：`package.json:41` 的 `dev` 脚本内部 shell 出去调**裸 `pnpm`**
+  （`pnpm run build:main && … && concurrently "vite --strictPort" "…"`），并发子进程没法带上
+  `corepack pnpm@10.33.0` 前缀，只有 PATH 上真存在 `pnpm` 这条命令才跑得通；
+  所以选了 install-directory，而不是 brief 的前缀调用形式。代价：`D:\corepack-bin` 是新增目录，
+  每个新 shell 必须先 source 环境脚本（下一节）。
 - 后果与注意：pnpm 不在系统 PATH，**每个新 shell 都要先 source 环境脚本**（见 §2）；
   `pnpm dev` 内部经 concurrently 再调 `pnpm run …` 也依赖该 PATH，已验证可嵌套。
 
@@ -33,14 +42,26 @@ export ELECTRON_BUYOUT_CACHE='D:\electron-cache'
 export HTTPS_PROXY='http://127.0.0.1:7896'
 export HTTP_PROXY='http://127.0.0.1:7896'
 export NO_PROXY='127.0.0.1,localhost'
+export NODE_USE_ENV_PROXY=1   # 必须：Node 24 的 fetch 只认这个开关才读上面的代理（缺了 sharp/electron 下载就死）
+export electron_config_cache='D:\electron-cache'   # 必须：electron 44 的 install.js 只读这个变量，不读 ELECTRON_CACHE（见 §4）
 ```
+
+- 本块是唯一事实源，本机 `D:\p0-env.sh` 已同步为同一组变量（仅 `NO_PROXY` 那行在原文件里拆成
+  赋值 + `export` 两行，等价）。复测补进去的两行是 `NODE_USE_ENV_PROXY=1` 和
+  `electron_config_cache=D:\electron-cache`；此前它们只在散文里出现，
+  直接复制本块的人会踩 §4 记录的 `TypeError: fetch failed` 和 C: 落缓存。
 
 - 目录建立：`mkdir -p /d/pnpm-store /d/npm-cache /d/electron-cache` ✅。
 - **未**创建项目 `.npmrc` ✅（避免第 6 处上游文件改动；用户级 `~/.npmrc` 也不存在）。
-- C: 侧无新增缓存：`~/.cache` 里只有既有的 codex-runtimes/torch（安装前已存在）；
-  corepack 因 `COREPACK_HOME` 指到 D: 未在 `~/.cache/node/corepack` 留下任何东西。
+- C: 侧新增缓存（复测更正）：`~/.cache` 确实只有既有的 codex-runtimes/torch，corepack 因
+  `COREPACK_HOME` 指到 D: 也没在 `~/.cache/node/corepack` 留东西——**但 `~/.cache` 不是唯一入口**：
+  Electron 二进制归档实际落在了 `C:\Users\damin\AppData\Local\electron\Cache\`（151M，见 §4）。
+  另记（非缓存）：跑 `pnpm dev` 会创建应用自身的数据目录 `C:\Users\damin\AppData\Roaming\Cyrene\`，
+  这是 userData 不是下载缓存，P0 不归它管，Task 3（R6 userData 隔离）才是它的归属。
 - 关键补充：Node 24 的 `fetch` 默认**不**读 `HTTP(S)_PROXY` 环境变量，需要
-  `export NODE_USE_ENV_PROXY=1`，否则 sharp/electron 的下载器报 `TypeError: fetch failed`（实测踩过）。
+  `export NODE_USE_ENV_PROXY=1`（已并入上方环境块），否则 sharp/electron 的下载器报 `TypeError: fetch failed`（实测踩过）。
+  漏掉它还有第二条更隐蔽的路径：`node_modules/electron/index.js:33-41` 在首次 `require('electron')` 时才惰性跑
+  `install.js`，届时在 `pnpm dev` 里抛 "Electron failed to install correctly"，看起来像构建问题而不是代理问题。
 
 ## 3. 代理状态（Step 2）
 
@@ -83,8 +104,24 @@ pnpm install --frozen-lockfile --store-dir "D:\\pnpm-store"   # 退出码 0，Do
   ```
 
   实测第一次不带 `NODE_USE_ENV_PROXY=1` 报 `TypeError: fetch failed`，带上后成功。
-  `D:\electron-cache` 跑完后为 0 —— 该版 install.js 不落 ELECTRON_CACHE（zip 用完即删），
-  属预期外小偏离，无后果（二进制已在 dist/）。
+- **`ELECTRON_CACHE` 为什么是空的（复测查明，不是"zip 用完即删"）**：
+  `node_modules/electron/install.js:44` 传给 `@electron/get` 的是
+  `cacheRoot: process.env.electron_config_cache`——**只读 `electron_config_cache` 这一个变量**，
+  `ELECTRON_CACHE` 整个链路无人消费。`cacheRoot` 为 undefined 时
+  `@electron/get@5` 回落 `envPaths('electron').cache`，Windows 上即
+  `C:\Users\damin\AppData\Local\electron\Cache\`。实测该目录确有本次下载的归档：
+  ```
+  C:\Users\damin\AppData\Local\electron\Cache\bb424f90…\electron-v44.4.3-win32-x64.zip   151M  (mtime 12:51)
+  ```
+  ⇒ 后果一（违反 P0 硬规则）：这 151M 落在 C:，"缓存全部留在 D:" 在 electron 这条路径上是破的；
+  复测已把归档按同一哈希目录复制到 `D:\electron-cache\bb424f90…\electron-v44.4.3-win32-x64.zip`
+  （158247567 字节；哈希目录名 = `sha256("https://github.com/electron/electron/releases/download/v44.4.3")`
+  = `bb424f9061e7a2927a7fcc04709593fe81ac4633e2cd40456f2ef431743b1ee7`，已用 @electron/get 的 `Cache.getCacheDirectory`
+  同一算法离线复算核对，所以 `cacheRoot=D:\electron-cache` 能直接命中），C: 原件未删。
+  ⇒ 后果二（下游任务）：P3 打包（`electron-builder` / `package:win:dir`，package.json:40）走同一个
+  `@electron/get`；没有这条 pin 时它会再次经代理下载同一个 zip 并写进 C:，
+  且新机上如果忘了 `NODE_USE_ENV_PROXY=1` 就当场 `TypeError: fetch failed`。
+  ⇒ 处置：§2 环境块已加 `export electron_config_cache='D:\electron-cache'`（本机 `D:\p0-env.sh` 同步）。
 
 ## 5. 测试基线（Step 4）——真实数字，非 559 全绿
 
@@ -92,27 +129,51 @@ pnpm install --frozen-lockfile --store-dir "D:\\pnpm-store"   # 退出码 0，Do
 
 - **Test Files: 4 failed | 555 passed (559)；Tests: 5 failed | 5362 passed | 1 skipped (5368)，退出码 1。**
   （brief 里"559 tests"实际是 559 个**文件**/5368 个用例，此处按真实口径记录。）
-- 5 条失败**全部是 `Error: Test timed out in 5000ms`**（vitest 默认 5s 超时），无断言失败：
+- 5 条失败**全部是 `Error: Test timed out in 5000ms`**，无一条断言失败：
+  （5s 不是 vitest 默认值——`vitest.config.mts:6` 写的是 `testTimeout: process.env.CI ? 30_000 : 5_000`，
+  即**本仓库自己**在非 CI 下把阈值定在 5s、CI 下 30s；对慢盘的敏感度是配置带来的，不是框架默认。）
   1. `src/main/agui-bridge.test.ts` × 2（"成功桌面对话…" / "v2 pending claim…"）
   2. `src/main/chats/chats-pending-queue.test.ts` × 1（"恢复后的附件…"）
   3. `src/main/orchestrator/harness/cyrene-harness.test.ts` × 1（"轮次内压缩保存检查点…"）
   4. `src/main/orchestrator/tools/document-tools.test.ts` × 1（"write_excel 覆盖已有文件…"）
-- 归因：首跑时后台还有 `du -sh node_modules`（磁盘 I/O 风暴）在跑，这批 5s 级超时是**并发 I/O 争用的时间性 flake**。
-  证据：单独重跑这 4 个文件 → **4 passed / 155 tests 全过**（`D:\verge-test-rerun.log`）。
-- 按 P0 纪律：未修改任何上游测试。结论=基线本质绿色，超时阈值对慢盘敏感；
-  后续任务如遇同 5 条超时，先排查磁盘争用再怀疑回归。
+- **归因定性：原因「推断」而非「证实」（复测更正）。** 首跑时后台确有 `du -sh node_modules` 在抢磁盘，
+  但"单独重跑这 4 个文件 → 4 passed / 155 tests"（`D:\verge-test-rerun.log`）一次改了三个变量
+  （du 已退出、并行文件数从 559 降到 4、装了 30 分钟 + 跑完一整轮后的页缓存是热的），
+  它只能证明"这 5 条用例能通过"，加上"全是 `Test timed out`、零断言失败"能排除逻辑回归之外，
+  **不能把 `du` 单独指认为凶手**。
+- 复测把"无并发 I/O 的全量跑"补上了（本任务的关键基线数字，后续任务都对着它比）：
+
+  | 命令 | 并发 I/O | testTimeout | 结果 | 用时 | 退出码 | 日志 |
+  |---|---|---|---|---|---|---|
+  | `pnpm test`（原始首跑） | 有 `du -sh node_modules` | 5s | Files 4 failed / Tests **5 failed \| 5362 passed \| 1 skipped (5368)** | — | 1 | `D:\verge-test.log` |
+  | `pnpm test`（复测：无 du、无 build、无 electron，串行独占磁盘） | **无** | 5s | Files **1 failed \| 558 passed (559)** / Tests **1 failed \| 5366 passed \| 1 skipped (5368)** | 176.84s | 1 | `D:\verge-test-clean-baseline.log` |
+  | `CI=true pnpm test`（只改超时到 30s，源码里没有任何地方读 `process.env.CI`，除 vitest.config.mts:6） | 无 | 30s | Files **559 passed (559)** / Tests **5367 passed \| 1 skipped (5368)** | 150.58s | **0** | `D:\verge-test-ci30s.log` |
+
+- 结论（按实测口径）：
+  1. `du` **不是必要条件**——磁盘独占时同一批 5s 超时仍复现了 **1 条**
+     （`src/main/agui-bridge.test.ts > agui-bridge sticker event ordering > 成功桌面对话把来源、模式和 canonical runId 交给收尾回调`，5023ms），
+     另外 4 条这次自己过了。所以正确说法是"**本盘上全量 559 文件 / maxWorkers=4 的跑法贴着 5s 阈值**，
+     并发 I/O 只会放大它"，不是"du 造成的 flake"。
+  2. 未出现新的失败类型、未出现断言失败 ⇒ 基线**没有逻辑回归**，可用。
+  3. **后续任务（Task 2-12）跑测的推荐口径：`CI=true pnpm test`**（30s 阈值，实测全绿 exit 0，150s）。
+     按字面 `pnpm test` 的话，请把"偶发 1~5 条 `Test timed out in 5000ms`"当作本仓非 CI 阈值下的已知噪音，
+     **不得**据此放行回归，也不得据此判定回归——用 `CI=true` 复跑一次再定性。
+- 复测环境备注：5173 上仍挂着一个上一轮 dev 跑剩的 vite 进程（PID 16808，13:04:36 启动，非本次启动，
+  按"不动别人起的进程"纪律没有杀它）。两次全量跑期间它累计只走了 0.17s CPU（29.98→30.16），
+  属空转，可视为未参与磁盘争用。
 
 ## 6. 构建与起窗（Step 5）
 
 - `pnpm run build:main && pnpm run build:preload && pnpm run build:renderer` → 退出码 0
   （renderer `✓ built in 41.22s`，日志 `D:\verge-build.log`）。
-- `pnpm dev`（日志 `D:\verge-dev.log`）：vite `ready in 609ms`（http://localhost:5173/），
-  Electron 主进程 banner 正常，`core/windows-revealed (at 18456ms)`——**聊天窗出现**
-  （PowerShell 枚举到 electron.exe 主窗标题，GBK 控制台下显示为乱码，内容即"昔涟·聊天"类标题）；
-  宠物窗为无边框透明窗，`Get-Process.MainWindowTitle` 枚举不到属正常，以 windows-revealed +
-  `core/chat-load 7135ms` 两步日志为准。**验证完成后只杀了自己启动的进程树**
-  （主 PID 6864 及 6 个子进程，`taskkill /T /F` 全数终止，事后确认无 electron.exe 残留；
-  TaskStop 不会级联杀 electron，必须手动按 PID 收）。
+- 首跑 `pnpm dev`（日志 `D:\verge-dev.log`）：**当时刻录下来的窗口验收不成立**。本文首版
+  （commit `1f88c543`）写的是"聊天窗出现、宠物窗以 `windows-revealed` + `core/chat-load` 为准、
+  透明窗枚举不到属正常"。
+  复测（见 §6.1）把这三句全部推翻，正确结论在下面。进程清理方面：那次确实只杀了自己启动的
+  electron 树（主 PID 6864 + 6 子，`taskkill /T /F`，事后无 electron.exe 残留），
+  但 **concurrently 里的 vite 没跟着死**——PID 16808（`node …\vite\bin\vite.js --strictPort`，13:04:36 起）
+  至今仍占着 5173。它不是本次启动的进程，按纪律没杀；**后续任务自己跑 `pnpm dev` 前必须先收掉它**，
+  否则 `vite --strictPort` 直接起不来（TaskStop 也不会级联杀 vite）。
 - **stderr 中无 `Cannot find module` / 原生模块加载失败**（grep `Cannot find module|ERR_MODULE|MODULE_NOT_FOUND` 零命中；
   `RAG init FAILED` 0 次，`core/initRag 888ms` 成功——§4 的 prebuild 结论在此闭环）。
 - dev 期仅有的降级日志（均非阻塞、非本次改动引起）：
@@ -126,20 +187,95 @@ pnpm install --frozen-lockfile --store-dir "D:\\pnpm-store"   # 退出码 0，Do
   - `dist`: **244M**
   - 参考：`D:\pnpm-store`: **1.9G**
 
+### 6.1 宠物窗验收：复测后的实测结论（Task 5/7/10 继承的基线，按这条，不按上一版）
+
+**为什么 `core/windows-revealed` 证明不了宠物窗**（先承认这条证据链本来就不成立）：
+`src/main/application/core-bootstrap.ts:248-255` 调的是
+`revealStartupWindows({ splashWindow, chatWindow, onboardingWindow, showOnboardingWindow: !disclaimerAccepted, … })`，
+**宠物窗根本没被传进去**；`:257` 的 `core/windows-revealed` 只是这次 await 之后的打点。
+`src/main/startup/startup-window-reveal.ts:25` 的注释自己写明"桌宠不属于通用 reveal"，
+`:41-45` 的逻辑是 `showOnboardingWindow ? onboarding.show() : chat.show()`——二选一。
+`core/chat-load`（`core-bootstrap.ts:179`）是聊天页加载器，与宠物窗无关。
+⇒ 这两个日志能证明的最强命题只有"splash 关闭 + 欢迎窗**或**聊天窗之一被 show"，
+对宠物窗可见性**零区分度**；"无边框透明窗枚举不到"这句也因此无法被证伪。
+
+**判别性检查（本轮实测，两条独立证据）**：
+
+1. *读活设置文件*：`C:\Users\damin\AppData\Roaming\Cyrene\app-settings.json` **不存在**
+   （dev 期 userData 实测就是这条路径，日志里 `[Screenshot] helper output-dir = …\Roaming\Cyrene\screenshots` 可对照）。
+   于是 `loadGeneralSettings()` 全走默认：`petVisible: true`（`src/main/settings/settings-facade.ts:49`），
+   而 `disclaimerAcceptedVersion` 缺省被 normalize 成**空串**（`:127` 默认值、`:349-351` normalize，
+   空串 ≠ `undefined`）⇒ `hasCurrentDisclaimerConsent()`（`src/main/windows/window-manager.ts:107-110`）
+   对着 `CURRENT_DISCLAIMER_VERSION = "2026-09-27"`（`src/shared/disclaimer.ts:2`）判 false
+   ⇒ `core-bootstrap.ts:193` 实际执行的是 `createPetWindow(petVisible && disclaimerAccepted)` = **`createPetWindow(false)`**
+   ⇒ `window-manager.ts:197-208` `showOnReady=false` ⇒ `setPetWindow` 走 else 分支
+   `schedulePetWindowResourceRelease`（`:158`）⇒ **30s 后 `window.destroy()`**
+   （`:97-105`，`PET_WINDOW_RESOURCE_RELEASE_DELAY_MS = 30_000` 在 `:20`）。
+2. *临时插桩 + 真实窗口枚举*（枚举含不可见窗，标题按 UTF-16 取，不存在 GBK 乱码问题）：
+
+   A. 默认（未接受免责声明）这台机器现在的状态——`[PetProbe]` 三行 + `EnumWindows`：
+   ```
+   [PetProbe] created      showOnReady=false isVisible=false bounds={"x":760,"y":266,"width":400,"height":500} settings={"petZoom":1,"petAlwaysOnTop":true,"disclaimerAcceptedVersion":""}
+   [PetProbe] ready-to-show showOnReady=false isVisible=false bounds={…400x500} destroyed=false
+   [PetProbe] +8s          isVisible=false bounds={…400x500} url=http://localhost:5173/
+   EnumWindows(含 invisible, 启动后 ~40s):   electron 7 个 PID 名下共 14 个顶层窗，**没有 400x500 的宠物窗**（已被 30s 释放定时器 destroy）
+       唯一 vis=True 的业务窗: rect=(512,106)-(1408,934) 896x828  title='昔涟 · 聊天（React）'  ← 这是**欢迎/免责声明窗**
+                               （窗口创建尺寸 880x820 + 边框 = 896x828、center:true 与 workArea 居中吻合；
+                                标题不是 "欢迎使用 Cyrene" 是因为 onboarding 也加载 `/react/`，
+                                document.title 覆盖了 BrowserWindow 的 title 选项）
+                               聊天窗本体: rect=(145,72)-(1774,968) 1629x896  vis=**False**
+   ```
+   B. 同一份构建、只把设置喂成"已接受免责声明"（用 `--user-data-dir='D:\cyrene-p0-probe'`，
+      目录里手写 `app-settings.json = {"disclaimerAcceptedVersion":"2026-09-27"}`，全部留在 D:）：
+   ```
+   [PetProbe] created       showOnReady=true  isVisible=false bounds={"x":760,"y":266,"width":400,"height":500}
+   [PetProbe] ready-to-show showOnReady=true  isVisible=**true**  bounds={…400x500} destroyed=false
+   [PetProbe] +8s           isVisible=**true**  bounds={…400x500} url=http://localhost:5173/
+   EnumWindows: PID=17696 vis=**True** rect=(760,266)-(1160,766) 400x500 class='Chrome_WidgetWin_1' title='Cyrene'
+                聊天窗同时 vis=True 1629x896 title='昔涟 · 聊天（React）'
+   ```
+   （注意 `layered=False`：这台机的 Electron 44 透明宠物窗**并不带** `WS_EX_LAYERED`，
+   但它是**可枚举、可判可见**的——"透明窗枚举不到"这句本身就是错的。）
+
+**验收结论（改写 brief:53-57 那句"宠物窗与聊天窗出现"）**：
+- P0 基线在**全新 profile** 下并不满足字面验收：宠物窗只被创建、随即被 30s 资源释放定时器销毁，
+  屏幕上出现的是**免责声明/欢迎窗**（聊天窗被创建但没 show）。
+- 宠物窗**能**出现且可见、尺寸 400x500、位置取 `petWindowX/Y`（缺省居中到 (760,266)），
+  前提是 `petVisible=true` **且** `disclaimerAcceptedVersion` 等于当前版本。
+- 对 Task 5/7/10 的实际含义：宠物窗工厂重写后要用**已接受免责声明的 profile** 验收，
+  否则会看到"窗口根本没创建出来"的假象；判可见性别再看 `windows-revealed`，
+  用 `win.isVisible()/getBounds()` 或含不可见窗的 `EnumWindows`（脚本留在 `D:\verge-enum.ps1`，
+  输出 `D:\verge-enum-noconsent.txt` / `D:\verge-enum-accepted.txt`）。
+- 插桩是**临时**的：`src/main/startup/create-pet-window.ts` 已 `git checkout --` 还原，
+  随后 `pnpm run build:main` 重编译（`grep -c PetProbe dist/main/main/startup/create-pet-window.js` = 0），
+  本任务提交只含本 notes 文件。
+
 ## 7. 工作树副作用（未提交，留给后续任务知情的偏离）
 
-跑 test/build/dev 后 `git status` 出现两个脏文件（**均未提交、未回滚**，按"只提交 notes"纪律处理）：
+跑 test/build/dev 后 `git status` 出现的脏文件（首版按"只提交 notes"纪律**未提交、未回滚**；
+本轮复测后的实际处置见各条）：
 
 1. `dist/renderer/models/cyrene/Cyrene.model3.json`：`build:renderer` 会把 motion3 路径里的
    `#` 重写为 `%23`（vite 资源 URL 规范化）。仓库里跟踪了 dist，所以构建必然弄脏它——
    后续每个涉及 renderer 的任务都会重现，属已知噪音。
 2. `src/main/orchestrator/tools/__snapshots__/built-in-tools.snapshot.test.ts.snap`：
    `git diff` 内容为空，纯 LF/CRLF 换行符噪音（core.autocrlf 环境现象）。
+   复测两轮全量 `pnpm test` 又把它弄脏了一次（同样空 diff），提交前已 `git checkout --` 还原。
+3. 复测轮**没有**跑 `build:renderer`（只做 `build:main`），所以第 1 条的 `#`→`%23` 脏文件本轮未出现；
+   `git status` 在提交前是干净的，提交只含本 notes 文件。
 
-## 8. 新机复做清单（self-review 后补）
+## 8. 新机复做清单（self-review + 复测后补）
 
-1. 建 `D:\p0-env.sh`（§2）→ 每条命令先 source；**必须**带 `NODE_USE_ENV_PROXY=1`。
-2. `corepack enable --install-directory` 到 D:（管理员机器可直接 `corepack enable`）。
+1. 建 `D:\p0-env.sh`（与 §2 的块同一组变量，只有 `NO_PROXY` 写法不同）→ 每条命令先 source。少 `NODE_USE_ENV_PROXY=1`
+   就在 sharp/electron 下载处 `TypeError: fetch failed`；少 `electron_config_cache` 就有 151M 落到 C:。
+2. `corepack enable --install-directory` 到 D:（管理员机器可直接 `corepack enable`）；
+   注意这是**本任务的偏离**，不是 brief 预案，理由见 §1。
 3. `pnpm install --frozen-lockfile --store-dir D:\pnpm-store`（留 30+ 分钟，后台跑）。
 4. 进 `node_modules/electron` 手动 `node install.js`（electron 44 无 postinstall）。
-5. 跑测试时**不要**并行跑 du/大 I/O 任务，避免制造 §5 那类超时 flake。
+5. 跑测试**用 `CI=true pnpm test`** 作为验收口径（30s 阈值，实测 559 files / 5367 tests 全绿，150s）；
+   裸 `pnpm test` 在本盘贴 5s 阈值，会偶发 `Test timed out in 5000ms`（§5）。
+   两种跑法都不要并行 du/大 I/O 任务。
+6. 跑 `pnpm dev` 前先确认 5173 空闲：上一轮 dev 的 vite 不会被 TaskStop / concurrently 带走
+   （§6 复测备注），`vite --strictPort` 撞上就整轮起不来；杀 electron 要按 PID 收，不级联。
+7. 宠物窗验收看 §6.1：要"已接受免责声明"的 profile，判据是 `isVisible()`/`getBounds()`
+   或含不可见窗的 `EnumWindows`，**不要**引用 `core/windows-revealed`。
