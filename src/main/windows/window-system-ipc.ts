@@ -6,6 +6,7 @@ import {
   musicPlayerWindow,
 } from "./window-state";
 import type { WindowManager } from "./window-manager";
+import type { PetBounds } from "./pet-bounds";
 
 export interface WindowSystemIpcDependencies {
   get windowManager(): WindowManager | null;
@@ -40,6 +41,12 @@ export function registerWindowSystemIpc(deps: WindowSystemIpcDependencies): void
 
   ipc.on(IPC.WINDOW_SET_DRAGGING, (_event, isDragging: boolean) => {
     deps.windowManager?.setPetWindowDragging(isDragging);
+  });
+
+  // 渲染端每帧驱动猫窗几何（收起 82×108 ↔ 面板 248×482）：单向消息，
+  // 不用 invoke——返回值无人消费，而 invoke 会给每帧留下一条待结算的 promise。
+  ipc.on(IPC.VERGE_PET_RESIZE, (_event, bounds: PetBounds) => {
+    deps.windowManager?.setPetWindowBounds(bounds);
   });
 
   // 桌宠窗口自身的最小化/隐藏入口。两者曾随 index.ts 拆分（711a40d9）被误删，

@@ -31,6 +31,7 @@ function createFakeWindow() {
   const listeners = new Map<string, Array<(...args: any[]) => void>>();
   let visible = false;
   let destroyed = false;
+  let bounds = { x: 0, y: 0, width: 82, height: 108 };
   return {
     on: vi.fn((event: string, listener: (...args: any[]) => void) => {
       listeners.set(event, [...(listeners.get(event) ?? []), listener]);
@@ -50,6 +51,10 @@ function createFakeWindow() {
     isVisible: vi.fn(() => visible),
     setAlwaysOnTop: vi.fn(),
     getPosition: vi.fn(() => [0, 0]),
+    getBounds: vi.fn(() => ({ ...bounds })),
+    setBounds: vi.fn((next: { x: number; y: number; width: number; height: number }) => {
+      bounds = { ...next };
+    }),
   };
 }
 
@@ -105,5 +110,61 @@ describe("pet window resource release", () => {
     expect(window.destroy).not.toHaveBeenCalled();
     expect(mocks.createdWindows).toHaveLength(1);
     expect(window.show).toHaveBeenCalledOnce();
+  });
+});
+
+describe("pet window bounds channel", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+    mocks.createdWindows = [];
+    mocks.createPetWindow.mockImplementation(() => {
+      const window = createFakeWindow();
+      mocks.createdWindows.push(window);
+      return window;
+    });
+  });
+
+  function buildManager() {
+    return createWindowManager({
+      getCurrentAppIconPath: () => "icon",
+      isDev: false,
+      loadPetWindowSettingsSlice: () => ({ disclaimerAcceptedVersion: "current" }),
+      persistPetWindowPosition: vi.fn(),
+    });
+  }
+
+  it("同一 bounds 连发两次只发一条 DWM 指令", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+    const bounds = { x: 300, y: 400, width: 82, height: 108 };
+
+    win.setBounds({ ...bounds }); // 预置到位，模拟窗口已在该 bounds
+    manager.setPetWindowBounds(bounds);
+    manager.setPetWindowBounds(bounds);
+
+    expect(win.setBounds).toHaveBeenCalledTimes(1);
+  });
+
+  it("0.4px 抖动被吞，0.6px 位移发指令；收起→面板档尺寸变化必发", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+    manager.setPetWindowBounds({ x: 300, y: 400, width: 82, height: 108 });
+    expect(win.setBounds).toHaveBeenCalledTimes(1);
+
+    manager.setPetWindowBounds({ x: 300.4, y: 400, width: 82, height: 108 });
+    expect(win.setBounds).toHaveBeenCalledTimes(1);
+
+    manager.setPetWindowBounds({ x: 300, y: 400.6, width: 82, height: 108 });
+    expect(win.setBounds).toHaveBeenCalledTimes(2);
+
+    manager.setPetWindowBounds({ x: 300, y: 400, width: 248, height: 482 });
+    expect(win.setBounds).toHaveBeenCalledTimes(3);
+    expect(win.getBounds()).toEqual({ x: 300, y: 400, width: 248, height: 482 });
+  });
+
+  it("宠物窗尚未创建时请求被忽略（不抛错）", () => {
+    const manager = buildManager();
+    expect(() => manager.setPetWindowBounds({ x: 0, y: 0, width: 82, height: 108 })).not.toThrow();
   });
 });

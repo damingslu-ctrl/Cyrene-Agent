@@ -16,6 +16,9 @@ import { createMusicPlayerWindow } from "./create-music-player-window";
 import { broadcastToAllWindows } from "./broadcast";
 import { PetWindowMoveController } from "../pet-window-movement";
 import { CURRENT_DISCLAIMER_VERSION } from "../../shared/disclaimer";
+import { PIN, scaleFor } from "../../shared/pet-geometry";
+import { shouldApplyBounds, type PetBounds } from "./pet-bounds";
+import { formatGeomProbe } from "../verge/geom-probe";
 
 const PET_WINDOW_RESOURCE_RELEASE_DELAY_MS = 30_000;
 
@@ -52,6 +55,7 @@ export interface WindowManager {
   movePetWindowRelative(dx: number, dy: number): void;
   movePetWindowTo(x: number, y: number): void;
   applyPetWindowZoom(zoom: number): void;
+  setPetWindowBounds(bounds: PetBounds): void;
   capturePetWindowFrame(): Promise<string | null>;
   capturePetWindow(): Promise<Electron.NativeImage | null>;
   getCursorScreenPosition(): { x: number; y: number };
@@ -333,6 +337,28 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
       win.setSize(width, height);
       if (!win.isDestroyed()) {
         win.webContents.send(IPC.PET_ZOOM, zoom);
+      }
+    },
+    setPetWindowBounds(bounds: PetBounds): void {
+      const win = getUsablePetWindow();
+      if (!win) return;
+      // 去重读实时 getBounds()：Windows 会把请求值按 DPI 取整，缓存"请求值"会让
+      // 同一档几何每帧都发一条指令。
+      if (!shouldApplyBounds(win.getBounds(), bounds)) return;
+      win.setBounds(bounds, false);
+      if (process.env.VERGE_GEOM_PROBE) {
+        const actual = win.getBounds();
+        const { s } = scaleFor(0);
+        console.error(formatGeomProbe({
+          t: performance.now() / 1000,
+          applied: bounds,
+          actual,
+          pin: PIN,
+          center: { x: PIN.x - 17.0 * s, y: PIN.y + 4.5 * s },
+          peekDx: 0,
+          e: 0,
+          dpr: screen.getDisplayMatching(actual).scaleFactor,
+        }));
       }
     },
     async capturePetWindowFrame(): Promise<string | null> {
