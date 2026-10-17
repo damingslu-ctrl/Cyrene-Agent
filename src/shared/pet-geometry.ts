@@ -73,11 +73,7 @@ export function computePetLayout(input: PetLayoutInput): PetLayout {
     x: clamp(unclamped.x, workArea.x, workArea.x + workArea.width - targetW),
     y: clamp(unclamped.y, workArea.y, workArea.y + workArea.height - targetH),
   };
-  const clampDelta = {
-    // 原始 clamped-unclamped 在 g=0 时会因 targetW=BUB_W 而少算 overflow；改用 targetW 直接算
-    x: Math.min(0, workArea.x + workArea.width - targetW - unclamped.x),
-    y: Math.min(0, workArea.y + workArea.height - targetH - unclamped.y),
-  };
+  const clampDelta = { x: clamped.x - unclamped.x, y: clamped.y - unclamped.y };
 
   const pin = { x: pinScreen.x + clampDelta.x * g, y: pinScreen.y + clampDelta.y * g };
   const catInWin = { x: PIN.x + (anchor.x - PIN.x) * g, y: PIN.y + (anchor.y - PIN.y) * g };
@@ -90,13 +86,12 @@ export function computePetLayout(input: PetLayoutInput): PetLayout {
   const peeking = e < 0.05 && be < 0.05;
   const pos = peeking
     ? {
-        // peekDx=0 时直接用 unclamped（双夹紧修正）；peekDx>0 时 clamp 边界外扩 peekDx
-        x: peekDx > 0
-          ? clamp(rawPos.x + peekDx, workArea.x, workArea.x + workArea.width - size.width + peekDx)
-          : unclamped.x,
+        x: rawPos.x + peekDx,
         y: rawPos.y,
       }
-    : rawPos;
+    : g === 0
+      ? catOrigin
+      : rawPos;
 
   return {
     size,
