@@ -90,6 +90,7 @@ import { initMcpManager, pruneMcpServersByIds } from "../orchestrator/mcp-manage
 import { syncPlaywrightMcp, syncFilesystemMcp, REMOVED_BUILTIN_MCP_IDS } from "../sync-mcp-builtin";
 import { registerAppUpdateIpc } from "../updater/app-update-ipc";
 import { createGitHubAppUpdateService, scheduleStartupUpdateCheck } from "../updater/github-app-updater";
+import { FORK_AUTO_UPDATE_DISABLED, shouldScheduleStartupUpdateCheck } from "../updater/update-policy";
 import { registerWindowSystemIpc } from "../windows/window-system-ipc";
 import { enqueueLLMTask } from "../llm-queue";
 import {
@@ -884,6 +885,12 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         await core.services.screenshot.prewarm();
       },
       scheduleUpdateCheck: async () => {
+        if (!shouldScheduleStartupUpdateCheck({
+          isPackaged: app.isPackaged,
+          forkAutoUpdateDisabled: FORK_AUTO_UPDATE_DISABLED,
+        })) {
+          return { dispose: () => {} };
+        }
         const dispose = scheduleStartupUpdateCheck(core.services.update);
         return { dispose };
       },
