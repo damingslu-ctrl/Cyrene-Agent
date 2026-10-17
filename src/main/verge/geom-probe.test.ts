@@ -1,0 +1,22 @@
+import { describe, expect, it } from "vitest";
+import { formatGeomProbe } from "./geom-probe";
+
+describe("formatGeomProbe", () => {
+  it("按 native 的 GEOM 行口径输出，字段顺序固定", () => {
+    expect(
+      formatGeomProbe({
+        t: 12.5, applied: { x: 1800, y: 640 }, actual: { x: 1800, y: 640, width: 82, height: 108 },
+        pin: { x: 41.0, y: 39.0 }, center: { x: 24.0, y: 43.0 }, peekDx: 0, e: 0, dpr: 1.5,
+      }),
+    ).toBe("GEOM\t12.5\tapplied 1800,640\tactual 1800,640 82x108\tpin 41.0,39.0\tcenter 24.0,43.0\tpeek 0.0\te 0.00\tdpr 1.50");
+  });
+
+  it("applied 与 actual 不一致时两列都要打出来（这是 native 那次「整窗空白」的取证前提）", () => {
+    const line = formatGeomProbe({
+      t: 1, applied: { x: 100, y: 100 }, actual: { x: 104, y: 96, width: 82, height: 108 },
+      pin: { x: 41, y: 39 }, center: { x: 24, y: 43 }, peekDx: 0, e: 0, dpr: 1,
+    });
+    expect(line).toContain("applied 100,100");
+    expect(line).toContain("actual 104,96");
+  });
+});
