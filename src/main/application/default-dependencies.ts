@@ -143,6 +143,8 @@ import { createTray } from "../tray";
 import { createSplashWindow } from "../startup/create-splash-window";
 import { revealStartupWindows } from "../startup/startup-window-reveal";
 import { bootstrapMusicService } from "../music/bootstrap";
+import { createVergeService } from "../verge/verge-service";
+import { registerVergeIpc } from "../verge/verge-ipc";
 import { resolveMusicPaths } from "../music/paths";
 import { initializeScreenshotService } from "../screenshot/screenshot-lifecycle";
 import { bootstrapConfigGetters } from "../startup/bootstrap-config";
@@ -485,6 +487,9 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         // 后端由首次音乐动作惰性连接，退出清理由中心协调器负责。
         const music = bootstrapMusicService(resolveMusicPaths());
 
+        // Verge 内建模块骨架：store → service → IPC 三段装配
+        const verge = createVergeService(app.getPath("userData"));
+
         // 应用更新服务（检查/下载按需；安装必须先走受控退出）
         const update = createGitHubAppUpdateService({
           currentVersion: app.getVersion(),
@@ -506,6 +511,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           mailAttachmentStore,
           screenshot,
           music,
+          verge,
           update,
         };
       },
@@ -703,6 +709,14 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
 
         // 项目公告：渲染端首次打开时拉一次，之后主进程每 6 小时对一次版本
         registerNewsIpc(ipc);
+
+        // Verge 内建模块骨架：IPC 注册到 shell.ipc（IpcScope.dispose 时自动清除处理器）
+        const removeVergeIpc = registerVergeIpc(ipc, services.verge);
+        shutdown.register({
+          id: "verge-module",
+          phase: "flushPersistence",
+          dispose: async () => { removeVergeIpc(); },
+        });
 
         registerMemoryUserToolIpc({
           ipc,

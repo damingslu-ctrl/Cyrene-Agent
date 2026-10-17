@@ -1061,3 +1061,8 @@ const ttsApi = {
 contextBridge.exposeInMainWorld("tts", ttsApi);
 
 exposeMusicApi();
+
+const vergeApi = {
+  getSnapshot: () => ipcRenderer.invoke(IPC.VERGE_GET_SNAPSHOT),
+};
+contextBridge.exposeInMainWorld("verge", vergeApi);

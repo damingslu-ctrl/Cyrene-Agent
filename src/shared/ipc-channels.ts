@@ -582,4 +582,7 @@ export const IPC = {
   /** 主进程拉到新版本时反向推送给窗口，渲染端据此更新未读提示 */
   NEWS_UPDATED: "news:updated",
 
+  // Verge 内建模块快照（store → service → IPC 三段骨架）
+  VERGE_GET_SNAPSHOT: "verge:get-snapshot",
+
 } as const;
