@@ -1,4 +1,4 @@
-import type { Rect } from "../../../shared/pet-geometry";
+import type { Rect } from "../../shared/pet-geometry";
 
 export type Point2 = [number, number];
 
@@ -95,6 +95,9 @@ export function opsBounds(ops: DrawOp[]): Rect | null {
     if (op.kind === "crescent") {
       eat(op.cx - op.r, op.cy - op.r);
       eat(op.cx + op.r, op.cy + op.r);
+    }
+    if (op.kind === "text") {
+      eat(op.x, op.y);
     }
   }
   if (!Number.isFinite(minX)) return null;

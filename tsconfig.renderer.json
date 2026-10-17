@@ -19,12 +19,14 @@
     "src/renderer/react/**/*.tsx",
     "src/renderer/react-perf/**/*.ts",
     "src/renderer/react-perf/**/*.tsx",
+    "src/renderer/pet/**/*.ts",
     "src/renderer/global.d.ts",
     "src/shared/**/*.ts"
   ],
   "exclude": [
     "src/renderer/react/**/*.test.ts",
     "src/renderer/react/**/*.test.tsx",
+    "src/renderer/pet/**/*.test.ts",
     "src/shared/logger.ts",
     "src/shared/logger.test.ts"
   ]
