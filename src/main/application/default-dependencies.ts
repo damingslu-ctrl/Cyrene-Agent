@@ -14,6 +14,7 @@ import * as path from "path";
 import { autoUpdater } from "electron-updater";
 
 import { ensureGpuSandboxAcl } from "../gpu-sandbox-acl";
+import { configureVergeIdentity } from "../app-identity";
 import { getExternalContentPaths } from "../external-content-paths";
 import { migrateStagedExternalContent } from "../external-content-migration";
 import { logger, LogTag } from "../logger";
@@ -305,6 +306,9 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
     shutdown,
 
     prepare: () => prepareBeforeReady({
+      configureIdentity: () => {
+        configureVergeIdentity(app, app.getPath("appData"));
+      },
       installSingleInstance: (onSecondInstance) => installSingleInstanceGuard(app, onSecondInstance),
       migrateLegacyUserData: () => {
         return migrateLegacyUserData({

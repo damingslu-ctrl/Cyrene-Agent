@@ -279,3 +279,83 @@ pnpm install --frozen-lockfile --store-dir "D:\\pnpm-store"   # 退出码 0，Do
    （§6 复测备注），`vite --strictPort` 撞上就整轮起不来；杀 electron 要按 PID 收，不级联。
 7. 宠物窗验收看 §6.1：要"已接受免责声明"的 profile，判据是 `isVisible()`/`getBounds()`
    或含不可见窗的 `EnumWindows`，**不要**引用 `core/windows-revealed`。
+
+## 9. Task 3 实测记录：实例身份与 userData 隔离（R6）
+
+三条裁决的实测口径都在这一节：§9.1 更正 plan 里"切身份会复制旧数据"的说法，§9.2 是给下游的
+硬约束（`--user-data-dir` 从此失效），§9.3 记隔离取证与顺序测试。
+
+### 9.1 切身份后的首启行为 = 全新用户态，不复制任何东西（更正 Task 3 Step 4 的"后果"段）
+
+plan 原文写"身份一改，`migrateLegacyUserData()` 的搬运目标变成 `cyrene-verge`，
+首次启动会从旧目录复制一份数据过来"。**本机不成立**，理由与实测：
+
+- 代码事实（`src/main/user-data-migration.ts:60-72`）：搬运源恒为
+  `LEGACY_USER_DATA_DIR_NAME = "live2d-cyrene"`，它**不读 `Cyrene`**。旧目录不存在时直接返回
+  `status="none"`，一个字节都不搬。
+- 环境事实（实测）：`%APPDATA%` 下只有 `Cyrene`（246M，含 `.legacy-user-data-migrated`），
+  `live2d-cyrene` 不存在。
+- 首启实测（14:24:17，`pnpm dev`，临时 stderr 探针，提交前已回滚）：
+  - `migrateLegacyUserData status=none target=C:\Users\damin\AppData\Roaming\cyrene-verge`
+  - 新目录内容是一份干净的空账本（Chromium 的 `Cache/`、`Local Storage/`、空的 `cyrene.sqlite` 等），
+    没有任何上游会话/记忆/设置数据。
+  - `.legacy-user-data-migrated` **确实写进了新目录**：`{"status":"none","completedAt":"2026-10-17T06:24:17.931Z"}`。
+    机制：迁移闭包先用 `app.getPath("userData")` 取 target，目录在这一步就被创建（目录 mtime `17.929`，
+    早于 ready 之后的 `Cache/` 等 `17.99`），所以 `user-data-migration.ts:68-70` 的
+    "目标在、旧目录不在 ⇒ 补记完成标记"分支命中。**这条标记是好事**：以后即使用户再跑一次 1.2.x 旧版
+    重建出 `live2d-cyrene`，fork 也不会再把它并进来。
+- ⇒ R6 的真实语义：**fork 与上游各写各的账本，且 fork 起步就是新用户**（全新 profile）。
+  连带后果见 §9.2。
+
+### 9.2 下游硬约束：`--user-data-dir` 已被身份配置覆盖（影响 P1 所有屏幕层验收）
+
+`configureVergeIdentity` 在 `app.ready` 之前调 `app.setPath("userData", …)`，优先级高于命令行开关。
+实测（同一构建，临时探针）：
+
+```
+[probe] argv=["--user-data-dir=D:/task3-udd-probe"] userData=C:\Users\damin\AppData\Roaming\cyrene-verge
+```
+
+开关写法正确、目录 `D:/task3-udd-probe` 也被 Chromium 建了出来，但 `app.getPath("userData")` 仍解析到
+`%APPDATA%\cyrene-verge`。⇒ §6.1 里"用 `--user-data-dir=D:\cyrene-p0-probe` 拿一个已同意免责的 profile
+来验宠物窗"这条路**在 Task 3 之后失效**。后续屏幕层验收改成：直接往 `%APPDATA%\cyrene-verge` 预置
+`app-settings.json`（`disclaimerAcceptedVersion` 填当前版本），或给 `configureIdentity` 加一个显式的
+逃生开关（后者要另立任务，不在 R6 范围内，本任务不加）。
+
+### 9.3 隔离取证（替代 plan Step 5 的"关掉上游做对照"）
+
+**禁动上游**（用户裁决）：不启停/聚焦/结束已安装的上游 Cyrene，不读写 `%APPDATA%\Cyrene`。据此换三条证据链：
+
+1. **身份与目录真的换了**（dev 期临时 stderr 探针，提交前已回滚；`pnpm dev` 首启 14:24:17）：
+   `setName=cyrene-verge app.name=cyrene-verge userData(set)=C:\Users\damin\AppData\Roaming\cyrene-verge
+   app.getPath("userData")=C:\Users\damin\AppData\Roaming\cyrene-verge app.getPath("appData")=C:\Users\damin\AppData\Roaming`
+   进程树层面也一致：Chromium 子进程（gpu-process、network service）自带的
+   `--user-data-dir="C:\Users\damin\AppData\Roaming\cyrene-verge"`。
+2. **锁在新身份下仍然工作**：主实例（7 个 electron 进程）存活时再起一个同身份实例（`pnpm start`），
+   第二进程只打印身份探针就 `exit 0`，日志里**没有** `migrateLegacyUserData` 那一行
+   ⇒ `prepareBeforeReady` 在迁移之前就返回 `isPrimaryProcess=false`；主实例 7 进程不受影响。
+   - ⚠️ plan/裁决里"新目录应含自己的 `SingletonLock`"这条**在 Windows 不成立**：实测
+     `Cyrene` 与 `cyrene-verge` 两个目录里都没有 `SingletonLock/SingletonSocket/SingletonCookie`
+     （`user-data-migration.ts:23` 列这些名字是给 POSIX 打包版的）。Windows 上 Chromium 的
+     `ProcessSingleton` 用命名互斥体而不是目录里的锁文件；互斥体名取自 userData 路径这一层是
+     **源码推断、本机未直接测量**，测到的是"userData 已独立 + 第二实例被同一把新锁拒之门外"。
+     要真正测出"与上游不再抢锁"，只能等一台同时装了上游且允许启停它的机器，或改为读互斥体名。
+3. **上游账本没被碰过**：dev 前后各取一次 `%APPDATA%\Cyrene` 顶层 `ls -la --time-style=full-iso` 快照对比，
+   31 个条目的名称/大小/mtime 全等；唯一差异是 `..`（父目录 `%APPDATA%` 因为新建 `cyrene-verge` 改了 mtime）。
+   再加两道：`find "$APPDATA/Cyrene" -newermt "2026-10-17 14:20:00"` **零命中**（整棵子树未被写过）、
+   `du -sh` 仍是 246M。收尾只收自己起的 PID（`taskkill //T //F //PID`），5173 已确认释放。
+
+### 9.4 顺序约束的测试（R6 的全部意义所在）
+
+`src/main/application/pre-ready.test.ts`：`configureIdentity` 进入调用序列，并新增独立用例断言
+`calls.indexOf("configure-identity") === 0` 且严格早于 `single-instance-lock`/`migrate-user-data`/
+`gpu-switches`/`gpu-acl`；非主进程分支也断言身份已配好（拿不到锁正是因为它按新名字去争）。
+- RED（实现前）：该文件 3 条红 —— 顺序数组缺 `configure-identity`、`indexOf` 返回 `-1`、
+  `configureIdentity` 未被调用；`app-identity.test.ts` 整文件红（`Cannot find module './app-identity'`）。
+- GREEN（实现后）：`CI=true pnpm vitest run src/main/app-identity.test.ts src/main/application/pre-ready.test.ts`
+  ⇒ 2 files / 10 tests 全绿。
+- 全量口径（§5）：`CI=true pnpm test` ⇒ **exit 0，561 files / 5375 passed + 1 skipped**，127.86s。
+  相对 Task 1 基线（559/5367+1）的增量 = Task 2 的 `update-policy.test.ts` + Task 3 的
+  `app-identity.test.ts`（3 条）与新增顺序用例（1 条），无测试丢失。
+- `pnpm run check:main` 通过（`PreReadyDependencies` 新增必填成员后组合根仍编译；组合根只有
+  `default-dependencies.ts` 一处实现，`application.ts` 不感知）。

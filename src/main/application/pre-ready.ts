@@ -8,8 +8,13 @@ import type { WindowActivationBroker } from "./window-activation";
 import type { LegacyUserDataMigrationResult } from "../user-data-migration";
 
 export interface PreReadyDependencies {
+  /**
+   * 必须先于 installSingleInstance：单实例锁与 userData 都按应用名解析。
+   * 下面所有步骤（取锁、迁移目标目录、GPU 开关读设置）都以这里的身份为准。
+   */
+  configureIdentity(): void;
   installSingleInstance(onSecondInstance: () => void): boolean;
-  /** 旧 userData 目录（live2d-cyrene）数据迁移到当前目录（Cyrene）。 */
+  /** 旧 userData 目录（live2d-cyrene）数据迁移到当前目录（cyrene-verge）。 */
   migrateLegacyUserData(): LegacyUserDataMigrationResult;
   registerPrivilegedSchemes(): void;
   configureGpuSwitches(): void;
@@ -23,6 +28,8 @@ export interface PreReadyResult {
 }
 
 export function prepareBeforeReady(deps: PreReadyDependencies): PreReadyResult {
+  // 身份先于取锁：锁按名字建，userData 按名字解析，顺序颠倒就会与上游 Cyrene 抢同一把锁
+  deps.configureIdentity();
 
   const isPrimary = deps.installSingleInstance(() => {
     deps.activation.request({ kind: "chat" });
