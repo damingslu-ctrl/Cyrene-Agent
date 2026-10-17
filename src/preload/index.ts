@@ -1064,5 +1064,7 @@ exposeMusicApi();
 
 const vergeApi = {
   getSnapshot: () => ipcRenderer.invoke(IPC.VERGE_GET_SNAPSHOT),
+  resizePetWindow: (bounds: { x: number; y: number; width: number; height: number }) =>
+    ipcRenderer.invoke(IPC.VERGE_PET_RESIZE, bounds),
 };
 contextBridge.exposeInMainWorld("verge", vergeApi);

@@ -584,5 +584,7 @@ export const IPC = {
 
   // Verge 内建模块快照（store → service → IPC 三段骨架）
   VERGE_GET_SNAPSHOT: "verge:get-snapshot",
+  // 宠物窗尺寸通道：renderer → main 推送目标边界，main 去重后调 setBounds
+  VERGE_PET_RESIZE: "verge:pet-resize",
 
 } as const;
