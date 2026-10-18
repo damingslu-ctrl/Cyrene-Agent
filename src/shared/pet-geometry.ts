@@ -45,7 +45,13 @@ export interface PetLayout {
    * 有状态兜底，不属本纯函数，落点在 Task 12。
    */
   clampDelta: Point;
-  /** 猫内容中心在窗口内的位置（夹紧随 g 生效后；peek 时已含 peekDx）。 */
+  /**
+   * 猫内容中心在窗口内的位置——native 的 `pin_in_win = pet + PIN + peek_off - applied_pos`
+   * （`main.rs:4379`），分子是**未随夹紧位移的** `pinScreen`。
+   * 不变式：`pos + pinInWin === pinScreen + peek`——夹紧只挪窗口、不挪猫，
+   * 所以展开面板时猫钉在原地（`PIN` 的注释「窗口绕它长」说的就是这条）。
+   * 写成 `pin`（已含 `clampDelta·g`）会让两个 `clampDelta·g` 相消、猫跟着窗口一起滑。
+   */
   pinInWin: Point;
   g: number;
 }
@@ -113,8 +119,8 @@ export function computePetLayout(input: PetLayoutInput): PetLayout {
     // native main.rs:4379 的 pin_in_win 含 peek_off：Task 10 的绘制中心必须拿到
     // 已经藏进窗口右侧的那个位置，否则猫会反向补回原屏幕位、藏身失效。
     pinInWin: {
-      x: pin.x + (peeking ? peekDx : 0) - pos.x,
-      y: pin.y - pos.y,
+      x: pinScreen.x + (peeking ? peekDx : 0) - pos.x,
+      y: pinScreen.y - pos.y,
     },
     g,
   };

@@ -70,7 +70,7 @@ describe("computePetLayout", () => {
     expect(layout.pos).toEqual({ x: 1838, y: 1000 });
   });
 
-  it("夹紧随 g=1 全额生效：pos 就是夹后的 clamped 位（正对照，钉住 Task 7/12 消费的正向语义）", () => {
+  it("夹紧随 g=1 全额生效：pos 就是夹后的 clamped 位，而猫仍钉在屏上原位（native :4379 用未夹的 pin_screen）", () => {
     const layout = computePetLayout({
       catOrigin: { x: 1800, y: 900 }, e: 1, be: 0, growLeft: false, growUp: false,
       workArea: wa, peekDx: 0,
@@ -78,7 +78,11 @@ describe("computePetLayout", () => {
     // 目标档 248×482：x 上界 1920-248=1672、y 上界 1040-482=558
     expect(layout.clampDelta).toEqual({ x: -128, y: -342 });
     expect(layout.pos).toEqual({ x: 1672, y: 558 });
-    expect(layout.pinInWin).toEqual({ x: 41, y: 39 });
+    // native: pin_in_win = cat_in_win(anchor) − clampDelta·g = (41,39) − (−128,−342)
+    expect(layout.pinInWin).toEqual({ x: 169, y: 381 });
+    // 不变式：夹紧只挪窗口、不挪猫。写成 `pin`（含 clampDelta·g）会让这一条差两个 delta。
+    expect({ x: layout.pos.x + layout.pinInWin.x, y: layout.pos.y + layout.pinInWin.y })
+      .toEqual({ x: 1800 + 41, y: 900 + 39 });
   });
 
   it("夹紧随 0<g<1 按 g 生效：位移 = clampDelta × g", () => {
@@ -88,6 +92,9 @@ describe("computePetLayout", () => {
     });
     expect(layout.pos).toEqual({ x: 1800 + -128 * 0.5, y: 900 + -342 * 0.5 });
     expect(layout.size).toEqual({ width: 165, height: 295 });
+    expect(layout.pinInWin).toEqual({ x: 41 + 64, y: 39 + 171 });
+    expect({ x: layout.pos.x + layout.pinInWin.x, y: layout.pos.y + layout.pinInWin.y })
+      .toEqual({ x: 1841, y: 939 });
   });
 
   it("气泡档：g=be，尺寸只撑到 172 宽、108 高", () => {
