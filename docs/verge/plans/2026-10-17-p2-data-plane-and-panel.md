@@ -36,6 +36,9 @@
 4. **跨侧 import 的债**（P1 复审偏离 ④）：`src/renderer/pet/renderer.ts` 现在 import `src/main/verge/tuck-clock.ts`（纯函数放 main 侧是 P1 计划钉死的）。P2 若继续往 `main/verge` 放**运行期被渲染端消费**的纯函数，先裁决「挪进 `src/shared/pet-tuck.ts`」，不要累积第二处。
 5. **`src/main/index.ts` 不在任何 tsc program 里**（P1 Task 10 复审 F-7，计划级缺口）：它参与的改动只能靠 vitest 扫描器与运行时暴露。P2 动组合根前先补一次「`tsconfig.main.json` 的 include 覆盖 `src/main/index.ts`」的裁决。
 6. **上游文件额度重述**：P1 退出表的「上游 ≤5 处」按勘误 3/9 的口径记账——分支累计（`8d905897..6dd72bea`）上游面已 8 个文件，全部落在 spec §6.1 的白名单内。P2 的「≤5 处」预算是**新增**的，不是累计的。
+7. **像素猫进壳后，`src/renderer/live2d/**` 是无入口孤儿**（P1 终审 I-2，判 PARK 不判修）。全仓 grep 零 importer，但 `src/renderer/main.ts:5` 仍读 DOM id `#live2d-canvas`，main/preload/test 约 30 处引用 live2d 窗口生命周期、IPC 面、user-data 迁移与 gpu 沙箱白名单。**删不得的原因是牵连面**：单删 `renderer/live2d` 会留下半截 IPC 通道与迁移分支，`ipc-contract.test.ts` 会红。P2 若要清，先按「通道→注册点→消费方」倒序列一遍，一次清一层，别混进功能提交。
+8. **两条 `setSize` 通道说的是不同单位**（屏幕层⑤实测，已在主端修）。`applyPetWindowZoom` 说物理（`82×zoom`），渲染端 `PET_RESIZE` 载荷恒是基址（zoom 折进 `ctx.setTransform(dpr*zoom,…)`）。现在主端缓存 `petWindowZoom`、把载荷乘回物理、按物理矩形夹 workArea、夹了才回推几何。**P2 的面板窗必须走同一条换算**：`petZoom≠1` 时面板档的物理尺寸是 372×723 而不是 248×482，真窗没验过「用户在设置里中途改缩放档」这一条，只在单测里验过（`改缩放档也要按物理矩形夹`）。
+9. **`src/renderer/main.ts` 不在 `tsconfig.renderer` 的 program 里**（与移交 5 同类的组合根盲区）：渲染端入口的改动过不了 tsc，只能靠 vitest 与真窗。动它之前先裁决要不要把它纳入 typecheck，别让它长期裸奔。
 
 ---
 
