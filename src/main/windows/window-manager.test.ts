@@ -271,4 +271,27 @@ describe("pet window bounds channel", () => {
     const manager = buildManager();
     expect(() => manager.setPetWindowBounds({ x: 0, y: 0, width: 82, height: 108 })).not.toThrow();
   });
+
+  it("attachPetContextMenu 注入在 createPetWindow 时挂到窗上（仅宠物窗，不外溢）", () => {
+    // 装配点闭包（default-dependencies）在 shell 阶段注入，宠物窗在 core 阶段建——
+    // 这里验证的是这条接线：窗一落成就有右键菜单，别的窗不沾光。
+    const attached: unknown[] = [];
+    const manager = createWindowManager({
+      getCurrentAppIconPath: () => "icon",
+      isDev: false,
+      loadPetWindowSettingsSlice: () => ({ disclaimerAcceptedVersion: "current" }),
+      persistPetWindowPosition: vi.fn(),
+      attachPetContextMenu: (win) => { attached.push(win); },
+    });
+
+    const win = manager.createPetWindow();
+    // 注入发生在 setPetWindow 之后（窗口已注册，closed 兜底先就位再挂菜单）
+    expect(attached).toEqual([win]);
+  });
+
+  it("不注入 attachPetContextMenu：默认路径不挂菜单也不炸", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+    expect(win.isDestroyed()).toBe(false);
+  });
 });

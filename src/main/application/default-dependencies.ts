@@ -145,6 +145,9 @@ import { revealStartupWindows } from "../startup/startup-window-reveal";
 import { bootstrapMusicService } from "../music/bootstrap";
 import { createVergeService } from "../verge/verge-service";
 import { registerVergeIpc } from "../verge/verge-ipc";
+import { attachPetContextMenu } from "../verge/pet-menu";
+import { attachQuietClock, quietChangedPayload } from "../verge/quiet-clock-wiring";
+import { armQuiet, isQuietNow } from "../verge/quiet-clock";
 import { resolveMusicPaths } from "../music/paths";
 import { initializeScreenshotService } from "../screenshot/screenshot-lifecycle";
 import { bootstrapConfigGetters } from "../startup/bootstrap-config";
@@ -263,6 +266,12 @@ function recoverInterruptedPlanSessions(plansRoot: string): void {
 export function createDefaultApplicationDependencies(): ApplicationDependencies {
   // Agent Runtime 早于插件管理器构造；通过窄闭包在运行期转发宿主事件，避免反转启动顺序。
   let pluginManager: PluginManager | undefined;
+  // 宠物窗右键菜单/免打扰的挂载点（Task 11）：createLowCostServices（core 阶段先跑）
+  // 造好 verge service 后把闭包塞进来；createPetWindow 在 core 后段才第一次被调
+  // （core-bootstrap.ts:195，晚于 registerCoreIpc），所以首窗挂载时闭包必已就位。
+  let attachVergePetMenu: ((win: Electron.BrowserWindow) => void) | null = null;
+  // 自醒定时器句柄：createLowCostServices 挂上，registerCoreIpc 的 toggle 路径就能重排。
+  let quietClockHandle: { rearm(): void; dispose(): void } | null = null;
   // 自动压缩与 CHATS_COMPACT 必须共享同一个会话级压缩器，避免两条路径各自组装 provider。
   const getTranscriptCompactor = createTranscriptCompactorGetter(() =>
     createModelBackedConversationTranscriptCompactor({
@@ -359,6 +368,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         isDev,
         loadPetWindowSettingsSlice: loadGeneralSettings,
         persistPetWindowPosition: ({ x, y }) => saveGeneralSettings({ petWindowX: x, petWindowY: y }),
+        attachPetContextMenu: (win) => attachVergePetMenu?.(win),
       }),
       createChatShell: (windowManager) => windowManager.createReactChatWindowShell(),
       registerProtocolHandlers,
@@ -489,6 +499,34 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
 
         // Verge 内建模块骨架：store → service → IPC 三段装配
         const verge = createVergeService(app.getPath("userData"));
+
+        // 宠物窗右键菜单（Task 11）：菜单动作写盘走 service，窗口动作就地取 win。
+        // 到点自醒也在这里接：落盘后的 setTimeout(remaining).unref()，到点当场清、
+        // 广播撤月牙；state 变化路径（toggle-quiet / set-tuck 的 IPC）里 rearm。
+        // 这段必须先于首窗挂载就位（createPetWindow 在 core-bootstrap 的后段才调用）。
+        const quietClock = attachQuietClock({
+          service: verge,
+          notifyWake: () => {
+            for (const win of BrowserWindow.getAllWindows()) {
+              if (!win.isDestroyed()) win.webContents.send(
+                IPC.VERGE_QUIET_CHANGED,
+                quietChangedPayload(),
+              );
+            }
+          },
+        });
+        quietClockHandle = quietClock;
+        // 启动即重排：盘上若躺着未来截止（含重启验收的 now+5000），进程一起来
+        // 自醒钟就到位——不依赖下一次 toggle 才排上定时器。
+        quietClock.rearm();
+        attachVergePetMenu = (win) => {
+          attachPetContextMenu({ window: win, service: verge, quit: () => app.quit() });
+        };
+        shutdown.register({
+          id: "verge-quiet-clock",
+          phase: "stopLocalResources",
+          dispose: async () => { quietClock.dispose(); },
+        });
 
         // 应用更新服务（检查/下载按需；安装必须先走受控退出）
         const update = createGitHubAppUpdateService({
@@ -712,6 +750,25 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
 
         // Verge 内建模块骨架：IPC 注册到 shell.ipc（IpcScope.dispose 时自动清除处理器）
         const removeVergeIpc = registerVergeIpc(ipc, services.verge);
+
+        // Task 11 的三条渲染入口与到点自醒重排：
+        // - toggle-quiet 是 invoke（拿翻转后的 quietUntil 回执）；is-quiet 是取回执的读。
+        // - 每次状态可能变化（toggle / 清盘）后 quietClock.rearm() 重排自醒定时器；
+        //   「手工把 quietUntil 改小再重启」那档验收由启动时的 attachQuietClock 覆盖。
+        ipc.handle(IPC.VERGE_TOGGLE_QUIET, () => {
+          const next = armQuiet({ current: services.verge.getState().quietUntil, now: Date.now() });
+          services.verge.setQuietUntil(next);
+          quietClockHandle?.rearm();
+          return next;
+        });
+        ipc.handle(IPC.VERGE_IS_QUIET, () => {
+          const state = services.verge.getState();
+          return isQuietNow(state.quietUntil, Date.now());
+        });
+        ipc.on(IPC.VERGE_SET_TUCK, (_event, enabled: unknown) => {
+          if (typeof enabled !== "boolean") return;
+          services.verge.setTuckEnabled(enabled);
+        });
         shutdown.register({
           id: "verge-module",
           phase: "flushPersistence",

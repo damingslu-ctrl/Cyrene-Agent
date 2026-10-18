@@ -1066,5 +1066,16 @@ const vergeApi = {
   getSnapshot: () => ipcRenderer.invoke(IPC.VERGE_GET_SNAPSHOT),
   resizePetWindow: (bounds: { x: number; y: number; width: number; height: number }) =>
     ipcRenderer.send(IPC.VERGE_PET_RESIZE, bounds),
+  // 免打扰（Task 11）：toggleQuiet invoke 拿翻转后的 quietUntil（再点一次=取消，回 null）；
+  // isQuiet 是「右键菜单之外的读法」（渲染器启动时先读一次盘上状态）；
+  // onQuietChanged 是到点自醒的下行（main 当场清盘后广播，撤月牙用）。
+  quietFor: () => ipcRenderer.invoke(IPC.VERGE_TOGGLE_QUIET) as Promise<number | null>,
+  isQuiet: () => ipcRenderer.invoke(IPC.VERGE_IS_QUIET) as Promise<boolean>,
+  setTuck: (enabled: boolean) => ipcRenderer.send(IPC.VERGE_SET_TUCK, enabled),
+  onQuietChanged: (callback: (payload: { quietUntil: number | null }) => void) => {
+    const listener = (_e: unknown, payload: { quietUntil: number | null }) => callback(payload);
+    ipcRenderer.on(IPC.VERGE_QUIET_CHANGED, listener);
+    return () => ipcRenderer.off(IPC.VERGE_QUIET_CHANGED, listener);
+  },
 };
 contextBridge.exposeInMainWorld("verge", vergeApi);

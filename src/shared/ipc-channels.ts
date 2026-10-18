@@ -586,5 +586,11 @@ export const IPC = {
   VERGE_GET_SNAPSHOT: "verge:get-snapshot",
   // 宠物窗尺寸通道：renderer → main 推送目标边界，main 去重后调 setBounds
   VERGE_PET_RESIZE: "verge:pet-resize",
+  // 渲染器 → main：toggleQuiet 返回翻转后的 quietUntil（null = 已取消）；setTuck 单向。
+  VERGE_TOGGLE_QUIET: "verge:toggle-quiet",
+  VERGE_SET_TUCK: "verge:set-tuck",
+  VERGE_IS_QUIET: "verge:is-quiet",
+  /** main → 渲染端：到点自醒当场清盘时通知撤月牙（payload = 清盘后的 quietUntil，恒 null）。 */
+  VERGE_QUIET_CHANGED: "verge:quiet-changed",
 
 } as const;

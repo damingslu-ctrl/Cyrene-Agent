@@ -26,6 +26,11 @@ export interface WindowManagerOptions {
   isDev: boolean;
   loadPetWindowSettingsSlice: () => PetWindowSettingsSlice;
   persistPetWindowPosition: (position: { x: number; y: number }) => void;
+  /**
+   * 宠物窗右键菜单挂载（Task 11）：由组合根把 verge 模块的菜单/免打扰装配好后注入。
+   * window-manager 不 import verge（依赖窄向），窗壳只负责在每次建窗时喊一声。
+   */
+  attachPetContextMenu?: (win: BrowserWindow) => void;
 }
 
 export interface WindowManager {
@@ -214,6 +219,9 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
         { showOnReady: shouldShowOnReady },
       );
       setPetWindow(win, shouldShowOnReady);
+      // 右键菜单（Task 11）：每次建窗都重挂一次——窗口销毁时 webContents 上的监听
+      // 随窗口一起没了，不应有跨窗口残留（挂载本身查 win.isDestroyed，不重复注册也无害）。
+      options.attachPetContextMenu?.(win);
       const settings = options.loadPetWindowSettingsSlice();
       const alwaysOnTop = settings.petAlwaysOnTop ?? true;
       win.setAlwaysOnTop(alwaysOnTop, alwaysOnTop ? "screen-saver" : "normal");
