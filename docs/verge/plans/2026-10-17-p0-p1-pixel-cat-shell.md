@@ -2179,3 +2179,22 @@ Task 7 评审（`task-7-review.md`）又确认三处，Task 10 开工前必读�
    把它加进 Task 10 的改动清单（属上游文件，计入 spec §6.1 额度）。
    另：`src/renderer/live2d/manager.ts:12-13` 仍自带 400×500 私有基址，主窗已 82×108，
    「画布被裁」是计划认可的中间态（Task 10 换渲染器即消失），Task 10 不必为它单独解释。
+
+Task 10 评审（`task-10-review.md`）再添两处，Task 11/12 开工前必读：
+
+10. **猫相位是绝对时间，50ms dt 封顶只喂缓动量（勘误 6 的锚点张冠李戴）。**
+    Task 10 正文「`t` 改按 dt 积分并封顶 50ms（native `main.rs:4964`）」引用错了对象：
+    native 的 4964（peek 缓动）与 3962（通用缓动 `dt_raw.clamp(0,0.05)`）封顶的是
+    **缓动状态量**（panel_anim / be / blink / peek_dx），猫动画的相位源是绝对时间
+    `let t = ctx.input(|i| i.time)`（main.rs:3945）整条传进 `draw_cat`（main.rs:4736-4745），
+    呼吸/摆尾/动作包络都拿它做相位。按勘误 6 原样积分的后果可证：4fps 档每帧 dt 被
+    封到 0.05s，猫钟以 0.2× 真实速度走，呼吸周期约从 4.2s 拉长到 21s。已改：
+    `this.cat.t = now / 1000`（rAF 时间戳 / 1000），50ms 封顶留给 P2 的缓动状态量。
+    检修锚点：renderer.ts draw()；native 对账 main.rs:3945/4736/4964/3962。
+
+11. **渲染循环的裁决：rAF 赢，计划正文示例的 setInterval 作废。**
+    计划正文与全局约束「GC：render loop 走 rAF」互相矛盾（示例代码写了
+    `setInterval(…, 1000/fps)`），实现当时按示例走了 setInterval，属「矛盾无人裁决」。
+    现裁决 rAF 为准：fps 档是**闸**（`now − lastDrawAt ≥ 1000/fps − 2.5ms` 才重绘），
+    不是定时器；被闸的帧照常重新挂 rAF（native 的 repaint_after 33ms/250ms 语义在
+    Chromium 里的直译就是帧闸）。落定于 commit `4bca363c`（renderer.ts start/draw）。
