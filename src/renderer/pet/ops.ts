@@ -77,15 +77,22 @@ export function paintOps(ctx: CanvasRenderingContext2D, ops: DrawOp[]): void {
         ctx.stroke(roundRectPath(op));
         break;
       case "crescent": {
-        // native `ui.rs:414-447` 是逐行填「外圆弦减内圆弦」：被咬掉的区域**不画**，
-        // 底下是什么就留什么。猫窗是透明的，所以这里绝不能用 destination-out——
-        // 那是擦除，会在猫身和 drawing buffer 上打一个洞，让 alpha 命中尺把那块读成穿透。
-        // 同一区域用 evenodd 的「外圆弧 + 内圆弧」差集表达，纯叠加。
+        // native `ui.rs:414-447` 逐行填「外圆弦裁掉内圆弦」，是**差集** outer ∖ inner，
+        // 不是对称差：内圆伸出外圆的那一截（本原语的实际参数 d=0.516r、cut=0.92r，
+        // 伸出最多 0.436r）native 一行都不填。所以先按外圆裁一块剪域，再在其中走
+        // evenodd 的两圆差集——evenodd 单独用会把那截补回来，剪域把它切掉。
+        // 被咬掉的区域**不画**，底下是什么就留什么；这里绝不能用 destination-out——
+        // 那是擦除，会在猫身和 drawing buffer 上打洞，让 alpha 命中尺把那块读成穿透。
         ctx.fillStyle = op.fill;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(op.cx, op.cy, op.r, 0, Math.PI * 2);
+        ctx.clip();
         ctx.beginPath();
         ctx.arc(op.cx, op.cy, op.r, 0, Math.PI * 2);
         ctx.arc(op.cx + op.dx, op.cy + op.dy, op.cut, 0, Math.PI * 2);
         ctx.fill("evenodd");
+        ctx.restore();
         break;
       }
       case "text":

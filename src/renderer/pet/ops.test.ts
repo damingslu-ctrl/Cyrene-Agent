@@ -34,6 +34,7 @@ function fakeCtx() {
     stroke: (a?: unknown) => calls.push(typeof a === "string" ? `stroke:${a}` : "stroke:path"),
     ellipse: (cx: number, cy: number, rx: number, ry: number, rot: number) => calls.push(`ellipse ${cx} ${cy} ${rx} ${ry} ${rot}`),
     arc: (cx: number, cy: number, r: number) => calls.push(`arc ${cx} ${cy} ${r}`),
+    clip: () => calls.push("clip"),
     createLinearGradient: (x0: number, y0: number, x1: number, y1: number) => {
       calls.push(`grad ${x0} ${y0} ${x1} ${y1}`);
       return { addColorStop: (at: number, color: string) => calls.push(`stop ${at} ${color}`) };
@@ -89,18 +90,29 @@ describe("paintOps", () => {
     expect(calls.filter((c) => c === "fill:path")).toHaveLength(2);
   });
 
-  it("月牙用 evenodd 差集，绝不 destination-out（猫窗透明，擦除会在 buffer 上打洞）", () => {
+  it("月牙是差集不是对称差：先按外圆裁剪域，再在剪域里走 evenodd；绝不 destination-out", () => {
     const { ctx, calls } = fakeCtx();
     ctx.globalCompositeOperation = "source-over";
     paintOps(ctx, [{ kind: "crescent", fill: "#000", cx: 40, cy: 10, r: 7, dx: 3, dy: -2, cut: 6.4 }]);
     expect(ctx.globalCompositeOperation).toBe("source-over");
     expect(calls.some((c) => /destination-out/.test(c))).toBe(false);
     expect(last(calls, (c) => c.startsWith("fill:"))).toBe("fill:evenodd");
-    // 两条弧：外圆 r 与内圆 cut，圆心差 (dx, dy)
+    // native `ui.rs:414-447` 逐行填「外圆弦裁掉内圆弦」。本原语的实际参数
+    // d=0.516r、cut=0.92r 会让内圆伸出外圆 0.436r，裸 evenodd 把伸出去那截也填上，
+    // 墨就出了 `opsBounds` 宣告的外圆框（`art.test.ts` 的窗内判据以此为前提）。
+    // 剪域必须是**外圆**那条弧，且必须发生在 fill 之前。
+    expect(calls.filter((c) => c === "clip")).toHaveLength(1);
+    const clipAt = calls.indexOf("clip");
+    const fillAt = calls.lastIndexOf("fill:evenodd");
+    expect(clipAt).toBeGreaterThan(-1);
+    expect(clipAt).toBeLessThan(fillAt);
+    expect(calls.slice(0, clipAt)).toContain("arc 40 10 7");
+    expect(calls.slice(0, clipAt)).not.toContain("arc 43 8 6.4");
+    // 剪域之后重走两圆：外圆 r 与内圆 cut，圆心差 (dx, dy)
     const arcs = calls.filter((c) => c.startsWith("arc "));
-    expect(arcs).toHaveLength(2);
-    expect(arcs[0]).toBe("arc 40 10 7");
-    expect(arcs[1]).toBe("arc 43 8 6.4");
+    expect(arcs).toEqual(["arc 40 10 7", "arc 40 10 7", "arc 43 8 6.4"]);
+    // 剪域要成对收回，否则后续 op 会被这块 clip 一直裁着
+    expect(calls.filter((c) => c === "save").length).toBe(calls.filter((c) => c === "restore").length);
   });
 
   it("文字按 align 走 textAlign，缺省是 left（胶囊左箭头与右对齐数值共用一个基线）", () => {
