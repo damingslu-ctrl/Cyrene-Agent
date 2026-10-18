@@ -11,6 +11,15 @@ export const PET_WINDOW_BASE_WIDTH = Math.round(PET_W);
 export const PET_WINDOW_BASE_HEIGHT = Math.round(PET_H);
 
 /**
+ * petZoom 的唯一归一化口径：非正数/非数字一律回 1。创建尺寸、`applyPetWindowZoom`
+ * 和 PET_RESIZE 的基址→物理换算三处必须用同一个式子，否则缩放档会在两条通道里
+ * 各自漂移（窗口 123 宽、载荷按 1 换算 → 猫被静默缩回 82）。
+ */
+export function normalizePetZoom(zoom: number | undefined): number {
+  return typeof zoom === "number" && zoom > 0 ? zoom : 1;
+}
+
+/**
  * 仅创建阶段需要的 GeneralSettings 切片。
  * 避免反向依赖 index.ts 中的完整 loadGeneralSettings。
  */
@@ -48,7 +57,7 @@ export function createPetWindow(
   const settings = ctx.loadGeneralSettings();
   const transparent = true;
   // 窗口实际尺寸随 petZoom 等比缩放；创建尺寸与离屏判定保持一致。
-  const zoom = typeof settings.petZoom === "number" && settings.petZoom > 0 ? settings.petZoom : 1;
+  const zoom = normalizePetZoom(settings.petZoom);
   const petWidth = Math.round(PET_WINDOW_BASE_WIDTH * zoom);
   const petHeight = Math.round(PET_WINDOW_BASE_HEIGHT * zoom);
   let restoreX: number | undefined;

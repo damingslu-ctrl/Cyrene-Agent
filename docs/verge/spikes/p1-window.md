@@ -139,13 +139,14 @@ Electron 的 `setIgnoreMouseEvents(ignore, { forward: true })` 是**整窗二值
 2. 在有图案背景上连续缩放窗口宽度，肉眼观察 DWM 残影
 3. 读取 `screen.getPrimaryDisplay()` 的 `scaleFactor` 记录实际 DPI 因子
 
-### 4. `resizable: false` 下窗口能否被程序化长到 248×482（Task 7 评审 I-5，仍未实测）
+### 4. `resizable: false` 下窗口能否被程序化长到 248×482（Task 7 评审 I-5，**已实测：能长、收不回**）
 
 原判据写的是 `setBounds`（size+pos 一条指令）。Task 7 fix 轮按 native `main.rs:4308-4315`
 拆成两条独立指令后，这条风险**结构上已被两半各自已证的先例覆盖**：
 
-- `setSize` —— 上游 `petZoom` 生产路径就在用它（`settings-ipc.ts` / `general-settings-lifecycle.ts`），
-  `resizable: false` 只拦用户拖边框（WS_THICKFRAME），不拦程序化 `SetWindowPos`；
+- `setSize` —— 上游 `petZoom` 生产路径就在用它（`settings-ipc.ts` / `general-settings-lifecycle.ts`）。
+  **本条原判「`resizable: false` 不拦程序化 `SetWindowPos`」只说对了一半**：它不拦**放大**，
+  但会把上一次的尺寸变成下限、静默拦掉**缩小**，见本节末尾的实测结论。
 - `setPosition` —— 拖拽链路 `pet-window-movement.ts:91` 一直在用，且已验过「拖得动」。
 
 **但「已覆盖」只证到尺寸档位相近的范围**：zoom 档最长到基址的 1.5 倍左右，从没在
@@ -162,16 +163,77 @@ Electron 的 `setIgnoreMouseEvents(ignore, { forward: true })` 是**整窗二值
 - 失败分支：若 `actual` 仍是 `82x108` → `resizable: false` 被证伪，就地改 `resizable: true`
   并用 `min/max` 钉住尺寸，别把这条留给 Task 10 的屏幕验收去发现。
 
+**实测结论（P1 收口屏幕层，2026-10-19，四档尖峰 `spike-size/main.js`）**：风险不在「长不出去」，
+在**收不回来**——`resizable: false` 的窗每落一次尺寸，Chromium 就把 min/max 重新锁成该尺寸，
+于是尺寸只能单调变大，`setSize` 缩小被静默夹回（面板 248×482 永远收不到 82×108）。四档：
+
+| 档 | 写法 | 放大 82→248 | 收回 248→82 |
+| --- | --- | --- | --- |
+| A | `resizable: false`（现状） | ✅ | ❌ 停在 248 |
+| B | A + **每次 `setSize` 前**放开 `min(1,1)/max(100000,100000)` | ✅ | ✅ |
+| C | `resizable: true` | ✅ | ✅（但用户可拖边框改尺寸，不可取） |
+| D | A + **创建时**放开一次 | ✅ | ❌ 停在 248 |
+
+D 与 B 的差就是这条的落点：**解锁必须紧挨着 `setSize`，创建时放开一次没用**。据此取 B，
+`resizable: false` 不动（用户拖不动尺寸这条约束留着）。产品侧落在 `window-manager.ts` 的
+`unlockWindowSize()`，两个 `setSize` 来源（`applyPetWindowZoom` / `setPetWindowBounds`）都走它。
+回归闸在 `window-manager.test.ts` 的 fake 里：fake 按上表复刻「落位即重锁」，所以删掉解锁
+代码会红——不建模这段 OS 行为，产品里的解锁就是永不被检验的装饰。
+
 **读 GEOM 行的两条规矩**（复审 F-1）：
 
-1. `pin / center / peek / e` 四列在 main 侧现在打 `-`（main 拿不到猫模型，
-   见 `src/main/verge/geom-probe.ts` 的注释）；这四列要有真值，得等 Task 12 给
-   PET_RESIZE 载荷扩上 `e / peekDx / pinInWin`。读到 `-` 判不了就判「这一列没证据」，
-   不许读成 PASS——这是 spec §6.8 的第三层尺。
+1. `pin / center / peek / e` 四列在 main 侧曾经打 `-`（main 拿不到猫模型）；Task 12 已给
+   PET_RESIZE 载荷扩上这四列，真窗实测读到的是实数。**旧载荷缺列时仍打 `-`**，读到 `-`
+   判不了就判「这一列没证据」，不许读成 PASS——这是 spec §6.8 的第三层尺。
+   新增一条单位对账：`pos/size` 两列是**物理**（乘过 `petZoom`、夹过 workArea），
+   `pin/center/peek/e` 是渲染端的**基址**模型量。`petZoom ≠ 1` 时拿 pin 对 pos 要自己乘 zoom。
 2. **拖拽期间的 `applied` 与 `actual` 位置差不算落位失败**。位置权威是
    `PetWindowMoveController`，`setPetWindowBounds` 在拖拽期故意把位置门关掉（只发尺寸），
    所以 `applied`（渲染端想要的位置）与 `actual`（用户正拖着走的窗位）必然分叉。
    判落位只看尺寸列；要看位置对不对，等拖拽结束后那一行的 `actual`。
+
+---
+
+### 5. 两条 `setSize` 通道说的不是同一种单位（屏幕层⑤实测，已修）
+
+native 没有缩放档，`petZoom` 是 fork 侧上游功能，所以这条不在「只搬不改」的管辖内——
+它是两条自有通道对账对不上：
+
+- `applyPetWindowZoom` 发的是**物理**尺寸（`82×zoom`）；
+- `setPetWindowBounds` 的载荷来自渲染端 `requestBounds`，宽高**恒是基址** 82×108 / 248×482
+  （`renderer.ts` 把 zoom 折进 `ctx.setTransform(dpr*zoom,…)`，绘制空间恒回基址）。
+
+主进程后写者赢 ⇒ 渲染端第一帧（建窗后约 3s 内）就把 `petZoom` 静默抹回 82×108。
+真窗实测（`petZoom: 1.5`，run-4）：建窗 123×162 且离屏夹取正确（`夹回工作区为 1797,520`），
+随后 GEOM 打出 `actual … 82x108`。三个生产调用点（`core-bootstrap` 启动装配、
+`general-settings-lifecycle`、`settings-ipc`）都会踩到，属用户可达回归。
+
+修法落在主端（渲染端继续说基址，符合 `renderer.ts:120` 的既有契约）：
+`window-manager.ts` 缓存 `petWindowZoom`（建窗时按 `petZoom` seeding，`applyPetWindowZoom` 时更新，
+归一化口径与建窗共用 `normalizePetZoom`），PET_RESIZE 落位前 `Math.round(基址 × zoom)` 换成物理矩形，
+再按 native `main.rs:4171-4184` 的口径用**实际尺寸**夹一次 workArea——渲染端的夹取按基址算，
+`zoom>1` 时物理右缘会多探出 `(zoom−1)×宽`。**夹取真的挪了窗才回推 `VERGE_PET_GEOMETRY`**：
+不回推，渲染端下一帧照样请求原坐标，两条门每帧重开（60fps 空转 `setPosition`）。
+`zoom === 1` 时物理＝基址，这两步恒等，P1 已验的落位一字未动（负对照测试钉住）。
+
+---
+
+## 屏幕层怎么读一只真窗（Task 10/11/12 三层尺的第一层，工具在 `D:\cyrene-accept\`）
+
+一次性结论，但下次验收不必重新发明：
+
+- **起真窗**：`VERGE_GEOM_PROBE=1 npx electron . --user-data-dir='D:\cyrene-p0-probe'
+  --remote-debugging-port=9222`。身份目录必须是探针档，绝不碰 `%APPDATA%\Cyrene`。
+- **读渲染端内部状态**：CDP `Runtime.evaluate` 打 `window.__cyrene.renderer`。TS 的
+  `private` 字段在运行时就是普通属性，所以 `zoom / peekDx / catOrigin / cat.u` 全能读；
+  `documentElement.clientWidth` 直接给**物理** CSS 宽（123 = zoom 活着，82 = 被抹掉）。
+  多窗时按 URL 过滤选 target（`dist/renderer/index.html` 才是猫窗）。
+- **读主端 console**：`Runtime.enable` 会**重放**已缓冲的 console 记录，所以晚连上也拿得到
+  启动期的 `[verge] tuck_hint: …` 这类行；不必为了抓一行日志重开一次窗。
+- **静置时 GEOM 0 行不是失败**：探针只在真发指令时打。要判「落位稳定」，0 行才是正证据；
+  要取证，必须自己驱动一条尺寸指令（正对照）。
+- **鼠标会污染结论**：`renderer/main.ts` 的 `pointerenter/leave` 驱动 `userActive`，
+  光标路过猫就等于用户碰过它 ⇒ 藏身立刻退回。第一次跑「猫没藏」的截图，先怀疑自己的手。
 
 ---
 

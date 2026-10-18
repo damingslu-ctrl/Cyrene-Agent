@@ -56,6 +56,12 @@ function createFakeWindow() {
   let visible = false;
   let destroyed = false;
   let bounds = { x: 0, y: 0, width: Math.round(PET_W), height: Math.round(PET_H) };
+  // 复刻 spikes/p1-window.md 屏幕层实测的 Chromium 行为：resizable:false 的窗每落一次
+  // 尺寸，就把 min/max 重新锁成该尺寸，于是**下一次缩小必被夹回**。创建时放开一次没用
+  // （D 档），只有紧挨着 setSize 之前放开才有效（B 档）。fake 不建模这段，产品里的
+  // 解锁代码就是永不被检验的装饰。
+  let min = { width: 0, height: 0 };
+  let max = { width: 100000, height: 100000 };
   return {
     on: vi.fn((event: string, listener: (...args: any[]) => void) => {
       listeners.set(event, [...(listeners.get(event) ?? []), listener]);
@@ -79,7 +85,17 @@ function createFakeWindow() {
     getBounds: vi.fn(() => ({ ...bounds })),
     // 尺寸与位置是两条独立指令（native main.rs:4308-4315），fake 必须分开记账。
     setSize: vi.fn((width: number, height: number) => {
-      bounds = { ...bounds, width, height };
+      const w = Math.min(Math.max(width, min.width), max.width);
+      const h = Math.min(Math.max(height, min.height), max.height);
+      bounds = { ...bounds, width: w, height: h };
+      min = { width: w, height: h };
+      max = { width: w, height: h };
+    }),
+    setMinimumSize: vi.fn((width: number, height: number) => {
+      min = { width, height };
+    }),
+    setMaximumSize: vi.fn((width: number, height: number) => {
+      max = { width, height };
     }),
     setPosition: vi.fn((x: number, y: number) => {
       bounds = { ...bounds, x, y };
@@ -189,6 +205,92 @@ describe("pet window bounds channel", () => {
     expect(win.setPosition.mock.calls[0]?.[2]).toBe(false);
   });
 
+  it("缩小不许被尺寸锁夹回：面板 248×482 收回到 82×108 必须真落位（屏幕层回归）", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+
+    // x 取渲染端在 1920 宽屏上真能请求到的贴右上限（1920−248）；1838 是收起档的上限，
+    // 长到面板宽就探出屏外，会被主端的物理矩形夹取挪位（见下一条）。
+    manager.setPetWindowBounds({ x: 1672, y: 520, width: 248, height: 482 });
+    expect(win.getBounds()).toEqual({ x: 1672, y: 520, width: 248, height: 482 });
+
+    // 收起方向：Chromium 把上一次的尺寸当成了下限，不解锁就停在 248×482。
+    manager.setPetWindowBounds({ x: 1672, y: 520, width: 82, height: 108 });
+    expect(win.getBounds()).toEqual({ x: 1672, y: 520, width: 82, height: 108 });
+  });
+
+  it("petZoom 1.5：渲染端发的是基址几何，主端必须乘回 zoom，否则每帧静默抹掉缩放（屏幕层⑤）", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+
+    manager.applyPetWindowZoom(1.5);
+    expect(win.getBounds()).toEqual({ x: 0, y: 0, width: 123, height: 162 });
+
+    // 渲染端 requestBounds 的载荷恒是基址（renderer.ts 把 zoom 折进 ctx 变换，不动载荷）。
+    manager.setPetWindowBounds({ x: 300, y: 200, width: 82, height: 108 });
+    expect(win.getBounds()).toEqual({ x: 300, y: 200, width: 123, height: 162 });
+
+    // 面板档同样放大；收起后 zoom 仍然活着。y=200 是因为 723 高的物理面板在
+    // 1040 工作区里放不下 400（主端按物理矩形夹，见上一条测试）。
+    manager.setPetWindowBounds({ x: 300, y: 200, width: 248, height: 482 });
+    expect(win.getBounds()).toEqual({ x: 300, y: 200, width: 372, height: 723 });
+    manager.setPetWindowBounds({ x: 300, y: 200, width: 82, height: 108 });
+    expect(win.getBounds()).toEqual({ x: 300, y: 200, width: 123, height: 162 });
+  });
+
+  it("zoom>1 时按物理矩形夹工作区；zoom=1 这条分支一次都不进（P1 已验的落位不许动）", () => {
+    const zoomed = buildManager();
+    const zoomWin = zoomed.createPetWindow();
+    zoomed.applyPetWindowZoom(1.5);
+
+    // 1838 是渲染端按基址 82 宽算出的贴右上限；物理 123 宽要落到 1797 才不探出屏外。
+    zoomed.setPetWindowBounds({ x: 1838, y: 520, width: 82, height: 108 });
+    expect(zoomWin.getBounds()).toEqual({ x: 1797, y: 520, width: 123, height: 162 });
+    // 夹完必须把落位回推，否则渲染端下一帧照样请求 1838，两条门每帧都开。
+    expect(zoomWin.webContents.send).toHaveBeenCalledWith(
+      IPC.VERGE_PET_GEOMETRY,
+      expect.objectContaining({ bounds: expect.objectContaining({ x: 1797 }) }),
+    );
+
+    // 负对照：zoom=1 物理＝基址，同一个请求原样落位且一条几何回推都不发。
+    const plain = buildManager();
+    const plainWin = plain.createPetWindow();
+    plain.setPetWindowBounds({ x: 1838, y: 520, width: 82, height: 108 });
+    expect(plainWin.getBounds()).toEqual({ x: 1838, y: 520, width: 82, height: 108 });
+    expect(plainWin.webContents.send).not.toHaveBeenCalledWith(
+      IPC.VERGE_PET_GEOMETRY,
+      expect.anything(),
+    );
+  });
+
+  it("改缩放档也要按物理矩形夹：贴右边缘的猫放大后不许探出屏外", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+    manager.setPetWindowBounds({ x: 1838, y: 520, width: 82, height: 108 });
+    expect(win.getBounds()).toEqual({ x: 1838, y: 520, width: 82, height: 108 });
+
+    manager.applyPetWindowZoom(1.5);
+    expect(win.getBounds()).toEqual({ x: 1797, y: 520, width: 123, height: 162 });
+    expect(win.webContents.send).toHaveBeenCalledWith(
+      IPC.VERGE_PET_GEOMETRY,
+      expect.objectContaining({ bounds: expect.objectContaining({ x: 1797 }) }),
+    );
+  });
+
+  it("拖拽期间主端不抢位置：夹取生效也不回推几何（位置权威是 controller）", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+    manager.applyPetWindowZoom(1.5);
+    manager.setPetWindowDragging(true);
+
+    manager.setPetWindowBounds({ x: 1838, y: 520, width: 82, height: 108 });
+    expect(win.setPosition).not.toHaveBeenCalled();
+    expect(win.webContents.send).not.toHaveBeenCalledWith(
+      IPC.VERGE_PET_GEOMETRY,
+      expect.anything(),
+    );
+  });
+
   it("位移 0.4 + 尺寸 0.4：一条指令都不发（合成 4 维求和会误判成 0.566 > 0.5）", () => {
     const manager = buildManager();
     const win = manager.createPetWindow();
@@ -224,20 +326,23 @@ describe("pet window bounds channel", () => {
     manager.setPetWindowBounds({ x: 300, y: 400, width: 82, height: 108 });
     expect(win.setPosition).toHaveBeenCalledTimes(1);
 
+    // y 从 700 降到 400：482 高的面板压在 700 上会探出 mock 的 1040 工作区，
+    // 主端现在按物理矩形夹取（native main.rs:4171-4184）会改写落位——渲染端
+    // 自己按基址夹完，现实里发不出这种请求，这里要的是「门」的证据不是「夹取」的。
     manager.setPetWindowDragging(true);
     expect(mocks.moveController.mock.calls.flat()).not.toContain("finishDragging");
-    manager.setPetWindowBounds({ x: 600, y: 700, width: 82, height: 108 });
+    manager.setPetWindowBounds({ x: 600, y: 400, width: 82, height: 108 });
     expect(win.setPosition).toHaveBeenCalledTimes(1);
 
-    manager.setPetWindowBounds({ x: 600, y: 700, width: 248, height: 482 });
+    manager.setPetWindowBounds({ x: 600, y: 400, width: 248, height: 482 });
     expect(win.setSize).toHaveBeenCalledTimes(1);
 
     manager.setPetWindowDragging(false);
     expect(mocks.moveController.mock.calls.flat()).toContain("finishDragging");
-    manager.setPetWindowBounds({ x: 600, y: 700, width: 248, height: 482 });
+    manager.setPetWindowBounds({ x: 600, y: 400, width: 248, height: 482 });
     // 拖拽一收，位置门重新打开并补发请求——否则猫会停在拖拽起点不动。
     expect(win.setPosition).toHaveBeenCalledTimes(2);
-    expect(win.getBounds()).toEqual({ x: 600, y: 700, width: 248, height: 482 });
+    expect(win.getBounds()).toEqual({ x: 600, y: 400, width: 248, height: 482 });
   });
 
   it("拖拽中的窗口被销毁：closed 里复位拖拽门，重建后的窗口位置门照常开", () => {
@@ -249,11 +354,12 @@ describe("pet window bounds channel", () => {
 
     const second = manager.createPetWindow();
     expect(second).not.toBe(first);
-    manager.setPetWindowBounds({ x: 500, y: 600, width: 248, height: 482 });
+    // y=300：482 高的面板在 1040 工作区里放不进 600（见上一条同款说明）。
+    manager.setPetWindowBounds({ x: 500, y: 300, width: 248, height: 482 });
     expect(second.setPosition).toHaveBeenCalledTimes(1);
     expect(second.setSize).toHaveBeenCalledTimes(1);
     // 正对照：同一 manager 上没被拖拽污染过的通道确实通
-    expect(second.getBounds()).toEqual({ x: 500, y: 600, width: 248, height: 482 });
+    expect(second.getBounds()).toEqual({ x: 500, y: 300, width: 248, height: 482 });
   });
 
   it("VERGE_GEOM_PROBE=1：只在真发指令时打行，被拖拽闸门吞掉的位置报 applied -,-", () => {
