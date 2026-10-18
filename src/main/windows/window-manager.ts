@@ -16,7 +16,6 @@ import { createMusicPlayerWindow } from "./create-music-player-window";
 import { broadcastToAllWindows } from "./broadcast";
 import { PetWindowMoveController } from "../pet-window-movement";
 import { CURRENT_DISCLAIMER_VERSION } from "../../shared/disclaimer";
-import { PIN, scaleFor } from "../../shared/pet-geometry";
 import { shouldApplyBounds, type PetBounds } from "./pet-bounds";
 import { formatGeomProbe } from "../verge/geom-probe";
 
@@ -79,6 +78,8 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
   const readyHandlers: Array<(win: BrowserWindow) => void> = [];
   const closedHandlers: Array<() => void> = [];
   const movedHandlers: Array<(position: { x: number; y: number }) => void> = [];
+  let petWindowDragging = false;
+  let lastGeomProbeAt = Number.NEGATIVE_INFINITY;
 
   const petWindowMoveController = new PetWindowMoveController(
     () => petWindow,
@@ -314,6 +315,7 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
       win.setIgnoreMouseEvents(!interactive, { forward: true });
     },
     setPetWindowDragging(isDragging: boolean): void {
+      petWindowDragging = isDragging;
       const win = getUsablePetWindow();
       if (!win) return;
       if (!isDragging) petWindowMoveController.finishDragging();
@@ -332,6 +334,8 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
     applyPetWindowZoom(zoom: number): void {
       const win = getUsablePetWindow();
       if (!win) return;
+      // 窗口尺寸的两个 setSize 来源之一（另一个见 setPetWindowBounds）：zoom 按
+      // 基址等比放大，PET_RESIZE 按几何档取绝对值，二者后写者赢。
       const width = Math.round(PET_WINDOW_BASE_WIDTH * zoom);
       const height = Math.round(PET_WINDOW_BASE_HEIGHT * zoom);
       win.setSize(width, height);
@@ -342,23 +346,36 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
     setPetWindowBounds(bounds: PetBounds): void {
       const win = getUsablePetWindow();
       if (!win) return;
-      // 去重读实时 getBounds()：Windows 会把请求值按 DPI 取整，缓存"请求值"会让
-      // 同一档几何每帧都发一条指令。
-      if (!shouldApplyBounds(win.getBounds(), bounds)) return;
-      win.setBounds(bounds, false);
+      // 去重读实时 getBounds()：窗口可能被用户拖拽或换屏/DPI 改动过，
+      // 缓存"请求值"会和实际落位脱节。
+      const delta = shouldApplyBounds(win.getBounds(), bounds);
+      // 位置的权威是 PetWindowMoveController（它落盘保存点），本通道只是渲染端
+      // 按几何请求跟随。拖拽期间关掉位置门，否则 controller 的 pendingPosition
+      // 会在请求之后 flush，把猫拽回旧位（橡皮筋）。尺寸门照常开。
+      const applyMove = delta.move && !petWindowDragging;
+      // native 的两条门分开发两条指令（main.rs:4308-4315），先尺寸后位置。
+      if (delta.size) win.setSize(bounds.width, bounds.height);
+      if (applyMove) win.setPosition(bounds.x, bounds.y, false);
+      if (!delta.size && !applyMove) return;
       if (process.env.VERGE_GEOM_PROBE) {
-        const actual = win.getBounds();
-        const { s } = scaleFor(0);
-        console.error(formatGeomProbe({
-          t: performance.now() / 1000,
-          applied: bounds,
-          actual,
-          pin: PIN,
-          center: { x: PIN.x - 17.0 * s, y: PIN.y + 4.5 * s },
-          peekDx: 0,
-          e: 0,
-          dpr: screen.getDisplayMatching(actual).scaleFactor,
-        }));
+        // native 每 0.5s 一行（main.rs:4389）：这里同样节流，否则 60fps 下 stderr
+        // 自己会盖掉它要测的东西。
+        const t = performance.now() / 1000;
+        if (t - lastGeomProbeAt > 0.5) {
+          lastGeomProbeAt = t;
+          const actual = win.getBounds();
+          console.error(formatGeomProbe({
+            t,
+            applied: bounds,
+            actual,
+            // 这四列属猫模型，main 拿不到（见 geom-probe.ts）；打 `-` 而不是猜。
+            pin: null,
+            center: null,
+            peekDx: null,
+            e: null,
+            dpr: screen.getDisplayMatching(actual).scaleFactor,
+          }));
+        }
       }
     },
     async capturePetWindowFrame(): Promise<string | null> {

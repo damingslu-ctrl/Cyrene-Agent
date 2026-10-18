@@ -2154,4 +2154,28 @@ git commit -m "feat(verge): 贴边藏身与显示器变更夹取"
    `buildCapsuleOps`。
 
 6. **提交 scope 统一为 `(pet)`**，不是各任务正文里混用的 `(verge)`——`src/renderer/pet/**`
-   与 `src/shared/pet-geometry.ts` 都属于桌宠渲染层，`(verge)` 留给 `src/main/verge/**`。
+   与 `src/shared/pet-geometry.ts` 都属于桌宠渲染层，`(verge)` 留给 `src/main/verge/**`
+   与 `src/main/windows/**`、`src/main/startup/**` 的窗口侧改动。
+
+Task 7 评审（`task-7-review.md`）又确认三处，Task 10 开工前必读：
+
+7. **Task 7 Step 4 的屏幕验收在本任务不可达，改由 Task 10 的首次 dev 补做。**
+   计划的判据（`grep -c "^GEOM"` ≥ 1）依赖一个还不存在的调用方——P1 的树里
+   `resizePetWindow` 只有 preload 声明、没有渲染端调用。Task 10 第一次起 dev 时必须现场掐
+   三段证据（正对照 248×482 落到 `actual`、负对照同档连发不再打第二行、失败分支改
+   `resizable: true`），取证口径见 `docs/verge/spikes/p1-window.md` 待验证项 4。
+   这不是「那就不验」：主交付物「尺寸通道打通」今天只有对着 fake 的单测证据。
+
+8. **Task 10 的渲染端不许把自己当位置权威。** native 的保存点只由拖拽写
+   （`pet-window-movement.ts` 的 `finishDragging` 落盘），PET_RESIZE 是跟随通道。
+   main 侧已加闸门：**拖拽期间位置门关闭、尺寸门照常**（`window-manager.ts`
+   的 `petWindowDragging`），所以 Task 10 必须照常调 `window.verge.setDragging(true/false)`，
+   否则猫在拖拽末尾会被渲染端的旧 `catOrigin` 拽回起点。渲染端要在
+   `setDragging(false)` 之后重算一次 bounds 再发。
+
+9. **Task 10 需要给 `window.verge` 补全局类型。** `src/renderer/types/cyrene.d.ts` 里
+   没有 `verge` 声明，Task 10 一调 `window.verge.resizePetWindow` 就会在
+   `check:renderer` 下报 TS 错，而 Task 10 的 Files 列表里没有 `cyrene.d.ts`——
+   把它加进 Task 10 的改动清单（属上游文件，计入 spec §6.1 额度）。
+   另：`src/renderer/live2d/manager.ts:12-13` 仍自带 400×500 私有基址，主窗已 82×108，
+   「画布被裁」是计划认可的中间态（Task 10 换渲染器即消失），Task 10 不必为它单独解释。

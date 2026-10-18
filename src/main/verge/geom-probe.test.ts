@@ -19,4 +19,13 @@ describe("formatGeomProbe", () => {
     expect(line).toContain("applied 100,100");
     expect(line).toContain("actual 104,96");
   });
+
+  it("main 拿不到的模型列打 `-`，不许用常量冒充（防止尺把假数据读成 PASS）", () => {
+    expect(
+      formatGeomProbe({
+        t: 3.2, applied: { x: 300, y: 400 }, actual: { x: 300, y: 400, width: 248, height: 482 },
+        pin: null, center: null, peekDx: null, e: null, dpr: 1.25,
+      }),
+    ).toBe("GEOM\t3.2\tapplied 300,400\tactual 300,400 248x482\tpin -,-\tcenter -,-\tpeek -\te -\tdpr 1.25");
+  });
 });

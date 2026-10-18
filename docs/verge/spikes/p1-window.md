@@ -139,6 +139,29 @@ Electron 的 `setIgnoreMouseEvents(ignore, { forward: true })` 是**整窗二值
 2. 在有图案背景上连续缩放窗口宽度，肉眼观察 DWM 残影
 3. 读取 `screen.getPrimaryDisplay()` 的 `scaleFactor` 记录实际 DPI 因子
 
+### 4. `resizable: false` 下窗口能否被程序化长到 248×482（Task 7 评审 I-5，仍未实测）
+
+原判据写的是 `setBounds`（size+pos 一条指令）。Task 7 fix 轮按 native `main.rs:4308-4315`
+拆成两条独立指令后，这条风险**结构上已被两半各自已证的先例覆盖**：
+
+- `setSize` —— 上游 `petZoom` 生产路径就在用它（`settings-ipc.ts` / `general-settings-lifecycle.ts`），
+  `resizable: false` 只拦用户拖边框（WS_THICKFRAME），不拦程序化 `SetWindowPos`；
+- `setPosition` —— 拖拽链路 `pet-window-movement.ts:91` 一直在用，且已验过「拖得动」。
+
+**但「已覆盖」只证到尺寸档位相近的范围**：zoom 档最长到基址的 1.5 倍左右，从没在
+`resizable: false` 下把窗口长到 248×482。这条不许当已证结论引用，Task 10 首次 dev
+必须现场掐三段证据（探针 profile 用 `--user-data-dir=D:\cyrene-p0-probe`，别碰用户自己的实例）：
+
+- 正对照：渲染端请求 `248×482` → GEOM 行的 `actual` 必须是 `248x482`（125% 缩放下允许 ±1 DIP）；
+- 负对照：同一 bounds 连发两帧 → 第二帧**不许**出现新的 GEOM 行（证两条门真的在吞指令）；
+- 失败分支：若 `actual` 仍是 `82x108` → `resizable: false` 被证伪，就地改 `resizable: true`
+  并用 `min/max` 钉住尺寸，别把这条留给 Task 10 的屏幕验收去发现。
+
+GEOM 行的 `pin / center / peek / e` 四列在 main 侧现在打 `-`（main 拿不到猫模型，
+见 `src/main/verge/geom-probe.ts` 的注释）；这四列要有真值，得等 Task 12 给
+PET_RESIZE 载荷扩上 `e / peekDx / pinInWin`。读到 `-` 判不了就判「这一列没证据」，
+不许读成 PASS——这是 spec §6.8 的第三层尺。
+
 ---
 
 ## 追加：色板与胶囊在 Chromium 管线下的口径（Task 8/9 复审要求，spec §6.2 / §9-6）

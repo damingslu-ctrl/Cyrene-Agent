@@ -13,8 +13,8 @@ vi.mock("electron", () => ({
 }));
 vi.mock("../startup/create-pet-window", () => ({
   createPetWindow: mocks.createPetWindow,
-  PET_WINDOW_BASE_HEIGHT: 500,
-  PET_WINDOW_BASE_WIDTH: 400,
+  PET_WINDOW_BASE_HEIGHT: 108,
+  PET_WINDOW_BASE_WIDTH: 82,
 }));
 vi.mock("./create-aux-windows", () => ({
   createCallWindow: vi.fn(), createReactChatWindowShell: vi.fn(), createStickerManagerWindow: vi.fn(),
@@ -50,10 +50,15 @@ function createFakeWindow() {
     isDestroyed: vi.fn(() => destroyed),
     isVisible: vi.fn(() => visible),
     setAlwaysOnTop: vi.fn(),
-    getPosition: vi.fn(() => [0, 0]),
+    setOpacity: vi.fn(),
+    getPosition: vi.fn(() => [bounds.x, bounds.y]),
     getBounds: vi.fn(() => ({ ...bounds })),
-    setBounds: vi.fn((next: { x: number; y: number; width: number; height: number }) => {
-      bounds = { ...next };
+    // 尺寸与位置是两条独立指令（native main.rs:4308-4315），fake 必须分开记账。
+    setSize: vi.fn((width: number, height: number) => {
+      bounds = { ...bounds, width, height };
+    }),
+    setPosition: vi.fn((x: number, y: number) => {
+      bounds = { ...bounds, x, y };
     }),
   };
 }
@@ -134,33 +139,67 @@ describe("pet window bounds channel", () => {
     });
   }
 
-  it("同一 bounds 连发两次只发一条 DWM 指令", () => {
+  it("只有位置越阈 → 只发 setPosition；只有尺寸越阈 → 只发 setSize（native 两条门）", () => {
     const manager = buildManager();
     const win = manager.createPetWindow();
-    const bounds = { x: 300, y: 400, width: 82, height: 108 };
 
-    win.setBounds({ ...bounds }); // 预置到位，模拟窗口已在该 bounds
-    manager.setPetWindowBounds(bounds);
-    manager.setPetWindowBounds(bounds);
+    manager.setPetWindowBounds({ x: 300, y: 400, width: 82, height: 108 });
+    expect(win.setPosition).toHaveBeenCalledTimes(1);
+    expect(win.setSize).not.toHaveBeenCalled();
 
-    expect(win.setBounds).toHaveBeenCalledTimes(1);
+    manager.setPetWindowBounds({ x: 300, y: 400, width: 248, height: 482 });
+    expect(win.setPosition).toHaveBeenCalledTimes(1);
+    expect(win.setSize).toHaveBeenCalledTimes(1);
+    expect(win.getBounds()).toEqual({ x: 300, y: 400, width: 248, height: 482 });
   });
 
-  it("0.4px 抖动被吞，0.6px 位移发指令；收起→面板档尺寸变化必发", () => {
+  it("位移 0.4 + 尺寸 0.4：一条指令都不发（合成 4 维求和会误判成 0.566 > 0.5）", () => {
     const manager = buildManager();
     const win = manager.createPetWindow();
     manager.setPetWindowBounds({ x: 300, y: 400, width: 82, height: 108 });
-    expect(win.setBounds).toHaveBeenCalledTimes(1);
+    const moveCalls = win.setPosition.mock.calls.length;
+    const sizeCalls = win.setSize.mock.calls.length;
 
-    manager.setPetWindowBounds({ x: 300.4, y: 400, width: 82, height: 108 });
-    expect(win.setBounds).toHaveBeenCalledTimes(1);
+    manager.setPetWindowBounds({ x: 300.4, y: 400, width: 82.4, height: 108 });
+    expect(win.setPosition).toHaveBeenCalledTimes(moveCalls);
+    expect(win.setSize).toHaveBeenCalledTimes(sizeCalls);
 
-    manager.setPetWindowBounds({ x: 300, y: 400.6, width: 82, height: 108 });
-    expect(win.setBounds).toHaveBeenCalledTimes(2);
+    // 正对照：同一方向推到 0.6 必须发，证明上面是「被吞」不是「通道没通」
+    manager.setPetWindowBounds({ x: 300.6, y: 400, width: 82.6, height: 108 });
+    expect(win.setPosition).toHaveBeenCalledTimes(moveCalls + 1);
+    expect(win.setSize).toHaveBeenCalledTimes(sizeCalls + 1);
+  });
 
-    manager.setPetWindowBounds({ x: 300, y: 400, width: 248, height: 482 });
-    expect(win.setBounds).toHaveBeenCalledTimes(3);
-    expect(win.getBounds()).toEqual({ x: 300, y: 400, width: 248, height: 482 });
+  it("同一 bounds 连发两次只发一套指令", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+    const bounds = { x: 300, y: 400, width: 248, height: 482 };
+
+    manager.setPetWindowBounds(bounds);
+    manager.setPetWindowBounds(bounds);
+
+    expect(win.setPosition).toHaveBeenCalledTimes(1);
+    expect(win.setSize).toHaveBeenCalledTimes(1);
+  });
+
+  it("拖拽期间位置门关闭、尺寸门照常（位置权威是 PetWindowMoveController）", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+    manager.setPetWindowBounds({ x: 300, y: 400, width: 82, height: 108 });
+    expect(win.setPosition).toHaveBeenCalledTimes(1);
+
+    manager.setPetWindowDragging(true);
+    manager.setPetWindowBounds({ x: 600, y: 700, width: 82, height: 108 });
+    expect(win.setPosition).toHaveBeenCalledTimes(1);
+
+    manager.setPetWindowBounds({ x: 600, y: 700, width: 248, height: 482 });
+    expect(win.setSize).toHaveBeenCalledTimes(1);
+
+    manager.setPetWindowDragging(false);
+    manager.setPetWindowBounds({ x: 600, y: 700, width: 248, height: 482 });
+    // 拖拽一收，位置门重新打开并补发请求——否则猫会停在拖拽起点不动。
+    expect(win.setPosition).toHaveBeenCalledTimes(2);
+    expect(win.getBounds()).toEqual({ x: 600, y: 700, width: 248, height: 482 });
   });
 
   it("宠物窗尚未创建时请求被忽略（不抛错）", () => {

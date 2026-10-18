@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BUB_W, EDGE_MARGIN, OPEN_H, OPEN_W, PET_H, PET_W, PIN,
-  computeCatRect, computePetLayout, resolveGrowthDirection, scaleFor,
+  clampRestoreOrigin, computeCatRect, computePetLayout, resolveGrowthDirection, scaleFor,
 } from "./pet-geometry";
 
 const wa = { x: 0, y: 0, width: 1920, height: 1040 };
@@ -200,5 +200,27 @@ describe("resolveGrowthDirection", () => {
       resolveGrowthDirection({ catOrigin: { x: 40, y: 100 }, workArea: narrow, current: { growUp: false, growLeft: true } })
         .growLeft,
     ).toBe(false);
+  });
+});
+
+describe("clampRestoreOrigin", () => {
+  it("全离屏的保存点被夹回边界内（整只猫可见）", () => {
+    expect(
+      clampRestoreOrigin({ saved: { x: 2400, y: -300 }, workArea: wa, size: { width: PET_W, height: PET_H } }),
+    ).toEqual({ x: 1920 - PET_W, y: 0 });
+  });
+
+  it("工作区内的合法保存点一字不动（副屏位置不许被拽回主屏）", () => {
+    const secondary = { x: 1920, y: 0, width: 1280, height: 1024 };
+    expect(
+      clampRestoreOrigin({ saved: { x: 2000, y: 500 }, workArea: secondary, size: { width: PET_W, height: PET_H } }),
+    ).toEqual({ x: 2000, y: 500 });
+  });
+
+  it("按 zoom 放大后的尺寸夹，而不是按基址", () => {
+    const size = { width: Math.round(PET_W * 1.5), height: Math.round(PET_H * 1.5) };
+    expect(
+      clampRestoreOrigin({ saved: { x: 1900, y: 1000 }, workArea: wa, size }),
+    ).toEqual({ x: 1920 - size.width, y: 1040 - size.height });
   });
 });

@@ -120,6 +120,28 @@ export function computePetLayout(input: PetLayoutInput): PetLayout {
   };
 }
 
+export interface RestoreOriginInput {
+  /** 上次落盘的窗口原点（native 的 `pet_pos` 持久化值）。 */
+  saved: Point;
+  /** 猫所在显示器的工作区——不是主屏，否则会把副屏上的合法位置拽回主屏（native `main.rs:4146-4147`）。 */
+  workArea: WorkArea;
+  /** 当前 zoom 下的窗口尺寸。 */
+  size: Size;
+}
+
+/**
+ * 把保存点夹回工作区，保证整只猫可见。夹的是**窗口原点**、按**当前尺寸**，
+ * 与 computePetLayout 收起档同一把 `clamp`（`hi < lo` 时让 `lo` 赢）。
+ * 这是启动兜底；每帧的 workArea 夹取在渲染端（Task 12，对应 native `:4171-4184`）。
+ */
+export function clampRestoreOrigin(input: RestoreOriginInput): Point {
+  const { saved, workArea, size } = input;
+  return {
+    x: clamp(saved.x, workArea.x, workArea.x + workArea.width - size.width),
+    y: clamp(saved.y, workArea.y, workArea.y + workArea.height - size.height),
+  };
+}
+
 export interface CatRectInput {
   pinInWin: Point;
   e: number;
