@@ -38,9 +38,14 @@ export interface PetLayout {
   size: Size;
   pos: Point;
   anchor: Point;
-  /** 夹紧把窗口往里推了多少（未乘 g）。 */
+  /**
+   * 夹紧把窗口往里推了多少（未乘 g）。口径是**目标档** targetW/targetH
+   * （native main.rs:4269-4272 的 delta），不是当前窗口尺寸。
+   * 注意 native main.rs:4171-4184 另有一段「收起态每帧按 PET_W/PET_H 夹基准位」的
+   * 有状态兜底，不属本纯函数，落点在 Task 12。
+   */
   clampDelta: Point;
-  /** 猫内容中心在窗口内的位置（夹紧随 g 生效后）。 */
+  /** 猫内容中心在窗口内的位置（夹紧随 g 生效后；peek 时已含 peekDx）。 */
   pinInWin: Point;
   g: number;
 }
@@ -84,27 +89,44 @@ export function computePetLayout(input: PetLayoutInput): PetLayout {
 
   const rawPos = { x: pin.x - catInWin.x, y: pin.y - catInWin.y };
   const peeking = e < 0.05 && be < 0.05;
+  // native main.rs:4283-4303（任务 #38 的事故）：藏身分两步——
+  // 1. 窗口只允许滑到「自己的边贴住屏幕边」，绝不出屏（出屏会把底部流量胶囊切一半）；
+  // 2. 猫再在窗口内多走一个 peekDx，走出窗口的那半由窗口裁掉。
+  // 夹的是**当前** size.width（native 用 win_size），不是 targetW。
+  // g===0 时 rawPos 数学上就等于 catOrigin，所以不需要额外的分支。
   const pos = peeking
     ? {
-        x: rawPos.x + peekDx,
+        x: clamp(
+          rawPos.x + peekDx,
+          workArea.x,
+          workArea.x + workArea.width - size.width,
+        ),
         y: rawPos.y,
       }
-    : g === 0
-      ? catOrigin
-      : rawPos;
+    : rawPos;
 
   return {
     size,
     pos,
     anchor,
     clampDelta,
-    pinInWin: { x: pin.x - pos.x, y: pin.y - pos.y },
+    // native main.rs:4379 的 pin_in_win 含 peek_off：Task 10 的绘制中心必须拿到
+    // 已经藏进窗口右侧的那个位置，否则猫会反向补回原屏幕位、藏身失效。
+    pinInWin: {
+      x: pin.x + (peeking ? peekDx : 0) - pos.x,
+      y: pin.y - pos.y,
+    },
     g,
   };
 }
 
+export interface CatRectInput {
+  pinInWin: Point;
+  e: number;
+}
+
 /** 交互区：贴猫体，中点在绘制中心右 ~17s / 上 ~6s。 */
-export function computeCatRect(input: { pinInWin: Point; e: number }): Rect {
+export function computeCatRect(input: CatRectInput): Rect {
   const { u, s } = scaleFor(input.e);
   const center = { x: input.pinInWin.x - 17.0 * s, y: input.pinInWin.y + 4.5 * s };
   const cx = center.x + 17.0 * s;
@@ -120,6 +142,17 @@ export interface GrowthInput {
   targetWidth?: number;
 }
 
+/**
+ * 逐字对照 native `main.rs:4187-4232` 的粘性 if 链：
+ * 当前方向放得下就不动；放不下才换边；两头都放不下时用 fallback（空间大的一侧）。
+ */
+function resolveAxis(current: boolean, fitsTrue: boolean, fitsFalse: boolean, fallback: boolean): boolean {
+  if (current ? fitsTrue : fitsFalse) return current;
+  if (fitsTrue && !fitsFalse) return true;
+  if (fitsFalse && !fitsTrue) return false;
+  return fallback;
+}
+
 export function resolveGrowthDirection(input: GrowthInput): { growUp: boolean; growLeft: boolean } {
   const { catOrigin, workArea, current } = input;
   const top = workArea.y;
@@ -129,28 +162,24 @@ export function resolveGrowthDirection(input: GrowthInput): { growUp: boolean; g
 
   const fitsDown = catOrigin.y + OPEN_H <= bottom - EDGE_MARGIN;
   const fitsUp = catOrigin.y + PET_H - OPEN_H >= top + EDGE_MARGIN;
-  const growUp = current.growUp
-    ? fitsUp
-    : fitsDown
-      ? false
-      : fitsUp && !fitsDown
-        ? true
-        : fitsDown && !fitsUp
-          ? false
-          : catOrigin.y + PET_H - top < bottom - catOrigin.y;
+  const growUp = resolveAxis(
+    current.growUp,
+    fitsUp,
+    fitsDown,
+    // native :4199：上方空间（到猫底）> 下方空间（到猫顶）时向上长。
+    catOrigin.y + PET_H - top > bottom - catOrigin.y,
+  );
 
   const targetWidth = input.targetWidth ?? OPEN_W;
   const fitsRight = catOrigin.x + PET_W + (targetWidth - PET_W) <= right - EDGE_MARGIN;
   const fitsLeft = catOrigin.x + PET_W - targetWidth >= left + EDGE_MARGIN;
-  const growLeft = current.growLeft
-    ? fitsLeft
-    : fitsRight
-      ? false
-      : fitsLeft && !fitsRight
-        ? true
-        : fitsRight && !fitsLeft
-          ? false
-          : catOrigin.x + PET_W - left < right - catOrigin.x;
+  const growLeft = resolveAxis(
+    current.growLeft,
+    // fitsTrue 这一格对应该轴的「native 第二分支能放下的一侧」= 能向左翻。
+    fitsLeft,
+    fitsRight,
+    catOrigin.x + PET_W - left > right - catOrigin.x,
+  );
 
   return { growUp, growLeft };
 }
