@@ -22,26 +22,30 @@ export interface PixelPetRendererOptions {
   width: number;
   height: number;
   onLoad(): void;
+  /** 仅供面兼容：init 的异步失败路径随 Live2D 加载一起删了，P1 永不触发。 */
   onError(error: unknown): void;
 }
 
 // native main.rs:4317-4320 的三档重绘策略：4fps 保活 / 30fps 面板与短动画 / 60fps hover 与拖拽。
-// 后两档由 Task 11/12 经 setRedrawPolicy 接线消费。
+// 后两档由 Task 11/12 经 setRedrawPolicy 接线消费。native 的两档速率是 repaint_after
+// 33ms/250ms（main.rs:4361-4365），这里的 fps 闸是同一语义：低档只是少重绘，不是慢放。
 const FPS_IDLE = 4;
 const FPS_ACTIVE = 30;
 const FPS_HOVER = 60;
 
-/** dt 封顶 50ms（native main.rs:4964）：低帧率下首帧不会一步跳出 50px 的硬切。 */
-const DT_CAP_S = 0.05;
+/** fps 闸的容差：贴着 1000/fps 卡线时，浮点抖动不该把重绘顺延到下一档（再空 250ms）。 */
+const FPS_GATE_SLACK_MS = 2.5;
 
 export class PixelPetRenderer {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly cat: CatInput;
   private zoom = 1;
+  /** rAF 句柄。0 = 没在跑；拖窗期 pause() 冻结绘制，DWM 快照逐位不变（Task 5 尖峰）。 */
   private ticker = 0;
   private paused = false;
   private fps = FPS_IDLE;
-  private lastAt = 0;
+  /** fps 闸的上一次重绘时刻；闸挡掉的是重绘，挡不掉猫时钟（猫相位取绝对 t）。 */
+  private lastDrawAt = 0;
 
   constructor(private readonly opts: PixelPetRendererOptions) {
     // willReadFrequently：点击穿透逐像素读 alpha（getImageData），不建这张快路径会退回 GPU 读回。
@@ -106,7 +110,15 @@ export class PixelPetRenderer {
     this.stop();
   }
 
-  /** 交互区贴猫体而不是整窗矩形（native main.rs:4401-4409：cat_rect 中点在绘制中心右 17s / 上 6s）。 */
+  getCanvas(): HTMLCanvasElement {
+    return this.opts.canvas;
+  }
+
+  /**
+   * 交互区贴猫体而不是整窗矩形（native main.rs:4401-4409：cat_rect 中点在绘制中心右 17s / 上 6s）。
+   * 返回的是**基址坐标**，不随 zoom 缩放；Task 11/12 若拿它做命中判定，必须 ×zoom
+   * 才对得上放大窗（对位 readAlpha 的 css 坐标也要走同一系数）。
+   */
   getHitAreaDefs(): HitAreaDef[] {
     return [{ name: "cat", rect: computeCatRect({ pinInWin: { x: PIN.x, y: PIN.y }, e: 0 }) }];
   }
@@ -157,23 +169,34 @@ export class PixelPetRenderer {
     }
   }
 
+  /**
+   * GC 条款「render loop 走 rAF」：低 fps 档不靠 setInterval 定拍，而是 rAF 每帧回来
+   * 先过 fps 闸——距上次重绘不足 1000/fps（- 容差）就只送下一帧请求、不重绘。
+   * 被后台化/节流时 rAF 自然挂起，比自建 timer 更像 native 的 vsync 排程。
+   */
   private start(): void {
     if (this.ticker || this.paused) return;
-    this.lastAt = performance.now();
-    this.ticker = window.setInterval(() => this.draw(), 1000 / this.fps);
+    this.lastDrawAt = performance.now();
+    const loop = (now: number): void => {
+      if (now - this.lastDrawAt >= 1000 / this.fps - FPS_GATE_SLACK_MS) {
+        this.lastDrawAt = now;
+        this.draw(now);
+      }
+      this.ticker = window.requestAnimationFrame(loop);
+    };
+    this.ticker = window.requestAnimationFrame(loop);
   }
 
   private stop(): void {
-    if (this.ticker) window.clearInterval(this.ticker);
+    if (this.ticker) window.cancelAnimationFrame(this.ticker);
     this.ticker = 0;
   }
 
-  private draw(): void {
-    // t 必须按 dt 积分，不能用 frame / fps：fps 从 4 提到 30 时同一帧号算出的 t 会变小，
-    // 呼吸与摆尾立刻倒退。native 是每个 tick 累加 dt 并封顶（main.rs:4964）。
-    const now = performance.now();
-    this.cat.t += Math.min((now - this.lastAt) / 1000, DT_CAP_S);
-    this.lastAt = now;
+  private draw(now: number): void {
+    // 猫相位 = 绝对时间（native main.rs:3945 `i.time` 直进 draw_cat :4736）：降帧只是
+    // 采样稀，相位不许被帧率拖慢——「cat.t += dt 且封顶 50ms」在 4 fps 下时钟会慢 5 倍
+    // （呼吸 4.2s 拉成 21s），已废。50ms 封顶只属于 P2 的缓动状态量（main.rs:4964/4362）。
+    this.cat.t = now / 1000;
 
     // 变换里已折 zoom，clear/胶囊都要拿到 zoom 归一后的基址几何。
     const w = (this.opts.canvas.clientWidth || PET_W) / this.zoom;
