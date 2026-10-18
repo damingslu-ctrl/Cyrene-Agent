@@ -392,4 +392,96 @@ describe("PixelPetRenderer tuck (Task 12)", () => {
     expect(verge.resizePetWindow).toHaveBeenCalledTimes(2);
     r.dispose();
   });
+
+  it("user_active 离场边沿：账清到 0 重新攒满 6s，离场瞬间不许接着藏", async () => {
+    const clock = { ms: 10_000 };
+    const { loop, verge, r } = makeTuckedRenderer(clock);
+    await r.init();
+    r.syncGeometry({ bounds: edgeBounds, workArea: waMain, tuckEnabled: true, tuckHinted: true, tuckLimit: 6 });
+
+    // 藏满（tuckHinted 预置真：不掺解释帧）。
+    advance(loop, clock, 70);
+    expect(verge.resizePetWindow.mock.calls.at(-1)![0] as Record<string, never>).toMatchObject({ peekDx: 40, x: 1838 });
+
+    // 进场回位：user_active 每帧清账（renderer.ts:344-346，native main.rs:4902-4905）。
+    r.setUserActive(true);
+    advance(loop, clock, 40);
+    expect(verge.resizePetWindow.mock.calls.at(-1)![0] as Record<string, never>).toMatchObject({ peekDx: 0 });
+
+    // 回位的那些发不算新证据：取证面从离场边沿起算。
+    verge.resizePetWindow.mockClear();
+
+    // 边沿后 3 帧：账必须从 0 重新攒。变异 m21（清零支路改成 if (false)）下账上还留着
+    // 进场期间累计的 10s 旧余额，闸门当场重开、peek 立刻起步——这一句就红。
+    r.setUserActive(false);
+    advance(loop, clock, 3);
+    expect(verge.resizePetWindow).not.toHaveBeenCalled();
+
+    // 边沿后第 24 帧：idleSecs=24×0.25=6.0，`> limit` 是严格大于（main.rs:4928）→ 仍不许发。
+    advance(loop, clock, 21);
+    expect(verge.resizePetWindow).not.toHaveBeenCalled();
+
+    // 第 25 帧（6.25s）：恰好发 1 条，且是真起步（0 < peekDx < 40）。
+    advance(loop, clock, 1);
+    expect(verge.resizePetWindow).toHaveBeenCalledTimes(1);
+    const slide = verge.resizePetWindow.mock.calls[0]![0] as Record<string, never>;
+    expect(slide.peekDx as number).toBeGreaterThan(0);
+    expect(slide.peekDx as number).toBeLessThan(40);
+    r.dispose();
+  });
+
+  it("安静期照滑但不解释，凭据只在真说出口那帧落账（native :4955-4956）", async () => {
+    const clock = { ms: 10_000 };
+    const { loop, verge, logSpy, r } = makeTuckedRenderer(clock);
+    await r.init();
+    // 先挂安静：此刻 catOrigin 还是 null，tickTuck 首行直接 bail（renderer.ts:340），
+    // 既不多烧一帧闲置账，也不多一发载荷。
+    r.setQuiet(true);
+    r.syncGeometry({ bounds: edgeBounds, workArea: waMain, tuckEnabled: true, tuckHinted: false, tuckLimit: 6 });
+    verge.resizePetWindow.mockClear(); // 基线那发不算证据
+
+    // 第 25 帧过闸：安静期「该滑还是滑」（行为不是话），但解释被 engaging && !quiet 压住
+    // （renderer.ts:385-397，native main.rs:4952-4961）。变异 m14（删掉 && !this.quiet）下
+    // 这一帧就当场解释——前两条断言立刻红。
+    advance(loop, clock, 25);
+    expect(verge.tuckHinted).not.toHaveBeenCalled();
+    expect(logSpy.mock.calls.map((args) => String(args[0])).join("\n")).not.toContain("放着不动");
+    // 24 帧内闸门未开、载荷逐字不变（死区吞掉），过闸这帧是唯一一发：起步位移照发。
+    expect(verge.resizePetWindow).toHaveBeenCalledTimes(1);
+    expect((verge.resizePetWindow.mock.calls.at(-1)![0] as Record<string, never>).peekDx as number).toBeGreaterThan(0);
+
+    // 藏满：全程 tuckHinted 仍 0 次——安静期一句解释都不许说出口。
+    advance(loop, clock, 40);
+    expect(verge.resizePetWindow.mock.calls.at(-1)![0] as Record<string, never>).toMatchObject({ peekDx: 40 });
+    expect(verge.tuckHinted).not.toHaveBeenCalled();
+
+    // native 语义边界：过闸同帧就起步，下一帧 |peekDx| ≥ 0.5 → engaging 从此为假，
+    // 「安静结束第一帧补解释」不成立。唯一能补的话路：先回原位（peek 归零）复位 engaging。
+    r.setUserActive(true);
+    advance(loop, clock, 40);
+    expect(verge.resizePetWindow.mock.calls.at(-1)![0] as Record<string, never>).toMatchObject({ peekDx: 0 });
+
+    r.setUserActive(false);
+    r.setQuiet(false); // 解释的闸门开回来（这次即时补画 dtRaw=0，不多烧账）
+    verge.resizePetWindow.mockClear(); // 取证面从安静结束起算
+
+    // 边沿后 24 帧 = 6.0s：严格大于未成立 + 账已在进场期清零 → 一帧都不许多发。
+    advance(loop, clock, 24);
+    expect(verge.resizePetWindow).not.toHaveBeenCalled();
+
+    // 第 25 帧：过闸 + 重新 engaging + 安静已解 → 解释说出、凭据此刻落账：
+    // tuckHinted 恰好 1 次；shout !== null 时 peekTarget=0 → 这一帧零位移、不发载荷。
+    advance(loop, clock, 1);
+    expect(verge.tuckHinted).toHaveBeenCalledTimes(1);
+    expect(logSpy.mock.calls.map((args) => String(args[0])).join("\n")).toContain("放着不动");
+    expect(verge.resizePetWindow).not.toHaveBeenCalled();
+
+    // 说完再滑：下一帧才出现真位移的那一发。
+    advance(loop, clock, 1);
+    expect(verge.resizePetWindow).toHaveBeenCalledTimes(1);
+    const slide = verge.resizePetWindow.mock.calls[0]![0] as Record<string, never>;
+    expect(slide.peekDx as number).toBeGreaterThan(0);
+    expect(slide.peekDx as number).toBeLessThan(40);
+    r.dispose();
+  });
 });
