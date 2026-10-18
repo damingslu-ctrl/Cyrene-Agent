@@ -153,14 +153,25 @@ Electron 的 `setIgnoreMouseEvents(ignore, { forward: true })` 是**整窗二值
 必须现场掐三段证据（探针 profile 用 `--user-data-dir=D:\cyrene-p0-probe`，别碰用户自己的实例）：
 
 - 正对照：渲染端请求 `248×482` → GEOM 行的 `actual` 必须是 `248x482`（125% 缩放下允许 ±1 DIP）；
-- 负对照：同一 bounds 连发两帧 → 第二帧**不许**出现新的 GEOM 行（证两条门真的在吞指令）；
+- **探针自己在打的先决对照**：改一次尺寸（例如切 `petZoom` 档）→ 必须出现 ≥1 行且 `actual`
+  跟着变。没有这一条，下面那串的「0 行」也可能只是 `VERGE_GEOM_PROBE` 没生效。
+- 负对照（**已按复审 F-2 改写过**）：同一 bounds 在 ≥1.5s 里持续重发（约每 200ms 一次），
+  GEOM 行数必须**恒为 0 增量**。旧写法「连发两帧不出第二行」是废判据——`setPetWindowBounds`
+  的 0.5s 节流（native `main.rs:4389` 同口径）在两条门都被删掉的情况下同样会吞掉第二行，
+  于是那条判据对着坏实现也是绿的。新写法对节流免疫：门若失效，1.5s 里会出现约 3 行。
 - 失败分支：若 `actual` 仍是 `82x108` → `resizable: false` 被证伪，就地改 `resizable: true`
   并用 `min/max` 钉住尺寸，别把这条留给 Task 10 的屏幕验收去发现。
 
-GEOM 行的 `pin / center / peek / e` 四列在 main 侧现在打 `-`（main 拿不到猫模型，
-见 `src/main/verge/geom-probe.ts` 的注释）；这四列要有真值，得等 Task 12 给
-PET_RESIZE 载荷扩上 `e / peekDx / pinInWin`。读到 `-` 判不了就判「这一列没证据」，
-不许读成 PASS——这是 spec §6.8 的第三层尺。
+**读 GEOM 行的两条规矩**（复审 F-1）：
+
+1. `pin / center / peek / e` 四列在 main 侧现在打 `-`（main 拿不到猫模型，
+   见 `src/main/verge/geom-probe.ts` 的注释）；这四列要有真值，得等 Task 12 给
+   PET_RESIZE 载荷扩上 `e / peekDx / pinInWin`。读到 `-` 判不了就判「这一列没证据」，
+   不许读成 PASS——这是 spec §6.8 的第三层尺。
+2. **拖拽期间的 `applied` 与 `actual` 位置差不算落位失败**。位置权威是
+   `PetWindowMoveController`，`setPetWindowBounds` 在拖拽期故意把位置门关掉（只发尺寸），
+   所以 `applied`（渲染端想要的位置）与 `actual`（用户正拖着走的窗位）必然分叉。
+   判落位只看尺寸列；要看位置对不对，等拖拽结束后那一行的 `actual`。
 
 ---
 
@@ -206,13 +217,20 @@ native 自己就是两套：`ui.rs:145 with_alpha(c, a: f32 0..1)` 与
 `withAlpha` 只收 0..1、`wash` 只收 0..255，越界或 NaN 直接抛
 （`tokens.test.ts` 钉了双向抛错）。
 
-### C4 月牙为什么不能用 `destination-out`（结论：用 evenodd 差集，代码推导）
+### C4 月牙为什么不能用 `destination-out`（结论：剪域 + evenodd 差集，代码推导）
 
 native `crescent` 是逐行填「外圆弦减内圆弦」——被咬掉的区域**不画**，底下是什么就留
 什么。猫窗是透明的，`destination-out` 是擦除：它会在 drawing buffer 上打一个洞，
 让 Task 5 的 alpha 命中尺把那块读成「穿透」，于是月牙自己变成鼠标穿透区。
-同一区域用 evenodd 的「外圆弧 + 内圆弧」差集表达，纯叠加。
-`ops.test.ts` 钉了 `globalCompositeOperation` 全程不变。
+
+**但裸 evenodd 也不对**（复审 N-2）：两圆 evenodd 是**对称差**，会把「内圆伸出外圆」
+的那一截也填上。本原语的实际参数是 `d = 0.516r`、`cut = 0.92r`，两圆相交、内圆伸出
+最多 `0.436r`——收起档那颗月牙约 3px 的 INK 加 2px 的 PAPER 脱节墨点，且越出
+`opsBounds` 宣告的外圆框（`art.test.ts` 的窗内判据正以那个框为前提）。
+落地写法是**先按外圆 `clip()`、再在剪域里走两圆 evenodd**：剪域切掉伸出去的那截，
+evenodd 挖掉重叠的那截，合成真正的 `outer ∖ inner`，全程纯叠加、不打洞。
+`ops.test.ts` 钉了三条：`globalCompositeOperation` 全程不变、`clip` 恰好一次且发生在
+`fill:evenodd` 之前、剪域那条弧是**外圆**（`arc cx cy r`）而不是内圆。
 
 ### C5 面板表面三色（BG_SOLID / CARD / SEP）
 
