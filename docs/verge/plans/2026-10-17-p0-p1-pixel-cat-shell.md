@@ -2118,3 +2118,40 @@ git commit -m "feat(verge): 贴边藏身与显示器变更夹取"
 | 免打扰半小时 | `state.json` 的 `quietUntil` + 到点自清 |
 | `ipc-contract.test.ts` 绿 | `pnpm vitest run src/main/application/ipc-contract.test.ts` |
 | 上游文件改动 ≤ 5 处 | `git diff --stat master..verge` 人工核 |
+
+---
+
+## 勘误（执行期发现的计划缺陷，以本节为准覆盖上文）
+
+计划与 native 源码冲突时，**以 native 为准**（spec §Global Constraints「只搬不改」是
+本计划的约束，计划正文的手算值不是）。执行到 Task 6-9 的复审时确认了六处：
+
+1. **Task 6 Step 的 `withPeek.pos.x` 手算值 `1876` 作废，应为 `1838`。** native
+   `main.rs:4299` 的 peek 分支自己夹 x，上界是「屏幕右边 − 当前窗宽」= 1920 − 82 = 1838；
+   计划把这一步漏掉了，放到 1876 会把底部胶囊切一半（native 任务 #38 修过的正是这个）。
+   同时 native `:4377-4383` 的 `pin_in_win` 含 `peek_off.x`，计划里没带这一项。
+   已按 native 补回（commit `14e24b58`）。核对表第 4 行的「growLeft 锚点 207」不受影响。
+
+2. **Task 6 的回落比较符写反。** 计划要求「两侧都放不下时取左」，native 是
+   `right_gap > left_gap` 才贴右。判据以 native 为准。
+
+3. **`tsconfig.renderer.json` 必须加 `src/renderer/pet/**`。** 上游那份 include 让
+   整个 pet 目录对 `check:renderer` 不可见（空跑），23 个真实错误漏到运行时。
+   这是超出 spec §6.1 白名单的第 6 处上游改动，已在 commit `1496c1a9` 的正文里
+   记明理由与影响面。
+
+4. **`DrawOp` 需要三件 native 才画得出的能力**（Task 8 的指令模型原本没列）：
+   `fillRoundRect` / `strokeRoundRect`（胶囊是 70×32 圆角 9 + 1.0 描边，
+   用椭圆近似会把读数基线压进圆角里）、`text.align`（胶囊数值右对齐、
+   Zzz 与未读数字居中）、`strokePath.close`（native `stroke_poly` 不闭合，
+   默认闭合会给胡须和闭眼连出一条首尾直线，native 任务 #56）。
+
+5. **`unreadCount` 属于 `CapsuleInput`，不属于 `CatInput`。** native 的未读牌子
+   （`main.rs:5096-5136`）锚在**窗口矩形 + growLeft**（`bc = rect.min.x + PIN.x ± 30`，
+   `y = 26`），不跟猫的 `Xf` 变换走；把它接进 `buildCatOps` 会让牌子在贴边藏身时
+   跟着猫体滑出窗口，正是 native #38 修过的那类错。Task 10 的渲染器示例里
+   `buildCatOps({ … unreadCount: 0 })` 这一行删掉，改为把未读条数喂给
+   `buildCapsuleOps`。
+
+6. **提交 scope 统一为 `(pet)`**，不是各任务正文里混用的 `(verge)`——`src/renderer/pet/**`
+   与 `src/shared/pet-geometry.ts` 都属于桌宠渲染层，`(verge)` 留给 `src/main/verge/**`。

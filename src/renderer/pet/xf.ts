@@ -93,10 +93,13 @@ export function quadTo(pts: Point2[], n = 10): Point2[] {
   return result;
 }
 
-/** 圆弧采样（嘴 / 闭眼 / 开心眼）：二次贝塞尔描边。移植自 ui.rs::arc。 */
-export function arc(x0: number, y0: number, cx: number, cy: number, x1: number, y1: number, n = 12): Point2[] {
-  const v: Point2[] = [[x0, y0]];
-  const pts = quadTo([[x0, y0], [cx, cy], [x1, y1]], n);
-  v.push(...pts.slice(1));
-  return v;
+/**
+ * 圆弧采样（嘴 / 闭眼 / 开心眼）：二次贝塞尔描边。移植自 ui.rs::arc。
+ * ⚠️ 点数与取样参数必须和 native 一致：`arc` = 起点 + `quad_to` 的 i=1..=N（N=10），
+ * 共 **11 点**。早先这里默认 n=12 且又 `slice(1)` 掉一个采样点，于是同一道弧在
+ * fork 上比 native 多一段、取样格点也不同——本文件的纪律是「数值照抄」，
+ * 采样密度也是数值（尾巴那种用 `spine.length-6` 定位截断段的地方会连带错位）。
+ */
+export function arc(x0: number, y0: number, cx: number, cy: number, x1: number, y1: number, n = 10): Point2[] {
+  return [[x0, y0], ...quadTo([[x0, y0], [cx, cy], [x1, y1]], n)];
 }

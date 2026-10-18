@@ -138,3 +138,62 @@ Electron 的 `setIgnoreMouseEvents(ignore, { forward: true })` 是**整窗二值
 1. 将宠物窗临时改为 82×108，放在桌面图标上，点击透明区域，确认穿透成立
 2. 在有图案背景上连续缩放窗口宽度，肉眼观察 DWM 残影
 3. 读取 `screen.getPrimaryDisplay()` 的 `scaleFactor` 记录实际 DPI 因子
+
+---
+
+## 追加：色板与胶囊在 Chromium 管线下的口径（Task 8/9 复审要求，spec §6.2 / §9-6）
+
+**先说清证据等级**：下面每一条标了是「代码推导」还是「实测」。本轮只有代码推导——
+P1 这半还没有真的解释器上屏（渲染入口在 Task 10 才重写），所以 **§9-6 要求的
+「P1 一次、P2 一次」实测都还没发生**。tokens 单测现在钉住的数值只证明
+「与 native 逐字节相等」，不证明「在 Chromium 上就长这样」。实测完成后回来改这张表，
+不要改单测的数值。
+
+### C1 `fill_grad` 不搬 scanline（结论：不搬，代码推导）
+
+native `ui.rs::scanline_spans/fill_grad` 按 viewBox 的 y 逐扫描线取色再叠，是因为
+egui 的 `PathShape` 当时填不了渐变。Chromium 的 `CanvasGradient` 对 AA 路径直接填充，
+亚像素边缘由合成器处理。**native #68 的那次翻车（浅色桌布上猫身被洗成灰白，覆盖度
+≈0.8）正是逐行叠色在子像素边界重复计色的结果**——把这套叠色搬过来等于把已修好的
+bug 重新引入。fork 侧 `xfGrad` 因此只发一条 `gradPath` 指令，轴取 viewBox 的
+`x=60` 那条竖线映射后的结果，与 native 的染色方向一致。
+
+**待实测**：渐变边界在 74px 档是否有可见的色带（banding）。Task 10 上屏后按
+`file/verify_*.py` 的逐配对最小值判据量一次猫身中段。
+
+### C2 胶囊静默降的是 RGB 而不是 alpha（结论：照抄 native 的换色表，代码推导）
+
+native `main.rs:4979-5018` 的 `CAP_ON/CAP_OFF` 是两张**不透明色表**，静默时整颗
+胶囊换一张表，alpha 只在 `al(v) = (v as f32 * cap_op) as u8` 里承担展开动画。
+原注释的教训是「alpha 在这条 GL/DWM 管线上会被放大一档」——那是 egui 侧的观测。
+Chromium 合成对 `rgba()` 做的是标准 sRGB over，不存在那条放大路径，所以**这条教训
+不迁移，但结论（降 RGB）仍然照抄**：天天挂在眼前的东西靠透明度退让，在浅色桌面上
+会退成「一块更淡的深色」，读起来像坏了而不是像安静了。
+
+**待实测**：`rgba(20, 22, 29, 0.745)`（静默档底）叠在浅色桌布上是否与
+`rgb(20,22,29)` 不透明叠色肉眼等价。不等价则要把 `CAP_A_*` 表在 fork 侧重新调，
+并把结论写回这里。
+
+### C3 alpha 的两种量纲必须分开（结论：拆成两个函数，代码推导）
+
+native 自己就是两套：`ui.rs:145 with_alpha(c, a: f32 0..1)` 与
+`panel.rs::theme::over(a: u8 0..255)`。混用一次的实际代价是地面投影
+（native 用 `0.016` 这种 f32）被传进 `over()` 后变成 `over(4)`——一块几乎看不见的
+影子；反向传则 `0.016*255` 进 `with_alpha` 被 clamp 成实心黑盘。fork 侧不做 clamp：
+`withAlpha` 只收 0..1、`wash` 只收 0..255，越界或 NaN 直接抛
+（`tokens.test.ts` 钉了双向抛错）。
+
+### C4 月牙为什么不能用 `destination-out`（结论：用 evenodd 差集，代码推导）
+
+native `crescent` 是逐行填「外圆弦减内圆弦」——被咬掉的区域**不画**，底下是什么就留
+什么。猫窗是透明的，`destination-out` 是擦除：它会在 drawing buffer 上打一个洞，
+让 Task 5 的 alpha 命中尺把那块读成「穿透」，于是月牙自己变成鼠标穿透区。
+同一区域用 evenodd 的「外圆弧 + 内圆弧」差集表达，纯叠加。
+`ops.test.ts` 钉了 `globalCompositeOperation` 全程不变。
+
+### C5 面板表面三色（BG_SOLID / CARD / SEP）
+
+`palette.rs:8-10` 明写它们是「过了本机 GL/DWM 管线的预混结果，搬到面板外面就没有
+意义」。fork 侧的 `PANEL_CARD()/PANEL_SEP()` 目前只证明与 native 逐字节相等，
+**§6.2 要求的按 Chromium 重推导在 P1 没有对象可推**（P1 不画面板），归 P2 实测。
+`tokens.ts` 的头注释已把这条标成「不是 fork 侧的契约、重测前不得当验收判据」。
