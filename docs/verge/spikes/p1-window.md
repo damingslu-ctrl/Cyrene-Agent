@@ -180,6 +180,20 @@ D 与 B 的差就是这条的落点：**解锁必须紧挨着 `setSize`，创建
 回归闸在 `window-manager.test.ts` 的 fake 里：fake 按上表复刻「落位即重锁」，所以删掉解锁
 代码会红——不建模这段 OS 行为，产品里的解锁就是永不被检验的装饰。
 
+**两条来源各有自己的闸**（终审 I-1 复审补，变异实测）：
+
+| 来源 | 测试 | 变异：删掉该行的 `unlockWindowSize(win)` |
+| --- | --- | --- |
+| `setPetWindowBounds` | 「缩小不许被尺寸锁夹回：面板 248×482 收回到 82×108…」 | 红 |
+| `applyPetWindowZoom` | 「缩放档收回 1.0 也必须挣脱尺寸锁…」 | 红 |
+
+第二条不能省：`applyPetWindowZoom` 是唯一不经过 `PET_RESIZE` 的尺寸来源，用户在设置里把
+缩放档从 1.5 调回 1.0 走的正是它，`setPetWindowBounds` 那条门碰不到。只验前者时删掉后者
+的解锁，全部测试仍然绿（这就是复审点名的洞）。同批补的还有一条建窗基线闸：
+「建窗时就把 petZoom 记进换算基线…」钉住 `window-manager.ts` 里 `createPetWindow()` 的
+`petWindowZoom = normalizePetZoom(settings.petZoom)`——`core-bootstrap` 的 `applyPetWindowZoom`
+排在渲染端首帧之后，删掉这行会让首帧 `PET_RESIZE` 按 zoom=1 把窗缩回基址，静默抹掉缩放。
+
 **读 GEOM 行的两条规矩**（复审 F-1）：
 
 1. `pin / center / peek / e` 四列在 main 侧曾经打 `-`（main 拿不到猫模型）；Task 12 已给

@@ -179,11 +179,11 @@ describe("pet window bounds channel", () => {
     });
   });
 
-  function buildManager() {
+  function buildManager(settings: Partial<{ petZoom: number }> = {}) {
     return createWindowManager({
       getCurrentAppIconPath: () => "icon",
       isDev: false,
-      loadPetWindowSettingsSlice: () => ({ disclaimerAcceptedVersion: "current" }),
+      loadPetWindowSettingsSlice: () => ({ disclaimerAcceptedVersion: "current", ...settings }),
       persistPetWindowPosition: vi.fn(),
     });
   }
@@ -275,6 +275,30 @@ describe("pet window bounds channel", () => {
       IPC.VERGE_PET_GEOMETRY,
       expect.objectContaining({ bounds: expect.objectContaining({ x: 1797 }) }),
     );
+  });
+
+  it("缩放档收回 1.0 也必须挣脱尺寸锁：这条通道的缩小没有 PET_RESIZE 兜底", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+
+    manager.applyPetWindowZoom(1.5);
+    expect(win.getBounds()).toEqual({ x: 0, y: 0, width: 123, height: 162 });
+
+    // applyPetWindowZoom 是唯一直接 setSize 的来源，渲染端那条 248→82 的收起门碰不到它。
+    // 删掉这里的 unlockWindowSize，fake 的「落位即重锁」会把这次缩小夹回 123×162。
+    manager.applyPetWindowZoom(1);
+    expect(win.getBounds()).toEqual({ x: 0, y: 0, width: 82, height: 108 });
+  });
+
+  it("建窗时就把 petZoom 记进换算基线：core-bootstrap 的 applyPetWindowZoom 排在渲染端首帧之后", () => {
+    const manager = buildManager({ petZoom: 1.5 });
+    const win = manager.createPetWindow();
+
+    // createPetWindow 工厂已按 petZoom 定过物理尺寸，但 applyPetWindowZoom 要等
+    // core-bootstrap 在建窗之后才调；中间渲染端发来的首帧 PET_RESIZE 只能靠这里的
+    // seeding 换算。删掉 window-manager.ts:273 的赋值，本行会读到 zoom=1 的 82×108。
+    manager.setPetWindowBounds({ x: 300, y: 200, width: 82, height: 108 });
+    expect(win.getBounds()).toEqual({ x: 300, y: 200, width: 123, height: 162 });
   });
 
   it("拖拽期间主端不抢位置：夹取生效也不回推几何（位置权威是 controller）", () => {
