@@ -35,6 +35,7 @@ declare global {
 let clickThrough: ClickThroughController | null = null;
 let petZoomOff: (() => void) | null = null;
 let petVisibilityOff: (() => void) | null = null;
+let quietChangedOff: (() => void) | null = null;
 let petVisible = true;
 const disposers: Array<() => void> = [];
 
@@ -87,6 +88,16 @@ const renderer = new PixelPetRenderer({
       }
     }).catch(() => { /* 设置读取失败不影响加载 */ });
 
+    // 免打扰（Task 11）：启动先读一次盘上状态（跨重启的安静期），再订到点自醒的下行。
+    // 落盘的变化才算数（brief 验收判据），屏幕上的月牙只是它的影子。
+    window.verge?.isQuiet().then((quiet) => renderer.setQuiet(quiet))
+      .catch(() => { /* 状态读取失败不影响加载：月牙缺失比启动失败轻 */ });
+    quietChangedOff = window.verge?.onQuietChanged(({ quietUntil }) => {
+      // VERGE_QUIET_CHANGED 目前只有「到点自醒当场清盘」一件事可发（payload 恒 null），
+      // 判据仍按真语义写：还落在未来就还是安静。
+      renderer.setQuiet(quietUntil !== null && Date.now() < quietUntil);
+    }) ?? null;
+
     (window as unknown as { __cyrene: unknown }).__cyrene = {
       renderer,
       clickThrough,
@@ -115,6 +126,8 @@ window.addEventListener("beforeunload", () => {
   petZoomOff = null;
   petVisibilityOff?.();
   petVisibilityOff = null;
+  quietChangedOff?.();
+  quietChangedOff = null;
   renderer.dispose();
   for (const off of disposers) off();
   disposers.length = 0;

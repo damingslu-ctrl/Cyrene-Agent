@@ -46,6 +46,8 @@ export class PixelPetRenderer {
   private fps = FPS_IDLE;
   /** fps 闸的上一次重绘时刻；闸挡掉的是重绘，挡不掉猫时钟（猫相位取绝对 t）。 */
   private lastDrawAt = 0;
+  /** 免打扰（Task 11）：true 时猫画月牙、不许睡着（月牙与 Zzz 屏幕互斥，native #67）。 */
+  private quiet = false;
 
   constructor(private readonly opts: PixelPetRendererOptions) {
     // willReadFrequently：点击穿透逐像素读 alpha（getImageData），不建这张快路径会退回 GPU 读回。
@@ -108,6 +110,21 @@ export class PixelPetRenderer {
 
   dispose(): void {
     this.stop();
+  }
+
+  /**
+   * 免打扰状态（Task 11）：main 侧到点自醒 / 菜单反馈后由 main.ts 调进来。
+   * 状态一变就立即重绘一帧，月牙的下落不等下一个 fps 闸（4fps 档最坏要等 250ms，
+   * 手感上就是「右键完月牙迟迟不上屏」）。
+   */
+  setQuiet(quiet: boolean): void {
+    if (this.quiet === quiet) return;
+    this.quiet = quiet;
+    if (!this.paused) this.draw(performance.now());
+  }
+
+  isQuiet(): boolean {
+    return this.quiet;
   }
 
   getCanvas(): HTMLCanvasElement {
@@ -197,6 +214,14 @@ export class PixelPetRenderer {
     // 采样稀，相位不许被帧率拖慢——「cat.t += dt 且封顶 50ms」在 4 fps 下时钟会慢 5 倍
     // （呼吸 4.2s 拉成 21s），已废。50ms 封顶只属于 P2 的缓动状态量（main.rs:4964/4362）。
     this.cat.t = now / 1000;
+    // 免打扰在源头闸住「睡着」这条分支（native #53/#67）：月牙与 Zzz 屏幕互斥，
+    // art.ts 里的 `!quiet` 条只压得掉 Zzz 的尾巴，压不掉已经躺下的 mood:"sleep" 本体。
+    // quiet 期间 sleep 档被改写成 idle——月牙是唯一的记号，不许睡脸冒充。
+    const sleepSuppressed = this.quiet;
+    if (sleepSuppressed && this.cat.mood === "sleep") this.cat.mood = "idle";
+    // 月牙记号的唯一数据源是 cat.quiet（art.ts :415 `if (quiet)`）：
+    // setQuiet 只翻自身字段，draw 时必须回写进猫输入，否则月牙永远画不出来。
+    this.cat.quiet = this.quiet;
 
     // 变换里已折 zoom，clear/胶囊都要拿到 zoom 归一后的基址几何。
     const w = (this.opts.canvas.clientWidth || PET_W) / this.zoom;

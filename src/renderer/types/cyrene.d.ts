@@ -15,10 +15,16 @@ declare global {
       onPetZoom: (callback: (zoom: number) => void) => () => void;
       onPetVisibilityChanged: (callback: (visible: boolean) => void) => () => void;
     };
-    /** 与 preload/index.ts:1066-1069 逐字对齐；resizePetWindow 走 ipcRenderer.send，返回 void（落位不可 await）。 */
+    /** 与 preload/index.ts 的 vergeApi 逐字对齐；Task 11 补免打扰三入口与自醒下行。 */
     verge: {
       getSnapshot(): Promise<unknown>;
       resizePetWindow(bounds: { x: number; y: number; width: number; height: number }): void;
+      /** 翻转免打扰：开着→取消（回 null）；关着→现在+半小时。 */
+      quietFor(): Promise<number | null>;
+      isQuiet(): Promise<boolean>;
+      setTuck(enabled: boolean): void;
+      /** main → 渲染端：到点自醒当场清盘时发，payload 为清盘后的 quietUntil。 */
+      onQuietChanged(callback: (payload: { quietUntil: number | null }) => void): () => void;
     };
   }
 }
