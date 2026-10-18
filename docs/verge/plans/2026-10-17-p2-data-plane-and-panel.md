@@ -28,6 +28,17 @@
 
 ---
 
+## P1 收口移交项（P2 起手必办，出处：`.superpowers/sdd/2026-10-17-p0-p1-pixel-cat-shell/progress.md`）
+
+1. **`resolveGrowthDirection` 必须被真消费**（`src/shared/pet-geometry.ts`，P1 复审 N-5）。P1 里 `renderer.ts` 的 `growLeft/growUp` 恒 `false`，面板不存在，所以这个纯函数只有「对 fake 的单测证据」。P2 的面板展开动画是它的第一个生产调用方——**接不上就说明 P1 的几何面写错了，先回来修，别绕过去自己算方向**。
+2. **改藏身常量前先加 `edgePeekTarget()`**（P1 复审 N-4）。`TUCK_PEEK_PX=40 < EDGE_NEAR_PX=60` 让 native `main.rs:4934-4935` 的「只看基准位不含 peek」反抖纪律在当前档常量下**结构上不可观察**（变异测试证明为惰性）。一旦 P2 把 peek 提到 ≥60 或把 EDGE_NEAR 降到 <40，把 peek 算进 gap 立刻变成真缺陷（猫在边缘来回抖）且仍无测试盯住。P2 若气泡展开（`be`）与藏身共存，这条尤其相关。
+3. **`--tuck-probe` 缺一次性贴边落位**（P1 复审 N-6）。fork 只搬了阈值 2.5s（`main.rs:5648`），没搬 `:4912-4916`「探针开机一次性把猫贴到工作区右缘」；且 `create-pet-window.ts` 在无保存点时把猫放**主屏居中**。所以任何靠探针看藏身的验收，都得先把猫真拖到右缘，否则会误判成「藏身不生效」。P2 的探针层要么补这次性落位，要么在脚本里显式拖。
+4. **跨侧 import 的债**（P1 复审偏离 ④）：`src/renderer/pet/renderer.ts` 现在 import `src/main/verge/tuck-clock.ts`（纯函数放 main 侧是 P1 计划钉死的）。P2 若继续往 `main/verge` 放**运行期被渲染端消费**的纯函数，先裁决「挪进 `src/shared/pet-tuck.ts`」，不要累积第二处。
+5. **`src/main/index.ts` 不在任何 tsc program 里**（P1 Task 10 复审 F-7，计划级缺口）：它参与的改动只能靠 vitest 扫描器与运行时暴露。P2 动组合根前先补一次「`tsconfig.main.json` 的 include 覆盖 `src/main/index.ts`」的裁决。
+6. **上游文件额度重述**：P1 退出表的「上游 ≤5 处」按勘误 3/9 的口径记账——分支累计（`8d905897..6dd72bea`）上游面已 8 个文件，全部落在 spec §6.1 的白名单内。P2 的「≤5 处」预算是**新增**的，不是累计的。
+
+---
+
 ## 文件结构
 
 | 路径 | 动作 | 责任 |
