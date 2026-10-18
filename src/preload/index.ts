@@ -1068,7 +1068,8 @@ const vergeApi = {
     ipcRenderer.send(IPC.VERGE_PET_RESIZE, bounds),
   // 免打扰（Task 11）：toggleQuiet invoke 拿翻转后的 quietUntil（再点一次=取消，回 null）；
   // isQuiet 是「右键菜单之外的读法」（渲染器启动时先读一次盘上状态）；
-  // onQuietChanged 是到点自醒的下行（main 当场清盘后广播，撤月牙用）。
+  // onQuietChanged 是安静状态的下行：载荷带当下 quietUntil——写盘（右键菜单 / toggle）
+  // 时是未来截止（月牙上屏），到点自醒当场清盘后是 null（撤月牙）。
   quietFor: () => ipcRenderer.invoke(IPC.VERGE_TOGGLE_QUIET) as Promise<number | null>,
   isQuiet: () => ipcRenderer.invoke(IPC.VERGE_IS_QUIET) as Promise<boolean>,
   setTuck: (enabled: boolean) => ipcRenderer.send(IPC.VERGE_SET_TUCK, enabled),

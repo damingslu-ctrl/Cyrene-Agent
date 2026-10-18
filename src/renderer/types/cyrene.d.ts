@@ -23,7 +23,7 @@ declare global {
       quietFor(): Promise<number | null>;
       isQuiet(): Promise<boolean>;
       setTuck(enabled: boolean): void;
-      /** main → 渲染端：到点自醒当场清盘时发，payload 为清盘后的 quietUntil。 */
+      /** main → 渲染端：quiet 状态变更时发，payload 是**当下** quietUntil（写盘=未来截止，到点清盘=null）。 */
       onQuietChanged(callback: (payload: { quietUntil: number | null }) => void): () => void;
     };
   }

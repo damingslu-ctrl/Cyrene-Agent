@@ -77,6 +77,14 @@ export interface PetContextMenuInput {
   service: VergeService;
   /** 受控退出的路由不改道：菜单的「退出」与托盘同一条 quit 链路。 */
   quit: () => void;
+  /**
+   * quiet 写盘后的唯一收口：重排自醒钟 + 向渲染端广播**当下**的 quietUntil（不是恒 null）。
+   * 菜单若绕过它，盘上就躺着一个没人看的截止——native 明令「到点当场清 quiet_until」
+   * （main.rs:2515-2517），不清是欠账态；且若此前排过更近的陈旧截止，还会在旧点误触发、
+   * 把这次合法的新 quiet 提前抹掉。月牙同理：渲染端的实时来源只有这条广播与开机
+   * isQuiet()，不广播就得等重启才上屏。
+   */
+  onQuietStateChange(quietUntil: number | null): void;
 }
 
 /**
@@ -88,7 +96,7 @@ export interface PetContextMenuInput {
  * 不能缓存一份在挂载时算好的 items。
  */
 export function attachPetContextMenu(input: PetContextMenuInput): void {
-  const { window, service, quit } = input;
+  const { window, service, quit, onQuietStateChange } = input;
   window.webContents.on("context-menu", (_event, _params) => {
     if (window.isDestroyed()) return;
     const now = Date.now();
@@ -96,11 +104,18 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
       { quietUntil: service.getState().quietUntil, now, tuckEnabled: service.getState().tuckEnabled },
       {
         quiet: () => {
-          service.setQuietUntil(armQuiet({ current: service.getState().quietUntil, now: Date.now() }));
+          const next = armQuiet({ current: service.getState().quietUntil, now: Date.now() });
+          service.setQuietUntil(next);
+          // 落盘只是半件事：另半件是重排自醒钟 + 把**当下**截止广播上屏。
+          // native 的「到点当场清」（main.rs:2515-2517）与剩余分钟口径（:2534）
+          // 都挂在清盘动作上，绕开收口就等于写了个没人负责清的数。
+          onQuietStateChange(next);
         },
         cancelQuiet: () => {
           // 再点一次是取消，不是续期（armQuiet 的反向路径）：清盘也走同一条 service 链。
           service.setQuietUntil(null);
+          // 取消同样要走收口：rearm 让残留的旧定时器作废，广播 null 当场撤月牙（main.rs:2503 的翻转）。
+          onQuietStateChange(null);
         },
         toggleTuck: () => {
           service.setTuckEnabled(!service.getState().tuckEnabled);

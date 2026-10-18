@@ -20,7 +20,12 @@ export interface QuietClockWiring {
     getState(): { quietUntil: number | null };
     setQuietUntil(until: number | null): void;
   };
-  /** 到点通知：发 VERGE_QUIET_CHANGED（撤月牙）；何时发到哪些窗由装配点定义。 */
+  /**
+   * 到点通知：走装配点那条 VERGE_QUIET_CHANGED 收口（撤月牙）。
+   * 只可能在「当场清盘之后」被调，所以这条路上广播到的必是清盘后的 null；
+   * 写盘事件（菜单 / toggle-quiet）不经这里，由同一条收口带当下截止。
+   * 何时发到哪些窗由装配点定义。
+   */
   notifyWake(): void;
 }
 export interface QuietClockHandle {
@@ -67,9 +72,14 @@ export function attachQuietClock(wiring: QuietClockWiring): QuietClockHandle {
   };
 }
 
-/** 到点广播的载荷：清盘后的 quietUntil（恒 null）。渲染端据此撤月牙、不再闸「睡着」。 */
-export function quietChangedPayload(): { quietUntil: null } {
-  return { quietUntil: null };
+/**
+ * VERGE_QUIET_CHANGED 的载荷：携带**当下**的 quietUntil，两件事共用这一条通道——
+ * - 到点自醒：传当场清盘后的 null（native main.rs:2515-2517 的「当场清」，语义不变）；
+ * - 写盘（菜单 / toggle-quiet）：传刚落进去的那个截止，渲染端按真语义
+ *   `quietUntil !== null && Date.now() < quietUntil` 判月牙（剩余分钟同源，:2534）。
+ */
+export function quietChangedPayload(quietUntil: number | null): { quietUntil: number | null } {
+  return { quietUntil };
 }
 
 /** 通道名的确认位：notifyWake 的实现应该发这一个。 */

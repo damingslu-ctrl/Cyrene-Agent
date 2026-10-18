@@ -103,8 +103,11 @@ describe("attachQuietClock（到点自醒的 wiring）", () => {
     clock.dispose();
   });
 
-  it("通道名与载荷形不变量：payload 恒 { quietUntil: null }，频道是 verge:quiet-changed", () => {
-    expect(quietChangedPayload()).toEqual({ quietUntil: null });
+  it("通道名与载荷形不变量：载荷带**当下** quietUntil，频道是 verge:quiet-changed", () => {
+    // 到点自醒那条路传清盘后的 null（native main.rs:2515-2517 的「当场清」，语义不变）；
+    // 写盘（右键菜单 / toggle-quiet）传刚落进去的截止，月牙才不用等重启就上屏。
+    expect(quietChangedPayload(null)).toEqual({ quietUntil: null });
+    expect(quietChangedPayload(1_700_000_030_000)).toEqual({ quietUntil: 1_700_000_030_000 });
     expect(QUIET_CHANGED_CHANNEL).toBe("verge:quiet-changed");
   });
 });

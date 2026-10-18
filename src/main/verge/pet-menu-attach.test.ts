@@ -61,14 +61,20 @@ function makeService(initial: { quietUntil: number | null; tuckEnabled: boolean 
   } as never;
 }
 
-/** 新建 mock 窗、挂菜单、触发一次右键，返回模板和 handle。 */
-function rightClick(service: VergeService, quit = vi.fn()) {
+/** 新建 mock 窗、挂菜单、触发一次右键，返回模板、handle 与 quiet 收口的记账。 */
+function rightClick(service: VergeService, quit = vi.fn(), onQuietStateChange = vi.fn()) {
   const win = new BrowserWindow() as unknown as BrowserWindow & { isDestroyed: () => boolean };
-  attachPetContextMenu({ window: win, service, quit });
+  attachPetContextMenu({ window: win, service, quit, onQuietStateChange });
   const listener = mocks.contextMenuListeners.at(-1);
   if (!listener) throw new Error("context-menu listener was not registered");
   listener({}, {});
-  return { template: mocks.menuTemplates.at(-1) ?? [], popup: mocks.popupCalls.at(-1), service, win };
+  return {
+    template: mocks.menuTemplates.at(-1) ?? [],
+    popup: mocks.popupCalls.at(-1),
+    service,
+    win,
+    onQuietStateChange,
+  };
 }
 
 function itemByLabel(template: Array<Record<string, unknown>>, label: string) {
@@ -97,12 +103,18 @@ describe("attachPetContextMenu", () => {
 
   it("点「安静半小时」写盘半小时（落盘才算数，屏幕上的月牙只是影子）", () => {
     const service = makeService({ quietUntil: null, tuckEnabled: true });
-    const { template } = rightClick(service);
+    const { template, onQuietStateChange } = rightClick(service);
     vi.useFakeTimers();
     try {
       vi.setSystemTime(1_700_000_000_000);
       itemByLabel(template, "安静半小时").click?.();
-      expect(service.writes).toEqual([{ quietUntil: 1_700_000_000_000 + 30 * 60_000 }]);
+      const until = 1_700_000_000_000 + 30 * 60_000;
+      expect(service.writes).toEqual([{ quietUntil: until }]);
+      // 写盘只是半件事：必须把**当下这个截止**（不是恒 null）交给收口去 rearm 自醒钟
+      // 并广播上屏。漏掉它 → 半小时后没人清盘，盘里躺着已过去的截止（native
+      // main.rs:2515-2517 明令当场清的欠账态），若此前排过更近的陈旧截止还会在旧点
+      // 误触发、把这次合法的新 quiet 提前抹掉；月牙也要等重启才出现。
+      expect(onQuietStateChange.mock.calls).toEqual([[until]]);
     } finally {
       vi.useRealTimers();
     }
@@ -111,11 +123,13 @@ describe("attachPetContextMenu", () => {
   it("安静期间第一项是「安静中 · 剩 N 分」且禁用；点「取消安静」清盘（反向路径）", () => {
     const now = Date.now();
     const service = makeService({ quietUntil: now + 5 * 60_000, tuckEnabled: false });
-    const { template } = rightClick(service);
+    const { template, onQuietStateChange } = rightClick(service);
     expect(itemByLabel(template, "安静中 · 剩 5 分")).toMatchObject({ enabled: false });
     expect(itemByLabel(template, "取消安静")).toMatchObject({ enabled: true });
     itemByLabel(template, "取消安静").click?.();
     expect(service.writes).toEqual([{ quietUntil: null }]);
+    // 取消也走同一条收口：rearm 让残留的旧定时器作废、广播 null 当场撤月牙（main.rs:2503 的翻转）。
+    expect(onQuietStateChange.mock.calls).toEqual([[null]]);
   });
 
   it("点「贴边藏身」翻转开关；点「退出」走注入的 quit 链路", () => {
@@ -135,5 +149,17 @@ describe("attachPetContextMenu", () => {
     (win as unknown as { hide: unknown }).hide = hide;
     itemByLabel(template, "隐藏").click?.();
     expect(hide).toHaveBeenCalledOnce();
+  });
+
+  it("quiet 收口只认 quiet：点藏身/隐藏/退出不惊动它，也不顺手写 quiet 的盘", () => {
+    const service = makeService({ quietUntil: null, tuckEnabled: false });
+    const { template, onQuietStateChange, win } = rightClick(service);
+    (win as unknown as { hide: unknown }).hide = vi.fn();
+    itemByLabel(template, "贴边藏身").click?.();
+    itemByLabel(template, "隐藏").click?.();
+    itemByLabel(template, "退出").click?.();
+    // 这三条与安静期无关（tuck/hide/quit 语义不变）：收口一次都不该被叫到。
+    expect(onQuietStateChange).not.toHaveBeenCalled();
+    expect(service.writes).toEqual([]);
   });
 });

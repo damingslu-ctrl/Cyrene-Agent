@@ -88,13 +88,14 @@ const renderer = new PixelPetRenderer({
       }
     }).catch(() => { /* 设置读取失败不影响加载 */ });
 
-    // 免打扰（Task 11）：启动先读一次盘上状态（跨重启的安静期），再订到点自醒的下行。
+    // 免打扰（Task 11）：启动先读一次盘上状态（跨重启的安静期），再订安静状态变更的下行。
     // 落盘的变化才算数（brief 验收判据），屏幕上的月牙只是它的影子。
     window.verge?.isQuiet().then((quiet) => renderer.setQuiet(quiet))
       .catch(() => { /* 状态读取失败不影响加载：月牙缺失比启动失败轻 */ });
     quietChangedOff = window.verge?.onQuietChanged(({ quietUntil }) => {
-      // VERGE_QUIET_CHANGED 目前只有「到点自醒当场清盘」一件事可发（payload 恒 null），
-      // 判据仍按真语义写：还落在未来就还是安静。
+      // payload 带的是**当下** quietUntil：写盘（右键菜单 / toggle）时是未来的截止，
+      // 到点自醒当场清盘后是 null（native main.rs:2515-2517）。判据按真语义一条通用：
+      // 还落在未来就还是安静。
       renderer.setQuiet(quietUntil !== null && Date.now() < quietUntil);
     }) ?? null;
 

@@ -270,8 +270,11 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
   // 造好 verge service 后把闭包塞进来；createPetWindow 在 core 后段才第一次被调
   // （core-bootstrap.ts:195，晚于 registerCoreIpc），所以首窗挂载时闭包必已就位。
   let attachVergePetMenu: ((win: Electron.BrowserWindow) => void) | null = null;
-  // 自醒定时器句柄：createLowCostServices 挂上，registerCoreIpc 的 toggle 路径就能重排。
-  let quietClockHandle: { rearm(): void; dispose(): void } | null = null;
+  // quiet 写盘收口（Task 11 修复轮）：createLowCostServices 造好自醒钟后把闭包塞进来，
+  // registerCoreIpc 的 toggle 路径与宠物窗菜单共用同一条——rearm + 广播当下截止。
+  // 两处各写各的会留下「盘上有已过去的截止没人清、月牙等重启才上屏」的欠账态
+  // （native main.rs:2515-2517 明令当场清）。
+  let onVergeQuietStateChange: ((quietUntil: number | null) => void) | null = null;
   // 自动压缩与 CHATS_COMPACT 必须共享同一个会话级压缩器，避免两条路径各自组装 provider。
   const getTranscriptCompactor = createTranscriptCompactorGetter(() =>
     createModelBackedConversationTranscriptCompactor({
@@ -502,26 +505,38 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
 
         // 宠物窗右键菜单（Task 11）：菜单动作写盘走 service，窗口动作就地取 win。
         // 到点自醒也在这里接：落盘后的 setTimeout(remaining).unref()，到点当场清、
-        // 广播撤月牙；state 变化路径（toggle-quiet / set-tuck 的 IPC）里 rearm。
+        // 广播撤月牙；所有写盘路径（菜单 / toggle-quiet 的 IPC）都走下面同一个收口。
         // 这段必须先于首窗挂载就位（createPetWindow 在 core-bootstrap 的后段才调用）。
         const quietClock = attachQuietClock({
           service: verge,
-          notifyWake: () => {
-            for (const win of BrowserWindow.getAllWindows()) {
-              if (!win.isDestroyed()) win.webContents.send(
-                IPC.VERGE_QUIET_CHANGED,
-                quietChangedPayload(),
-              );
-            }
-          },
+          // 到点自醒只在「当场清盘之后」被调，所以这里读回来的一定是 null——
+          // 广播的仍是清盘后的 quietUntil，native 语义不变（main.rs:2515-2517）。
+          // 闭包晚绑定：notifyWake 由定时器触发，那时 applyQuietState 已就位。
+          notifyWake: () => applyQuietState(verge.getState().quietUntil),
         });
-        quietClockHandle = quietClock;
+        // quiet 状态变更的唯一收口：先按当下 quietUntil 重排自醒钟，再把当下值广播出去。
+        // 菜单（pet-menu）与 VERGE_TOGGLE_QUIET 都必须走这一个函数，不许两处各写各的。
+        const applyQuietState = (quietUntil: number | null): void => {
+          quietClock.rearm();
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) win.webContents.send(
+              IPC.VERGE_QUIET_CHANGED,
+              quietChangedPayload(quietUntil),
+            );
+          }
+        };
         // 启动即重排：盘上若躺着未来截止（含重启验收的 now+5000），进程一起来
         // 自醒钟就到位——不依赖下一次 toggle 才排上定时器。
         quietClock.rearm();
         attachVergePetMenu = (win) => {
-          attachPetContextMenu({ window: win, service: verge, quit: () => app.quit() });
+          attachPetContextMenu({
+            window: win,
+            service: verge,
+            quit: () => app.quit(),
+            onQuietStateChange: applyQuietState,
+          });
         };
+        onVergeQuietStateChange = applyQuietState;
         shutdown.register({
           id: "verge-quiet-clock",
           phase: "stopLocalResources",
@@ -753,12 +768,13 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
 
         // Task 11 的三条渲染入口与到点自醒重排：
         // - toggle-quiet 是 invoke（拿翻转后的 quietUntil 回执）；is-quiet 是取回执的读。
-        // - 每次状态可能变化（toggle / 清盘）后 quietClock.rearm() 重排自醒定时器；
+        // - 写盘后一律走 onVergeQuietStateChange 这一条收口（rearm + 广播当下值），
+        //   与宠物窗菜单同一个函数：两处各写各的就会漏掉自醒钟或漏掉月牙。
         //   「手工把 quietUntil 改小再重启」那档验收由启动时的 attachQuietClock 覆盖。
         ipc.handle(IPC.VERGE_TOGGLE_QUIET, () => {
           const next = armQuiet({ current: services.verge.getState().quietUntil, now: Date.now() });
           services.verge.setQuietUntil(next);
-          quietClockHandle?.rearm();
+          onVergeQuietStateChange?.(next);
           return next;
         });
         ipc.handle(IPC.VERGE_IS_QUIET, () => {
