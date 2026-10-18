@@ -15,5 +15,10 @@ declare global {
       onPetZoom: (callback: (zoom: number) => void) => () => void;
       onPetVisibilityChanged: (callback: (visible: boolean) => void) => () => void;
     };
+    /** 与 preload/index.ts:1066-1069 逐字对齐；resizePetWindow 走 ipcRenderer.send，返回 void（落位不可 await）。 */
+    verge: {
+      getSnapshot(): Promise<unknown>;
+      resizePetWindow(bounds: { x: number; y: number; width: number; height: number }): void;
+    };
   }
 }
