@@ -28,4 +28,19 @@ describe("formatGeomProbe", () => {
       }),
     ).toBe("GEOM\t3.2\tapplied 300,400\tactual 300,400 248x482\tpin -,-\tcenter -,-\tpeek -\te -\tdpr 1.25");
   });
+
+  it("位置门被拖拽闸门关掉时 applied 打 `-`：没发出去的请求不算证据", () => {
+    const line = formatGeomProbe({
+      t: 4, applied: null, actual: { x: 300, y: 400, width: 248, height: 482 },
+      pin: null, center: null, peekDx: null, e: null, dpr: 1,
+    });
+    expect(line).toContain("applied -,-\tactual 300,400 248x482");
+    // 正对照：同一 actual 只要指令真发过，applied 就必须是数字
+    expect(
+      formatGeomProbe({
+        t: 4, applied: { x: 300, y: 400 }, actual: { x: 300, y: 400, width: 248, height: 482 },
+        pin: null, center: null, peekDx: null, e: null, dpr: 1,
+      }),
+    ).toContain("applied 300,400\tactual 300,400 248x482");
+  });
 });

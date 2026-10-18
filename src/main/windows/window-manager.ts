@@ -362,14 +362,16 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
       if (!delta.size && !applyMove) return;
       if (process.env.VERGE_GEOM_PROBE) {
         // native 每 0.5s 一行（main.rs:4389）：这里同样节流，否则 60fps 下 stderr
-        // 自己会盖掉它要测的东西。
+        // 自己会盖掉它要测的东西。形状差异要记住：native 在绘制 pass 里**无条件**按
+        // 0.5s 打，我们只在「真发出一条指令」时打——落位稳定后 GEOM 就不再有行，
+        // 所以屏幕尺取多帧证据必须持续重发请求，不能靠静置（spikes 待验证项 4）。
         const t = performance.now() / 1000;
         if (t - lastGeomProbeAt > 0.5) {
           lastGeomProbeAt = t;
           const actual = win.getBounds();
           console.error(formatGeomProbe({
             t,
-            applied: bounds,
+            applied: applyMove ? bounds : null,
             actual,
             // 这四列属猫模型，main 拿不到（见 geom-probe.ts）；打 `-` 而不是猜。
             pin: null,

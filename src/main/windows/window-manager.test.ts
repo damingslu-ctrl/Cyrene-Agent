@@ -11,13 +11,18 @@ const mocks = vi.hoisted(() => ({
 vi.mock("electron", () => ({
   app: mocks.app,
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
-  screen: { getCursorScreenPoint: vi.fn(() => ({ x: 0, y: 0 })) },
+  screen: {
+    getCursorScreenPoint: vi.fn(() => ({ x: 0, y: 0 })),
+    // 探针块要读 DPI（window-manager.ts 的 GEOM 行）。缺这个 mock 时，谁在 shell 里
+    // export 过 VERGE_GEOM_PROBE=1 再跑 vitest，就会在 ipc 回调里抛错——假失败。
+    getDisplayMatching: vi.fn(() => ({ scaleFactor: 1, workArea: { x: 0, y: 0, width: 1920, height: 1040 } })),
+  },
 }));
-vi.mock("../startup/create-pet-window", () => ({
-  createPetWindow: mocks.createPetWindow,
-  PET_WINDOW_BASE_HEIGHT: 108,
-  PET_WINDOW_BASE_WIDTH: 82,
-}));
+// 基址走真模块：PET_W 一改，夹具必须跟着变，否则 zoom 断言拿旧基址当基准。
+vi.mock("../startup/create-pet-window", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../startup/create-pet-window")>();
+  return { ...actual, createPetWindow: mocks.createPetWindow };
+});
 vi.mock("./create-aux-windows", () => ({
   createCallWindow: vi.fn(), createReactChatWindowShell: vi.fn(), createStickerManagerWindow: vi.fn(),
   loadReactChatWindowPage: vi.fn(), loadOnboardingWindowPage: vi.fn(), createOnboardingBrowserWindow: vi.fn(),
@@ -40,7 +45,7 @@ function createFakeWindow() {
   const listeners = new Map<string, Array<(...args: any[]) => void>>();
   let visible = false;
   let destroyed = false;
-  let bounds = { x: 0, y: 0, width: 82, height: 108 };
+  let bounds = { x: 0, y: 0, width: Math.round(PET_W), height: Math.round(PET_H) };
   return {
     on: vi.fn((event: string, listener: (...args: any[]) => void) => {
       listeners.set(event, [...(listeners.get(event) ?? []), listener]);
@@ -73,6 +78,7 @@ function createFakeWindow() {
 }
 
 import { createWindowManager } from "./window-manager";
+import { PET_H, PET_W } from "../../shared/pet-geometry";
 
 describe("pet window resource release", () => {
   beforeEach(() => {
@@ -160,6 +166,9 @@ describe("pet window bounds channel", () => {
     expect(win.setPosition).toHaveBeenCalledTimes(1);
     expect(win.setSize).toHaveBeenCalledTimes(1);
     expect(win.getBounds()).toEqual({ x: 300, y: 400, width: 248, height: 482 });
+    // animate 只标 macOS，但出货只有 win/nsis 也要把 false 传到底：删掉这个字面量
+    // 现在没有任何测试会红，所以在这里把它钉住。
+    expect(win.setPosition.mock.calls[0]?.[2]).toBe(false);
   });
 
   it("位移 0.4 + 尺寸 0.4：一条指令都不发（合成 4 维求和会误判成 0.566 > 0.5）", () => {
@@ -227,6 +236,35 @@ describe("pet window bounds channel", () => {
     expect(second.setSize).toHaveBeenCalledTimes(1);
     // 正对照：同一 manager 上没被拖拽污染过的通道确实通
     expect(second.getBounds()).toEqual({ x: 500, y: 600, width: 248, height: 482 });
+  });
+
+  it("VERGE_GEOM_PROBE=1：只在真发指令时打行，被拖拽闸门吞掉的位置报 applied -,-", () => {
+    vi.stubEnv("VERGE_GEOM_PROBE", "1");
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args) => { lines.push(String(args[0])); });
+    try {
+      const manager = buildManager();
+      manager.createPetWindow();
+      manager.setPetWindowBounds({ x: 300, y: 400, width: 82, height: 108 });
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("applied 300,400\tactual 300,400 82x108");
+
+      // 同一 bounds 再发：两条门都吞 → 探针也不许多出第二行
+      manager.setPetWindowBounds({ x: 300, y: 400, width: 82, height: 108 });
+      expect(lines).toHaveLength(1);
+
+      // 新 manager 才有新的 0.5s 节流窗口：拖拽中尺寸门照发，位置门没发过指令
+      lines.length = 0;
+      const second = buildManager();
+      second.createPetWindow();
+      second.setPetWindowDragging(true);
+      second.setPetWindowBounds({ x: 300, y: 400, width: 248, height: 482 });
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("applied -,-\tactual 0,0 248x482");
+    } finally {
+      spy.mockRestore();
+      vi.unstubAllEnvs();
+    }
   });
 
   it("宠物窗尚未创建时请求被忽略（不抛错）", () => {
