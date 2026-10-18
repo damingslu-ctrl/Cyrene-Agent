@@ -12,9 +12,9 @@ export interface GeomProbeInput {
   actual: { x: number; y: number; width: number; height: number };
   /**
    * 以下四列是**猫模型**的量（native `main.rs:4379-4396` 由 `pet`/`e`/`peek_off` 算出）。
-   * main 只拿到窗口 bounds，拿不到模型，所以未扩载荷前必须传 null 打 `-`：
+   * Task 12 起 PET_RESIZE 载荷随 bounds 同帧带上这四列，探针报实际值；
+   * 载荷缺列（旧调用/单测直发四数）时传 null 打 `-`：
    * 宁可让屏幕尺看见"这一列没有证据"，也不许用常量冒充真值。
-   * Task 12 给 PET_RESIZE 载荷扩上 e/peekDx/pinInWin 后改传实际值。
    */
   pin: MaybePoint;
   center: MaybePoint;

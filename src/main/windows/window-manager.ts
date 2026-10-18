@@ -16,7 +16,8 @@ import { createMusicPlayerWindow } from "./create-music-player-window";
 import { broadcastToAllWindows } from "./broadcast";
 import { PetWindowMoveController } from "../pet-window-movement";
 import { CURRENT_DISCLAIMER_VERSION } from "../../shared/disclaimer";
-import { shouldApplyBounds, type PetBounds } from "./pet-bounds";
+import { shouldApplyBounds, type PetBounds, type PetResizePayload } from "./pet-bounds";
+import { clampBoundsToWorkArea } from "../../shared/pet-geometry";
 import { formatGeomProbe } from "../verge/geom-probe";
 
 const PET_WINDOW_RESOURCE_RELEASE_DELAY_MS = 30_000;
@@ -59,7 +60,9 @@ export interface WindowManager {
   movePetWindowRelative(dx: number, dy: number): void;
   movePetWindowTo(x: number, y: number): void;
   applyPetWindowZoom(zoom: number): void;
-  setPetWindowBounds(bounds: PetBounds): void;
+  setPetWindowBounds(payload: PetResizePayload): void;
+  /** 组合根拉几何基线用（Task 12 VERGE_GET_PET_GEOMETRY）：无窗返回 null。 */
+  getPetWindowBounds(): PetBounds | null;
   capturePetWindowFrame(): Promise<string | null>;
   capturePetWindow(): Promise<Electron.NativeImage | null>;
   getCursorScreenPosition(): { x: number; y: number };
@@ -85,6 +88,29 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
   const movedHandlers: Array<(position: { x: number; y: number }) => void> = [];
   let petWindowDragging = false;
   let lastGeomProbeAt = Number.NEGATIVE_INFINITY;
+
+  // native main.rs:4171-4184 的每帧 workArea 夹取搬到事件驱动：显示器拓扑/工作区
+  // 一变（拔副屏、改缩放、换任务栏高度）就把窗夹回当前屏，猫不许丢在已消失的坐标上。
+  // 偏离 native 一处并记录在案：native 只改内存 pet_pos，这里额外落盘——我们的保存点
+  // 活在 state 文件里，若不跟着夹，重启后猫会再次出现在坏坐标上。
+  const onDisplayMetricsChanged = (): void => {
+    const win = getUsablePetWindow();
+    if (!win) return;
+    const bounds = win.getBounds();
+    const { workArea } = screen.getDisplayMatching(bounds);
+    const clamped = clampBoundsToWorkArea(bounds, workArea);
+    // shouldApplyBounds 返回的 delta 对象恒真（勘误：判 .move，不判对象）——
+    // 已在位的一字不动，也不许多发一次 persist。
+    if (!shouldApplyBounds(bounds, clamped).move) return;
+    win.setBounds(clamped, false);
+    options.persistPetWindowPosition({ x: clamped.x, y: clamped.y });
+    // 渲染端不是位置权威，但它得知道位置被主端改了：推新几何，让它重建 catOrigin。
+    win.webContents.send(IPC.VERGE_PET_GEOMETRY, {
+      bounds: win.getBounds(),
+      workArea,
+    });
+  };
+  screen.on("display-metrics-changed", onDisplayMetricsChanged);
 
   const petWindowMoveController = new PetWindowMoveController(
     () => petWindow,
@@ -354,19 +380,19 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
         win.webContents.send(IPC.PET_ZOOM, zoom);
       }
     },
-    setPetWindowBounds(bounds: PetBounds): void {
+    setPetWindowBounds(payload: PetResizePayload): void {
       const win = getUsablePetWindow();
       if (!win) return;
       // 去重读实时 getBounds()：窗口可能被用户拖拽或换屏/DPI 改动过，
       // 缓存"请求值"会和实际落位脱节。
-      const delta = shouldApplyBounds(win.getBounds(), bounds);
+      const delta = shouldApplyBounds(win.getBounds(), payload);
       // 位置的权威是 PetWindowMoveController（它落盘保存点），本通道只是渲染端
       // 按几何请求跟随。拖拽期间关掉位置门，否则 controller 的 pendingPosition
       // 会在请求之后 flush，把猫拽回旧位（橡皮筋）。尺寸门照常开。
       const applyMove = delta.move && !petWindowDragging;
       // native 的两条门分开发两条指令（main.rs:4308-4315），先尺寸后位置。
-      if (delta.size) win.setSize(bounds.width, bounds.height);
-      if (applyMove) win.setPosition(bounds.x, bounds.y, false);
+      if (delta.size) win.setSize(payload.width, payload.height);
+      if (applyMove) win.setPosition(payload.x, payload.y, false);
       if (!delta.size && !applyMove) return;
       if (process.env.VERGE_GEOM_PROBE) {
         // native 每 0.5s 一行（main.rs:4389）：这里同样节流，否则 60fps 下 stderr
@@ -379,17 +405,24 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
           const actual = win.getBounds();
           console.error(formatGeomProbe({
             t,
-            applied: applyMove ? bounds : null,
+            applied: applyMove ? payload : null,
             actual,
-            // 这四列属猫模型，main 拿不到（见 geom-probe.ts）；打 `-` 而不是猜。
-            pin: null,
-            center: null,
-            peekDx: null,
-            e: null,
+            // Task 12 载荷已扩：这四列是渲染端随 bounds 同帧发来的模型取证量，
+            // 不再打 `-`（旧载荷缺列时仍打 `-`——没有证据就承认没有证据）。
+            pin: payload.pinInWin ?? null,
+            center: payload.center ?? null,
+            peekDx: payload.peekDx ?? null,
+            e: payload.e ?? null,
             dpr: screen.getDisplayMatching(actual).scaleFactor,
           }));
         }
       }
+    },
+    getPetWindowBounds(): PetBounds | null {
+      const win = getUsablePetWindow();
+      if (!win) return null;
+      const { x, y, width, height } = win.getBounds();
+      return { x, y, width, height };
     },
     async capturePetWindowFrame(): Promise<string | null> {
       const image = await this.capturePetWindow();
@@ -439,6 +472,7 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
     dispose(): void {
       cancelPetWindowResourceRelease();
       petWindowMoveController.dispose();
+      screen.off("display-metrics-changed", onDisplayMetricsChanged);
     },
   };
 }

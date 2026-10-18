@@ -1062,9 +1062,18 @@ contextBridge.exposeInMainWorld("tts", ttsApi);
 
 exposeMusicApi();
 
+type PetRect = { x: number; y: number; width: number; height: number };
+/** PET_RESIZE 完整载荷：bounds 四数取整（闸的依据），后四列是模型取证量（只喂 GEOM 探针）。 */
+type PetResizePayload = PetRect & {
+  pinInWin?: { x: number; y: number };
+  center?: { x: number; y: number };
+  peekDx?: number;
+  e?: number;
+};
+
 const vergeApi = {
   getSnapshot: () => ipcRenderer.invoke(IPC.VERGE_GET_SNAPSHOT),
-  resizePetWindow: (bounds: { x: number; y: number; width: number; height: number }) =>
+  resizePetWindow: (bounds: PetResizePayload) =>
     ipcRenderer.send(IPC.VERGE_PET_RESIZE, bounds),
   // 免打扰（Task 11）：toggleQuiet invoke 拿翻转后的 quietUntil（再点一次=取消，回 null）；
   // isQuiet 是「右键菜单之外的读法」（渲染器启动时先读一次盘上状态）；
@@ -1078,5 +1087,29 @@ const vergeApi = {
     ipcRenderer.on(IPC.VERGE_QUIET_CHANGED, listener);
     return () => ipcRenderer.off(IPC.VERGE_QUIET_CHANGED, listener);
   },
+  // —— Task 12 贴边藏身与显示器变更 ——
+  // 渲染端起帧拉一次几何基线（窗不存在时 main 返回 null，禁兜底：拿不到就是没窗）。
+  getPetGeometry: () =>
+    ipcRenderer.invoke(IPC.VERGE_GET_PET_GEOMETRY) as Promise<{
+      bounds: PetRect;
+      workArea: PetRect;
+      tuckEnabled: boolean;
+      tuckHinted: boolean;
+      tuckLimit: number;
+    } | null>,
+  /** main → 渲染端：display-metrics-changed 重夹取后推新 bounds + workArea。 */
+  onPetGeometryChanged: (callback: (payload: { bounds: PetRect; workArea: PetRect }) => void) => {
+    const listener = (_e: unknown, payload: { bounds: PetRect; workArea: PetRect }) => callback(payload);
+    ipcRenderer.on(IPC.VERGE_PET_GEOMETRY, listener);
+    return () => ipcRenderer.off(IPC.VERGE_PET_GEOMETRY, listener);
+  },
+  /** main → 渲染端：tuck 开关变更（菜单与 IPC 双路经收口闸口后统一广播）。 */
+  onTuckChanged: (callback: (payload: { tuckEnabled: boolean }) => void) => {
+    const listener = (_e: unknown, payload: { tuckEnabled: boolean }) => callback(payload);
+    ipcRenderer.on(IPC.VERGE_TUCK_CHANGED, listener);
+    return () => ipcRenderer.off(IPC.VERGE_TUCK_CHANGED, listener);
+  },
+  /** 渲染端 → main：第一次藏身开口说过 TUCK_HINT，落盘 tuckHinted，不再重说。 */
+  tuckHinted: () => ipcRenderer.send(IPC.VERGE_TUCK_HINTED),
 };
 contextBridge.exposeInMainWorld("verge", vergeApi);

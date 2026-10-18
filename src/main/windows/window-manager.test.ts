@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   createPetWindow: vi.fn(),
   // 位置权威的动作要有账：测试名字声称 controller 权威，就得看得见它被动过。
   moveController: vi.fn(),
+  displayHandlers: [] as Array<() => void>,
 }));
 
 vi.mock("electron", () => ({
@@ -16,6 +17,15 @@ vi.mock("electron", () => ({
     // 探针块要读 DPI（window-manager.ts 的 GEOM 行）。缺这个 mock 时，谁在 shell 里
     // export 过 VERGE_GEOM_PROBE=1 再跑 vitest，就会在 ipc 回调里抛错——假失败。
     getDisplayMatching: vi.fn(() => ({ scaleFactor: 1, workArea: { x: 0, y: 0, width: 1920, height: 1040 } })),
+    // Task 12：display-metrics-changed 要能被人按下扳机，dispose 要能看见解绑。
+    on: vi.fn((event: string, handler: () => void) => {
+      if (event === "display-metrics-changed") mocks.displayHandlers.push(handler);
+    }),
+    off: vi.fn((event: string, handler: () => void) => {
+      if (event === "display-metrics-changed") {
+        mocks.displayHandlers = mocks.displayHandlers.filter((candidate) => candidate !== handler);
+      }
+    }),
   },
 }));
 // 基址走真模块：PET_W 一改，夹具必须跟着变，否则 zoom 断言拿旧基址当基准。
@@ -74,17 +84,24 @@ function createFakeWindow() {
     setPosition: vi.fn((x: number, y: number) => {
       bounds = { ...bounds, x, y };
     }),
+    // display-metrics-changed 重夹取走 setBounds(rect, false)（brief Step 3 的调用形态）。
+    setBounds: vi.fn((rect: { x: number; y: number; width: number; height: number }) => {
+      bounds = { ...bounds, ...rect };
+    }),
+    webContents: { send: vi.fn() },
   };
 }
 
 import { createWindowManager } from "./window-manager";
 import { PET_H, PET_W } from "../../shared/pet-geometry";
+import { IPC } from "../../shared/ipc-channels";
 
 describe("pet window resource release", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     mocks.createdWindows = [];
+    mocks.displayHandlers = [];
     mocks.createPetWindow.mockImplementation(() => {
       const window = createFakeWindow();
       mocks.createdWindows.push(window);
@@ -138,6 +155,7 @@ describe("pet window bounds channel", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     mocks.createdWindows = [];
+    mocks.displayHandlers = [];
     mocks.createPetWindow.mockImplementation(() => {
       const window = createFakeWindow();
       mocks.createdWindows.push(window);
@@ -293,5 +311,105 @@ describe("pet window bounds channel", () => {
     const manager = buildManager();
     const win = manager.createPetWindow();
     expect(win.isDestroyed()).toBe(false);
+  });
+
+  it("载荷扩列后 GEOM 行报实际模型值；旧四数载荷仍打 -（没有证据就承认没有证据）", () => {
+    vi.stubEnv("VERGE_GEOM_PROBE", "1");
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args) => { lines.push(String(args[0])); });
+    try {
+      const manager = buildManager();
+      manager.createPetWindow();
+      manager.setPetWindowBounds({
+        x: 300, y: 400, width: 82, height: 108,
+        peekDx: 40, e: 0,
+        pinInWin: { x: 80.5, y: 39.2 },
+        center: { x: 63.5, y: 43.7 },
+      });
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("peek 40.0\te 0.00");
+      expect(lines[0]).toContain("pin 80.5,39.2");
+      expect(lines[0]).toContain("center 63.5,43.7");
+
+      // 正对照的反面：旧载荷不带四列 → 全打 `-`，不许拿常量冒充。
+      lines.length = 0;
+      const second = buildManager();
+      second.createPetWindow();
+      second.setPetWindowBounds({ x: 500, y: 300, width: 82, height: 108 });
+      expect(lines[0]).toContain("peek -\te -");
+      expect(lines[0]).toContain("pin -,-\tcenter -,-");
+    } finally {
+      spy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("getPetWindowBounds：无窗返回 null，有窗返回实时 bounds", () => {
+    const manager = buildManager();
+    expect(manager.getPetWindowBounds()).toBeNull();
+    const win = manager.createPetWindow();
+    win.setPosition(700, 250);
+    expect(manager.getPetWindowBounds()).toEqual({ x: 700, y: 250, width: Math.round(PET_W), height: Math.round(PET_H) });
+  });
+});
+
+describe("display-metrics-changed workArea 重夹取", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+    mocks.createdWindows = [];
+    mocks.displayHandlers = [];
+    mocks.createPetWindow.mockImplementation(() => {
+      const window = createFakeWindow();
+      mocks.createdWindows.push(window);
+      return window;
+    });
+  });
+
+  function buildManager(persist = vi.fn()) {
+    const manager = createWindowManager({
+      getCurrentAppIconPath: () => "icon",
+      isDev: false,
+      loadPetWindowSettingsSlice: () => ({ disclaimerAcceptedVersion: "current" }),
+      persistPetWindowPosition: persist,
+    });
+    return { manager, persist };
+  }
+
+  it("副屏拔掉：留在旧副屏坐标的窗按主屏 workArea 夹回、落盘、推渲染端", () => {
+    const { manager, persist } = buildManager();
+    const win = manager.createPetWindow();
+    // 拔屏前窗口在副屏（假 screen 现在只报主屏 workArea {0,0,1920,1040}）
+    win.setPosition(2400, 500);
+
+    expect(mocks.displayHandlers.length).toBeGreaterThan(0);
+    for (const handler of mocks.displayHandlers) handler();
+
+    const clamped = { x: 1920 - Math.round(PET_W), y: 500, width: Math.round(PET_W), height: Math.round(PET_H) };
+    expect(win.setBounds).toHaveBeenCalledWith(clamped, false);
+    expect(persist).toHaveBeenCalledWith({ x: clamped.x, y: 500 });
+    expect(win.webContents.send).toHaveBeenCalledWith(IPC.VERGE_PET_GEOMETRY, {
+      bounds: clamped,
+      workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+    });
+  });
+
+  it("正对照：窗口已在新 workArea 内 —— 不发 setBounds、不许多写一次保存点", () => {
+    const { manager, persist } = buildManager();
+    const win = manager.createPetWindow();
+    win.setPosition(800, 300);
+
+    for (const handler of mocks.displayHandlers) handler();
+
+    expect(win.setBounds).not.toHaveBeenCalled();
+    expect(persist).not.toHaveBeenCalled();
+    expect(win.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it("dispose 解绑：销毁之后再变拓扑不再夹取", () => {
+    const { manager } = buildManager();
+    manager.createPetWindow();
+    manager.dispose();
+    expect(mocks.displayHandlers).toHaveLength(0);
   });
 });

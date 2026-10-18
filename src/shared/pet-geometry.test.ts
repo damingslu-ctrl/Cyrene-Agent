@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BUB_W, EDGE_MARGIN, OPEN_H, OPEN_W, PET_H, PET_W, PIN,
-  clampRestoreOrigin, computeCatRect, computePetLayout, resolveGrowthDirection, scaleFor,
+  clampBoundsToWorkArea, clampRestoreOrigin, computeCatRect, computePetLayout, resolveGrowthDirection, scaleFor,
 } from "./pet-geometry";
 
 const wa = { x: 0, y: 0, width: 1920, height: 1040 };
@@ -229,5 +229,33 @@ describe("clampRestoreOrigin", () => {
     expect(
       clampRestoreOrigin({ saved: { x: 1900, y: 1000 }, workArea: wa, size }),
     ).toEqual({ x: 1920 - size.width, y: 1040 - size.height });
+  });
+});
+
+describe("clampBoundsToWorkArea", () => {
+  it("副屏拔掉：原副屏坐标按新（主屏）workArea 夹回，尺寸不动", () => {
+    // 拔屏前窗口在副屏 x=2400；拔屏后只剩主屏 workArea {0,0,1920,1040}
+    expect(clampBoundsToWorkArea({ x: 2400, y: 500, width: PET_W, height: PET_H }, wa)).toEqual({
+      x: 1920 - PET_W, y: 500, width: PET_W, height: PET_H,
+    });
+  });
+
+  it("已在 workArea 内的一字不动（正对照）", () => {
+    expect(clampBoundsToWorkArea({ x: 800, y: 300, width: PET_W, height: PET_H }, wa)).toEqual({
+      x: 800, y: 300, width: PET_W, height: PET_H,
+    });
+  });
+
+  it("负坐标夹到 workArea 原点", () => {
+    expect(clampBoundsToWorkArea({ x: -50, y: -20, width: PET_W, height: PET_H }, wa)).toEqual({
+      x: 0, y: 0, width: PET_W, height: PET_H,
+    });
+  });
+
+  it("workArea 原点非零（主屏换到副屏）时按该原点夹两轴", () => {
+    const secondary = { x: 1920, y: 0, width: 1280, height: 1024 };
+    expect(clampBoundsToWorkArea({ x: 100, y: 2000, width: PET_W, height: PET_H }, secondary)).toEqual({
+      x: 1920, y: 1024 - PET_H, width: PET_W, height: PET_H,
+    });
   });
 });

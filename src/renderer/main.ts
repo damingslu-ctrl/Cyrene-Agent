@@ -36,6 +36,8 @@ let clickThrough: ClickThroughController | null = null;
 let petZoomOff: (() => void) | null = null;
 let petVisibilityOff: (() => void) | null = null;
 let quietChangedOff: (() => void) | null = null;
+let tuckChangedOff: (() => void) | null = null;
+let geometryChangedOff: (() => void) | null = null;
 let petVisible = true;
 const disposers: Array<() => void> = [];
 
@@ -99,6 +101,21 @@ const renderer = new PixelPetRenderer({
       renderer.setQuiet(quietUntil !== null && Date.now() < quietUntil);
     }) ?? null;
 
+    // —— Task 12 贴边藏身与显示器变更 ——
+    // 几何基线起帧拉一次。null = 主端还没窗——不许兜底拼一份假基线：
+    // 状态机没有基线就不跑（没窗本就没有猫）。
+    void window.verge?.getPetGeometry().then((geo) => {
+      if (geo) renderer.syncGeometry(geo);
+    }).catch(() => { /* 拉不到基线：藏身不启动，不影响猫本身画出来 */ });
+    geometryChangedOff = window.verge?.onPetGeometryChanged(({ bounds, workArea }) => {
+      // display-metrics-changed 主端重夹取后的推送：渲染端跟着重建 catOrigin，
+      // 它自己不发位置指令——位置权威始终在 main。
+      renderer.syncWindowBounds(bounds, workArea);
+    }) ?? null;
+    tuckChangedOff = window.verge?.onTuckChanged(({ tuckEnabled }) => {
+      renderer.setTuckEnabled(tuckEnabled);
+    }) ?? null;
+
     (window as unknown as { __cyrene: unknown }).__cyrene = {
       renderer,
       clickThrough,
@@ -129,6 +146,10 @@ window.addEventListener("beforeunload", () => {
   petVisibilityOff = null;
   quietChangedOff?.();
   quietChangedOff = null;
+  tuckChangedOff?.();
+  tuckChangedOff = null;
+  geometryChangedOff?.();
+  geometryChangedOff = null;
   renderer.dispose();
   for (const off of disposers) off();
   disposers.length = 0;
@@ -213,12 +234,15 @@ function scheduleMoveTo(screenX: number, screenY: number): void {
   }
 }
 
-function flushMove(): void {
+function flushMove(): { x: number; y: number } | null {
   rafId = null;
   if (pendingPosition) {
-    window.cyrene.moveTo(pendingPosition.x, pendingPosition.y);
+    const flushed = pendingPosition;
+    window.cyrene.moveTo(flushed.x, flushed.y);
     pendingPosition = null;
+    return flushed;
   }
+  return null;
 }
 
 function cancelPendingMove(): void {
@@ -229,16 +253,26 @@ function cancelPendingMove(): void {
   pendingPosition = null;
 }
 
-function finishDrag(): void {
+function finishDrag(finalPos: { x: number; y: number } | null): void {
   isDragging = false;
   dragToken += 1;
   cancelPendingMove();
   clearDragOverlay();
+  // 勘误 8 的顺序：先 setDragging(false) 开回主端位置门，再让渲染端重算并补发
+  // bounds——反过来会把这次 PET_RESIZE 的位置变化吞在闸门里，猫停在拖拽起点。
+  // setDragging(false) 同时让 controller 把最后一次 moveTo 落位并持久化。
+  window.cyrene.setDragging(false);
+  renderer.endDrag(finalPos);
+  // 拖后重拉一次基线（一拖一次 invoke，不是每帧开销）：
+  // - pointercancel 没有 finalPos，真实落位只有主端知道；
+  // - 跨屏拖拽后 workArea 也要跟着换屏——显示器查询的权威在 main。
+  void window.verge?.getPetGeometry().then((geo) => {
+    if (geo) renderer.syncGeometry(geo);
+  }).catch(() => { /* 拿不到基线：状态机停在旧值，等下一次成功拉取 */ });
   if (petVisible) {
     renderer.resume();
+    clickThrough?.resume();
   }
-  window.cyrene.setDragging(false);
-  if (petVisible) clickThrough?.resume();
 }
 
 // Click-through is driven per-pixel by ClickThroughController on pointermove.
@@ -247,15 +281,18 @@ function finishDrag(): void {
 // means there's nothing to capture (and no move will fire), so pass through.
 addTrackedEventListener(canvas, "pointerenter", () => {
   clickThrough?.resume();
+  // user_active（native main.rs:4609）：光标进窗即闲置清零、藏身闸门断粮、贴着边也退回。
+  renderer.setUserActive(true);
 });
 
 addTrackedEventListener(canvas, "pointercancel", () => {
-  if (isDragging) finishDrag();
+  if (isDragging) finishDrag(null);
 });
 
 addTrackedEventListener(canvas, "pointerleave", () => {
   if (isDragging) return;
   void window.cyrene.setInteractive(false);
+  renderer.setUserActive(false);
 });
 
 addTrackedEventListener(canvas, "pointerdown", (e) => {
@@ -271,6 +308,9 @@ addTrackedEventListener(canvas, "pointerdown", (e) => {
   dragOffsetX = event.screenX - window.screenX;
   dragOffsetY = event.screenY - window.screenY;
   cancelPendingMove();
+  // peek 吸收走在冻结快照之前（native main.rs:4796-4801）：applied_pos 可证不变，
+  // 拖一只藏着的猫从它**真在的位置**起拖，不许跳。
+  renderer.beginDrag();
   clickThrough?.pause();
   renderer.pause();
   void window.cyrene.setInteractive(true);
@@ -295,8 +335,8 @@ addTrackedEventListener(canvas, "pointerup", (e) => {
     cancelAnimationFrame(rafId);
     rafId = null;
   }
-  flushMove();
-  finishDrag();
+  const finalPos = flushMove();
+  finishDrag(finalPos);
 
   try {
     (event.target as Element).releasePointerCapture(event.pointerId);

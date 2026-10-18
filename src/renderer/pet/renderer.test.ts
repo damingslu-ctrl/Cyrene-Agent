@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PixelPetRenderer } from "./renderer";
 import type { CatInput, Mood } from "./art";
 import { computeCatRect } from "../../shared/pet-geometry";
@@ -211,5 +211,185 @@ describe("PixelPetRenderer", () => {
       expect(sleepAwake.crescents).toBe(0);
       r.dispose();
     });
+  });
+});
+
+/**
+ * Task 12 贴边藏身状态机（渲染端）。时间体系：
+ * - performance.now 由可推进的 clock 驱动（外部方法触发的即时补画与循环帧同一条秒表）；
+ * - rAF 时间戳按 250ms/帧喂（4fps 档全过闸）；dtRaw 恰为 0.25s/帧，闲置计时可精确排帧。
+ */
+describe("PixelPetRenderer tuck (Task 12)", () => {
+  afterEach(() => {
+    delete (window as unknown as { verge?: unknown }).verge;
+  });
+
+  function makeVergeStub() {
+    const stub = { resizePetWindow: vi.fn(), tuckHinted: vi.fn() };
+    (window as unknown as { verge: unknown }).verge = stub;
+    return stub;
+  }
+
+  const waMain = { x: 0, y: 0, width: 1920, height: 1040 };
+  // 右缘贴边位：1920 − 82 = 1838（rightGap = 0，EDGE_NEAR 内）。
+  const edgeBounds = { x: 1838, y: 400, width: 82, height: 108 };
+
+  function makeTuckedRenderer(clockRef: { ms: number }) {
+    const loop = makeLoopDriver();
+    const verge = makeVergeStub();
+    vi.spyOn(performance, "now").mockImplementation(() => clockRef.ms);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const canvas = makeCanvas();
+    const r = new PixelPetRenderer({ canvas, width: 82, height: 108, onLoad: vi.fn(), onError: vi.fn() });
+    return { loop, verge, logSpy, canvas, r, cat: (r as unknown as { cat: CatInput }).cat };
+  }
+
+  /** 每帧 250ms 推进（4fps 档全过闸），返回帧数。 */
+  function advance(loop: { fire(now: number): void }, clockRef: { ms: number }, frames: number): void {
+    for (let i = 0; i < frames; i += 1) {
+      clockRef.ms += 250;
+      loop.fire(clockRef.ms);
+    }
+  }
+
+  it("闲置 6s 闸、首滑先解释、peek 只进绘制偏移与探针列（#38 反向补偿回归闸）", async () => {
+    const clock = { ms: 10_000 };
+    const { loop, verge, logSpy, r, cat } = makeTuckedRenderer(clock);
+    await r.init();
+    r.syncGeometry({ bounds: edgeBounds, workArea: waMain, tuckEnabled: true, tuckHinted: false, tuckLimit: 6 });
+    verge.resizePetWindow.mockClear(); // 基线那发不算藏身证据
+    const centerHome = { ...cat.center };
+
+    // 23 帧 = 5.75s：闸在 `> limit`（main.rs:4928），一条都不许多发。
+    advance(loop, clock, 23);
+    expect(verge.resizePetWindow).not.toHaveBeenCalled();
+    expect(verge.tuckHinted).not.toHaveBeenCalled();
+
+    // 第 24 帧 idle=6.0，不严格大于 → 还不滑。
+    advance(loop, clock, 1);
+    expect(verge.resizePetWindow).not.toHaveBeenCalled();
+
+    // 第 25 帧 idle=6.25：过闸。首滑先解释、这一帧按住不动（main.rs:4947-4961）。
+    advance(loop, clock, 1);
+    expect(verge.tuckHinted).toHaveBeenCalledTimes(1);
+    expect(logSpy.mock.calls.map((args) => String(args[0])).join("\n")).toContain("放着不动");
+    expect(verge.resizePetWindow).not.toHaveBeenCalled(); // 解释帧零位移：几何一字未变
+
+    // 第 26 帧真起步：窗口已贴右缘（1838 = 1920−82），pos 被夹得一动不动，
+    // peek 只进 center/pinInWin/探针列——把 peek 挪进窗口位置的实现从这行就红。
+    advance(loop, clock, 1);
+    expect(verge.resizePetWindow).toHaveBeenCalledTimes(1);
+    const slide = verge.resizePetWindow.mock.calls[0]![0] as Record<string, never>;
+    expect(slide.x).toBe(1838);
+    expect(slide.width).toBe(82);
+    expect(slide.peekDx as number).toBeGreaterThan(0);
+    expect(slide.peekDx as number).toBeLessThan(40);
+    expect(cat.center.x).toBeGreaterThan(centerHome.x);
+    // center = pinInWin + (−17s, +4.5s)（main.rs:4380-4383），s = scaleFor(0).s = 37/60。
+    expect(slide.pinInWin.x - (slide.center.x as number)).toBeCloseTo(17 * (37 / 60), 6);
+
+    // 缓动走到吸附（tuckStep 残余 <0.5 直接落 40）。
+    advance(loop, clock, 40);
+    const last = verge.resizePetWindow.mock.calls.at(-1)![0] as Record<string, never>;
+    expect(last.peekDx).toBe(40);
+    expect(last.x).toBe(1838); // 窗口绝不出屏：底部胶囊完整（#38 的另一半）
+    expect(cat.center.x).toBeCloseTo(centerHome.x + 40, 6);
+    // 解释只说一次：tuckHinted 的凭据闸门（main.rs:4958）。
+    expect(verge.tuckHinted).toHaveBeenCalledTimes(1);
+    r.dispose();
+  });
+
+  it("user_active 闸门：光标进窗立刻退回、期间绝不重新起步", async () => {
+    const clock = { ms: 10_000 };
+    const { loop, verge, r, cat } = makeTuckedRenderer(clock);
+    await r.init();
+    r.syncGeometry({ bounds: edgeBounds, workArea: waMain, tuckEnabled: true, tuckHinted: true, tuckLimit: 6 });
+    verge.resizePetWindow.mockClear();
+    const centerHome = { ...cat.center };
+    advance(loop, clock, 70); // 藏满 40px（tuckHinted 预置真：不掺解释帧）
+    expect(verge.resizePetWindow.mock.calls.at(-1)![0] as Record<string, never>).toMatchObject({ peekDx: 40, x: 1838 });
+
+    r.setUserActive(true);
+    advance(loop, clock, 40); // 退回 + 再闲置 10s：user_active 清账 + 六闸断粮（main.rs:4902/4927）
+    const end = verge.resizePetWindow.mock.calls.at(-1)![0] as Record<string, never>;
+    expect(end.peekDx).toBe(0);
+    expect(cat.center.x).toBeCloseTo(centerHome.x, 6);
+    const sendCount = verge.resizePetWindow.mock.calls.length;
+    advance(loop, clock, 40);
+    expect(verge.resizePetWindow).toHaveBeenCalledTimes(sendCount); // 正对照：静置 0 流量
+    r.dispose();
+  });
+
+  it("取消勾选：立刻回位且从此不再藏（屏幕验收判据 3 的进程内对位）", async () => {
+    const clock = { ms: 10_000 };
+    const { loop, verge, r } = makeTuckedRenderer(clock);
+    await r.init();
+    r.syncGeometry({ bounds: edgeBounds, workArea: waMain, tuckEnabled: true, tuckHinted: true, tuckLimit: 6 });
+    advance(loop, clock, 70);
+    expect(verge.resizePetWindow.mock.calls.at(-1)![0] as Record<string, never>).toMatchObject({ peekDx: 40 });
+
+    r.setTuckEnabled(false);
+    advance(loop, clock, 40);
+    expect(verge.resizePetWindow.mock.calls.at(-1)![0] as Record<string, never>).toMatchObject({ peekDx: 0, x: 1838 });
+    const sendCount = verge.resizePetWindow.mock.calls.length;
+    advance(loop, clock, 80); // 再闲置 20s：tuck=false 后闸门永久断粮（main.rs:4926 ⚠️ 条）
+    expect(verge.resizePetWindow).toHaveBeenCalledTimes(sendCount);
+    r.dispose();
+  });
+
+  it("拖拽：起点吸收 peek 时窗口一步不动（applied 可证不变），收尾按落位补发几何", async () => {
+    const clock = { ms: 10_000 };
+    const { loop, verge, r, cat } = makeTuckedRenderer(clock);
+    await r.init();
+    r.syncGeometry({ bounds: edgeBounds, workArea: waMain, tuckEnabled: true, tuckHinted: true, tuckLimit: 6 });
+    verge.resizePetWindow.mockClear();
+    advance(loop, clock, 70);
+    const sendsDuringTuck = verge.resizePetWindow.mock.calls.length;
+    const centerTucked = { ...cat.center };
+
+    // beginDrag：吸收进基准位、peek 归零——pos = clamp(catOrigin+peek) 数学上同一点，
+    // 窗口不许动（main.rs:4804「applied_pos 不变」）。载荷可以重发一条（bounds 逐字不变，
+    // 主端两闸自然吞掉）；被吞的是移动指令，不是消息本身。
+    r.beginDrag();
+    const onGrab = verge.resizePetWindow.mock.calls.at(-1)![0] as Record<string, never>;
+    expect(onGrab).toMatchObject({ x: 1838, y: 400, width: 82, height: 108, peekDx: 0 });
+    expect(cat.center.x).toBeCloseTo(centerTucked.x, 6); // 绘制中心逐位不变：拖起来不跳
+
+    // endDrag 必须发生在 setDragging(false) 之后（main.ts 的收口顺序）：按落位补发。
+    r.endDrag({ x: 500, y: 300 });
+    expect(verge.resizePetWindow).toHaveBeenCalledTimes(sendsDuringTuck + 2); // 吸收一条 + 落位一条
+    const afterDrag = verge.resizePetWindow.mock.calls.at(-1)![0] as Record<string, never>;
+    expect(afterDrag).toMatchObject({ x: 500, y: 300, peekDx: 0 });
+
+    // 拖到屏中央后不再自滑（EDGE_NEAR 外）：正对照是上面那条补发确实通了。
+    advance(loop, clock, 80);
+    expect(verge.resizePetWindow).toHaveBeenCalledTimes(sendsDuringTuck + 2);
+    r.dispose();
+  });
+
+  it("渲染端每帧夹取：几何基线落在消失的副屏坐标上时夹回主屏（main.rs:4171-4184 的消费端）", async () => {
+    const clock = { ms: 10_000 };
+    const { loop, verge, r } = makeTuckedRenderer(clock);
+    await r.init();
+    r.syncGeometry({
+      bounds: { x: 2400, y: 400, width: 82, height: 108 },
+      workArea: waMain,
+      tuckEnabled: false, tuckHinted: true, tuckLimit: 6,
+    });
+    // 两条 1838：基线那发连窗口位置都被 computePetLayout 的 peek 分支夹在 workArea 内
+    // （渲染端从不请求 2400 的落位），但模型还站在 2400——每帧夹取（:4171-4184）把
+    // catOrigin 拽回 1838、补发修正 pinInWin。第三帧起死区到顶，不许再来一条。
+    const sentX = verge.resizePetWindow.mock.calls.map((args) => (args[0] as Record<string, never>).x);
+    expect(sentX).toEqual([1838, 1838]);
+    const second = verge.resizePetWindow.mock.calls[1]![0] as Record<string, never>;
+    expect(second.y).toBe(400);
+    expect(second.pinInWin.x).toBeCloseTo(41, 6); // 修正后猫回到窗口内正常钉位（第一条是 603）
+    advance(loop, clock, 1);
+    expect(verge.resizePetWindow).toHaveBeenCalledTimes(2);
+
+    // 正对照：已在 workArea 内的推送一字不动（不发第三条）。
+    r.syncWindowBounds(edgeBounds, waMain);
+    expect(verge.resizePetWindow).toHaveBeenCalledTimes(2);
+    r.dispose();
   });
 });

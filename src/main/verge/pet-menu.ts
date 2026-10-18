@@ -85,6 +85,12 @@ export interface PetContextMenuInput {
    * isQuiet()，不广播就得等重启才上屏。
    */
   onQuietStateChange(quietUntil: number | null): void;
+  /**
+   * tuck 开关写盘后的唯一收口（Task 12，applyQuietState 同构）：向渲染端广播当下值。
+   * 「取消勾选立刻回位且不再藏」靠这条——渲染端的位置权威不在此，但闸门开关必须即时
+   * 传达；菜单若绕过它，猫会一直藏到下次重启（VERGE_SET_TUCK 与此共用同一个函数）。
+   */
+  onTuckStateChange(enabled: boolean): void;
 }
 
 /**
@@ -96,7 +102,7 @@ export interface PetContextMenuInput {
  * 不能缓存一份在挂载时算好的 items。
  */
 export function attachPetContextMenu(input: PetContextMenuInput): void {
-  const { window, service, quit, onQuietStateChange } = input;
+  const { window, service, quit, onQuietStateChange, onTuckStateChange } = input;
   window.webContents.on("context-menu", (_event, _params) => {
     if (window.isDestroyed()) return;
     const now = Date.now();
@@ -118,7 +124,10 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
           onQuietStateChange(null);
         },
         toggleTuck: () => {
-          service.setTuckEnabled(!service.getState().tuckEnabled);
+          const next = !service.getState().tuckEnabled;
+          service.setTuckEnabled(next);
+          // 落盘 + 广播同一个收口（Task 11 quiet 的先例）：两处各写各的就会有一处漏上行。
+          onTuckStateChange(next);
         },
         hide: () => {
           if (!window.isDestroyed()) window.hide();

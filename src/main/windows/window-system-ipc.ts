@@ -6,7 +6,7 @@ import {
   musicPlayerWindow,
 } from "./window-state";
 import type { WindowManager } from "./window-manager";
-import type { PetBounds } from "./pet-bounds";
+import type { PetResizePayload } from "./pet-bounds";
 
 export interface WindowSystemIpcDependencies {
   get windowManager(): WindowManager | null;
@@ -48,8 +48,17 @@ export function registerWindowSystemIpc(deps: WindowSystemIpcDependencies): void
   // 契约：bounds 四个数已由渲染端 Math.round 取整（native 的 request_inner_size
   // 收整像素，main.rs:4308-4315）。这里不重复取整——窗口栅格按 DIP 记账，
   // 小数位只会让 shouldApplyBounds 的 0.5 阈永远猜不准。
-  ipc.on(IPC.VERGE_PET_RESIZE, (_event, bounds: PetBounds) => {
-    deps.windowManager?.setPetWindowBounds(bounds);
+  // Task 12 扩载荷：pinInWin/center/peekDx/e 为模型取证列，仅供 GEOM 探针，
+  // 不参与 shouldApplyBounds——位置/尺寸两闸只认 bounds 四数（native 两闸独立）。
+  ipc.on(IPC.VERGE_PET_RESIZE, (_event, payload: PetResizePayload) => {
+    const n = payload as unknown as Record<string, unknown> | null;
+    const ok =
+      !!n &&
+      Number.isFinite(n.x) && Number.isFinite(n.y) &&
+      Number.isFinite(n.width) && Number.isFinite(n.height) &&
+      (n.width as number) > 0 && (n.height as number) > 0;
+    if (!ok) return; // 坏载荷直接丢帧：几何下一帧自会重发，不许把 NaN 喂给 setBounds
+    deps.windowManager?.setPetWindowBounds(payload);
   });
 
   // 桌宠窗口自身的最小化/隐藏入口。两者曾随 index.ts 拆分（711a40d9）被误删，

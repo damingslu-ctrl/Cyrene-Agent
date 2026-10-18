@@ -148,6 +148,7 @@ import { registerVergeIpc } from "../verge/verge-ipc";
 import { attachPetContextMenu } from "../verge/pet-menu";
 import { attachQuietClock, quietChangedPayload } from "../verge/quiet-clock-wiring";
 import { armQuiet, isQuietNow } from "../verge/quiet-clock";
+import { TUCK_IDLE_SECS, TUCK_PROBE_IDLE_SECS } from "../verge/tuck-clock";
 import { resolveMusicPaths } from "../music/paths";
 import { initializeScreenshotService } from "../screenshot/screenshot-lifecycle";
 import { bootstrapConfigGetters } from "../startup/bootstrap-config";
@@ -275,6 +276,9 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
   // 两处各写各的会留下「盘上有已过去的截止没人清、月牙等重启才上屏」的欠账态
   // （native main.rs:2515-2517 明令当场清）。
   let onVergeQuietStateChange: ((quietUntil: number | null) => void) | null = null;
+  // tuck 开关收口（Task 12）：与 quiet 同构——菜单与 VERGE_SET_TUCK 共用一条广播，
+  // 「取消勾选立刻回位且不再藏」要求渲染端即时收到新值，不许等重启。
+  let onVergeTuckStateChange: ((enabled: boolean) => void) | null = null;
   // 自动压缩与 CHATS_COMPACT 必须共享同一个会话级压缩器，避免两条路径各自组装 provider。
   const getTranscriptCompactor = createTranscriptCompactorGetter(() =>
     createModelBackedConversationTranscriptCompactor({
@@ -525,6 +529,13 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
             );
           }
         };
+        // tuck 开关变更的唯一收口（applyQuietState 同构，Task 11 先例）：两条写盘路径
+        // （菜单 / VERGE_SET_TUCK）落盘后都从这里广播当下值，渲染端据此开/关藏身闸门。
+        const applyTuckState = (enabled: boolean): void => {
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) win.webContents.send(IPC.VERGE_TUCK_CHANGED, { tuckEnabled: enabled });
+          }
+        };
         // 启动即重排：盘上若躺着未来截止（含重启验收的 now+5000），进程一起来
         // 自醒钟就到位——不依赖下一次 toggle 才排上定时器。
         quietClock.rearm();
@@ -534,9 +545,11 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
             service: verge,
             quit: () => app.quit(),
             onQuietStateChange: applyQuietState,
+            onTuckStateChange: (enabled) => onVergeTuckStateChange?.(enabled),
           });
         };
         onVergeQuietStateChange = applyQuietState;
+        onVergeTuckStateChange = applyTuckState;
         shutdown.register({
           id: "verge-quiet-clock",
           phase: "stopLocalResources",
@@ -784,6 +797,31 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         ipc.on(IPC.VERGE_SET_TUCK, (_event, enabled: unknown) => {
           if (typeof enabled !== "boolean") return;
           services.verge.setTuckEnabled(enabled);
+          // 落盘 + 广播同一个收口（与菜单 onTuckStateChange 共用 applyTuckState）：
+          // 渲染端要即时开/关藏身闸门——「取消勾选立刻回位」不允许等重启。
+          onVergeTuckStateChange?.(enabled);
+        });
+        // Task 12：第一次藏身开口说过 TUCK_HINT 后由渲染端上报，落盘一次不再重说。
+        // 只有这一条写路径——探针/菜单都不碰 tuckHinted。
+        ipc.on(IPC.VERGE_TUCK_HINTED, () => {
+          services.verge.markTuckHinted();
+        });
+        // 渲染端起帧拉一次几何基线（它不是位置权威，但算 peek 目标与夹取要先有窗在哪）。
+        // 无窗返回 null——禁兜底：拿不到就是没窗，不许用常量拼一份假基线。
+        ipc.handle(IPC.VERGE_GET_PET_GEOMETRY, () => {
+          const bounds = shell.windowManager?.getPetWindowBounds() ?? null;
+          if (!bounds) return null;
+          const { workArea } = screen.getDisplayMatching(bounds);
+          const state = services.verge.getState();
+          return {
+            bounds,
+            workArea,
+            tuckEnabled: state.tuckEnabled,
+            tuckHinted: state.tuckHinted,
+            // native main.rs:5648 的同一个开关：--tuck-probe 把藏身阈值缩到 2.5s，
+            // 让屏幕验收在几秒内拍到藏身；阈值权威在主端，渲染端只消费。
+            tuckLimit: process.argv.includes("--tuck-probe") ? TUCK_PROBE_IDLE_SECS : TUCK_IDLE_SECS,
+          };
         });
         shutdown.register({
           id: "verge-module",

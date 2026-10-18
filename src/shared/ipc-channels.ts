@@ -592,5 +592,14 @@ export const IPC = {
   VERGE_IS_QUIET: "verge:is-quiet",
   /** main → 渲染端：到点自醒当场清盘时通知撤月牙（payload = 清盘后的 quietUntil，恒 null）。 */
   VERGE_QUIET_CHANGED: "verge:quiet-changed",
+  // —— Task 12 贴边藏身与显示器变更 ——
+  /** 渲染端起帧拉一次几何基线：返回 { bounds, workArea, tuckEnabled, tuckHinted, tuckLimit }。 */
+  VERGE_GET_PET_GEOMETRY: "verge:get-pet-geometry",
+  /** main → 渲染端：display-metrics-changed 重夹取之后推新 bounds + workArea。 */
+  VERGE_PET_GEOMETRY: "verge:pet-geometry",
+  /** main → 渲染端：tuck 开关变更（菜单/IPC 双路经收口闸口后统一广播）。 */
+  VERGE_TUCK_CHANGED: "verge:tuck-changed",
+  /** 渲染端 → main：第一次藏身开口说过 TUCK_HINT 后落盘 tuckHinted，不再重说。 */
+  VERGE_TUCK_HINTED: "verge:tuck-hinted",
 
 } as const;

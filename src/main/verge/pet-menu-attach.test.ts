@@ -61,10 +61,10 @@ function makeService(initial: { quietUntil: number | null; tuckEnabled: boolean 
   } as never;
 }
 
-/** 新建 mock 窗、挂菜单、触发一次右键，返回模板、handle 与 quiet 收口的记账。 */
-function rightClick(service: VergeService, quit = vi.fn(), onQuietStateChange = vi.fn()) {
+/** 新建 mock 窗、挂菜单、触发一次右键，返回模板、handle 与两条收口的记账。 */
+function rightClick(service: VergeService, quit = vi.fn(), onQuietStateChange = vi.fn(), onTuckStateChange = vi.fn()) {
   const win = new BrowserWindow() as unknown as BrowserWindow & { isDestroyed: () => boolean };
-  attachPetContextMenu({ window: win, service, quit, onQuietStateChange });
+  attachPetContextMenu({ window: win, service, quit, onQuietStateChange, onTuckStateChange });
   const listener = mocks.contextMenuListeners.at(-1);
   if (!listener) throw new Error("context-menu listener was not registered");
   listener({}, {});
@@ -74,6 +74,7 @@ function rightClick(service: VergeService, quit = vi.fn(), onQuietStateChange = 
     service,
     win,
     onQuietStateChange,
+    onTuckStateChange,
   };
 }
 
@@ -132,12 +133,14 @@ describe("attachPetContextMenu", () => {
     expect(onQuietStateChange.mock.calls).toEqual([[null]]);
   });
 
-  it("点「贴边藏身」翻转开关；点「退出」走注入的 quit 链路", () => {
+  it("点「贴边藏身」翻转开关并走 tuck 收口广播新值；点「退出」走注入的 quit 链路", () => {
     const quit = vi.fn();
     const service = makeService({ quietUntil: null, tuckEnabled: false });
-    const { template } = rightClick(service, quit);
+    const { template, onTuckStateChange } = rightClick(service, quit);
     itemByLabel(template, "贴边藏身").click?.();
     expect(service.tuckWrites).toEqual([true]);
+    // 「取消勾选立刻回位」的另一半：落盘之后必须把新值广播到渲染端（Task 11 quiet 收口同构）。
+    expect(onTuckStateChange.mock.calls).toEqual([[true]]);
     itemByLabel(template, "退出").click?.();
     expect(quit).toHaveBeenCalledOnce();
   });

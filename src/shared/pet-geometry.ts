@@ -63,6 +63,20 @@ export function scaleFor(e: number): { u: number; s: number } {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(hi, lo));
 
+/**
+ * native main.rs:4171-4184 的同一条规则搬到窗口层：
+ * 显示器拓扑变了（拔副屏 / 改缩放）之后，窗口 bounds 按新 workArea 双轴夹回，
+ * 尺寸不变。夹完的窗口原点即新的 catOrigin（peeking 态下 win_pos 与猫位同轴）。
+ */
+export function clampBoundsToWorkArea(bounds: Rect, workArea: WorkArea): Rect {
+  return {
+    x: clamp(bounds.x, workArea.x, workArea.x + workArea.width - bounds.width),
+    y: clamp(bounds.y, workArea.y, workArea.y + workArea.height - bounds.height),
+    width: bounds.width,
+    height: bounds.height,
+  };
+}
+
 export function computePetLayout(input: PetLayoutInput): PetLayout {
   const { catOrigin, e, be, growLeft, growUp, workArea, peekDx } = input;
 

@@ -43,4 +43,19 @@ describe("formatGeomProbe", () => {
       }),
     ).toContain("applied 300,400\tactual 300,400 248x482");
   });
+
+  it("Task 12：载荷扩列后探针报实际藏身位移——藏身中 peek 40.0，正对照静置 peek 0.0", () => {
+    expect(
+      formatGeomProbe({
+        t: 9, applied: { x: 1838, y: 400 }, actual: { x: 1838, y: 400, width: 82, height: 108 },
+        pin: { x: 80.5, y: 39.2 }, center: { x: 63.5, y: 43.7 }, peekDx: 40, e: 0, dpr: 1,
+      }),
+    ).toContain("pin 80.5,39.2\tcenter 63.5,43.7\tpeek 40.0\te 0.00");
+    expect(
+      formatGeomProbe({
+        t: 9.5, applied: { x: 1798, y: 400 }, actual: { x: 1798, y: 400, width: 82, height: 108 },
+        pin: { x: 41, y: 39 }, center: { x: 24, y: 43.5 }, peekDx: 0, e: 0, dpr: 1,
+      }),
+    ).toContain("peek 0.0\te 0.00");
+  });
 });
