@@ -174,6 +174,9 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
       const wasCurrentPetWindow = petWindow === window;
       if (wasCurrentPetWindow) petWindow = null;
       if (!wasCurrentPetWindow) return;
+      // 拖拽中的窗口被销毁（渲染进程崩、退出、换屏重建）时没人再发 setDragging(false)，
+      // 位置门会永远关着、PET_RESIZE 退化成只发尺寸。关门时把闸门本身复位。
+      petWindowDragging = false;
       for (const handler of closedHandlers) {
         try { handler(); } catch (err) { console.error("[WindowManager] closed handler failed:", err); }
       }

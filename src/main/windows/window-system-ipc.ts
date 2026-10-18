@@ -45,6 +45,9 @@ export function registerWindowSystemIpc(deps: WindowSystemIpcDependencies): void
 
   // 渲染端每帧驱动猫窗几何（收起 82×108 ↔ 面板 248×482）：单向消息，
   // 不用 invoke——返回值无人消费，而 invoke 会给每帧留下一条待结算的 promise。
+  // 契约：bounds 四个数已由渲染端 Math.round 取整（native 的 request_inner_size
+  // 收整像素，main.rs:4308-4315）。这里不重复取整——窗口栅格按 DIP 记账，
+  // 小数位只会让 shouldApplyBounds 的 0.5 阈永远猜不准。
   ipc.on(IPC.VERGE_PET_RESIZE, (_event, bounds: PetBounds) => {
     deps.windowManager?.setPetWindowBounds(bounds);
   });

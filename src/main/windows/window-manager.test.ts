@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   app: { once: vi.fn() },
   createdWindows: [] as Array<ReturnType<typeof createFakeWindow>>,
   createPetWindow: vi.fn(),
+  // 位置权威的动作要有账：测试名字声称 controller 权威，就得看得见它被动过。
+  moveController: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
@@ -24,7 +26,14 @@ vi.mock("./create-aux-windows", () => ({
 vi.mock("./startup-window-load", () => ({ CHAT_READY_TIMEOUT_MS: 1, loadWindowForStartup: vi.fn() }));
 vi.mock("./create-music-player-window", () => ({ createMusicPlayerWindow: vi.fn() }));
 vi.mock("./broadcast", () => ({ broadcastToAllWindows: vi.fn() }));
-vi.mock("../pet-window-movement", () => ({ PetWindowMoveController: class { dispose() {} finishDragging() {} moveRelative() {} queueAbsolute() {} } }));
+vi.mock("../pet-window-movement", () => ({
+  PetWindowMoveController: class {
+    dispose() { mocks.moveController("dispose"); }
+    finishDragging() { mocks.moveController("finishDragging"); }
+    moveRelative() { mocks.moveController("moveRelative"); }
+    queueAbsolute() { mocks.moveController("queueAbsolute"); }
+  },
+}));
 vi.mock("../../shared/disclaimer", () => ({ CURRENT_DISCLAIMER_VERSION: "current" }));
 
 function createFakeWindow() {
@@ -189,6 +198,7 @@ describe("pet window bounds channel", () => {
     expect(win.setPosition).toHaveBeenCalledTimes(1);
 
     manager.setPetWindowDragging(true);
+    expect(mocks.moveController.mock.calls.flat()).not.toContain("finishDragging");
     manager.setPetWindowBounds({ x: 600, y: 700, width: 82, height: 108 });
     expect(win.setPosition).toHaveBeenCalledTimes(1);
 
@@ -196,10 +206,27 @@ describe("pet window bounds channel", () => {
     expect(win.setSize).toHaveBeenCalledTimes(1);
 
     manager.setPetWindowDragging(false);
+    expect(mocks.moveController.mock.calls.flat()).toContain("finishDragging");
     manager.setPetWindowBounds({ x: 600, y: 700, width: 248, height: 482 });
     // 拖拽一收，位置门重新打开并补发请求——否则猫会停在拖拽起点不动。
     expect(win.setPosition).toHaveBeenCalledTimes(2);
     expect(win.getBounds()).toEqual({ x: 600, y: 700, width: 248, height: 482 });
+  });
+
+  it("拖拽中的窗口被销毁：closed 里复位拖拽门，重建后的窗口位置门照常开", () => {
+    const manager = buildManager();
+    const first = manager.createPetWindow();
+    manager.setPetWindowDragging(true);
+    // 渲染进程崩 / 退出 / 换屏重建：没人再发 setDragging(false)，闸门只能由 closed 兜底。
+    first.destroy();
+
+    const second = manager.createPetWindow();
+    expect(second).not.toBe(first);
+    manager.setPetWindowBounds({ x: 500, y: 600, width: 248, height: 482 });
+    expect(second.setPosition).toHaveBeenCalledTimes(1);
+    expect(second.setSize).toHaveBeenCalledTimes(1);
+    // 正对照：同一 manager 上没被拖拽污染过的通道确实通
+    expect(second.getBounds()).toEqual({ x: 500, y: 600, width: 248, height: 482 });
   });
 
   it("宠物窗尚未创建时请求被忽略（不抛错）", () => {
