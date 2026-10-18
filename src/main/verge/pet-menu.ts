@@ -42,11 +42,11 @@ export interface PetMenuActions {
  * 安静期第一项换成「安静中 · 剩 N 分」且禁用，第二项「取消安静」亮起——仍点第一项 = 没有这回事。
  */
 export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenuActions>): MenuItemInit[] {
-  const quietOn = isQuietOn(input);
+  const quietOn = isQuietNow(input.quietUntil, input.now);
   return [
     quietOn
       ? {
-          label: `安静中 · 剩 ${quietRemainingMinutesOf(input.quietUntil!, input.now)} 分`,
+          label: `安静中 · 剩 ${quietRemainingMinutes(input.quietUntil!, input.now)} 分`,
           enabled: false,
           ...(actions?.quiet ? { action: actions.quiet } : {}),
         }
@@ -60,15 +60,6 @@ export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenu
     { label: "隐藏", enabled: true, ...(actions?.hide ? { action: actions.hide } : {}) },
     { label: "退出", enabled: true, ...(actions?.quit ? { action: actions.quit } : {}) },
   ];
-}
-
-function isQuietOn(input: PetMenuInput): boolean {
-  return input.quietUntil !== null && input.now < input.quietUntil;
-}
-
-/** ceil 且至少 1（native quiet_chip main.rs:2534 口径），与 quiet-clock.ts 收敛到同一语义。 */
-function quietRemainingMinutesOf(quietUntil: number, now: number): number {
-  return Math.max(1, Math.ceil((quietUntil - now) / 60_000));
 }
 
 export interface PetContextMenuInput {
