@@ -5,7 +5,7 @@
  * 后续任何改动只要把上游域名重新引回 src/，这里当场红。A 期的静态判据全押在这一个文件里，
  * 运行时那把尺（Task 6 的 egress 看门狗）负责证明「没有间接路径」，两把尺不互相替代。
  *
- * 每条规则自带正对照（`positiveControl`）：规则写坏了（转义吃掉、大小写改了）
+ * 每条规则自带正对照（`positiveControls`）：规则写坏了（转义吃掉、大小写改了）
  * 会在正对照这一行红，而不是安静地扫 0 个命中然后报 PASS——spec §4 的「尺自己崩了不许读成 PASS」。
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";

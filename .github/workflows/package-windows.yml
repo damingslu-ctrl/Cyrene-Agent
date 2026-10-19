@@ -4,8 +4,9 @@ name: package-windows
 # - 复用与本地 package:win:dir 相同的构建链（build / build:screenshot-helper /
 #   prepare:mingit / prepare:mpv），产出 NSIS 安装器并留存为工作流产物
 # - --publish never：只构建不上传；升级源已随 P4 拆除（electron-builder.yml 无
-#   publish 块、electron-updater 已从依赖移除），所以产物里不会再有 latest.yml /
-#   *.blockmap——拿它们当上传必达项会让打包在「没有可上传文件」处失败
+#   publish 块、electron-updater 已从依赖移除），产物里不会再产出 latest.yml。
+#   *.blockmap 仍会随 NSIS 产出（electron-builder 26 对 nsis 无条件生成差分包指纹），
+#   但没有 latest.yml 索引就无从生效；两者都不应当作上传必达项
 # - 发布（草稿 Release）待 GitHub 托管恢复后另建独立工作流：仅版本标签触发、
 #   contents:write 最小权限、测试与安装验证通过后建草稿、人工核对再公开。
 #   详见 docs/refactor/2026-09-14-engineering-governance-plan.md 阶段 B
@@ -74,8 +75,9 @@ jobs:
       - name: Build NSIS installer
         run: pnpm exec electron-builder --win nsis --publish never
 
-      # 验证安装器与 win-unpacked 内随包二进制齐全；latest.yml / *.blockmap 必须不存在
-      # （没有升级源就没有升级元数据，这条反向锁由 verify:installer 执行）
+      # 验证安装器与 win-unpacked 内随包二进制齐全；latest.yml 必须不存在
+      # （.blockmap 允许：没有 latest.yml 索引它就是死文件）
+      # 这条反向锁由 verify:installer 执行
       - name: Verify installer artifacts
         run: pnpm run verify:installer
 
