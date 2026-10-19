@@ -42,13 +42,6 @@ export const IPC = {
   PET_VISIBILITY_CHANGED: "pet:visibility-changed",
   APP_QUIT: "app:quit",
 
-  // GitHub 应用更新
-  APP_UPDATE_GET_STATE: "app-update:get-state",
-  APP_UPDATE_CHECK: "app-update:check",
-  APP_UPDATE_DOWNLOAD: "app-update:download",
-  APP_UPDATE_INSTALL: "app-update:install",
-  APP_UPDATE_STATE: "app-update:state",
-
   // chat window
   CHAT_MINIMIZE: "chat:minimize",
   CHAT_CLOSE: "chat:close",
@@ -579,6 +572,8 @@ export const IPC = {
 
   // Verge 内建模块快照（store → service → IPC 三段骨架）
   VERGE_GET_SNAPSHOT: "verge:get-snapshot",
+  // 本机版本信息：设置页与 --brand-probe 共用的唯一读端（原来这里是 app-update:* 五条通道）
+  VERGE_GET_APP_INFO: "verge:get-app-info",
   // 宠物窗尺寸通道：renderer → main 推送目标边界，main 去重后调 setBounds
   VERGE_PET_RESIZE: "verge:pet-resize",
   // 渲染器 → main：toggleQuiet 返回翻转后的 quietUntil（null = 已取消）；setTuck 单向。

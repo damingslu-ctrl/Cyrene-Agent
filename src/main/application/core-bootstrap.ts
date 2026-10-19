@@ -25,7 +25,6 @@ import type { GmailService } from "../email/gmail-service";
 import type { MailAttachmentStore } from "../email/mail-attachment-store";
 import type { ScreenshotService } from "../screenshot/screenshot-lifecycle";
 import type { MusicBootstrap } from "../music/bootstrap";
-import type { AppUpdateService } from "../updater/app-update-service";
 import type { VergeService } from "../verge/verge-service";
 import type { LlmClient } from "../services/llm/llm-client";
 import type { CitaService } from "../cita";
@@ -52,7 +51,6 @@ export interface CoreServices {
   mailAttachmentStore: MailAttachmentStore;
   screenshot: ScreenshotService;
   music: MusicBootstrap;
-  update: AppUpdateService;
   verge: VergeService;
 }
 

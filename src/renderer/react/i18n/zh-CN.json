@@ -758,22 +758,7 @@
     "switchSessionModelTitle": "切换本对话使用的模型"
   },
   "appUpdate": {
-    "idle": "可检查新版本",
-    "checking": "正在检查更新…",
-    "availableWithVersion": "发现新版本 v{{version}}",
-    "available": "发现新版本",
-    "downloading": "正在下载 {{percent}}%",
-    "downloaded": "新版本已下载完成",
-    "upToDate": "已是最新版本",
-    "checkAction": "检查更新",
-    "downloadAction": "下载更新",
-    "retryAction": "重试",
-    "restartAction": "重启并更新",
-    "error": {
-      "check_failed": "暂时无法检查更新，请稍后再试",
-      "download_failed": "更新下载失败，请稍后再试",
-      "default": "更新服务出错，请稍后再试"
-    }
+    "localBuild": "本机构建，不联网检查更新"
   },
   "lastTurn": {
     "editMessage": "编辑最后一条消息",
@@ -1342,6 +1327,8 @@
       "about": "关于昔涟",
       "aboutDescription": "轻量情感陪伴桌面 Agent",
       "softwareUpdate": "软件更新",
+      "buildChannel": "构建方式",
+      "dataDir": "数据目录",
       "save": "保存设置"
     },
     "usage": {

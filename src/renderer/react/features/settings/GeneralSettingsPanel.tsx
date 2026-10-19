@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { Alert, Button, Spin } from "antd";
 import { Info, Monitor, Settings2 } from "lucide-react";
 import packageJson from "../../../../../package.json";
+import type { AppInfo } from "../../../../shared/app-info";
 import { SettingsSegmented, SettingsSwitch } from "../../components/ui/SettingsControls";
 import { setUiLocale, useTranslation } from "../../i18n";
 import { normalizeUiLanguage, type UiLanguage } from "../../../../shared/ui-language";
 import { Card } from "../../components/ui/Card";
-import { useAppUpdate } from "../../hooks/useAppUpdate";
-import { resolveAppUpdateView, resolveVersionTitleKey, WEBSITE_URL } from "./app-update-view";
+import { resolveAppInfoView, resolveVersionTitleKey } from "./app-update-view";
 
 interface GeneralValues {
   rememberWindowState: boolean;
@@ -43,10 +43,19 @@ export function GeneralSettingsPanel() {
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
-  const updateState = useAppUpdate();
-  const updateView = resolveAppUpdateView(updateState);
+  // 本机版本信息（原来的 app-update:get-state）：拿不到就退回打包内的版本号
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
+  useEffect(() => {
+    let active = true;
+    void window.verge?.getAppInfo().then((info) => {
+      if (active) setAppInfo(info);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+  const appInfoView = appInfo ? resolveAppInfoView(appInfo) : null;
+  const versionLabel = appInfoView?.versionLabel ?? `v${packageJson.version}`;
   // 版本称号（如 1.3.0 的"正式版"）随版本走，普通版本查不到就不显示
-  const versionTitleKey = resolveVersionTitleKey(packageJson.version);
+  const versionTitleKey = appInfoView?.titleKey ?? resolveVersionTitleKey(packageJson.version);
 
   useEffect(() => {
     let disposed = false;
@@ -99,15 +108,6 @@ export function GeneralSettingsPanel() {
     }
   }
 
-  /** 更新按钮：下载/安装按当前动作执行，检查与重试都从头查一遍 */
-  function triggerUpdateAction() {
-    const api = window.appUpdate;
-    if (!api) return;
-    if (updateView.action === "download") void api.download();
-    else if (updateView.action === "install") void api.install();
-    else if (updateView.action !== null) void api.check();
-  }
-
   /** 切换界面语言：先即时生效再落盘，落盘失败时回滚，避免界面与配置不一致。 */
   async function changeLanguage(next: UiLanguage) {
     const previous = values.language;
@@ -151,23 +151,24 @@ export function GeneralSettingsPanel() {
 
         <section className="cy-settings-section">
           <Card>
-            <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong><Info size={16} /> {t("settingsPage.general.about")}</strong><span>{t("settingsPage.general.aboutDescription")} · v{packageJson.version}{versionTitleKey && ` · ${t(versionTitleKey)}`} · <a className="cy-settings-about__link" href={WEBSITE_URL} onClick={(event) => { event.preventDefault(); void window.system?.openExternal(WEBSITE_URL); }}>{t("ui.website.menuEntry")}</a></span></div></div>
+            <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong><Info size={16} /> {t("settingsPage.general.about")}</strong><span>{t("settingsPage.general.aboutDescription")}</span></div></div>
+            {/* 版本信息三行只读：没有「检查更新」按钮，也没有任何可以点出失败的动作 */}
             <div className="cy-settings-row">
               <div className="cy-settings-row__copy">
-                <strong>{t("settingsPage.general.softwareUpdate")}</strong>
-                <span>{t(updateView.label.key, updateView.label.params)}</span>
-                {updateState.releaseNotes && <span className="cy-settings-general__notice">{updateState.releaseNotes}</span>}
+                <strong>{t("ui.version.menuEntry")}</strong>
+                <span>{versionLabel}{versionTitleKey && ` · ${t(versionTitleKey)}`}</span>
               </div>
-              <div className="cy-settings-row__control">
-                {updateView.busy && <Spin size="small" />}
-                {updateView.action && (
-                  <Button
-                    type={updateView.action === "install" ? "primary" : "default"}
-                    onClick={triggerUpdateAction}
-                  >
-                    {t(updateView.actionLabel ?? "")}
-                  </Button>
-                )}
+            </div>
+            <div className="cy-settings-row">
+              <div className="cy-settings-row__copy">
+                <strong>{t("settingsPage.general.buildChannel")}</strong>
+                <span>{t(appInfoView?.noteKey ?? "appUpdate.localBuild")}</span>
+              </div>
+            </div>
+            <div className="cy-settings-row">
+              <div className="cy-settings-row__copy">
+                <strong>{t("settingsPage.general.dataDir")}</strong>
+                <span>{appInfo?.dataDirName ?? "—"}</span>
               </div>
             </div>
           </Card>

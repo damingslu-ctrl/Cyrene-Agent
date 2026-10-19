@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
-import { Bug, Check, ChevronRight, Globe, Languages, Package, Palette, UserRound } from "lucide-react";
+import { Bug, Check, ChevronRight, Languages, Package, Palette, UserRound } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import packageJson from "../../../../../package.json";
 import { normalizeUiThemeChoice, type UiThemeChoice } from "../../../../shared/ui-theme";
 import { applyUiThemeChoice } from "../../../ui/theme";
-import { useAppUpdate } from "../../hooks/useAppUpdate";
 import { useUserAvatar } from "../../hooks/useUserAvatar";
 import { useUserNickname } from "../../hooks/useUserNickname";
 import { setUiLocale, useTranslation } from "../../i18n";
 import { normalizeUiLanguage, type UiLanguage } from "../../../../shared/ui-language";
-import { resolveAppUpdateView, resolveVersionTitleKey, WEBSITE_URL } from "../../features/settings/app-update-view";
+import { resolveVersionTitleKey } from "../../features/settings/app-update-view";
 import { IssueReportDialog } from "./IssueReportDialog";
 import { UserProfileDialog } from "./UserProfileDialog";
 import "./UserAvatar.css";
@@ -29,12 +28,18 @@ export function UserAvatar({ label }: UserAvatarProps) {
   const language = normalizeUiLanguage(locale);
   const languageLabel = (value: UiLanguage) =>
     value === "zh-CN" ? t("settingsPage.general.chinese") : value === "ja-JP" ? t("settingsPage.general.japanese") : "English";
-  // 更新红点与版本行共用同一状态源；有待处理的更新（发现/下载中/已下载）就亮
-  const updateState = useAppUpdate();
-  const updateView = resolveAppUpdateView(updateState);
-  const version = updateState.currentVersion || packageJson.version;
+  // 版本行读本机构建信息（原来的 app-update:get-state）；拿不到就退回打包内的版本号
+  const [version, setVersion] = useState(packageJson.version);
   // 版本称号（如 1.3.0 的"正式版"）随版本走，普通版本查不到就不显示
   const versionTitleKey = resolveVersionTitleKey(version);
+
+  useEffect(() => {
+    let active = true;
+    void window.verge?.getAppInfo().then((info) => {
+      if (active && info?.version) setVersion(info.version);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -88,10 +93,6 @@ export function UserAvatar({ label }: UserAvatarProps) {
               {avatarUrl
                 ? <img src={avatarUrl} alt={t("ui.userAlt")} draggable={false} />
                 : <span>U</span>}
-              {/* 更新提示点放左上角 */}
-              {updateView.badge && (
-                <span className="cy-user-avatar-dot cy-user-avatar-dot--update" aria-hidden="true" />
-              )}
             </span>
             <span className="cy-user-avatar-label">{displayLabel}</span>
           </button>
@@ -170,7 +171,7 @@ export function UserAvatar({ label }: UserAvatarProps) {
               <Bug size={16} aria-hidden="true" />
               <span>{t("ui.reportIssue.menuEntry")}</span>
             </DropdownMenu.Item>
-            {/* 版本行：点开跳到设置页"常规"的软件更新处 */}
+            {/* 版本行：点开跳到设置页"常规"的版本信息处 */}
             <DropdownMenu.Item
               className="cy-user-menu__item"
               onSelect={() => void window.settings?.openSection?.("general")}
@@ -181,15 +182,6 @@ export function UserAvatar({ label }: UserAvatarProps) {
                 v{version}
                 {versionTitleKey && ` · ${t(versionTitleKey)}`}
               </span>
-              {updateView.badge && <span className="cy-user-menu__dot" aria-hidden="true" />}
-            </DropdownMenu.Item>
-            {/* 官网入口：默认浏览器打开 */}
-            <DropdownMenu.Item
-              className="cy-user-menu__item"
-              onSelect={() => void window.system?.openExternal(WEBSITE_URL)}
-            >
-              <Globe size={16} aria-hidden="true" />
-              <span>{t("ui.website.menuEntry")}</span>
             </DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>

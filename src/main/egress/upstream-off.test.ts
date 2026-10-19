@@ -56,6 +56,20 @@ const RULES: Rule[] = [
       },
     ],
   },
+  {
+    clause: "A3 更新面",
+    pattern: /electron-updater|APP_UPDATE_CHECK|autoUpdater|github-app-updater|scheduleStartupUpdateCheck/i,
+    positiveControl: 'import { autoUpdater } from "electron-updater";',
+    exceptions: [
+      { file: "scripts/verify/installer-artifacts.mjs", reason: "保留的是「latest.yml 不得出现」的反向锁，正文里必须写出这个文件名才能证明锁在生效" },
+    ],
+  },
+  {
+    clause: "A3 上游发布源",
+    pattern: /provider:\s*github|owner:\s*Playa-Cyrene|repo:\s*Cyrene-Agent/i,
+    positiveControl: "provider: github",
+    exceptions: [],
+  },
 ];
 
 function sourceFiles(root: string, out: string[] = []): string[] {

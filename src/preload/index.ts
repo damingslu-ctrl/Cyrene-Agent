@@ -18,7 +18,6 @@ import type { WorkspaceListResult, WorkspaceReadResult } from "../shared/workspa
 import type { OpenInAppListResult, OpenInAppOpenResult } from "../shared/open-in-app-types";
 import { getLive2DIpcListenerCounts } from "./live2d-listener-diagnostics";
 import { exposeMusicApi } from "./music";
-import type { AppUpdateApi, AppUpdateState } from "../shared/app-update";
 import type { ConversationMode } from "../shared/chat-types";
 import type { SkillSuggestionItem, SkillSuggestionMode } from "../shared/skill-suggestions";
 import type { GmailAccountStatus, GmailClientConfigStatus } from "../shared/gmail-types";
@@ -55,18 +54,6 @@ const cyreneApi = {
     const listener = (_e: unknown, visible: boolean) => callback(visible);
     ipcRenderer.on(IPC.PET_VISIBILITY_CHANGED, listener);
     return () => ipcRenderer.off(IPC.PET_VISIBILITY_CHANGED, listener);
-  },
-};
-
-const appUpdateApi: AppUpdateApi = {
-  getState: () => ipcRenderer.invoke(IPC.APP_UPDATE_GET_STATE),
-  check: () => ipcRenderer.invoke(IPC.APP_UPDATE_CHECK),
-  download: () => ipcRenderer.invoke(IPC.APP_UPDATE_DOWNLOAD),
-  install: () => ipcRenderer.invoke(IPC.APP_UPDATE_INSTALL),
-  onStateChanged: (callback: (state: AppUpdateState) => void) => {
-    const listener = (_event: unknown, state: AppUpdateState) => callback(state);
-    ipcRenderer.on(IPC.APP_UPDATE_STATE, listener);
-    return () => ipcRenderer.off(IPC.APP_UPDATE_STATE, listener);
   },
 };
 
@@ -121,7 +108,6 @@ const chatApi = {
 };
 
 contextBridge.exposeInMainWorld("cyrene", cyreneApi);
-contextBridge.exposeInMainWorld("appUpdate", appUpdateApi);
 contextBridge.exposeInMainWorld("chat", chatApi);
 
 const browserPanelApi = {
@@ -1054,6 +1040,9 @@ type PetResizePayload = PetRect & {
 
 const vergeApi = {
   getSnapshot: () => ipcRenderer.invoke(IPC.VERGE_GET_SNAPSHOT),
+  /** 本机版本信息（设置页与头像菜单的版本行共用；buildChannel 恒为 local）。 */
+  getAppInfo: () =>
+    ipcRenderer.invoke(IPC.VERGE_GET_APP_INFO) as Promise<import("../shared/app-info").AppInfo>,
   resizePetWindow: (bounds: PetResizePayload) =>
     ipcRenderer.send(IPC.VERGE_PET_RESIZE, bounds),
   // 免打扰（Task 11）：toggleQuiet invoke 拿翻转后的 quietUntil（再点一次=取消，回 null）；

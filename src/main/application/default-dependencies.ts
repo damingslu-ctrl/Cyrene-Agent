@@ -11,7 +11,6 @@ import { closeConversationDatabases } from "../storage/conversation-database-cli
 import { app, BrowserWindow, dialog, screen } from "electron";
 import * as fs from "fs";
 import * as path from "path";
-import { autoUpdater } from "electron-updater";
 
 import { ensureGpuSandboxAcl } from "../gpu-sandbox-acl";
 import { configureVergeIdentity } from "../app-identity";
@@ -88,9 +87,7 @@ import {
 } from "../orchestrator/plan-mode";
 import { initMcpManager, pruneMcpServersByIds } from "../orchestrator/mcp-manager";
 import { syncPlaywrightMcp, syncFilesystemMcp, REMOVED_BUILTIN_MCP_IDS } from "../sync-mcp-builtin";
-import { registerAppUpdateIpc } from "../updater/app-update-ipc";
-import { createGitHubAppUpdateService, scheduleStartupUpdateCheck } from "../updater/github-app-updater";
-import { FORK_AUTO_UPDATE_DISABLED, shouldScheduleStartupUpdateCheck } from "../updater/update-policy";
+import { registerAppInfoIpc } from "../verge/app-info-ipc";
 import { registerWindowSystemIpc } from "../windows/window-system-ipc";
 import { enqueueLLMTask } from "../llm-queue";
 import {
@@ -171,7 +168,6 @@ import { prepareBeforeReady } from "./pre-ready";
 import { startShell } from "./shell-bootstrap";
 import { startCore } from "./core-bootstrap";
 import { startBackground } from "./background";
-import { installUpdateShutdownFallback, type UpdateLifecycleLike } from "./electron-lifecycle";
 import type { ApplicationDependencies } from "./application";
 
 /** Loading 最短展示时长（ms）：从实际 show() 时刻起算。 */
@@ -555,12 +551,6 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           dispose: async () => { quietClock.dispose(); },
         });
 
-        // 应用更新服务（检查/下载按需；安装必须先走受控退出）
-        const update = createGitHubAppUpdateService({
-          currentVersion: app.getVersion(),
-          isPackaged: app.isPackaged,
-        });
-
         return {
           runtimeState: runtimeStateService,
           llm: llmClient,
@@ -577,7 +567,6 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           screenshot,
           music,
           verge,
-          update,
         };
       },
 
@@ -775,6 +764,13 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         // Verge 内建模块骨架：IPC 注册到 shell.ipc（IpcScope.dispose 时自动清除处理器）
         const removeVergeIpc = registerVergeIpc(ipc, services.verge);
 
+        // 本机版本信息：设置页与 --brand-probe 共用。原来这里是 app-update:* 五条通道。
+        const removeAppInfoIpc = registerAppInfoIpc(ipc, {
+          getName: () => app.getName(),
+          getVersion: () => app.getVersion(),
+          dataDirName: () => path.basename(app.getPath("userData")),
+        });
+
         // Task 11 的三条渲染入口与到点自醒重排：
         // - toggle-quiet 是 invoke（拿翻转后的 quietUntil 回执）；is-quiet 是取回执的读。
         // - 写盘后一律走 onVergeQuietStateChange 这一条收口（rearm + 广播当下值），
@@ -824,6 +820,12 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           phase: "flushPersistence",
           dispose: async () => { removeVergeIpc(); },
         });
+        // 本机版本信息与 Verge 快照同属一条读通道，注销也挂在同一处。
+        shutdown.register({
+          id: "app-info-ipc",
+          phase: "flushPersistence",
+          dispose: async () => { removeAppInfoIpc(); },
+        });
 
         registerMemoryUserToolIpc({
           ipc,
@@ -868,18 +870,6 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           ipc,
           pendingTurnLifecycle,
         );
-
-        // 应用更新 IPC：安装走受控退出；autoUpdater 兜底路径进入同一协调器
-        registerAppUpdateIpc({
-          ipc,
-          service: services.update,
-          requestControlledShutdown: (input) => shutdown.requestControlledShutdown(input),
-        });
-        installUpdateShutdownFallback({
-          updater: autoUpdater as unknown as UpdateLifecycleLike,
-          coordinator: shutdown,
-          finalAction: () => services.update.install(),
-        });
 
         // 计划模式开关/查询 IPC
         ipc.handle(IPC.PLAN_SET_MODE, (_event, payload: { conversationId?: string; target?: "on" | "off"; workspaceRoot?: string }) => {
@@ -1018,16 +1008,6 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
       },
       prewarmScreenshot: async () => {
         await core.services.screenshot.prewarm();
-      },
-      scheduleUpdateCheck: async () => {
-        if (!shouldScheduleStartupUpdateCheck({
-          isPackaged: app.isPackaged,
-          forkAutoUpdateDisabled: FORK_AUTO_UPDATE_DISABLED,
-        })) {
-          return { dispose: () => {} };
-        }
-        const dispose = scheduleStartupUpdateCheck(core.services.update);
-        return { dispose };
       },
       startProactiveTrigger: async () => {
         core.services.proactive.initializeProactiveTrigger();

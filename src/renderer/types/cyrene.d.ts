@@ -18,6 +18,8 @@ declare global {
     /** 与 preload/index.ts 的 vergeApi 逐字对齐；Task 11 补免打扰三入口，Task 12 补贴边藏身与几何下行。 */
     verge: {
       getSnapshot(): Promise<unknown>;
+      /** 本机版本信息：设置页与头像菜单版本行的唯一读端（原来读的是 app-update:get-state）。 */
+      getAppInfo(): Promise<import("../../shared/app-info").AppInfo>;
       /** bounds 四数取整（位置/尺寸门的依据）；后四列是模型取证量，只喂 GEOM 探针，不参与闸门。 */
       resizePetWindow(
         bounds: {

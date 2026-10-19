@@ -1,9 +1,10 @@
-// 安装包产物验证：NSIS 安装器、更新元数据与随包二进制是否齐全。
+// 安装包产物验证：NSIS 安装器与随包二进制是否齐全，且不携带任何升级元数据。
 // 在 electron-builder --win nsis 构建完成后运行，检查输出目录（electron-builder.yml
 // 的 directories.output，默认 release/）：
 //   1. Cyrene-Setup-<version>.exe 存在且体积合理
-//   2. latest.yml 的 version 与 package.json 一致，path 指向同一安装器，sha512 存在
-//   3. 安装器同名 .blockmap（差分更新指纹表）存在且非空
+//   2. 升级元数据不得存在：本 fork 没有更新来源，latest.yml 一旦出现就说明
+//      publish 块或 electron-updater 被引回来了（Task 3 的反向锁）。
+//   3. 同理，安装器同名 .blockmap（差分更新指纹表）也不得存在。
 //   4. win-unpacked/resources 内截图辅助程序、mpv、MinGit、skills 快照齐全
 // 用法：node scripts/verify/installer-artifacts.mjs [--expect-version x.y.z]
 //   --expect-version：标签构建时传入标签版本，校验「产物版本与标签一致」
@@ -48,26 +49,19 @@ export async function verifyInstallerArtifacts(options = {}) {
     throw new Error(`安装器体积异常（${installerStat.size} bytes）：${installerPath}`);
   }
 
-  // 2. 更新元数据（electron-updater 下载依据；不校验内容等于放走更新路径回归）
-  const latest = parseYaml(await readFile(path.join(outputDir, "latest.yml"), "utf8"));
-  if (latest.version !== pkg.version) {
-    throw new Error(`latest.yml 版本 ${latest.version} 与 package.json 版本 ${pkg.version} 不一致`);
-  }
-  if (latest.path !== artifactName) {
-    throw new Error(`latest.yml path ${latest.path} 与安装器文件名 ${artifactName} 不一致`);
-  }
-  if (!latest.sha512 || typeof latest.sha512 !== "string") {
-    throw new Error("latest.yml 缺少 sha512 校验值");
-  }
-
-  // 3. 差分更新指纹表：electron-updater 差分下载依据，缺失时升级会静默回退全量下载
-  const blockmapPath = `${installerPath}.blockmap`;
-  const blockmapStat = await stat(blockmapPath);
-  if (blockmapStat.size <= 0) {
-    throw new Error(`blockmap 体积异常（${blockmapStat.size} bytes）：${blockmapPath}`);
+  // 2. 升级元数据不得存在：本 fork 没有更新来源，latest.yml 一旦出现就说明
+  //    publish 块或 electron-updater 被引回来了（Task 3 的反向锁）。
+  for (const forbidden of ["latest.yml", `${artifactName}.blockmap`]) {
+    const p = path.join(outputDir, forbidden);
+    try {
+      await stat(p);
+      throw new Error(`不应存在的升级元数据：${p}`);
+    } catch (err) {
+      if (err && err.code !== "ENOENT") throw err;
+    }
   }
 
-  // 4. win-unpacked 内的随包二进制（与安装器内容一致，免去装机检查）
+  // 3. win-unpacked 内的随包二进制（与安装器内容一致，免去装机检查）
   const resourcesDir = path.join(outputDir, "win-unpacked", "resources");
   const screenshot = await verifyScreenshotHelper(path.join(resourcesDir, "bin", "cyrene-screenshot.exe"));
   const mpv = await verifyMpvHelper(path.join(resourcesDir, "bin", "mpv", "mpv.exe"));

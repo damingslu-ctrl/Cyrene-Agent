@@ -1,7 +1,6 @@
 // Global type augmentations for renderer
 
 import type { ReviewSnapshot, ReviewRestoreOutcome } from "../shared/review-types";
-import type { AppUpdateApi } from "../shared/app-update";
 import type { PluginManagementApi, PluginPanelApi } from "../shared/plugin-management";
 import type { MomentsApi } from "../shared/moments-types";
 import type { WorkspaceListResult, WorkspaceReadResult } from "../shared/workspace-files-types";
@@ -201,7 +200,6 @@ declare global {
     review?: ReviewApi;
     workspaceFiles?: WorkspaceFilesApi;
     openInApp?: OpenInAppApi;
-    appUpdate?: AppUpdateApi;
     plugins?: PluginManagementApi;
     pluginPanel?: PluginPanelApi;
     moments?: MomentsApi;

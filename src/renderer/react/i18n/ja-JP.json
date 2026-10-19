@@ -774,22 +774,7 @@
     "switchSessionModelTitle": "この会話で使用するモデルを切り替え"
   },
   "appUpdate": {
-    "idle": "新しいバージョンを確認できます",
-    "checking": "アップデートを確認中…",
-    "availableWithVersion": "新しいバージョン v{{version}} が見つかりました",
-    "available": "新しいバージョンが見つかりました",
-    "downloading": "ダウンロード中 {{percent}}%",
-    "downloaded": "新しいバージョンのダウンロードが完了しました",
-    "upToDate": "最新バージョンです",
-    "checkAction": "アップデートを確認",
-    "downloadAction": "アップデートをダウンロード",
-    "retryAction": "再試行",
-    "restartAction": "再起動して更新",
-    "error": {
-      "check_failed": "現在アップデートを確認できません。しばらくしてから再試行してください",
-      "download_failed": "アップデートのダウンロードに失敗しました。しばらくしてから再試行してください",
-      "default": "アップデートサービスでエラーが発生しました。しばらくしてから再試行してください"
-    }
+    "localBuild": "ローカルビルド — オンラインでのアップデート確認は行いません"
   },
   "lastTurn": {
     "editMessage": "最後のメッセージを編集",
@@ -1366,6 +1351,8 @@
       "about": "キュレネについて",
       "aboutDescription": "軽量な感情コンパニオン型デスクトップ Agent",
       "softwareUpdate": "ソフトウェアアップデート",
+      "buildChannel": "ビルド種別",
+      "dataDir": "データフォルダー",
       "save": "設定を保存"
     },
     "usage": {
