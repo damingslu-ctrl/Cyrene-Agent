@@ -34,6 +34,18 @@ interface Rule {
   positiveControls: string[];
   /** 逐文件例外，必须写理由；例外是显式破例，不是放宽判据。 */
   exceptions: Array<{ file: string; reason: string }>;
+  /**
+   * 反向判据：这条规则的命中是**要求**，不是禁止。
+   * `required` 的规则断言「至少命中一次」；不写则维持「零命中」。
+   * 目前只有 A6（看门狗在场）用它。
+   */
+  required?: boolean;
+  /**
+   * `required` 规则的额外落点：命中必须出现在这些文件里（相对仓库根，`/` 分隔）。
+   * 没有它的话，只留 `egress-watchdog.ts` 的实现体就能让「至少命中一次」读成绿——
+   * 组合根的装配被删掉也看不出来，自锁就成了摆设。
+   */
+  requiredIn?: string[];
 }
 
 const RULES: Rule[] = [
@@ -125,6 +137,17 @@ const RULES: Rule[] = [
     // 本地目录枚举落地后，这条锁没有任何合法例外：插件市场只读 userData/plugins。
     exceptions: [],
   },
+  {
+    clause: "A6 看门狗在场",
+    // 反向判据：这条 pattern 命中是**要求**，不是禁止。
+    // 只认「调用形状」（名字后面跟括号），不认裸标识：本文件的 import 与
+    // `ReturnType<typeof ...>` 类型标注里也有这个名字，裸标识锁会把「装配被删」读成绿。
+    pattern: /installEgressWatchdog\s*\(/,
+    positiveControls: ["installEgressWatchdog("],
+    exceptions: [],
+    required: true,
+    requiredIn: ["src/main/index.ts"],
+  },
 ];
 
 function sourceFiles(root: string, out: string[] = []): string[] {
@@ -176,7 +199,7 @@ describe("上游出口清零（静态标识面）", () => {
   });
 
   for (const rule of RULES) {
-    it(`${rule.clause}：全仓不出现上游标识`, () => {
+    it(`${rule.clause}：${rule.required ? "必须出现（反向判据）" : "全仓不出现上游标识"}`, () => {
       for (const control of rule.positiveControls) {
         expect(rule.pattern.test(control), `正对照未命中，规则写坏了：${control}`).toBe(true);
       }
@@ -190,7 +213,16 @@ describe("上游出口清零（静态标识面）", () => {
         if (exempt) continue;
         hits.push(path.relative(process.cwd(), file));
       }
-      expect(hits).toEqual([]);
+      if (!rule.required) {
+        expect(hits).toEqual([]);
+        return;
+      }
+      // 反向判据 = 必须命中；再钉住组合根，免得实现体还在、装配被摘掉也能读成绿。
+      expect(hits.length, `${rule.clause}：看门狗被摘掉了`).toBeGreaterThan(0);
+      const normalized = hits.map((hit) => posixPath(hit));
+      for (const requiredIn of rule.requiredIn ?? []) {
+        expect(normalized, `${rule.clause}：组合根 ${requiredIn} 没有安装看门狗`).toContain(requiredIn);
+      }
     });
   }
 });

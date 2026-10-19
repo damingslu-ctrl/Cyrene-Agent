@@ -8,8 +8,11 @@
  */
 
 import { app } from "electron";
+import * as path from "node:path";
 import { createApplication } from "./application/application";
 import { createDefaultApplicationDependencies } from "./application/default-dependencies";
+import { installEgressWatchdog } from "./egress/egress-watchdog";
+import { armEgressProbe, readEgressProbeArg } from "./egress/egress-probe";
 import { registerPluginPanelScheme } from "./plugin-panel-protocol";
 import { installGlobalNavigationGuard } from "./windows/external-link";
 
@@ -36,8 +39,39 @@ const application = createApplication(createDefaultApplicationDependencies());
 application.installLifecycleHandlers();
 application.prepareBeforeReady();
 
+/**
+ * 运行时出口看门狗（P4 Task 6）：A 期唯一的「真窗尺」。
+ * 静态锁只能证明标识面干净，间接路径（库内写死的地址、运行时拼出来的 host）要在这里记。
+ */
+let egressWatchdog: ReturnType<typeof installEgressWatchdog> | null = null;
+
+/** 非探针档也要看得见：把新登记的外部请求逐条 warn 出来，10s 一次，不阻塞退出。 */
+function watchEgressInBackground(): void {
+  let reported = 0;
+  const timer = setInterval(() => {
+    const entries = egressWatchdog?.entries() ?? [];
+    for (; reported < entries.length; reported += 1) {
+      const entry = entries[reported];
+      console.warn(`[egress] external ${entry.method} ${entry.resourceType} ${entry.url}`);
+    }
+  }, 10_000);
+  timer.unref();
+}
+
 if (application.isPrimaryProcess()) {
   void app.whenReady()
-    .then(() => application.start())
+    .then(() => {
+      // ready 之后、窗口起来之前装：此时 defaultSession 已可用，首窗请求也会被记到。
+      const egressProbeMs = readEgressProbeArg();
+      if (egressProbeMs !== null) {
+        // 探针档短路：不进入 shell → core 编排，registerCoreIpc 不会跑，
+        // 模型供应商的 key-gated 请求不会混进表里。
+        armEgressProbe(egressProbeMs, path.dirname(app.getPath("userData")));
+        return;
+      }
+      egressWatchdog = installEgressWatchdog();
+      watchEgressInBackground();
+      return application.start();
+    })
     .catch((error) => application.handleFatalStartup(error));
 }
