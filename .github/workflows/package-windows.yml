@@ -3,8 +3,9 @@ name: package-windows
 # Windows 安装包构建工作流（治理方案阶段 B）：
 # - 复用与本地 package:win:dir 相同的构建链（build / build:screenshot-helper /
 #   prepare:mingit / prepare:mpv），产出 NSIS 安装器并留存为工作流产物
-# - --publish never：只构建不上传；应用更新源（GitHub Releases，由
-#   update-packaging-config.test.ts 固定）不在本工作流变更
+# - --publish never：只构建不上传；升级源已随 P4 拆除（electron-builder.yml 无
+#   publish 块、electron-updater 已从依赖移除），所以产物里不会再有 latest.yml /
+#   *.blockmap——拿它们当上传必达项会让打包在「没有可上传文件」处失败
 # - 发布（草稿 Release）待 GitHub 托管恢复后另建独立工作流：仅版本标签触发、
 #   contents:write 最小权限、测试与安装验证通过后建草稿、人工核对再公开。
 #   详见 docs/refactor/2026-09-14-engineering-governance-plan.md 阶段 B
@@ -73,7 +74,8 @@ jobs:
       - name: Build NSIS installer
         run: pnpm exec electron-builder --win nsis --publish never
 
-      # 验证安装器、latest.yml 更新元数据与 win-unpacked 内随包二进制齐全
+      # 验证安装器与 win-unpacked 内随包二进制齐全；latest.yml / *.blockmap 必须不存在
+      # （没有升级源就没有升级元数据，这条反向锁由 verify:installer 执行）
       - name: Verify installer artifacts
         run: pnpm run verify:installer
 
@@ -84,8 +86,6 @@ jobs:
           name: cyrene-windows-installer
           path: |
             release/Cyrene-Setup-*.exe
-            release/Cyrene-Setup-*.exe.blockmap
-            release/latest.yml
           if-no-files-found: error
           # 安装器数百 MB，缩短留存时间避免占满产物配额
           retention-days: 14
