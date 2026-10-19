@@ -109,10 +109,6 @@ const RULES: Rule[] = [
         reason: "插件市场面板顶部指向上游收录仓库，Task 5 改本地目录时一并删除",
       },
       {
-        file: "src/renderer/react/features/chat/components/PluginModePanel.test.ts",
-        reason: "上述面板的远端源断言夹具，Task 5 换成「条目来自 props 的本地清单」",
-      },
-      {
         file: "packages/plugin-sdk/package.json",
         reason: "`@playa0v0/cyrene-plugin-sdk` 是已发布的 npm scope/包名，改名属于身份任务，不在外链清零范围内；本任务只删 repository 字段",
       },

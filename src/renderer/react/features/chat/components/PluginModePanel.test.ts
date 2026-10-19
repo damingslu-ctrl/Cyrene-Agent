@@ -83,7 +83,7 @@ function plugin(overrides: Partial<PluginListEntry> = {}): PluginListEntry {
     name: "系统状态",
     version: "0.1.0",
     description: "查询本机系统状态",
-    author: "Playa",
+    author: "Mochi",
     entry: "index.cjs",
     apiVersion: 1,
     source: "user",
@@ -105,7 +105,7 @@ function marketEntry(overrides: Partial<MarketPluginEntry> = {}): MarketPluginEn
     name: "市场演示",
     version: "1.2.0",
     description: "市场里的演示插件",
-    author: "Playa",
+    author: "Mochi",
     downloads: 12,
     ...overrides,
   };
@@ -165,7 +165,7 @@ describe("PluginModePanel", () => {
 
     expect(container.textContent).toContain("系统状态");
     expect(container.textContent).toContain("查询本机系统状态");
-    expect(container.textContent).toContain("开发者：Playa");
+    expect(container.textContent).toContain("开发者：Mochi");
     expect(container.querySelector<HTMLImageElement>(".plugin-card-ui__icon img")?.src).toContain("data:image/png");
     const cardButtons = [...container.querySelectorAll<HTMLButtonElement>(".plugin-card-ui__actions button")];
     expect(cardButtons.map((button) => button.textContent)).toEqual(["打开", "停用", "删除"]);
@@ -315,8 +315,8 @@ describe("PluginModePanel", () => {
   });
 
   it("点击数据源 chip 会以该源 url 重新拉取市场列表", async () => {
-    const gitee = "https://gitee.com/playa0/cyrene-plugins/raw/main/registry.json";
-    const github = "https://raw.githubusercontent.com/Playa-0v0/Cyrene-Plugins/main/registry.json";
+    const gitee = "https://gitee.com/example/registry.json";
+    const github = "https://raw.githubusercontent.com/example/registry.json";
     const api = apiFor([]);
     (api.marketList as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
@@ -343,7 +343,7 @@ describe("PluginModePanel", () => {
   });
 
   it("市场视图里点刷新会重新拉取市场列表，并沿用当前使用的数据源", async () => {
-    const github = "https://raw.githubusercontent.com/Playa-0v0/Cyrene-Plugins/main/registry.json";
+    const github = "https://raw.githubusercontent.com/example/registry.json";
     const api = apiFor([]);
     const marketList = api.marketList as ReturnType<typeof vi.fn>;
     marketList.mockResolvedValueOnce({

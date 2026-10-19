@@ -512,13 +512,6 @@ MIT 仅约束本仓库的源代码，不适用于角色、Live2D 模型与美术
 	<tbody>
 		<tr>
             <td align="center">
-                <a href="https://github.com/Playa-0v0">
-                    <img src="https://avatars.githubusercontent.com/u/300061045?v=4" width="48;" alt="Playa-0v0"/>
-                    <br />
-                    <sub><b>Playa</b></sub>
-                </a>
-            </td>
-            <td align="center">
                 <a href="https://github.com/LZhWi">
                     <img src="https://avatars.githubusercontent.com/u/306725149?v=4" width="48;" alt="LZhWi"/>
                     <br />

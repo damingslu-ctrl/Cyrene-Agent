@@ -290,7 +290,8 @@ export function registerSettingsIpc(deps: SettingsIpcDependencies): void {
   });
 
   ipc.handle(IPC.OPEN_EXTERNAL, async (_event, url: string) => {
-    // mailto: 用于「报告问题」里的发邮件入口，交给系统默认邮件客户端；其余协议一律拒绝
+    // 放行 http(s) 与 mailto:（后者交给系统默认邮件客户端）；其余协议一律拒绝。
+    // 协议通过后还有下面的上游域名闸门，两条判据是「且」的关系。
     const allowed = url.startsWith("http://") || url.startsWith("https://") || url.startsWith("mailto:");
     if (!allowed) {
       return { ok: false, error: "Invalid URL" };
