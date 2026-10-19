@@ -577,11 +577,6 @@ export const IPC = {
   PLUGINS_MARKET_DETAILS: "plugins:market:details",
   PLUGINS_MARKET_INSTALL: "plugins:market:install",
 
-  // 项目公告（远端 Markdown 文本）
-  NEWS_GET: "news:get",
-  /** 主进程拉到新版本时反向推送给窗口，渲染端据此更新未读提示 */
-  NEWS_UPDATED: "news:updated",
-
   // Verge 内建模块快照（store → service → IPC 三段骨架）
   VERGE_GET_SNAPSHOT: "verge:get-snapshot",
   // 宠物窗尺寸通道：renderer → main 推送目标边界，main 去重后调 setBounds

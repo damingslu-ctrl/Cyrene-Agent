@@ -39,7 +39,6 @@ import { createModelBackedConversationTranscriptCompactor } from "../orchestrato
 import { ConversationJournalService } from "../orchestrator/conversation-journal-service";
 import { activeConversationRegistry } from "../chats/active-conversation-registry";
 import { registerSettingsIpc } from "../settings/settings-ipc";
-import { registerNewsIpc } from "../news/news-feed";
 import {
   applyGeneralSettings,
   handleGeneralSettingsChanged,
@@ -772,9 +771,6 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           syncFilesystemMcp,
         });
         registerGmailIpc({ ipc, auth: services.gmailAuth, service: services.gmail, attachmentStore: services.mailAttachmentStore });
-
-        // 项目公告：渲染端首次打开时拉一次，之后主进程每 6 小时对一次版本
-        registerNewsIpc(ipc);
 
         // Verge 内建模块骨架：IPC 注册到 shell.ipc（IpcScope.dispose 时自动清除处理器）
         const removeVergeIpc = registerVergeIpc(ipc, services.verge);

@@ -198,7 +198,6 @@ declare global {
       onChanged: (callback: () => void) => () => void;
     };
     system?: SystemApi;
-    news?: import("../shared/news-types").NewsApi;
     review?: ReviewApi;
     workspaceFiles?: WorkspaceFilesApi;
     openInApp?: OpenInAppApi;
