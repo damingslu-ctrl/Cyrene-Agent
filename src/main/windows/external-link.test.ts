@@ -4,7 +4,7 @@ import { isUpstreamUrl } from "../../shared/upstream-hosts";
 describe("上游链接拦截", () => {
   it("拦上游、放用户自己的域名（正对照防空判据）", () => {
     expect(isUpstreamUrl("https://github.com/Playa-Cyrene/Cyrene-Agent/issues")).toBe(true);
-    expect(isUpstreamUrl("https://gitee.com/playa0/cyrene-plugins/raw/main/registry.json")).toBe(true);
+    expect(isUpstreamUrl("https://gitee.com/example/demo")).toBe(true);
     expect(isUpstreamUrl("https://playaagentcyrene.online/")).toBe(true);
     // 上游域名的子域别名同样要拦：只比 hostname 全等时这三个都是绕过口
     expect(isUpstreamUrl("https://www.github.com/Playa-Cyrene/Cyrene-Agent")).toBe(true);

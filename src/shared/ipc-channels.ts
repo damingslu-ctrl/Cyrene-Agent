@@ -566,9 +566,8 @@ export const IPC = {
   PLUGINS_UNINSTALL: "plugins:uninstall",
   /** 设置面板桥的统一转发通道：仅面板宿主窗口可用，pluginId 由宿主侧绑定 */
   PLUGINS_PANEL_INVOKE: "plugins:panel:invoke",
+  /** 本地插件目录枚举：语义是「userData/plugins 里有什么」，不是远端索引 */
   PLUGINS_MARKET_LIST: "plugins:market:list",
-  PLUGINS_MARKET_DETAILS: "plugins:market:details",
-  PLUGINS_MARKET_INSTALL: "plugins:market:install",
 
   // Verge 内建模块快照（store → service → IPC 三段骨架）
   VERGE_GET_SNAPSHOT: "verge:get-snapshot",

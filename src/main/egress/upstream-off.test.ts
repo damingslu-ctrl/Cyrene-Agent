@@ -97,18 +97,6 @@ const RULES: Rule[] = [
         reason: "运行时拦截的负判据：必须把上游 URL 当作输入，才能证明 isUpstreamUrl 真的拦住",
       },
       {
-        file: "src/main/plugin-marketplace.ts",
-        reason: "远端 registry 由 Task 5 整体改成本地目录枚举；本条是显式前向依赖，Task 5 落地后此例外随文件内容失效",
-      },
-      {
-        file: "src/renderer/react/components/PluginMarketPreview.tsx",
-        reason: "假的插件市场预览，Task 5 整文件删除；删除前它的上游仓库样例仍属品牌链接",
-      },
-      {
-        file: "src/renderer/react/features/chat/components/PluginModePanel.tsx",
-        reason: "插件市场面板顶部指向上游收录仓库，Task 5 改本地目录时一并删除",
-      },
-      {
         file: "packages/plugin-sdk/package.json",
         reason: "`@playa0v0/cyrene-plugin-sdk` 是已发布的 npm scope/包名，改名属于身份任务，不在外链清零范围内；本任务只删 repository 字段",
       },
@@ -129,6 +117,13 @@ const RULES: Rule[] = [
         reason: "冒烟测试 require 的是真实包名，改字符串会让示例编译走空",
       },
     ],
+  },
+  {
+    clause: "A5 插件市场远端源",
+    pattern: /Cyrene-Plugins|MARKET_REGISTRY_URLS|MARKET_ZIP_URL_PREFIXES|registry\.json/i,
+    positiveControls: ["https://raw.githubusercontent.com/Playa-0v0/Cyrene-Plugins/main/registry.json"],
+    // 本地目录枚举落地后，这条锁没有任何合法例外：插件市场只读 userData/plugins。
+    exceptions: [],
   },
 ];
 

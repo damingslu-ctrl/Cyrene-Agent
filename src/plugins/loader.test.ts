@@ -7,7 +7,7 @@ import { loadPlugin, readManifest, scanPluginDir } from "./loader";
 let tmp: string;
 
 function fixture(rel: string, files: Record<string, string>): string {
-  if (!tmp) tmp = mkdtempSync(path.join(os.tmpdir(), "cyrene-plugins-test-"));
+  if (!tmp) tmp = mkdtempSync(path.join(os.tmpdir(), "cyrene-plugin-test-"));
   const dir = path.join(tmp, rel);
   mkdirSync(dir, { recursive: true });
   for (const [name, content] of Object.entries(files)) {

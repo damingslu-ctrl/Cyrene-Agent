@@ -19,11 +19,7 @@ import { installPluginPanelProtocol } from "./plugin-panel-protocol";
 import { createPluginIpcRouter } from "../plugins/ipc-router";
 import { PluginManager } from "../plugins/manager";
 import { pluginPromptRegistry } from "../plugins/prompts";
-import {
-  MARKET_REGISTRY_URLS,
-  MARKET_ZIP_URL_PREFIXES,
-  createPluginMarketplaceService,
-} from "./plugin-marketplace";
+import { listLocalMarketPlugins } from "./plugin-marketplace";
 import { IPC } from "../shared/ipc-channels";
 import type { LlmClient } from "./services/llm/llm-client";
 import { enqueueLLMTask } from "./llm-queue";
@@ -147,28 +143,8 @@ export async function startPluginRuntime(deps: PluginRuntimeDeps): Promise<Plugi
       return result.response === 1;
     },
   });
-  // 插件市场：列表来自官方索引快照，安装下载后走管理器的 ZIP 导入管线（含身份校验与来源记录）
-  const market = createPluginMarketplaceService({
-    registryUrls: MARKET_REGISTRY_URLS,
-    zipUrlPrefixes: MARKET_ZIP_URL_PREFIXES,
-    cacheDir: path.join(app.getPath("userData"), "plugin-market-cache"),
-    installZip: (zipPath, opts) => manager.installZip(zipPath, opts),
-  });
-  deps.ipc.handle(IPC.PLUGINS_MARKET_LIST, (_event, preferred: unknown) =>
-    market.listMarket(typeof preferred === "string" ? preferred : undefined),
-  );
-  deps.ipc.handle(IPC.PLUGINS_MARKET_DETAILS, (_event, id: unknown, preferred: unknown) => {
-    if (typeof id !== "string" || !id) {
-      return { ok: false, error: "id 必须是非空字符串" };
-    }
-    return market.getMarketDetails(id, typeof preferred === "string" ? preferred : undefined);
-  });
-  deps.ipc.handle(IPC.PLUGINS_MARKET_INSTALL, (_event, id: unknown) => {
-    if (typeof id !== "string" || !id) {
-      return { ok: false, error: "id 必须是非空字符串" };
-    }
-    return market.installFromMarket(id);
-  });
+  // 插件市场已降级为本地目录枚举：列表直接来自 userData/plugins，安装即「把插件放进去再刷新」。
+  deps.ipc.handle(IPC.PLUGINS_MARKET_LIST, () => listLocalMarketPlugins(userPluginRoot));
   if (deps.onPluginRunningStateChange) {
     manager.onRunningStateChange(deps.onPluginRunningStateChange);
   }

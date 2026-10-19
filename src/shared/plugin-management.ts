@@ -44,51 +44,24 @@ export interface PluginOverview {
   issues: PluginScanIssue[];
 }
 
-/** 插件市场条目（主进程校验 registry 后下发给渲染端的展示数据，不含 zip 地址与哈希） */
+/** 本地插件目录条目：直接来自 userData/plugins 下通过校验的 manifest，无远端索引字段 */
 export interface MarketPluginEntry {
   id: string;
   name: string;
   version: string;
   description: string;
   author: string;
-  downloads: number;
-  homepage?: string;
-}
-
-/** 可选的市场详情文件；列表索引始终是基础信息来源 */
-export interface MarketPluginDetails {
-  schemaVersion: 1;
-  features: string[];
-  requirements: string[];
-  setup: string[];
-  dataHandling: string[];
-  documentationUrl?: string;
-}
-
-export type MarketPluginDetailsResult =
-  | { ok: true; details: MarketPluginDetails }
-  | { ok: false; error: string };
-
-/** 插件市场索引源的健康状态：市场面板据此展示各源（Gitee / GitHub）的实时死活 */
-export interface MarketSourceStatus {
-  url: string;
-  /** 拉取并通过校验 */
-  ok: boolean;
-  /** 是否为本次列表的实际数据源（按优先级取第一个可用源） */
-  used: boolean;
+  /** 插件目录绝对路径，面板据此说明条目来源 */
+  path: string;
 }
 
 export interface MarketListResult {
   ok: boolean;
   error?: string;
   plugins: MarketPluginEntry[];
-  /** 各索引源的探测结果；旧版本宿主返回的结果可能没有该字段 */
-  sources?: MarketSourceStatus[];
+  /** 被枚举的本地插件目录绝对路径；用户把插件文件夹放进这里即可 */
+  directory?: string;
 }
-
-export type MarketInstallResult =
-  | { ok: true; plugin: { id: string; name: string; version: string }; overview?: PluginOverview }
-  | { ok: false; error: string };
 
 export interface PluginManagementApi {
   list(): Promise<PluginOverview | PluginListEntry[]>;
@@ -103,9 +76,7 @@ export interface PluginManagementApi {
     overview?: PluginOverview;
   }>;
   uninstall(id: string): Promise<{ ok: boolean; error?: string; overview?: PluginOverview }>;
-  marketList(preferred?: string): Promise<MarketListResult>;
-  marketDetails(id: string, preferred?: string): Promise<MarketPluginDetailsResult>;
-  marketInstall(id: string): Promise<MarketInstallResult>;
+  marketList(): Promise<MarketListResult>;
 }
 
 /**
