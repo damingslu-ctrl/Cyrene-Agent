@@ -46,19 +46,39 @@
 
 ### 2.2 全客户端颜色是 CSS 自定义属性
 
-根定义 `src/renderer/ui/tokens.css`（约 75 个带色变量，粉紫青系），
-覆盖层 `src/renderer/ui/themes/pearl-white.css`（159 个十六进制）、`charcoal-pink.css`（118 个），
-`src/renderer/ui/theme.css`（1243 行、130 个）。模式 `UiTheme = "pearl-white" | "charcoal-pink"`
-（`src/shared/ui-theme.ts`），主进程 IPC → `document.documentElement.dataset.uiTheme`。
-**绕过变量的硬编码色**按目录计数：chat 组件 654、`ui/themes` 277、`ui` 236、
-`react/components/ui` 159、settings 101、moments 84、character 44、music 34。
-**原生窗底色 CSS 管不到**：`create-aux-windows.ts:145` 引导窗硬编码 `#fff8fb`、
-`:61` 聊天窗按主题映射 `#141414`/`#fff8fb`、`window-system-ipc.ts:102` 用 Electron 默认白。
+根定义 `src/renderer/ui/tokens.css`（194 行、138 个 `--rb-*` 声明、47 个十六进制），
+覆盖层 `src/renderer/ui/themes/pearl-white.css`（1269 行、97 个十六进制，其中 **57 个是带色的
+`--rb-*` 声明**、其余 48 个是 `var()` 别名）、`charcoal-pink.css`（287 行、118 个十六进制、
+32 个不同值），`src/renderer/ui/theme.css`（1243 行、76 个十六进制）。
+模式 `UiTheme = "pearl-white" | "charcoal-pink"`
+（`src/shared/ui-theme.ts`），主进程 IPC（`ui-theme:get`/`ui-theme:changed`，
+`src/shared/ipc-channels.ts:143-144`）→ `src/renderer/ui/theme.ts:16` 写
+`document.documentElement.dataset.uiTheme`。**注意：模块名是 `ui/theme.ts`，不是
+`ui/theme-bootstrap.ts`**（后者不存在，只有它的同名测试文件）。
+
+**绕过变量的硬编码色**按目录计数（实测 `#[0-9a-fA-F]{3,8}`，ts/tsx/css）：
+`react/features/chat` 618、`ui` 350、`ui/themes` 215、`react/components/ui` 152、
+`react/features/settings` 93、`react/features/moments` 76、`pet` 64、
+`react/features/character` 38、`music` 17、`call-react` 14。
+（勘误 2026-10-19：我最初的侦察把这些目录写成了 `chat 组件 654 / settings 101 / music 34`，
+并按错误的目录名 `src/renderer/moments`、`src/renderer/character` 计数——真实路径带
+`react/features/` 前缀，上表是重测结果。写计划以本表为准。）
+
+**原生窗底色 CSS 管不到**：`create-aux-windows.ts:61` 聊天窗按主题映射 `#141414`/`#fff8fb`、
+`create-aux-windows.ts:145` 引导窗**无条件**硬编码 `#fff8fb`（深色模式下这是个真缺陷，
+不是遗漏）。`window-system-ipc.ts:102` 那条**勘误**：那里是 `new BrowserWindow({width:1024,
+height:768})`，没有 `backgroundColor`，走 Electron 默认白——所以这一处要「新增」而不是「改读」。
 
 会被打爆的测试：`pet/tokens.test.ts`（锁色板字面量与 wash 结果）、
-`react/styles/theme-token-contract.test.ts`（要求 25 个 `--rb-*` 在两个文件里都存在，**只查存在不查值**）、
-`react-root.visual.test.ts`（断言 `--rb-surface-page: #ECECEE`、`--rb-surface-workspace: #FFFFFF`）、
-`ui/theme-bootstrap.test.ts`、`main/ui-theme.test.ts`、`windows/create-aux-windows.test.ts`。
+`react/styles/theme-token-contract.test.ts`（要求 25 个 `--rb-*` 在 **`ui/tokens.css` +
+`themes/pearl-white.css` 两个文件**里都存在，**只查存在不查值**；另要求 `themes/` 下每个 css
+都声明 `--rb-surface-secondary`，并禁止 `var(--cy-*)` 旧别名）、
+`react/styles/react-root.visual.test.ts`（断言 `--rb-surface-page: #ECECEE`、
+`--rb-surface-workspace: #FFFFFF`，`:29,31` 还断言两处 opacity）、
+`react/ui/../pet/art.test.ts:290`（`expect(INK_SOFT).toBe("#4a5162")`）、
+`theme-bootstrap.test.ts`、`main/ui-theme.test.ts`、
+`windows/create-aux-windows.test.ts:126-131`（`expect(...backgroundColor).toBe("#141414")`；
+`#fff8fb` 那条断言不存在）。
 
 ### 2.3 默认启动就会发的请求只有两条
 
@@ -66,18 +86,27 @@
    `:88` `net.fetch`，`:136-140,145-148` 起 6h 轮询；IPC 无条件注册
    （`default-dependencies.ts:777`）；**聊天 UI 挂载即触发**
    （`react/components/ui/UserAvatar.tsx:36` → `react/hooks/useNewsFeed.ts:45-52`）。
-2. **Google Fonts**：`src/renderer/ui/fonts.css:2` `@import`，被 9 个 HTML 入口引用；
-   CSP 在 `src/main/protocols/learn-exam-csp.ts:5,7` 放行。
+2. **Google Fonts**：`src/renderer/ui/fonts.css:2` `@import`（整个文件只有 2 行），被 9 个 HTML 入口引用
+   （`renderer/index.html:20`、`react/index.html:8`、`call-react/index.html:9`、`music/index.html:9`、
+   `sticker-manager/index.html:8`、`toast/index.html:8`、`react-perf/index.html:8`、`learn-exam.html:8`、
+   `ui/preview.html:8`）。CSP 只在 `src/main/protocols/learn-exam-csp.ts:5,7` 放行这两个字体域，
+   且那份 CSP **只贴在 learn-exam 的 partitioned session 上**（`protocols/bootstrap.ts:15,83`）——
+   主窗口根本没有 CSP。所以 A2 里真正杀掉这次请求的是删 `@import`，改 CSP 只是不留后门。
 
-用户点击才发的：官网链接 `settings/app-update-view.ts:75` `playaagentcyrene.online`
+用户点击才发的：官网链接 `react/features/settings/app-update-view.ts:75` `playaagentcyrene.online`
 （经 `UserAvatar.tsx:201`、`GeneralSettingsPanel.tsx:154`）；Issue 上报
-`components/ui/IssueReportDialog.tsx:10` `Playa-Cyrene/Cyrene-Agent/issues`；
-插件市场注册表 `src/main/plugin-marketplace.ts:19-26`（GitHub raw + Gitee 镜像）。
+`react/components/ui/IssueReportDialog.tsx:10` `Playa-Cyrene/Cyrene-Agent/issues`（同文件 `:11` 还硬编码
+**上游作者的邮箱** `ky2569ly@gmail.com`，本轨道一并清掉）；插件市场注册表
+`src/main/plugin-marketplace.ts:19-26`（GitHub raw + Gitee 镜像）。
 更新器：**无任何遥测/崩溃上报**（全仓无 Sentry/PostHog/GA）；
-`FORK_AUTO_UPDATE_DISABLED=true`（`updater/update-policy.ts:10`）只掐了 `scheduleUpdateCheck`
-一处（`default-dependencies.ts:1027-1034`），`github-app-updater.ts:23-40` 的 6h `setInterval`
-仍是活代码，feed 源来自 `electron-builder.yml:3-6` 的 `provider: github, owner: Playa-Cyrene`，
-`scripts/verify/installer-artifacts.mjs:51-68` **硬性要求 `latest.yml` + `.blockmap`**。
+`FORK_AUTO_UPDATE_DISABLED=true`（`updater/update-policy.ts:10`）掐掉了唯一调用方
+`scheduleUpdateCheck`（`src/main/application/default-dependencies.ts:1026-1035`，注意真实路径带
+`application/` 前缀）。**勘误 2026-10-19：`github-app-updater.ts:32-34` 的 6h `setInterval` 今天
+已经不可能在开机时被排上**（它只有那一个被闸门挡住的调用方），所以 A3 的收益不是「少发请求」而是
+**把这条路径连同 `electron-builder.yml:3-6` 的 publish 块一起从装配面上归零**——`latest.yml`
+由 `scripts/verify/installer-artifacts.mjs:51-69` 硬性要求、`publish` 内容由
+`updater/update-packaging-config.test.ts:14` 断言，两者都在为「我们仍走 GitHub 更新」背书，必须同期改。
+feed 源来自 `electron-builder.yml:3-6` 的 `provider: github, owner: Playa-Cyrene`。
 
 ### 2.4 形象资产：237 MB 里 215 MB 是动漫角色图
 
