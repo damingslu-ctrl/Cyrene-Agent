@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bug, Check, ChevronRight, Languages, Package, Palette, UserRound } from "lucide-react";
+import { Check, ChevronRight, Languages, Package, Palette, UserRound } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import packageJson from "../../../../../package.json";
 import { normalizeUiThemeChoice, type UiThemeChoice } from "../../../../shared/ui-theme";
@@ -9,7 +9,6 @@ import { useUserNickname } from "../../hooks/useUserNickname";
 import { setUiLocale, useTranslation } from "../../i18n";
 import { normalizeUiLanguage, type UiLanguage } from "../../../../shared/ui-language";
 import { resolveVersionTitleKey } from "../../features/settings/app-update-view";
-import { IssueReportDialog } from "./IssueReportDialog";
 import { UserProfileDialog } from "./UserProfileDialog";
 import "./UserAvatar.css";
 
@@ -22,7 +21,6 @@ export function UserAvatar({ label }: UserAvatarProps) {
   const avatarUrl = useUserAvatar();
   const nickname = useUserNickname();
   const [profileOpen, setProfileOpen] = useState(false);
-  const [reportOpen, setReportOpen] = useState(false);
   const [theme, setTheme] = useState<UiThemeChoice>(() => normalizeUiThemeChoice(document.documentElement.dataset.uiTheme));
   const displayLabel = (label ?? nickname) || "User";
   const language = normalizeUiLanguage(locale);
@@ -167,10 +165,6 @@ export function UserAvatar({ label }: UserAvatarProps) {
               </DropdownMenu.Portal>
             </DropdownMenu.Sub>
             <DropdownMenu.Separator className="cy-user-menu__separator" />
-            <DropdownMenu.Item className="cy-user-menu__item" onSelect={() => setReportOpen(true)}>
-              <Bug size={16} aria-hidden="true" />
-              <span>{t("ui.reportIssue.menuEntry")}</span>
-            </DropdownMenu.Item>
             {/* 版本行：点开跳到设置页"常规"的版本信息处 */}
             <DropdownMenu.Item
               className="cy-user-menu__item"
@@ -187,7 +181,6 @@ export function UserAvatar({ label }: UserAvatarProps) {
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
       <UserProfileDialog open={profileOpen} onOpenChange={setProfileOpen} avatarUrl={avatarUrl} />
-      <IssueReportDialog open={reportOpen} onOpenChange={setReportOpen} />
     </>
   );
 }

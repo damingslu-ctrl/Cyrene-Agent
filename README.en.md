@@ -6,8 +6,6 @@
 
 **English** | [中文](./README.md)
 
-**Primary repo**: [GitHub](https://github.com/Playa-Cyrene/Cyrene-Agent) ・ **Mirror for China**: [Gitee](https://gitee.com/playa0/cyrene-agent)
-
 </div>
 
 
@@ -105,9 +103,7 @@ CyreneHarness is the core Agent Loop of Cyrene Agent. It chains **model decision
 ### 1. Clone and Install Dependencies
 
 ```bash
-git clone https://github.com/Playa-Cyrene/Cyrene-Agent.git
-# Or via the Gitee mirror (China): git clone https://gitee.com/playa0/cyrene-agent.git
-cd Cyrene-Agent
+# Run from the root of your own checkout (use your fork / local path)
 pnpm install --frozen-lockfile
 ```
 
@@ -146,7 +142,7 @@ pnpm run package:win:dir
 
 Cyrene can chat normally without running a local large language model. However, installing the **BGE-M3 Embedding model** is recommended (used for semantic sticker matching, Worldbook semantic retrieval, and RAG retrieval):
 
-[Download BGE-M3 from Releases](https://github.com/Playa-Cyrene/Cyrene-Agent/releases)
+The BGE-M3 model files live in this repository's `models/` directory (offline; no online download).
 
 > [!IMPORTANT]
 >
@@ -465,7 +461,7 @@ Cyrene includes many built-in and extensible tools, primarily covering the follo
 - **Trust boundary** — User plugins are disabled on first discovery and must be enabled manually in Settings; plugin-created scheduled tasks only take effect after the user confirms their configuration; voice input uses an exclusive lease to avoid conflicting input sources.
 - **Developer toolchain** — The npm package [`@playa0v0/cyrene-plugin-sdk`](https://www.npmjs.com/package/@playa0v0/cyrene-plugin-sdk) provides all public types, Manifest validation, and Mock Context testing tools, with `ajv` as the only runtime dependency; paired with the [Plugin Development Guide](docs/plugins/plugin-dev-guide.md) and the `cyrene-plugin-dev` Skill, development is possible without reading host source code.
 - **Official examples** — The [`examples/`](./examples) directory provides five examples — weather query, long-term memory, scheduled automation, system status, and local ASR contract — all usable as starting points.
-- **Plugin registry** — [Cyrene-Plugins](https://github.com/Playa-0v0/Cyrene-Plugins) ([Gitee mirror](https://gitee.com/playa0/cyrene-plugins)) collects security-reviewed community plugins that can be downloaded and imported as ZIPs; PRs are welcome if you want your plugin to reach more people.
+- **Plugin sharing** — This fork has no remote registry: zip the plugin folder and send it directly; the other side imports it from Settings → Plugins → Add.
 
 #### 🌙 Proactive Chat
 

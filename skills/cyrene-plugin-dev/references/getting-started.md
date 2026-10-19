@@ -56,7 +56,7 @@ module.exports = {
 
 把 `my-first-plugin` 文件夹压成 zip（整体一个文件夹，或 manifest + 入口放 zip 根目录都行），然后：**Cyrene 聊天窗口 → 插件 → 右上角添加按钮 → 选 zip**。插件默认停用，点击“启用”才真正加载。
 
-想让插件被更多人看到？提交 PR 到官方收录仓库 [Cyrene-Plugins](https://github.com/Playa-0v0/Cyrene-Plugins)，审核通过后其他用户可直接下载 ZIP 导入；想装别人写的插件也去那里找。
+本 fork 没有远端收录仓库：想让别人用你的插件，把文件夹压成 zip 直接发给对方，对方在「插件 → 添加」里导入即可。
 
 ### 5. 验证
 

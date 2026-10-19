@@ -1116,20 +1116,12 @@
       "section6": {
         "title": "6. 権利者からの連絡窓口",
         "p1": "miHoYo / HoYoverse の権利者が、本ソフトウェアに権利侵害の可能性があると判断した場合は、以下の方法でご連絡ください。作者は通知を受領後 7 営業日以内に、対応または公開停止に向けて誠実に協力します。",
-        "email": "メール：ky2569ly@gmail.com（件名に【著作権関連】と明記してください）",
-        "bilibiliLink": "bilibili：Playa0 作者ページ",
-        "bilibiliNote": "（DM の冒頭に【著作権連絡】と明記してください）",
-        "githubLabel": "GitHub：",
-        "githubLink": "Playa-0v0/Cyrene-Agent"
+        "email": "著作権関連のご連絡は、本プロジェクトの配布チャネル経由でメンテナーまでお願いします（件名に【著作権関連】と明記してください）。"
       },
       "section7": {
         "title": "7. ユーザーフィードバックと Bug 報告",
         "p1": "問題や Bug、機能に関する提案がありましたら、以下の窓口からお寄せください。",
-        "email": "ky2569ly@gmail.com へメール（件名に【フィードバック】または【Bug】を付けることを推奨します）",
-        "bilibiliLink": "bilibili で Playa0 に DM",
-        "bilibiliNote": "（冒頭に【フィードバック/Bug】と明記してください）",
-        "githubLink": "GitHub Issues",
-        "githubNote": "（Bug / 機能提案を投稿）",
+        "email": "本プロジェクトの配布チャネルからフィードバックをお寄せください（件名に【フィードバック】または【Bug】を付けることを推奨します）。",
         "outro": "一般的なユーザーフィードバックには可能な限り目を通しますが、迅速な返信を保証するものではありません。著作権関連の連絡を最優先で対応します。"
       },
       "section8": {
@@ -1149,9 +1141,8 @@
       },
       "section10": {
         "title": "10. コントリビューターへの謝辞",
-        "p1": "GitHub で Pull Request を送り、本プロジェクトに貢献してくださったすべての開発者に感謝します。コントリビューターの完全な一覧はこちら：",
-        "contributorsLink": "Cyrene-Agent コントリビューターページ →",
-        "p2": "Issues でフィードバックや提案を寄せてくださった方、Star で本プロジェクトを応援してくださった方にも感謝します。"
+        "p1": "本プロジェクトに貢献してくださったすべての開発者に感謝します。",
+        "p2": "フィードバックや提案を寄せてくださった方、本プロジェクトを応援してくださった方にも感謝します。"
       },
       "section11": {
         "title": "11. 規約の効力",
@@ -2075,68 +2066,9 @@
       "chooseMonth": "月を選択"
     },
     "settings": "設定",
-    "reportIssue": {
-      "menuEntry": "問題を報告",
-      "title": "問題を報告",
-      "description": "再現情報を入力すると、レポートをコピーしたり、メールで連絡したり、入力済みの GitHub フォームを開いたりできます。",
-      "email": "メール",
-      "emailSubject": "キュレネ問題報告",
-      "github": "GitHub Issues",
-      "openIssues": "Issues ページを開く",
-      "reportTitle": "問題タイトル",
-      "titlePlaceholder": "発生した問題を簡潔に説明",
-      "appVersion": "アプリバージョン",
-      "os": "OS",
-      "installSource": "インストール元",
-      "sourceCode": "リポジトリのソースコード",
-      "prebuilt": "ビルド済みインストーラー",
-      "sourceUnknown": "不明 / その他",
-      "chooseSourceLead": "まず実行方法を確認してください。方法によって GitHub のフォームが異なります。",
-      "sourceCodeHint": "リポジトリを clone し、pnpm run dev で実行している（ソースを読める・編集できる）",
-      "prebuiltHint": "GitHub Releases からダウンロードしてインストールしたもの",
-      "sourceUnknownHint": "判断できない場合はこれを選んでください。インストーラー用フォームが開き、切り替え方法はテンプレートに記載しています",
-      "commit": "コミット（commit）",
-      "commitPlaceholder": "リポジトリで git rev-parse --short HEAD を実行した出力（例: a1b2c3d）",
-      "changeSource": "変更",
-      "sourceEvidenceTitle": "ソース根拠について",
-      "sourceEvidenceBody": "コードの実装や根本原因の判断に触れる場合は、問題のバージョンに対応するリポジトリのソースを根拠とし、ソースのパス・行番号または呼び出し経路を示してください。\n\n展開した app.asar（Electron のアプリケーションアーカイブ）に含まれる圧縮・コンパイル済みコードや実行ログは、あるバージョンで問題が発生したことの証明にはなりますが、それだけで業務ロジックを逆算したり根本原因を確定したりすることはできません。\n\n現時点でソースの根拠が見つからない場合は、まず再現できる現象を書き、根本原因の判断は仮説として示してください。ビルド成果物だけに基づく推測は確認できないことがあります。メンテナがソース根拠の追加を求める場合や、確認できない場合に報告をクローズすることがあります。",
-      "mode": "問題が発生した会話モード（複数選択可）",
-      "modeChat": "チャット",
-      "modeWork": "作業",
-      "modeLearn": "学習",
-      "modeCode": "コーディング",
-      "modeOther": "その他の入口（チャネル、スケジュールタスクなど）",
-      "steps": "再現手順",
-      "stepsPlaceholder": "問題を発生させる操作を順番に記載してください。",
-      "actual": "実際の動作",
-      "actualPlaceholder": "実際には何が起きましたか？",
-      "expected": "期待する動作",
-      "expectedPlaceholder": "本来どうなることを期待していましたか？",
-      "logs": "ログ / スクリーンショット説明",
-      "logsPlaceholder": "関連ログを貼り付けてください。スクリーンショットはメールまたは GitHub ページで追加できます。",
-      "frequency": "発生頻度",
-      "frequencyPlaceholder": "例：毎回発生、または約 10 回に 1 回",
-      "choose": "選択してください",
-      "notProvided": "未入力",
-      "requiredHint": "* の付いた項目は必須です。",
-      "requiredFields": "先にタイトル、バージョン、OS、モード、再現情報を入力してください。ソースから実行している場合はコミットも必要です。",
-      "copyReport": "レポートをコピー",
-      "sendEmail": "メールを送信",
-      "openDraft": "GitHub の報告フォームを開く",
-      "copied": "レポートをコピーしました。貼り付けて共有できます。",
-      "emailReady": "メール下書きを開きました。送信前に内容を確認してください。",
-      "emailBodyCopied": "本文が長いため、レポートをクリップボードにコピーしました。開いたメール下書きに貼り付けてください。",
-      "emailBodyTooLong": "本文が長いため、メール下書きを開きました。「レポートをコピー」で本文をコピーして貼り付けてください。",
-      "copyFailed": "コピーに失敗しました。クリップボードの権限を確認してください。",
-      "openFailed": "外部リンクを開けません。しばらくしてから再試行してください。",
-      "urlTooLong": "レポート内容が長いため、先にレポートをコピーしてから GitHub Issues ページを開き、貼り付けてください。"
-    },
     "version": {
       "menuEntry": "バージョン",
       "firstStable": "正式版"
-    },
-    "website": {
-      "menuEntry": "公式サイト"
     },
     "newButton": "新しいタスク"
   },

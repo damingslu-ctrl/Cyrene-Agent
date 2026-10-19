@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 
 /** 锁自身必须排除：它的正对照字符串就是被禁标识，不排除会自炸。 */
 const SELF = "upstream-off.test.ts";
-const SCAN_ROOTS = ["src", "scripts", "build", "packages"];
+const SCAN_ROOTS = ["src", "scripts", "build", "packages", ".github"];
 /**
  * 根目录文件不属于任何扫描根，但 A3 的两条判据就住在它们里面：
  * `publish`/`provider` 在 `electron-builder.yml`，`electron-updater` 依赖在 `package.json`。
@@ -72,6 +72,10 @@ const RULES: Rule[] = [
     positiveControls: ['import { autoUpdater } from "electron-updater";'],
     exceptions: [
       { file: "scripts/verify/installer-artifacts.mjs", reason: "保留的是「latest.yml 不得出现」的反向锁，正文里必须写出这个文件名才能证明锁在生效" },
+      {
+        file: ".github/workflows/package-windows.yml",
+        reason: "工作流注释记录「升级源已拆除」：必须写出 electron-updater / latest.yml 才能表达反向约束；该文件不参与打包",
+      },
     ],
   },
   {
@@ -81,6 +85,54 @@ const RULES: Rule[] = [
     pattern: /provider:\s*["']?github|owner:\s*Playa-Cyrene|repo:\s*Cyrene-Agent/i,
     positiveControls: ["provider: github", 'provider: "github"', "provider: 'github'"],
     exceptions: [],
+  },
+  {
+    clause: "A4 上游品牌链接",
+    pattern: /Playa-Cyrene|Playa-0v0|playa0|playaagentcyrene\.online|ky2569ly@gmail\.com/i,
+    positiveControls: ["https://github.com/Playa-Cyrene/Cyrene-Agent/issues"],
+    exceptions: [
+      { file: "src/shared/upstream-hosts.ts", reason: "黑名单本身必须写出被禁域名才拦得住" },
+      {
+        file: "src/main/windows/external-link.test.ts",
+        reason: "运行时拦截的负判据：必须把上游 URL 当作输入，才能证明 isUpstreamUrl 真的拦住",
+      },
+      {
+        file: "src/main/plugin-marketplace.ts",
+        reason: "远端 registry 由 Task 5 整体改成本地目录枚举；本条是显式前向依赖，Task 5 落地后此例外随文件内容失效",
+      },
+      {
+        file: "src/renderer/react/components/PluginMarketPreview.tsx",
+        reason: "假的插件市场预览，Task 5 整文件删除；删除前它的上游仓库样例仍属品牌链接",
+      },
+      {
+        file: "src/renderer/react/features/chat/components/PluginModePanel.tsx",
+        reason: "插件市场面板顶部指向上游收录仓库，Task 5 改本地目录时一并删除",
+      },
+      {
+        file: "src/renderer/react/features/chat/components/PluginModePanel.test.ts",
+        reason: "上述面板的远端源断言夹具，Task 5 换成「条目来自 props 的本地清单」",
+      },
+      {
+        file: "packages/plugin-sdk/package.json",
+        reason: "`@playa0v0/cyrene-plugin-sdk` 是已发布的 npm scope/包名，改名属于身份任务，不在外链清零范围内；本任务只删 repository 字段",
+      },
+      {
+        file: "packages/plugin-sdk/README.md",
+        reason: "README 正文的安装与 import 语句必须写出真实包名，否则用户装不到",
+      },
+      {
+        file: "scripts/plugin-sdk/build-sdk.mjs",
+        reason: "构建脚本注释里的包名，与 package.json 同名",
+      },
+      {
+        file: "scripts/plugin-sdk/verify-package.mjs",
+        reason: "打包校验脚本注释里的包名，与 package.json 同名",
+      },
+      {
+        file: "scripts/plugin-sdk/smoke-examples.mjs",
+        reason: "冒烟测试 require 的是真实包名，改字符串会让示例编译走空",
+      },
+    ],
   },
 ];
 

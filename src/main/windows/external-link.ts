@@ -1,5 +1,6 @@
 import { app, shell } from "electron";
 import type { WebContents } from "electron";
+import { isUpstreamUrl } from "../../shared/upstream-hosts";
 import { isDev } from "../env";
 
 const internalNavigationContents = new WeakSet<WebContents>();
@@ -10,12 +11,16 @@ export function allowInternalNavigation(contents: WebContents): void {
 }
 
 /**
- * 处理外部 URL：非 http(s) 拒绝，开发环境 localhost:5173 也拒绝（避免调试时误开）。
+ * 处理外部 URL：非 http(s) 拒绝，开发环境 localhost:5173 也拒绝（避免调试时误开）；
+ * 上游仓库/官网域名一律拒绝（个人化后不再把用户送回上游）。
  * 返回 true 表示已拦截并转交给系统浏览器。
  */
 export function openExternalUrl(url: string): boolean {
   if (!url.startsWith("http://") && !url.startsWith("https://")) return false;
   if (isDev && url.startsWith("http://localhost:5173")) return false;
+  // 协议闸门之上再加域名闸门：静态锁保证代码里不出现上游链接，
+  // 这里保证用户从历史记录、聊天消息或插件里点到时也打不开。
+  if (isUpstreamUrl(url)) return false;
   void shell.openExternal(url);
   return true;
 }

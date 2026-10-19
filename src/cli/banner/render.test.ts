@@ -57,9 +57,9 @@ describe("render", () => {
     }
   });
 
-  it("renderAbout includes the GitHub URL", () => {
+  it("renderAbout includes the local build line instead of an upstream URL", () => {
     expect(renderAbout({ width: 64 })).toContain(
-      "https://github.com/Playa-0v0/Cyrene-Agent",
+      "Build:    local · no online update checks",
     );
   });
 

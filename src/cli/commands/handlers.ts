@@ -56,9 +56,7 @@ Run \`cyrene\` with no arguments for the first-time greeting.`);
 }
 
 export function cmdPlaceholder(name: "doctor" | "init" | "update"): number {
-  outLine(
-    `cyrene ${name}: planned for a future release. See https://github.com/Playa-0v0/Cyrene-Agent`,
-  );
+  outLine(`cyrene ${name}: planned for a future release.`);
   return 0;
 }
 

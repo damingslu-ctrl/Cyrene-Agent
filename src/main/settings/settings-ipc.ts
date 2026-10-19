@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell } from "electron";
 import { IPC } from "../../shared/ipc-channels";
+import { isUpstreamUrl } from "../../shared/upstream-hosts";
 import { createIpcScope, type IpcScope } from "../application/ipc-scope";
 import type { GeneralSettings } from "./general-settings";
 import type { TimeoutSettings } from "../../shared/timeout-types";
@@ -293,6 +294,10 @@ export function registerSettingsIpc(deps: SettingsIpcDependencies): void {
     const allowed = url.startsWith("http://") || url.startsWith("https://") || url.startsWith("mailto:");
     if (!allowed) {
       return { ok: false, error: "Invalid URL" };
+    }
+    // 渲染进程点到的上游仓库/官网也不放行：协议闸门之外再加域名闸门。
+    if (isUpstreamUrl(url)) {
+      return { ok: false, error: "blocked-upstream-host" };
     }
     try {
       await shell.openExternal(url);
