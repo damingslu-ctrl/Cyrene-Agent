@@ -12,6 +12,8 @@ describe("出口分类", () => {
   it("本地环回与内建 scheme 记为 local", () => {
     for (const url of [
       "http://127.0.0.1:7896/proxies",
+      "http://[::1]:7896/proxies",
+      "http://[0:0:0:0:0:0:0:1]:7896/proxies",
       "http://localhost:5173/",
       "file:///D:/app/index.html",
       "data:image/png;base64,AAAA",

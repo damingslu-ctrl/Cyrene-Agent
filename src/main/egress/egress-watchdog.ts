@@ -35,7 +35,9 @@ export function classifyRequest(url: string): "local" | "external" {
   }
   if (["file:", "data:", "blob:", "chrome-extension:", "devtools:", "about:"].includes(parsed.protocol)) return "local";
   if (LOCAL_SCHEMES.includes(parsed.protocol.replace(":", ""))) return "local";
-  if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1") return "local";
+  // `URL.hostname` 对 IPv6 字面量保留方括号（`"[::1]"`），比较前先剥掉。
+  const host = parsed.hostname.replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1") return "local";
   return "external";
 }
 
