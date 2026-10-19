@@ -29,9 +29,32 @@ interface Rule {
 const RULES: Rule[] = [
   {
     clause: "A1 公告",
-    pattern: /cyrene-announcement|NEWS_GET|NEWS_UPDATED|useNewsFeed|news-feed/i,
+    pattern:
+      /cyrene-announcement|NEWS_GET|NEWS_UPDATED|useNewsFeed|news-feed|news:get|exposeInMainWorld\(\s*"news"|NewsItem|NewsDialog|news-types/i,
     positiveControl: "https://gitee.com/playa0/cyrene-announcement/raw/main/",
     exceptions: [],
+  },
+  {
+    clause: "A2 字体远端",
+    pattern: /fonts\.googleapis\.com|fonts\.gstatic\.com/i,
+    positiveControl: '@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono");',
+    exceptions: [
+      {
+        file: "features/chat/components/svg-sanitize.test.ts",
+        reason:
+          "Fixtures of the stripFontImports regression test: the domain must appear in the input to prove the sanitizer deletes it.",
+      },
+      {
+        file: "features/chat/components/svg-card-block.test.ts",
+        reason:
+          "Same reason: asserts renderSvgCardSafe strips a remote font @import from user SVG.",
+      },
+      {
+        file: "features/chat/components/mermaid-block.test.ts",
+        reason:
+          "Same reason: asserts the mermaid pipeline emits no Google Fonts reference.",
+      },
+    ],
   },
 ];
 
@@ -58,6 +81,11 @@ function scannedFiles(): string[] {
   });
 }
 
+/** 例外表的 `file` 一律用 `/` 分隔书写，跟 `path.sep` 无关（Windows 上是 `\`）。 */
+function posixPath(file: string): string {
+  return file.split(path.sep).join("/");
+}
+
 describe("上游出口清零（静态标识面）", () => {
   const files = scannedFiles();
 
@@ -71,7 +99,7 @@ describe("上游出口清零（静态标识面）", () => {
       const hits: string[] = [];
       for (const file of files) {
         if (path.basename(file) === SELF) continue;
-        const exempt = rule.exceptions.find((candidate) => file.endsWith(candidate.file));
+        const exempt = rule.exceptions.find((candidate) => posixPath(file).endsWith(candidate.file));
         const text = readFileSync(file, "utf8");
         rule.pattern.lastIndex = 0;
         if (!rule.pattern.test(text)) continue;
