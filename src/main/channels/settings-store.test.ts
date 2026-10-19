@@ -9,16 +9,20 @@ import * as os from "os";
 const encState = new Map<string, string>(); // plaintext → base64 密文
 let encryptCalls = 0;
 let decryptCalls = 0;
+// 可变开关：默认 true（与历史行为一致）；旧格式升级测试里关掉，强走 obf:2: 混淆层
+let storageAvailable = true;
 
 vi.mock("electron", () => {
   return {
     app: {
-      getPath: (_k: string) => os.tmpdir(),
+      getPath: (k: string) => (k === "appData" ? "C:\\Users\\tester\\AppData\\Roaming" : os.tmpdir()),
       isReady: () => true,
     },
     safeStorage: {
-      isEncryptionAvailable: () => true,
+      isEncryptionAvailable: () => true, // 注意：settings-store 会把结果缓存进模块级 memo，测试里翻转它没用
       encryptString: (plain: string) => {
+        // 关掉这个开关 → encryptString 抛错 → encryptField 捕获后落到 obf:2: 混淆档（与生产 catch 分支一致）
+        if (!storageAvailable) throw new Error("safeStorage 已被测试关掉 —— 强制走混淆档");
         encryptCalls++;
         const fake = Buffer.from("ENC(" + plain + ")").toString("base64");
         encState.set(plain, fake);
@@ -40,6 +44,10 @@ vi.mock("electron", () => {
 // 必须在 mock 后 import
 // eslint-disable-next-line import/first
 import { loadChannelsSettings, saveChannelsSettings } from "./settings-store";
+// eslint-disable-next-line import/first
+import { OBF_PREFIX_LEGACY, OBF_PREFIX_V2 } from "./obfuscation";
+// eslint-disable-next-line import/first
+import { legacyKeyByte } from "./obfuscation.test";
 
 describe("channels/settings-store", () => {
   beforeEach(() => {
@@ -49,6 +57,7 @@ describe("channels/settings-store", () => {
     encState.clear();
     encryptCalls = 0;
     decryptCalls = 0;
+    storageAvailable = true;
   });
 
   it("loadChannelsSettings: 不存在时返回默认值", () => {
@@ -130,5 +139,61 @@ describe("channels/settings-store", () => {
     );
 
     expect(loadChannelsSettings().toolSandbox).toBe("off");
+  });
+
+  it("旧 obf: 记录读回明文，并就地升级为 obf:2:（safeStorage 不可用的混淆档）", () => {
+    // 关掉 safeStorage 才会走混淆层：生产里这档就是 headless/沙盒环境
+    storageAvailable = false;
+    // 按改造前的公式拼一条旧密文（legacyKeyByte 复刻 settings-store.ts:51-68，见 obfuscation.test.ts）
+    const bytes = Buffer.from("feishu-secret", "utf8").map((b, i) => b ^ legacyKeyByte(i));
+    const legacy = `${OBF_PREFIX_LEGACY}${bytes.toString("base64")}`;
+    fs.writeFileSync(
+      path.join(os.tmpdir(), "channels-settings.json"),
+      JSON.stringify({ feishu: { enabled: true, appId: "cli_x", appSecret: legacy } }, null, 2),
+      "utf8",
+    );
+    expect(loadChannelsSettings().feishu.appSecret).toBe("feishu-secret");
+    const raw = fs.readFileSync(path.join(os.tmpdir(), "channels-settings.json"), "utf8");
+    expect(raw).toContain('"appSecret": "obf:2:');
+    expect(raw).not.toContain("feishu-secret");
+    expect(raw).not.toContain(OBF_PREFIX_LEGACY + '"');
+  });
+
+  it("旧格式升级是幂等的：已是 obf:2: 的盘上记录再 load 不再被重写", () => {
+    storageAvailable = false;
+    const bytes = Buffer.from("feishu-secret", "utf8").map((b, i) => b ^ legacyKeyByte(i));
+    fs.writeFileSync(
+      path.join(os.tmpdir(), "channels-settings.json"),
+      JSON.stringify({ feishu: { enabled: true, appId: "cli_x", appSecret: `${OBF_PREFIX_LEGACY}${bytes.toString("base64")}` } }, null, 2),
+      "utf8",
+    );
+    const once = loadChannelsSettings();
+    expect(once.feishu.appSecret).toBe("feishu-secret");
+    const afterFirstLoad = fs.readFileSync(path.join(os.tmpdir(), "channels-settings.json"), "utf8");
+    expect(afterFirstLoad).toContain('"appSecret": "obf:2:');
+
+    // 第二次 load：不存在任何 obf:（无版本）字段了 → 不再重写，盘上内容逐字节不变
+    const second = loadChannelsSettings();
+    expect(second.feishu.appSecret).toBe("feishu-secret");
+    const afterSecondLoad = fs.readFileSync(path.join(os.tmpdir(), "channels-settings.json"), "utf8");
+    expect(afterSecondLoad).toBe(afterFirstLoad);
+  });
+
+  it("obf:2: 校验和不过时不静默丢数据：旧解码器能兜底就返回明文，且盘上密文原样保留", () => {
+    storageAvailable = false;
+    // 拼一条「给了 obf:2: 前缀但校验和字段是垃圾」的记录——模拟密钥轮换后密文对不上号的场景
+    const bytes = Buffer.from("feishu-secret", "utf8").map((b, i) => b ^ legacyKeyByte(i));
+    const brokenV2 = `${OBF_PREFIX_V2}00000000:${bytes.toString("base64")}`;
+    fs.writeFileSync(
+      path.join(os.tmpdir(), "channels-settings.json"),
+      JSON.stringify({ feishu: { enabled: true, appId: "cli_x", appSecret: brokenV2 } }, null, 2),
+      "utf8",
+    );
+    // 旧解码器兜底解出明文，不走「清空」那一路
+    expect(loadChannelsSettings().feishu.appSecret).toBe("feishu-secret");
+    // 升级重写后盘上是完好密文，明文不泄露
+    const raw = fs.readFileSync(path.join(os.tmpdir(), "channels-settings.json"), "utf8");
+    expect(raw).toContain('"appSecret": "obf:2:');
+    expect(raw).not.toContain("feishu-secret");
   });
 });

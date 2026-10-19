@@ -19,7 +19,7 @@ vi.mock("electron", () => {
   return {
     app: {
       getPath: (_k: string) => FALLBACK_TMP,
-      getName: () => "live2d-cyrene",
+      getName: () => "cyrene-verge",
       isReady: () => true, // 模拟 ready 后 safeStorage 仍不可用（Linux/沙盒）
     },
     safeStorage: {
