@@ -1,3 +1,4 @@
+import { CONSOLE_PREFIX } from "../../shared/brand";
 import * as path from "path";
 import * as fs from "fs";
 import { app } from "electron";
@@ -198,7 +199,7 @@ export async function switchEmbeddingModel(modelKey: string): Promise<{ ok: bool
         const detail = getModelInstallStatusDetail("embedding", modelKey);
         if (detail.existingProjectDir) {
           console.error(
-            `[Cyrene] embedding model "${modelKey}" project directory exists but is incomplete.\n` +
+            `${CONSOLE_PREFIX} embedding model "${modelKey}" project directory exists but is incomplete.\n` +
             `  existingProjectDir: ${detail.existingProjectDir}\n` +
             `  requiredFiles:      ${JSON.stringify(detail.requiredFiles)}\n` +
             `  missingFiles:       ${JSON.stringify(detail.missingFiles)}\n` +
@@ -206,7 +207,7 @@ export async function switchEmbeddingModel(modelKey: string): Promise<{ ok: bool
           );
         } else {
           console.error(
-            `[Cyrene] embedding model "${modelKey}" not detected anywhere.\n` +
+            `${CONSOLE_PREFIX} embedding model "${modelKey}" not detected anywhere.\n` +
             `  modelDirCandidates: ${JSON.stringify(detail.modelDirCandidates)}\n` +
             `  subPathCandidates:  ${JSON.stringify(detail.subPathCandidates)}\n` +
             `  requiredFiles:      ${JSON.stringify(detail.requiredFiles)}\n` +
@@ -214,7 +215,7 @@ export async function switchEmbeddingModel(modelKey: string): Promise<{ ok: bool
           );
         }
       } catch (diagErr) {
-        console.error("[Cyrene] model diagnostic log failed:", diagErr);
+        console.error(CONSOLE_PREFIX + " model diagnostic log failed:", diagErr);
       }
       return { ok: false, clearedEntries: 0, error: "Local embedding model not found. Cannot switch." };
     }

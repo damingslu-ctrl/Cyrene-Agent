@@ -1,3 +1,4 @@
+import { CONSOLE_PREFIX } from "../../shared/brand";
 import { app, BrowserWindow, screen } from "electron";
 import path from "node:path";
 import { IPC } from "../../shared/ipc-channels";
@@ -80,7 +81,7 @@ export function createPetWindow(
     restoreY = origin.y;
     if (restoreX !== saved.x || restoreY !== saved.y) {
       console.log(
-        `[Cyrene] 桌宠保存位置已离屏（${saved.x},${saved.y}），` +
+        `${CONSOLE_PREFIX} 桌宠保存位置已离屏（${saved.x},${saved.y}），` +
           `夹回工作区为 ${restoreX},${restoreY}`,
       );
     }

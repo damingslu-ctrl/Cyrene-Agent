@@ -2,11 +2,12 @@
 // Extracted from src/main/index.ts so vitest can import them without
 // pulling in the whole Electron entry-point.
 
+import { CONSOLE_PREFIX } from "../shared/brand";
 import * as path from "path";
 import { addMcpServer, removeMcpServer, listMcpServerConfigs } from "./orchestrator/mcp-manager";
 import type { McpServerConfig } from "./orchestrator/mcp-adapter";
 
-const LOG_PREFIX = "[Cyrene]";
+const LOG_PREFIX = CONSOLE_PREFIX;
 
 export const PLAYWRIGHT_MCP_ID = "playwright-mcp";
 export const FILESYSTEM_MCP_ID = "filesystem-mcp";

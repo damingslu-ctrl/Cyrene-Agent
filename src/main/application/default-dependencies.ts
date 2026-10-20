@@ -1,3 +1,4 @@
+import { BRAND, CONSOLE_PREFIX } from "../../shared/brand";
 import { disposeAllShellJobs } from "../orchestrator/tools/builtin-tools/shell-job-manager";
 import { closeConversationDatabases } from "../storage/conversation-database-client";
 /**
@@ -372,7 +373,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
       writeStartupLog: () => {
         // banner 是纯文本（无色彩、无日志前缀），与 logger 输出区分开
         process.stdout.write("\n" + renderBanner() + "\n\n");
-        logger.info(LogTag.Runtime, "starting Cyrene Agent");
+        logger.info(LogTag.Runtime, `starting ${BRAND.productName} Agent`);
       },
       createIpcScope: () => createIpcScope(),
       createSplashWindow: (options) => createSplashWindow({ isDev, onShown: options.onShown }),
@@ -985,7 +986,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         // 一次性清理已下架的内置 MCP（Firecrawl hosted 等）
         const removed = await pruneMcpServersByIds([...REMOVED_BUILTIN_MCP_IDS]);
         if (removed.length > 0) {
-          console.log("[Cyrene] 已清理遗留的已下架内置 MCP:", removed.join(", "));
+          console.log(CONSOLE_PREFIX + " 已清理遗留的已下架内置 MCP:", removed.join(", "));
         }
       },
       syncBuiltInMcp: async () => {
@@ -1032,7 +1033,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
     }),
 
     logFatal: (error) => {
-      console.error("[Cyrene] fatal startup error:", error);
+      console.error(CONSOLE_PREFIX + " fatal startup error:", error);
       logger.error(LogTag.Runtime, "fatal startup error:", error);
     },
   };

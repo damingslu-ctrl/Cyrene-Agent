@@ -1,3 +1,4 @@
+import { CONSOLE_PREFIX } from "../../shared/brand";
 import { app } from "electron";
 import path from "node:path";
 import { loadPromptFile } from "../prompts/prompt-loader";
@@ -177,7 +178,7 @@ export function createAgentRuntime(rawDeps: AgentRuntimeDeps): AgentRuntime {
       },
       { log: false },
     ).catch((err) => {
-      console.warn("[Cyrene] observe runtime failed; keeping current feeling:", err);
+      console.warn(CONSOLE_PREFIX + " observe runtime failed; keeping current feeling:", err);
     });
   }
 

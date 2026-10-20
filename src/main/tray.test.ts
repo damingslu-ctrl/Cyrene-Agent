@@ -12,6 +12,7 @@ vi.mock("electron", () => ({
 }));
 
 import { buildTrayMenuTemplate, createTray, type CreateTrayDependencies } from "./tray";
+import { BRAND } from "../shared/brand";
 import type { WindowActivationRequest } from "./application/window-activation";
 
 function makeDeps(): { deps: CreateTrayDependencies; requests: WindowActivationRequest[] } {
@@ -67,6 +68,8 @@ describe("createTray", () => {
 
     expect(electron.Menu.buildFromTemplate).toHaveBeenCalledTimes(1);
     expect(tray.setContextMenu).toHaveBeenCalledOnce();
-    expect(tray.setToolTip).toHaveBeenCalledWith("Cyrene");
+    // 期望值同样从 brand 取，且钉住「中文名列在托盘这一处」：写死字面量会让
+    // 换名时这行跟着改一遍，失去「只动一处」的判据。
+    expect(tray.setToolTip).toHaveBeenCalledWith(`${BRAND.productName}（${BRAND.productNameZh}）`);
   });
 });

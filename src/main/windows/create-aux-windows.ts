@@ -1,5 +1,6 @@
 import { app, BrowserWindow, screen } from "electron";
 import * as path from "path";
+import { BRAND } from "../../shared/brand";
 import { IPC } from "../../shared/ipc-channels";
 import { isDev } from "../env";
 import { DEFAULT_WORKSPACE_WINDOW_SIZE } from "../window-layout";
@@ -64,7 +65,7 @@ export function createReactChatWindowShell(): BrowserWindow {
     ...bounds,
     minWidth: Math.min(960, workArea.width),
     minHeight: Math.min(540, workArea.height),
-    title: "Cyrene · 聊天",
+    title: `${BRAND.productName} · 聊天`,
     icon: getCurrentAppIconPath(),
     backgroundColor: windowBackgroundColor,
     autoHideMenuBar: true,
@@ -140,7 +141,7 @@ export function createOnboardingBrowserWindow(): BrowserWindow {
     minWidth: Math.min(680, workArea.width),
     minHeight: Math.min(600, workArea.height),
     center: true,
-    title: "欢迎使用 Cyrene",
+    title: `欢迎使用 ${BRAND.productName}`,
     icon: getCurrentAppIconPath(),
     backgroundColor: "#fff8fb",
     autoHideMenuBar: true,
@@ -276,7 +277,7 @@ export function createCallWindow(): void {
     height: CALL_H,
     minWidth: 420,
     minHeight: 600,
-    title: "Cyrene · 语音通话",
+    title: `${BRAND.productName} · 语音通话`,
     icon: getCurrentAppIconPath(),
     backgroundColor: "#00000000",
     autoHideMenuBar: true,

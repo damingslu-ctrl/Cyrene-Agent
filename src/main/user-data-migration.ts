@@ -17,6 +17,7 @@
  * 本 fork 全程只读禁写，任何迁移都不许拿它当源或目标。
  */
 
+import { CONSOLE_PREFIX } from "../shared/brand";
 import * as fs from "fs";
 import * as path from "path";
 import { renameWithRetrySync } from "./storage/rename-with-retry";
@@ -143,7 +144,7 @@ export function migrateLegacyUserData(
     return { status: "none" };
   }
   if (fs.existsSync(markerPath)) {
-    console.warn(`[Cyrene] 已完成过用户数据迁移，忽略重新出现的旧目录（原样保留，不并入）: ${legacyPath}`);
+    console.warn(`${CONSOLE_PREFIX} 已完成过用户数据迁移，忽略重新出现的旧目录（原样保留，不并入）: ${legacyPath}`);
     return { status: "already_migrated" };
   }
 
@@ -152,11 +153,11 @@ export function migrateLegacyUserData(
     try {
       fs.mkdirSync(path.dirname(input.targetUserDataPath), { recursive: true });
       renameWithRetrySync(legacyPath, input.targetUserDataPath);
-      console.log(`[Cyrene] 用户数据目录已整体迁移: ${legacyPath} -> ${input.targetUserDataPath}`);
+      console.log(`${CONSOLE_PREFIX} 用户数据目录已整体迁移: ${legacyPath} -> ${input.targetUserDataPath}`);
       writeMigrationMarker(markerPath, "renamed");
       return { status: "renamed" };
     } catch (err) {
-      console.error("[Cyrene] 用户数据目录整体迁移失败:", err);
+      console.error(CONSOLE_PREFIX + " 用户数据目录整体迁移失败:", err);
       return { status: "failed" };
     }
   }
@@ -192,7 +193,7 @@ export function migrateLegacyUserData(
         fs.cpSync(from, to, { recursive: true, force: true });
       } catch (err) {
         failures += 1;
-        console.warn(`[Cyrene] 迁移条目失败，已保留在旧目录: ${entry}`, err);
+        console.warn(`${CONSOLE_PREFIX} 迁移条目失败，已保留在旧目录: ${entry}`, err);
       }
     }
   }
@@ -207,7 +208,7 @@ export function migrateLegacyUserData(
   }
 
   const status = failures === 0 ? "merged" : "partial";
-  console.log(`[Cyrene] 用户数据目录合并迁移完成（${status}）: ${legacyPath} -> ${input.targetUserDataPath}`);
+  console.log(`${CONSOLE_PREFIX} 用户数据目录合并迁移完成（${status}）: ${legacyPath} -> ${input.targetUserDataPath}`);
   // 部分失败不写标记：残留条目还在旧目录，下次启动需要继续并入
   if (status === "merged") writeMigrationMarker(markerPath, status);
   return { status };
@@ -228,6 +229,6 @@ function writeMigrationMarker(markerPath: string, status: LegacyUserDataMigratio
   try {
     fs.writeFileSync(markerPath, JSON.stringify({ status, completedAt: new Date().toISOString() }));
   } catch (err) {
-    console.warn("[Cyrene] 写入用户数据迁移完成标记失败:", err);
+    console.warn(CONSOLE_PREFIX + " 写入用户数据迁移完成标记失败:", err);
   }
 }

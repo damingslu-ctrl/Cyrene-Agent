@@ -1,5 +1,6 @@
 import { app, BrowserWindow, screen } from "electron";
 import * as path from "path";
+import { BRAND } from "../../shared/brand";
 import { isDev } from "../env";
 import { setToastWindow, toastWindow } from "./window-state";
 import { TOAST_WINDOW_WIDTH } from "../toast/types";
@@ -30,7 +31,7 @@ export function createToastWindowShell(): BrowserWindow {
     focusable: false,
     resizable: false,
     show: false,
-    title: "Cyrene · 提醒",
+    title: `${BRAND.productName} · 提醒`,
     backgroundColor: "#00000000",
     webPreferences: {
       preload: path.join(app.getAppPath(), "dist", "preload", "preload", "index.js"),

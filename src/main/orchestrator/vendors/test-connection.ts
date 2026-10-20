@@ -1,3 +1,4 @@
+import { CONSOLE_PREFIX } from "../../../shared/brand";
 import { getAdapterForConfig } from "./index";
 import type { ChatVendorAdapter, TestConnectionResult, VendorConfig } from "./types";
 
@@ -10,9 +11,9 @@ export async function testVendorConnection(
 ): Promise<TestConnectionResult> {
   const adapter = resolveAdapter(config);
   console.log(
-    `[Cyrene] test connection: provider=${config.provider} transport=${adapter.transport} model=${config.model}`,
+    `${CONSOLE_PREFIX} test connection: provider=${config.provider} transport=${adapter.transport} model=${config.model}`,
   );
   const result = await adapter.testConnection(config);
-  console.log("[Cyrene] test connection result:", JSON.stringify(result));
+  console.log(CONSOLE_PREFIX + " test connection result:", JSON.stringify(result));
   return result;
 }

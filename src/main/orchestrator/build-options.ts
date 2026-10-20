@@ -21,6 +21,7 @@
 //
 // 这些全部塞到 BuildOptionsDeps 里。dispatcher / agent-runtime 通过
 // buildBuildOptionsDeps()（agent-runtime.ts）注入同一份 deps，保证口径一致。
+import { CONSOLE_PREFIX } from "../../shared/brand";
 import { existsSync } from "fs";
 import { basename, resolve } from "path";
 import {
@@ -703,14 +704,14 @@ export async function buildAgentRunOptions(
   try {
     alwaysOnContext = await perf.track("build_always_on_context", () => deps.buildAlwaysOnContext(latestUserText, slimMessages));
   } catch (err) {
-    console.warn("[Cyrene] always-on context build failed:", err);
+    console.warn(CONSOLE_PREFIX + " always-on context build failed:", err);
   }
 
   let relationshipContext = "";
   try {
     relationshipContext = await perf.track("build_relationship_context", () => deps.buildRelationshipContext());
   } catch (err) {
-    console.warn("[Cyrene] relationship context build failed:", err);
+    console.warn(CONSOLE_PREFIX + " relationship context build failed:", err);
   }
 
   let environmentContext = "";
@@ -726,7 +727,7 @@ export async function buildAgentRunOptions(
       replyLanguage: profile.replyLanguage,
     });
   } catch (err) {
-    console.warn("[Cyrene] environment context build failed:", err);
+    console.warn(CONSOLE_PREFIX + " environment context build failed:", err);
   }
   envTimer.end();
 
@@ -737,7 +738,7 @@ export async function buildAgentRunOptions(
     try {
       momentsContextBlock = deps.buildMomentsContext!(latestUserText);
     } catch (err) {
-      console.warn("[Cyrene] moments context build failed:", err);
+      console.warn(CONSOLE_PREFIX + " moments context build failed:", err);
     }
   }
 
@@ -754,7 +755,7 @@ export async function buildAgentRunOptions(
       chatSocialContextBlock = built.contextBlock;
       retrievedSocialAtoms = built.retrievedAtoms.slice(0, 5);
     } catch (err) {
-      console.warn("[Cyrene] chat social context build failed:", err);
+      console.warn(CONSOLE_PREFIX + " chat social context build failed:", err);
     }
   }
 
@@ -802,7 +803,7 @@ export async function buildAgentRunOptions(
   try {
     toneInjection = deps.buildToneInjection();
   } catch (err) {
-    console.warn("[Cyrene] tone injection failed:", err);
+    console.warn(CONSOLE_PREFIX + " tone injection failed:", err);
   }
 
   let attachmentContext = "";
@@ -963,7 +964,7 @@ export async function buildAgentRunOptions(
   const searchToolIds = filteredBySearch
     .filter((t) => t.id === "web_search" || t.id.startsWith("minimax-web-search-"))
     .map((t) => t.id);
-  console.log(`[Cyrene] 搜索后端=${activeSearchBackend} 暴露搜索工具=[${searchToolIds.join(", ") || "无"}]`);
+  console.log(`${CONSOLE_PREFIX} 搜索后端=${activeSearchBackend} 暴露搜索工具=[${searchToolIds.join(", ") || "无"}]`);
   const baseSoulSystemPrompt = deps.buildModePrompt?.(resolvedMode)
     ?? deps.buildSoulSystemBasePrompt(basePromptMode);
   // Chat 工具增强开启且有勾选工具时，chat 也注入工具目录 prompt

@@ -15,6 +15,14 @@ export const DATA_DIR_NAME = "Mochi";
 export const LOG_PREFIX = "Mochi";
 /** 窗口标题后缀。 */
 export const TITLE_SUFFIX = "Mochi";
+/**
+ * `console.*` 直调行的方括号前缀（如 `[Mochi] ...`）。
+ *
+ * 历史上主进程 16 个文件各写死一份 `[Cyrene]` 字面量；这里给它们同一个来源，
+ * 换名只改 `LOG_PREFIX` 一处。走 `logger` 的行仍用 `LogTag.Brand`（同一个值的
+ * PascalCase 16 字符列），两条路径共用这一个身份源。
+ */
+export const CONSOLE_PREFIX = `[${LOG_PREFIX}]`;
 /** 装机产物名与 appId 的成对身份，sync-brand.mjs 与一致性测试都读这一份。 */
 export const BRAND = {
   productName: PRODUCT_NAME,

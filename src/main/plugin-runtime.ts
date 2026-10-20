@@ -1,5 +1,6 @@
 import { app, dialog, safeStorage } from "electron";
 import path from "node:path";
+import { BRAND } from "../shared/brand";
 import { channelManager } from "./channels/manager";
 import type { ChannelAdapter } from "./channels/adapters/base";
 import type { ChannelId } from "./channels/types";
@@ -123,9 +124,10 @@ export async function startPluginRuntime(deps: PluginRuntimeDeps): Promise<Plugi
     },
     selectPluginZip: async () => {
       const result = await dialog.showOpenDialog({
-        title: "导入 Cyrene 插件",
+        // 原生文件对话框的标题与过滤器名都是用户直接看见的产品名 → 从 brand 取（Task 10a (a) 档）
+        title: `导入 ${BRAND.productName} 插件`,
         properties: ["openFile"],
-        filters: [{ name: "Cyrene 插件包", extensions: ["zip"] }],
+        filters: [{ name: `${BRAND.productName} 插件包`, extensions: ["zip"] }],
       });
       return result.canceled ? undefined : result.filePaths[0];
     },

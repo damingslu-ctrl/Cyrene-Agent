@@ -1,4 +1,5 @@
 import { Menu, nativeImage, Tray, type MenuItemConstructorOptions } from "electron";
+import { BRAND } from "../shared/brand";
 import { type WindowActivationRequest } from "./application/window-activation";
 import { getCurrentAppIconPath } from "./windows/window-state";
 
@@ -42,7 +43,9 @@ export function createTray(deps: CreateTrayDependencies): Tray {
 
   const contextMenu = Menu.buildFromTemplate(buildTrayMenuTemplate(deps));
 
-  tray.setToolTip("Cyrene");
+  // 托盘是唯一的常驻身份线索（没有窗口标题可看），所以这里是全应用唯一一处
+  // 中英文并列：`Mochi（麻糬）`。拼接形状不变，只换品牌字面量。
+  tray.setToolTip(`${BRAND.productName}（${BRAND.productNameZh}）`);
   tray.setContextMenu(contextMenu);
 
   return tray;

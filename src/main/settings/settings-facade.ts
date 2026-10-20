@@ -1,3 +1,4 @@
+import { CONSOLE_PREFIX } from "../../shared/brand";
 import * as fs from "fs";
 import * as path from "path";
 import { DEFAULT_MESSAGE_TYPOGRAPHY, normalizeMessageTypography } from "../../shared/message-typography";
@@ -444,7 +445,7 @@ function loadGeneralSettings0(): GeneralSettings {
     }
     return normalizeGeneralSettings(withInstallerSelection);
   } catch (err) {
-    console.error("[Cyrene] load general settings failed:", err);
+    console.error(CONSOLE_PREFIX + " load general settings failed:", err);
     return { ...DEFAULT_GENERAL_SETTINGS };
   }
 }
