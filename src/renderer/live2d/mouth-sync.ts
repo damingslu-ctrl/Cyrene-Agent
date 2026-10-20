@@ -1,4 +1,5 @@
 import type { Live2DModel } from "pixi-live2d-display/cubism4";
+import { CONSOLE_PREFIX } from "../../shared/brand";
 
 const MAX_MOUTH_DURATION_MS = 5 * 60 * 1000;
 const MOUTH_TICK_MS = 180;
@@ -166,7 +167,7 @@ export class MouthSyncController {
         if (index >= 0) coreModel.setParameterValueByIndex(index, value);
       }
     } catch (err) {
-      console.warn("[Cyrene] mouth sync failed", err);
+      console.warn(`${CONSOLE_PREFIX} mouth sync failed`, err);
       this.detach();
     }
   }

@@ -1,4 +1,5 @@
 import type { Live2DModel } from "pixi-live2d-display/cubism4";
+import { CONSOLE_PREFIX } from "../../shared/brand";
 
 /**
  * Resolved description of a single hit area and the motion/expression it triggers.
@@ -112,7 +113,7 @@ export class InteractionController {
       try {
         if (await this.model.motion(def.group, def.motionIndex)) return true;
       } catch (err) {
-        console.warn("[Cyrene] motion failed", def.group, def.motionName, err);
+        console.warn(`${CONSOLE_PREFIX} motion failed`, def.group, def.motionName, err);
       }
     }
 
@@ -120,7 +121,7 @@ export class InteractionController {
     try {
       return await this.model.expression(expressionName);
     } catch (err) {
-      console.warn("[Cyrene] expression failed", expressionName, err);
+      console.warn(`${CONSOLE_PREFIX} expression failed`, expressionName, err);
       return false;
     }
   }

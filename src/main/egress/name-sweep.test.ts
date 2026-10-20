@@ -47,6 +47,8 @@ const ZERO_TOLERANCE_FILES = [
   "src/cli/banner/ascii.ts",
   "src/cli/banner/render.ts",
   "src/cli/banner/text.ts",
+  "src/main/orchestrator/tools/builtin-tools/download-file-tool.ts",
+  "src/main/orchestrator/tools/builtin-tools/fetch-url-tool.ts",
 ];
 
 /** 标题/提示形状判据覆盖的文件（同目录内的其余旧拼写是 (c) 档数据键，不在此判据范围）。 */

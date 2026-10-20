@@ -3,6 +3,7 @@ import { Alert, Button, Spin } from "antd";
 import { ArrowLeft, AudioLines, BarChart3, BookOpen, Bot, Boxes, Brain, FileText, Globe, Headphones, Heart, Mail, Monitor, Palette, Power, Puzzle, Settings2, Smartphone, Sparkles, Type, Wrench } from "lucide-react";
 import { MCP } from "@lobehub/icons";
 import packageJson from "../../../../../package.json";
+import { BRAND } from "../../../../shared/brand";
 import { normalizeUiThemeChoice, type UiThemeChoice } from "../../../../shared/ui-theme";
 import {
   DEFAULT_MESSAGE_TYPOGRAPHY,
@@ -249,7 +250,7 @@ export function AppearanceSettingsPage({ section, onSelectSection, onBackToWorks
       </header>
 
       <aside className="cy-page-sidebar cy-settings-sidebar">
-        <div className="cy-settings-brand"><img className="cy-settings-brand__logo" src={settingsLogoUrl} alt="" aria-hidden="true" /><span>昔涟</span></div>
+        <div className="cy-settings-brand"><img className="cy-settings-brand__logo" src={settingsLogoUrl} alt="" aria-hidden="true" /><span>{BRAND.productName}</span></div>
         <Button className="cy-settings-back" type="text" icon={<ArrowLeft size={16} />} onClick={onBackToWorkspace}>
           {t("settingsPage.backToWorkspace")}
         </Button>

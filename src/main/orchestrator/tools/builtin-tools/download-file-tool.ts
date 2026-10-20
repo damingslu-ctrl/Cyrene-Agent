@@ -15,6 +15,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { BRAND } from "../../../../shared/brand";
 import type { ToolDefinition } from "../registry/tool-registry";
 import type { ToolContext } from "../registry/tool-context";
 
@@ -130,7 +131,7 @@ async function executeDownloadFile(args: Record<string, unknown>, ctx?: ToolCont
     const resp = await fetch(url, {
       signal: combinedSignal,
       headers: {
-        "User-Agent": "Mozilla/5.0 (Cyrene Agent) Chrome/120 Safari/537.36",
+        "User-Agent": `Mozilla/5.0 (${BRAND.productName}) Chrome/120 Safari/537.36`,
         Accept: "*/*",
       },
       redirect: "follow",

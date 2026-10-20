@@ -56,7 +56,7 @@ export function prepareBeforeReady(deps: PreReadyDependencies): PreReadyResult {
     // 下方 GPU 开关读取设置之前（那是 userData 的第一处读取点）
     const migration = deps.migrateLegacyUserData();
     if (migration.status === "failed" || migration.status === "partial") {
-      throw new Error("用户数据迁移未完成，已停止启动以避免使用不完整的数据目录。请关闭其他 Cyrene 实例及占用数据文件的程序后重试；不要删除旧数据目录。");
+      throw new Error("用户数据迁移未完成，已停止启动以避免使用不完整的数据目录。请关闭其他 Mochi 实例及占用数据文件的程序后重试；不要删除旧数据目录。");
     }
 
     // 两次迁移的先后：先历史 live2d-cyrene，再本次的 cyrene-verge → Mochi，两步都早于

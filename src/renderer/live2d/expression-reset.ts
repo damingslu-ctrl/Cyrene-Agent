@@ -1,4 +1,5 @@
 import type { Live2DModel } from "pixi-live2d-display/cubism4";
+import { CONSOLE_PREFIX } from "../../shared/brand";
 
 export interface ExpressionResetOptions {
   intervalMs?: number;
@@ -31,7 +32,7 @@ export class ExpressionResetController {
     try {
       return await this.model.expression(this.expressionName);
     } catch (err) {
-      console.warn("[Cyrene] expression reset failed", this.expressionName, err);
+      console.warn(`${CONSOLE_PREFIX} expression reset failed`, this.expressionName, err);
       return false;
     }
   }

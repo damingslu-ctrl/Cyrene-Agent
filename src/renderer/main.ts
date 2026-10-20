@@ -1,4 +1,5 @@
 import "./ui/theme";
+import { CONSOLE_PREFIX } from "../shared/brand";
 import { PixelPetRenderer } from "./pet/renderer";
 import { ClickThroughController } from "./pet/click-through";
 
@@ -59,7 +60,7 @@ const renderer = new PixelPetRenderer({
   width: window.innerWidth,
   height: window.innerHeight,
   onLoad: () => {
-    console.log("[Cyrene] Pixel pet renderer ready");
+    console.log(`${CONSOLE_PREFIX} Pixel pet renderer ready`);
 
     clickThrough = new ClickThroughController(canvas, renderer, {
       onInteractive: (interactive) => void window.cyrene.setInteractive(interactive),
@@ -127,7 +128,7 @@ const renderer = new PixelPetRenderer({
     };
   },
   onError: (err) => {
-    console.error("[Cyrene] Failed to init pixel pet renderer:", err);
+    console.error(`${CONSOLE_PREFIX} Failed to init pixel pet renderer:`, err);
   },
 });
 
@@ -184,7 +185,7 @@ function captureCanvasBlob(): Promise<Blob | null> {
       // 仍是最后一帧画好的内容（对位旧 WebGL 时代的 preserveDrawingBuffer）。
       canvas.toBlob((blob) => resolve(blob), "image/png");
     } catch (err) {
-      console.warn("[Cyrene] canvas.toBlob failed", err);
+      console.warn(`${CONSOLE_PREFIX} canvas.toBlob failed`, err);
       resolve(null);
     }
   });

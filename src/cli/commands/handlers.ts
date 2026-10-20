@@ -10,13 +10,14 @@ import { renderAbout, renderBanner } from "../banner/render.js";
 import { ABOUT_LINES, BANNER_LINES } from "../banner/text.js";
 import { readState, writeState, type FirstLaunchRecord } from "../state/state.js";
 import { errLine, outLine } from "../util/log.js";
+import { BRAND } from "../../shared/brand";
 
 export interface HandlerCtx {
   version: string;
 }
 
 function versionLine(ctx: HandlerCtx): string {
-  return `Cyrene Agent v${ctx.version}`;
+  return `${BRAND.productName} Agent v${ctx.version}`;
 }
 
 export function cmdHello(): number {
@@ -35,7 +36,7 @@ export function cmdVersion(ctx: HandlerCtx): number {
 }
 
 export function cmdHelp(): number {
-  outLine(`Usage: cyrene [command] [options]
+  outLine(`Usage: mochi [command] [options]
 
 Commands:
   hello     Print the welcome banner
@@ -51,17 +52,17 @@ Flags:
   -v, --version   Print version and exit
   -h, --help      Show this help
 
-Run \`cyrene\` with no arguments for the first-time greeting.`);
+Run \`mochi\` with no arguments for the first-time greeting.`);
   return 0;
 }
 
 export function cmdPlaceholder(name: "doctor" | "init" | "update"): number {
-  outLine(`cyrene ${name}: planned for a future release.`);
+  outLine(`mochi ${name}: planned for a future release.`);
   return 0;
 }
 
 export function cmdUnknown(name: string): number {
-  errLine(`cyrene: unknown command '${name}'. Try 'cyrene --help'.`);
+  errLine(`mochi: unknown command '${name}'. Try 'mochi --help'.`);
   return 2;
 }
 
@@ -78,7 +79,7 @@ export function cmdDefault(ctx: HandlerCtx): number {
   }
 
   if (state.kind === "corrupt") {
-    errLine("cyrene: ~/.cyrene/state.json was unreadable; treating as first meeting.");
+    errLine("mochi: ~/.cyrene/state.json was unreadable; treating as first meeting.");
   }
 
   outLine(renderBanner());
@@ -93,7 +94,7 @@ export function cmdDefault(ctx: HandlerCtx): number {
     writeState({ firstLaunch: record });
   } catch {
     errLine(
-      "cyrene: could not write ~/.cyrene/state.json; you may see this banner again next time.",
+      "mochi: could not write ~/.cyrene/state.json; you may see this banner again next time.",
     );
   }
   return 0;

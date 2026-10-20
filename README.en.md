@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="./docs/image/preview.png" alt="Cyrene Agent" width="800">
+<img src="./docs/image/preview.png" alt="Mochi" width="800">
 
-# Cyrene-Agent
+# Mochi
 
 **English** | [中文](./README.md)
 
@@ -10,7 +10,7 @@
 
 
 
-**Cyrene-Agent is a Windows Live2D AI desktop companion centered around Cyrene from _Honkai: Star Rail_.**
+**Mochi is a Windows desktop AI companion: a cat that lives on your desktop, and an agent that can do work for you.**
 
 > A desktop Live2D conversational Agent built with Electron and TypeScript.  
 > Centered around Cyrene's character design and powered by the self-developed CyreneHarness engine and DMAE memory engine,  
@@ -461,7 +461,7 @@ Cyrene includes many built-in and extensible tools, primarily covering the follo
 - **Trust boundary** — User plugins are disabled on first discovery and must be enabled manually in Settings; plugin-created scheduled tasks only take effect after the user confirms their configuration; voice input uses an exclusive lease to avoid conflicting input sources.
 - **Developer toolchain** — The npm package [`@playa0v0/cyrene-plugin-sdk`](https://www.npmjs.com/package/@playa0v0/cyrene-plugin-sdk) provides all public types, Manifest validation, and Mock Context testing tools, with `ajv` as the only runtime dependency; paired with the [Plugin Development Guide](docs/plugins/plugin-dev-guide.md) and the `cyrene-plugin-dev` Skill, development is possible without reading host source code.
 - **Official examples** — The [`examples/`](./examples) directory provides five examples — weather query, long-term memory, scheduled automation, system status, and local ASR contract — all usable as starting points.
-- **Plugin sharing** — This fork has no remote registry: zip the plugin folder and send it directly; the other side imports it from Settings → Plugins → Add.
+- **Plugin sharing** — This version has no remote registry: zip the plugin folder and send it directly; the other side imports it from Settings → Plugins → Add.
 
 #### 🌙 Proactive Chat
 

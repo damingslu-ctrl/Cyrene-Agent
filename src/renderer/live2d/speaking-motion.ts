@@ -1,5 +1,6 @@
 import type { Live2DModel } from "pixi-live2d-display/cubism4";
 import { MotionPriority } from "pixi-live2d-display/cubism4";
+import { CONSOLE_PREFIX } from "../../shared/brand";
 
 /** Motion group holding the designer-made idle swing animation. */
 const SWING_GROUP = "Tick3";
@@ -71,7 +72,7 @@ export class SpeakingMotionController {
     try {
       internal.motionManager.stopAllMotions();
     } catch (err) {
-      console.warn("[Cyrene] stop swing motion failed", err);
+      console.warn(`${CONSOLE_PREFIX} stop swing motion failed`, err);
     }
     this.attachRestore();
   }
@@ -90,7 +91,7 @@ export class SpeakingMotionController {
       // NORMAL motion (hit-area reactions) can interrupt it.
       await this.model.motion(SWING_GROUP, index, MotionPriority.IDLE);
     } catch (err) {
-      console.warn("[Cyrene] swing motion failed", err);
+      console.warn(`${CONSOLE_PREFIX} swing motion failed`, err);
     }
   }
 

@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="./docs/image/preview.png" alt="Cyrene Agent" width="800">
+  <img src="./docs/image/preview.png" alt="Mochi" width="800">
 </p>
 
-<h1 align="center">Cyrene-Agent</h1>
+<h1 align="center">Mochi</h1>
 
 <p align="center">
   <a href="./README.en.md">English</a> | <strong>中文</strong>
 </p>
 
 
-**Cyrene-Agent 是一个以《崩坏：星穹铁道》昔涟为核心角色的 Windows Live2D AI 桌面伴侣。**
+**Mochi 是一个 Windows 桌面 AI 伴侣：常驻桌面的一只猫，也是能替你干活的 agent。**
 
 > 基于 Electron + TypeScript 开发的桌面端 Live2D 智能对话 Agent。  
 > 项目围绕昔涟（Cyrene）的角色设定，结合自研 CyreneHarness 引擎与 DMAE 记忆引擎，  
@@ -360,7 +360,7 @@ Cyrene 内置和扩展的工具较多，主要覆盖以下类别：
 - **信任边界** — 用户插件首次发现一律停用，需在设置页手动启用；插件创建的定时任务必须用户核对配置后才生效；语音输入通过独占租约避免双输入源冲突。
 - **开发者工具链** — npm 包 [`@playa0v0/cyrene-plugin-sdk`](https://www.npmjs.com/package/@playa0v0/cyrene-plugin-sdk) 提供全部公开类型、Manifest 校验与 Mock Context 测试工具，运行时仅依赖 `ajv`；配套《[插件开发指南](docs/plugins/plugin-dev-guide.md)》与 `cyrene-plugin-dev` Skill，无需阅读宿主源码即可完成开发。
 - **官方示例** — 仓库 [`examples/`](./examples) 提供天气查询、长期记忆、定时自动化、系统状态与本地 ASR 契约五个示例，均可直接作为开发起点。
-- **插件分享** — 本 fork 不接远端收录仓库：把插件目录压成 zip 直接发给对方，对方在设置页「插件 → 添加」里导入即可。
+- **插件分享** — 本版本不接远端收录仓库：把插件目录压成 zip 直接发给对方，对方在设置页「插件 → 添加」里导入即可。
 
 #### 🌙 主动聊天
 
