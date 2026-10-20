@@ -1,5 +1,5 @@
-appId: com.cyrene.live2d
-productName: Cyrene
+appId: dev.damin.mochi
+productName: Mochi
 directories:
   output: release
 asar: true
@@ -68,14 +68,14 @@ win:
   target:
     - nsis
 nsis:
-  artifactName: Cyrene-Setup-${version}.${ext}
+  artifactName: Mochi-Setup-${version}.${ext}
   oneClick: false
   differentialPackage: true
   allowToChangeInstallationDirectory: true
   # Shortcut creation is controlled by the assisted install page below.
   createDesktopShortcut: false
   createStartMenuShortcut: true
-  menuCategory: Cyrene
+  menuCategory: Mochi
   include: build/installer/installer.nsh
   installerSidebar: build/installer/installer-sidebar.bmp
   uninstallerSidebar: build/installer/installer-sidebar.bmp
