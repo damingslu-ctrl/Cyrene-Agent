@@ -85,9 +85,9 @@ jobs:
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: cyrene-windows-installer
+          name: mochi-windows-installer
           path: |
-            release/Cyrene-Setup-*.exe
+            release/Mochi-Setup-*.exe
           if-no-files-found: error
           # 安装器数百 MB，缩短留存时间避免占满产物配额
           retention-days: 14

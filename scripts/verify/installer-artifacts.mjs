@@ -1,7 +1,7 @@
 // 安装包产物验证：NSIS 安装器与随包二进制是否齐全，且不携带任何升级源。
 // 在 electron-builder --win nsis 构建完成后运行，检查输出目录（electron-builder.yml
 // 的 directories.output，默认 release/）：
-//   1. Cyrene-Setup-<version>.exe 存在且体积合理
+//   1. electron-builder.yml 的 nsis.artifactName 解析出的安装器存在且体积合理
 //   2. 升级源索引不得存在：本 fork 没有更新来源，latest.yml 一旦出现就说明
 //      publish 块或 electron-updater 被引回来了（Task 3 的反向锁）。
 //   3. 安装器同名 .blockmap 允许存在，不视为升级元数据（理由见下方反向锁处的注释）。
@@ -58,7 +58,17 @@ export async function verifyInstallerArtifacts(options = {}) {
     await readFile(path.join(projectRoot, "electron-builder.yml"), "utf8"),
   );
   const outputDir = path.join(projectRoot, builderConfig.directories?.output ?? "release");
-  const artifactName = (builderConfig.nsis?.artifactName ?? "Cyrene-Setup-${version}.${ext}")
+  // 安装器名只有 electron-builder.yml 一个来源（由 sync-brand.mjs 从 brand.ts 生成）。
+  // 这里绝不补 `?? "Xxx-Setup-${version}.${ext}"` 那种默认值——它就是生成器头注释禁止的
+  // 「两处定义」：品牌一改，本脚本会静默按旧名找文件，最后以 ENOENT 的形式伪装成产物缺失。
+  // 键缺失属配置被改坏，必须当场抛错说清是哪一处。
+  const artifactTemplate = builderConfig.nsis?.artifactName;
+  if (!artifactTemplate) {
+    throw new Error(
+      "electron-builder.yml 缺少 nsis.artifactName：安装器名只能由 src/shared/brand.ts 经 sync-brand.mjs 生成，本脚本不维护第二份",
+    );
+  }
+  const artifactName = artifactTemplate
     .replace("${version}", pkg.version)
     .replace("${ext}", "exe");
 
