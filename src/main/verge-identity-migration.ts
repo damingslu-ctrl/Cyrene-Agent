@@ -22,11 +22,11 @@ export interface VergeUserDataMigrationInput {
   /** app.getPath("appData") —— 上一代目录 `cyrene-verge` 的父目录 */
   appDataPath: string;
   /**
-   * 迁移目标：应用本次真正生效的 userData。
+   * 迁移目标目录；省略时按 brand 的 `dataDirName` 拼（正常启动就是它）。
    *
-   * 省略时按 brand 的 `dataDirName` 拼（正常启动就是它）；命令行显式给了
-   * `--user-data-dir` 时必须由调用方把那个目录传进来 —— 否则会把账本搬到 brand 目录，
-   * 而进程实际读的是探针目录，等于白搬一次还留下两份数据。
+   * 这个参数只为可测性与显式覆盖存在，**生产调用不许**把 `--user-data-dir` 的探针目录传进来：
+   * 那等于把用户的全部账本搬进一次性的探针目录。带那个开关启动时，pre-ready 整步跳过搬运
+   * （见 `application/pre-ready.ts` 的 `usesExplicitUserDataDir`），压根不会走到这里。
    */
   targetUserDataPath?: string;
 }

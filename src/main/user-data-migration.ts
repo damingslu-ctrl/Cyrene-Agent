@@ -10,8 +10,9 @@
  *   2. 任何读取 userData 的代码之前（首个读取点是 GPU 开关里的 loadGeneralSettings）。
  *
  * 安全策略：只做重命名/复制，绝不主动删除旧目录里有内容的东西；
- * 任一条目失败就留在旧目录，下次启动自动重试。（`scripts/migrate-user-data.ps1` 那份手动兜底
- * 脚本还写着历史那次的 `live2d-cyrene → Cyrene` 目标，别拿它搬身份迁移 —— Cyrene 只读禁写。）
+ * 任一条目失败就留在旧目录，下次启动自动重试。（应用拒启动时还有一条手动退路：
+ * `scripts/migrate-user-data.ps1` 搬同样的两个源进 `Mochi`，按同样的路径段规则拒绝上游
+ * `Cyrene`，覆盖前同样移进时间戳备份目录 —— 那份脚本的这三点由测试按文本钉住。）
  * 另有一道按名字的硬闸门（`assertMigratable`）：上游 `Cyrene` 目录里是用户的真实数据，
  * 本 fork 全程只读禁写，任何迁移都不许拿它当源或目标。
  */
@@ -61,8 +62,10 @@ export interface LegacyUserDataMigrationInput {
   /**
    * 完成标记文件名；默认历史 `.legacy-user-data-migrated`。
    *
-   * 每一次独立的迁移必须用**不同**的名字：整体重命名会把上一次的标记原样搬进新目录，
-   * 复用同名标记会让新迁移一眼看到「已迁移过」而静默跳过，数据留在旧目录不搬。
+   * 每一次独立的迁移必须用**不同**的名字：pre-ready 里 live2d 那步先跑，首启时目标目录已被
+   * 单实例锁建出、旧目录早就不在，它什么也没搬却按 `none` 分支把标记**补记**进目标。
+   * 复用同名标记会让后跑的身份迁移一进门就看到「已迁移过」，静默返回 already_migrated，
+   * 数据留在旧目录不搬。
    */
   markerFileName?: string;
 }
@@ -80,14 +83,24 @@ export interface LegacyUserDataMigrationResult {
   status: LegacyUserDataMigrationStatus;
 }
 
+/** 命中禁写目录名时返回那个原始路径段，否则返回 undefined。 */
+function findForbiddenSegment(candidate: string): string | undefined {
+  return candidate
+    .split(/[/\\]/)
+    .find((segment) => FORBIDDEN_DIR_NAMES_LOWER.has(segment.toLowerCase()));
+}
+
 /**
- * 迁移前的硬闸门：拒绝任何以 `Cyrene` 为源或目标的搬运，并解析两次迁移各自的取值。
+ * 迁移前的硬闸门：拒绝任何路径里出现 `Cyrene` 段的搬运，并解析两次迁移各自的取值。
  *
- * 按名字判，不看路径也不看内容 —— 连 `existsSync` 都不许先跑，否则「读一下确认是不是
- * 那个目录」本身就已经碰了只读禁写的目录。三处归一：
- *   - 两边都取 `basename`，让 `sub/Cyrene` 这类拼接写法与尾部分隔符一样被挡；
+ * 按名字判，不看内容也不碰文件系统 —— 连 `existsSync` 都不许先跑，否则「读一下确认是不是
+ * 那个目录」本身就已经碰了只读禁写的目录。判据是**逐段**扫这三条完整路径
+ * （`appDataPath`、拼出来的 legacy 路径、`targetUserDataPath`）：
+ *   - 只看 basename 会被 `Cyrene/sub` 绕过（basename 是 sub），也看不见 appDataPath 整个躲在
+ *     上游目录里面；而生产里 legacy 路径正是 `appDataPath` + `legacyDirName` 拼出来的。
+ *   - 只认**完整**路径段：`cyrene-verge`、`live2d-cyrene` 都是合法目录名，必须照常能搬。
  *   - 比较前转小写，因为 Windows 路径不区分大小写，`%APPDATA%\cyrene` 就是同一个目录；
- *   - `targetUserDataPath` 先 `resolve`，避免相对路径的 basename 判空漏网。
+ *     每段先 `resolve` 过再拆，相对路径与尾部分隔符都不留死角。
  */
 function assertMigratable(input: LegacyUserDataMigrationInput): {
   legacyDirName: string;
@@ -95,10 +108,15 @@ function assertMigratable(input: LegacyUserDataMigrationInput): {
 } {
   const legacyDirName = input.legacyDirName ?? LEGACY_USER_DATA_DIR_NAME;
   const markerFileName = input.markerFileName ?? MIGRATION_MARKER_FILE_NAME;
-  for (const candidate of [legacyDirName, input.targetUserDataPath]) {
-    const name = path.basename(path.resolve(candidate));
-    if (FORBIDDEN_DIR_NAMES_LOWER.has(name.toLowerCase())) {
-      throw new Error(`迁移被拒绝：\`%APPDATA%\\${name}\` 是上游 Cyrene 的真实用户数据，本 fork 全程只读禁写（spec §6）。`);
+  const candidates = [
+    input.appDataPath,
+    path.join(input.appDataPath, legacyDirName),
+    input.targetUserDataPath,
+  ];
+  for (const candidate of candidates) {
+    const segment = findForbiddenSegment(path.resolve(candidate));
+    if (segment) {
+      throw new Error(`迁移被拒绝：路径段 \`${segment}\` 是上游 Cyrene 的真实用户数据，本 fork 全程只读禁写（spec §6）。命中路径：${candidate}`);
     }
   }
   return { legacyDirName, markerFileName };

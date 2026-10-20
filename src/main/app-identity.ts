@@ -14,7 +14,7 @@ import * as path from "node:path";
 
 import { BRAND } from "../shared/brand";
 
-/** fork 的实例名：从此由 brand 单点决定（原来写死 `cyrene-verge`），同时决定单实例锁与 userData 目录名。 */
+/** fork 的实例名：从此由 brand 单点决定（原来写死 `cyrene-verge`），决定进程身份与单实例锁；userData 目录另取 `BRAND.dataDirName`。 */
 export const VERGE_INSTANCE_NAME = BRAND.productName;
 
 /**
@@ -26,21 +26,24 @@ export const VERGE_LEGACY_DIR_NAME = "cyrene-verge";
 /**
  * 身份迁移（`cyrene-verge` → `Mochi`）的完成标记名。
  *
- * 必须不同于历史 live2d 迁移的 `.legacy-user-data-migrated`：整体重命名会把旧目录里的
- * 那份历史标记原样搬进新目录，复用同名标记会让身份迁移看到「已迁移过」而静默跳过，
- * 数据留在 `%APPDATA%\cyrene-verge` 不搬 —— 用户以为换了目录，其实还在用旧的。
+ * 必须不同于历史 live2d 迁移的 `.legacy-user-data-migrated`：pre-ready 让 live2d 那步先跑，
+ * 首启时目标 `Mochi` 已被单实例锁建出、而 `live2d-cyrene` 早就不在 —— 那一步什么也没搬，
+ * 却按 `none` 分支把它的标记补记进了 `Mochi`。两枚同名时，紧接着的身份迁移会当场判定
+ * 「已迁移过」返回 already_migrated，用户整个账本静默留在 `%APPDATA%\cyrene-verge` 不搬。
  */
 export const VERGE_MIGRATION_MARKER = ".migrated-from-cyrene-verge";
 
 /**
  * 解析 fork 的 userData 目录。
  *
+ * 目录取自 brand 的 `dataDirName`（`src/shared/brand.ts` 钉死它是已落盘数据的键），
+ * 不是进程身份名 `productName`：一个目录只有一个 brand 字段，否则改了显示名就会换掉账本目录。
  * `name` 只为可测性存在（正对照：证明拼接用的是传入值而不是常量）；
- * 生产调用一律省略它，走 `VERGE_INSTANCE_NAME`。
+ * 生产调用一律省略它，走 `BRAND.dataDirName`。
  */
 export function resolveAppUserDataPath(
   appDataDir: string,
-  name: string = VERGE_INSTANCE_NAME,
+  name: string = BRAND.dataDirName,
 ): string {
   return path.join(appDataDir, name);
 }

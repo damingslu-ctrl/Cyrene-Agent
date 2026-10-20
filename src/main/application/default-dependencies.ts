@@ -13,7 +13,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import { ensureGpuSandboxAcl } from "../gpu-sandbox-acl";
-import { configureVergeIdentity } from "../app-identity";
+import { configureVergeIdentity, hasExplicitUserDataDir } from "../app-identity";
 import { getExternalContentPaths } from "../external-content-paths";
 import { migrateStagedExternalContent } from "../external-content-migration";
 import { logger, LogTag, installMainLogSink } from "../logger";
@@ -320,6 +320,8 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
     shutdown,
 
     prepare: () => prepareBeforeReady({
+      // 探针/验收启动带 --user-data-dir 时，pre-ready 会凭这个标志整步跳过 userData 搬运
+      usesExplicitUserDataDir: hasExplicitUserDataDir(process.argv),
       configureIdentity: () => {
         const identity = configureVergeIdentity(app, app.getPath("appData"));
         // 落盘接收器必须晚于身份：installFileLogSink 会把传入的 userData 永久绑进闭包，
@@ -340,9 +342,9 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           targetUserDataPath: app.getPath("userData"),
         });
       },
-      // 身份改名（cyrene-verge → Mochi）带来的一次性搬运。目标一律传本次真正生效的
-      // userData：显式 --user-data-dir 时那是探针目录，不能让 brand 默认值把它顶掉，
-      // 否则账本搬到 Mochi、进程却读探针目录，等于白搬一次还留下两份数据。
+      // 身份改名（cyrene-verge → Mochi）带来的一次性搬运。命令行显式给了 --user-data-dir
+      // 时，pre-ready 整步跳过这两次搬运（探针 profile 不该接走用户的真账本），所以这里
+      // getPath("userData") 只会是 brand 目录；那个开关的让路逻辑在 configureVergeIdentity。
       migrateVergeUserData: () => migrateVergeUserData({
         appDataPath: app.getPath("appData"),
         targetUserDataPath: app.getPath("userData"),

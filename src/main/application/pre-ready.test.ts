@@ -3,6 +3,8 @@ import { prepareBeforeReady, type PreReadyDependencies } from "./pre-ready";
 
 function makePreReadyDeps(calls: string[], overrides: Partial<PreReadyDependencies> = {}): PreReadyDependencies {
   return {
+    // 默认按「命令行没给 --user-data-dir」：正常启动才搬运，现有顺序断言不受影响
+    usesExplicitUserDataDir: false,
     configureIdentity: vi.fn(() => { calls.push("configure-identity"); }),
     installSingleInstance: vi.fn(() => { calls.push("single-instance-lock"); return true; }),
     migrateLegacyUserData: vi.fn(() => { calls.push("migrate-user-data"); return { status: "none" }; }),
@@ -91,6 +93,39 @@ describe("prepareBeforeReady", () => {
     expect(deps.migrateLegacyUserData).not.toHaveBeenCalled();
     // 身份迁移同样只在抢到锁之后跑：两个进程并发改名会把账本搬成两半
     expect(deps.migrateVergeUserData).not.toHaveBeenCalled();
+  });
+
+  // 显式 --user-data-dir 的意思是「在这次指定的 profile 上跑」，不是「把我的真数据搬到这里」。
+  // 搬运的 renamed 会把源目录整个改名搬走再移除，而且是**成功状态**（下游拦不住），
+  // 一次探针启动就能把用户真实的 %APPDATA%\cyrene-verge 搬空。所以两步搬运都得跳过。
+  it("显式 --user-data-dir 时两步 userData 搬运都不跑，其余预配置照常", () => {
+    const calls: string[] = [];
+    const deps = makePreReadyDeps(calls, { usesExplicitUserDataDir: true });
+    const result = prepareBeforeReady(deps);
+    expect(calls).not.toContain("migrate-user-data");
+    expect(calls).not.toContain("migrate-verge-user-data");
+    expect(deps.migrateLegacyUserData).not.toHaveBeenCalled();
+    expect(deps.migrateVergeUserData).not.toHaveBeenCalled();
+    expect(calls).toEqual([
+      "configure-identity",
+      "single-instance-lock",
+      "register-schemes",
+      "gpu-switches",
+      "gpu-acl",
+    ]);
+    expect(result.isPrimaryProcess).toBe(true);
+  });
+
+  // 搬运被跳过后，连「搬不完就拒启动」的抛出也不再发生：探针 profile 不该被真实数据的
+  // 占用问题卡住启动（partial/failed 都来自源目录里的真实文件）。
+  it("显式 --user-data-dir 时即便迁移返回 partial 也不抛，探针 profile 照常启动", () => {
+    const deps = makePreReadyDeps([], {
+      usesExplicitUserDataDir: true,
+      migrateLegacyUserData: () => ({ status: "partial" }),
+      migrateVergeUserData: () => ({ status: "partial" }),
+    });
+    expect(() => prepareBeforeReady(deps)).not.toThrow();
+    expect(deps.registerPrivilegedSchemes).toHaveBeenCalled();
   });
 
   it("routes second-instance activation through the chat request", () => {

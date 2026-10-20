@@ -38,7 +38,10 @@ describe("migrateVergeUserData", () => {
     expect(fs.existsSync(path.join(brandDir(), VERGE_MIGRATION_MARKER))).toBe(true);
   });
 
-  it("正对照：显式传 targetUserDataPath 时用传入目录（--user-data-dir 探针 profile 不被 brand 目录顶掉）", () => {
+  // 只钉参数管道：显式传了 target 就用传入的目录，不被 brand 默认值顶掉。
+  // 生产链路到不了这一支 —— 命令行带 --user-data-dir 时 pre-ready 整步跳过搬运（见
+  // application/pre-ready.ts 的 usesExplicitUserDataDir），探针目录永远不会当迁移目标。
+  it("正对照：显式传 targetUserDataPath 时按传入目录拼（只测参数管道，非生产用法）", () => {
     fs.mkdirSync(path.join(legacyDir(), "chats"), { recursive: true });
     fs.writeFileSync(path.join(legacyDir(), "chats", "a.json"), "{}", "utf8");
     const probeDir = path.join(appData, "probe-profile");
