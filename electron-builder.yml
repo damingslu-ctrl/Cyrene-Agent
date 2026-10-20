@@ -59,7 +59,7 @@ extraResources:
   - from: vendor/cyrene-skills
     to: cyrene-skills
 win:
-  icon: assets/tray-icon.ico
+  icon: assets/mochi-icon.png
   # 保留应用支持的英文、简体中文和繁体中文界面语言。
   electronLanguages:
     - en-US
@@ -77,5 +77,3 @@ nsis:
   createStartMenuShortcut: true
   menuCategory: Mochi
   include: build/installer/installer.nsh
-  installerSidebar: build/installer/installer-sidebar.bmp
-  uninstallerSidebar: build/installer/installer-sidebar.bmp

@@ -24,7 +24,7 @@ Function CyreneOptionsPageCreate
   Pop $CyreneDesktopShortcutCheckbox
   ${NSD_Check} $CyreneDesktopShortcutCheckbox
 
-  ${NSD_CreateCheckbox} 0 56u 100% 12u "开机时自动启动 Cyrene"
+  ${NSD_CreateCheckbox} 0 56u 100% 12u "开机时自动启动 Mochi"
   Pop $CyreneLaunchAtLoginCheckbox
   ${NSD_Uncheck} $CyreneLaunchAtLoginCheckbox
 
