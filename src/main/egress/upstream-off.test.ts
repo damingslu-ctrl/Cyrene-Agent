@@ -11,17 +11,15 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { scannedFiles } from "./scan-source-files";
 
 /** 锁自身必须排除：它的正对照字符串就是被禁标识，不排除会自炸。 */
 const SELF = "upstream-off.test.ts";
-const SCAN_ROOTS = ["src", "scripts", "build", "packages", ".github"];
 /**
  * 根目录文件不属于任何扫描根，但 A3 的两条判据就住在它们里面：
  * `publish`/`provider` 在 `electron-builder.yml`，`electron-updater` 依赖在 `package.json`。
  * 不显式列出来的话，A3 会扫到一个空集合然后报 PASS——锁自己瞎了却读成「干净」。
  */
-const SCAN_ROOT_FILES = ["electron-builder.yml", "package.json"];
-const SCAN_EXTENSIONS = new Set([".ts", ".tsx", ".mjs", ".css", ".html", ".json", ".yml", ".yaml", ".nsh"]);
 
 interface Rule {
   clause: string;
@@ -150,37 +148,6 @@ const RULES: Rule[] = [
   },
 ];
 
-function sourceFiles(root: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(root)) {
-    const full = path.join(root, entry);
-    if (entry === "node_modules" || entry === "dist" || entry === "release") continue;
-    const stats = statSync(full);
-    if (stats.isDirectory()) sourceFiles(full, out);
-    else if (SCAN_EXTENSIONS.has(path.extname(full))) out.push(full);
-  }
-  return out;
-}
-
-function scannedFiles(): string[] {
-  const base = path.resolve(process.cwd());
-  const fromRoots = SCAN_ROOTS.flatMap((root) => {
-    const abs = path.join(base, root);
-    try {
-      return statSync(abs).isDirectory() ? sourceFiles(abs) : [];
-    } catch {
-      return [];
-    }
-  });
-  const fromRootFiles = SCAN_ROOT_FILES.map((name) => path.join(base, name)).filter((abs) => {
-    try {
-      return statSync(abs).isFile();
-    } catch {
-      return false;
-    }
-  });
-  return [...fromRoots, ...fromRootFiles];
-}
-
 /** 例外表的 `file` 一律用 `/` 分隔书写，跟 `path.sep` 无关（Windows 上是 `\`）。 */
 function posixPath(file: string): string {
   return file.split(path.sep).join("/");
@@ -194,7 +161,7 @@ describe("上游出口清零（静态标识面）", () => {
     // 根配置文件必须真的进了扫描集合：A3 的 publish / 依赖判据只能在这里被证伪，
     // 少了它们规则就是「永远扫不到」的死锁而不是锁。
     expect(files.map((file) => path.relative(process.cwd(), file))).toEqual(
-      expect.arrayContaining(SCAN_ROOT_FILES),
+      expect.arrayContaining(["electron-builder.yml", "package.json"]),
     );
   });
 
