@@ -27,9 +27,11 @@ export const VERGE_LEGACY_DIR_NAME = "cyrene-verge";
  * 身份迁移（`cyrene-verge` → `Mochi`）的完成标记名。
  *
  * 必须不同于历史 live2d 迁移的 `.legacy-user-data-migrated`：pre-ready 让 live2d 那步先跑，
- * 首启时目标 `Mochi` 已被单实例锁建出、而 `live2d-cyrene` 早就不在 —— 那一步什么也没搬，
- * 却按 `none` 分支把它的标记补记进了 `Mochi`。两枚同名时，紧接着的身份迁移会当场判定
- * 「已迁移过」返回 already_migrated，用户整个账本静默留在 `%APPDATA%\cyrene-verge` 不搬。
+ * 首启时目标 `Mochi` 已经被建出来了 —— 造它的是 `configureIdentity` 里的日志落盘接收器
+ * （`installFileLogSink` 会 `mkdirSync(userData/logs)`），不是单实例锁：Windows 上那把锁
+ * 不在 userData 落 `Singleton*`/`lockfile` 文件。而 `live2d-cyrene` 早就不在 —— 那一步什么
+ * 也没搬，却按 `none` 分支把它的标记补记进了 `Mochi`。两枚同名时，紧接着的身份迁移会当场
+ * 判定「已迁移过」返回 already_migrated，用户整个账本静默留在 `%APPDATA%\cyrene-verge` 不搬。
  */
 export const VERGE_MIGRATION_MARKER = ".migrated-from-cyrene-verge";
 

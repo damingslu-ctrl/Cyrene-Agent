@@ -316,19 +316,21 @@ describe("migrateLegacyUserData — Task 9 身份迁移（cyrene-verge → Mochi
   });
 
   // 生产形态：pre-ready 的顺序是 live2d 先、身份迁移后，而两步的目标都是 Mochi。
-  // 首启时 Mochi 已经存在（单实例锁在 pre-ready 更早处就把它建了出来），于是 live2d 那步
+  // 首启时 Mochi 已经存在（`configureIdentity` 里的日志落盘接收器 `mkdirSync(userData/logs)`
+  // 把它建了出来；Windows 上单实例锁不在 userData 落文件），于是 live2d 那步
   // 走「旧目录不在」分支、什么也没搬却把 .legacy-user-data-migrated 补记进 Mochi。
   // 标记名若与身份迁移共用，下一眼看到的就是这枚补记的标记 → already_migrated，
   // 用户整个 cyrene-verge 账本静默留在原地。下面这对用例把这条真路径钉住：
   // 正例必须真的搬，同名坍缩对照必须搬不动（否则这两条断言读不出区别）。
-  it("生产形态：Mochi 已由单实例锁建出且被 live2d 步骤补记了标记，身份迁移仍必须真搬", () => {
+  it("生产形态：Mochi 已由日志落盘接收器建出且被 live2d 步骤补记了标记，身份迁移仍必须真搬", () => {
     const appData = fs.mkdtempSync(path.join(os.tmpdir(), "mochi-mig-"));
     tmpRoots.push(appData);
     const target = path.join(appData, "Mochi");
     const legacy = path.join(appData, "cyrene-verge");
-    // 首启的真实磁盘状态：目标目录已存在（锁文件），live2d-cyrene 早就不在了
+    // 首启的真实磁盘状态：目标目录已存在（logs/cyrene.log 由接收器写入），live2d-cyrene 早就不在了
     fs.mkdirSync(target, { recursive: true });
-    fs.writeFileSync(path.join(target, "SingletonLock"), "pid", "utf8");
+    fs.mkdirSync(path.join(target, "logs"), { recursive: true });
+    fs.writeFileSync(path.join(target, "logs", "cyrene.log"), "", "utf8");
     fs.mkdirSync(path.join(legacy, "cyrene-chats"), { recursive: true });
     fs.writeFileSync(path.join(legacy, "cyrene-chats", "index.json"), '{"from":"verge"}', "utf8");
 
@@ -351,15 +353,18 @@ describe("migrateLegacyUserData — Task 9 身份迁移（cyrene-verge → Mochi
     expect(fs.existsSync(path.join(target, VERGE_MIGRATION_MARKER))).toBe(true);
   });
 
-  // 上面那条的坍缩对照：两步共用同一个标记名时，身份迁移静默返回 already_migrated、
-  // 数据原样留在 cyrene-verge。这条用例必须红，才证明正例不是同义反复。
+  // 上面那条的坍缩对照：同样首启磁盘状态下让两步共用同一个标记名，身份迁移就静默返回
+  // already_migrated、数据原样留在 cyrene-verge。这条断言的是「坍缩后会错成什么样」，
+  // 它绿 + 正例绿 才一起证明标记名不同这件事真的被钉住了（把 VERGE_MIGRATION_MARKER 改回
+  // 与历史同名，正例必须当场红）。
   it("坍缩对照：两步共用同一标记名时身份迁移静默跳过，账本留在旧目录", () => {
     const appData = fs.mkdtempSync(path.join(os.tmpdir(), "mochi-mig-"));
     tmpRoots.push(appData);
     const target = path.join(appData, "Mochi");
     const legacy = path.join(appData, "cyrene-verge");
     fs.mkdirSync(target, { recursive: true });
-    fs.writeFileSync(path.join(target, "SingletonLock"), "pid", "utf8");
+    fs.mkdirSync(path.join(target, "logs"), { recursive: true });
+    fs.writeFileSync(path.join(target, "logs", "cyrene.log"), "", "utf8");
     fs.mkdirSync(path.join(legacy, "cyrene-chats"), { recursive: true });
     fs.writeFileSync(path.join(legacy, "cyrene-chats", "index.json"), '{"from":"verge"}', "utf8");
 
@@ -486,17 +491,25 @@ describe("migrateLegacyUserData — Task 9 身份迁移（cyrene-verge → Mochi
  * 而不是安静地扫到 0 命中再报 PASS。
  */
 describe("scripts/migrate-user-data.ps1 — 不许把上游 Cyrene 当目标", () => {
-  const ps1 = fs.readFileSync(path.resolve(process.cwd(), "scripts", "migrate-user-data.ps1"), "utf8");
+  // 用 import.meta.url 而不是 process.cwd()：本 describe 的判据一旦被解析不到文件，
+  // 整个 user-data-migration.test.ts（含 Task 9 全部用例）会一起红，而真正坏掉的只是尺的路径。
+  const ps1 = fs.readFileSync(new URL("../../scripts/migrate-user-data.ps1", import.meta.url), "utf8");
   const FORBIDDEN_TARGET_ASSIGN = /\$target\s*=\s*Join-Path\s+\$appData\s+['"]Cyrene['"]/i;
-  const DESTRUCTIVE_OVERWRITE = /Remove-Item\s+-LiteralPath\s+\$dest\b[^|\r\n]*-Recurse/i;
+  // 不要求 -Recurse：凡是对「目标目录里的条目」动手删除都算危险形态，改个变量名也躲不掉。
+  const DESTRUCTIVE_OVERWRITE = /Remove-Item\s+-LiteralPath\s+\$(?:dest|target|targetEntry|existing)\b/i;
   const SEGMENT_REFUSAL = /-eq\s+['"]cyrene['"]/i;
+  // 完成标记闸门：查 $markerPath 那道 Test-Path 必须带 -not $Force 逃生口，否则既锁不死重跑、
+  // 也不给「确认标记写错了」留退路。
+  const MARKER_GATE = /Test-Path\s+-LiteralPath\s+\$markerPath[\s\S]{0,80}-not\s+\$Force/;
 
   it("正对照：判据正则确实能抓到三种危险形态（尺自己坏了要在这里红）", () => {
     expect(ps1.length).toBeGreaterThan(400);
     expect(ps1).toContain("$ErrorActionPreference");
     expect("$target = Join-Path $appData 'Cyrene'").toMatch(FORBIDDEN_TARGET_ASSIGN);
     expect("Remove-Item -LiteralPath $dest -Recurse -Force").toMatch(DESTRUCTIVE_OVERWRITE);
+    expect("Remove-Item -LiteralPath $targetEntry -Force").toMatch(DESTRUCTIVE_OVERWRITE);
     expect("if ($segment.ToLower() -eq 'cyrene') { exit 1 }").toMatch(SEGMENT_REFUSAL);
+    expect("if ((Test-Path -LiteralPath $markerPath) -and (-not $Force)) { continue }").toMatch(MARKER_GATE);
   });
 
   it("目标是 brand 的 Mochi，两个搬运源按应用内的先后都在", () => {
@@ -518,5 +531,12 @@ describe("scripts/migrate-user-data.ps1 — 不许把上游 Cyrene 当目标", (
 
   it("进程守卫查本 fork 的名字，不再只查上游 Cyrene", () => {
     expect(ps1).toMatch(/Get-Process\s+-Name\s+'Mochi',\s*'cyrene-verge',\s*'Cyrene'/i);
+  });
+
+  it("认应用内写下的完成标记：有标记就不并入，除非显式 -Force", () => {
+    expect(ps1).toMatch(MARKER_GATE);
+    // 标记名必须与应用内是同一串，否则脚本查的是空气、闸门永远不开
+    expect(ps1).toContain(".legacy-user-data-migrated");
+    expect(ps1).toContain(VERGE_MIGRATION_MARKER);
   });
 });

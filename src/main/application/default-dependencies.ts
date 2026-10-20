@@ -343,8 +343,9 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         });
       },
       // 身份改名（cyrene-verge → Mochi）带来的一次性搬运。命令行显式给了 --user-data-dir
-      // 时，pre-ready 整步跳过这两次搬运（探针 profile 不该接走用户的真账本），所以这里
-      // getPath("userData") 只会是 brand 目录；那个开关的让路逻辑在 configureVergeIdentity。
+      // 时，pre-ready 整步跳过这两次搬运（探针 profile 不该接走用户的真账本）。这两次真跑时
+      // getPath("userData") 之所以只会是 brand 目录，靠的是上面 usesExplicitUserDataDir 与
+      // configureVergeIdentity 读的是同一个 process.argv —— 谁改了其中一处，另一处就会跟着失效。
       migrateVergeUserData: () => migrateVergeUserData({
         appDataPath: app.getPath("appData"),
         targetUserDataPath: app.getPath("userData"),

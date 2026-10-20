@@ -1,6 +1,9 @@
 ﻿# Mochi 用户数据迁移脚本
 # 作用：把旧数据目录 %APPDATA%\live2d-cyrene 与上一代 fork 目录 %APPDATA%\cyrene-verge 依次并入
-#       当前目录 %APPDATA%\Mochi。顺序与合并语义都与应用内一致：后搬的那份同名文件覆盖先搬的。
+#       当前目录 %APPDATA%\Mochi。搬运顺序、「同名文件旧数据赢」、以及「有完成标记就绝不并入」
+#       三处都对齐应用内 pre-ready + migrateLegacyUserData。唯一故意的不同：本脚本搬完不补写标记，
+#       只有应用能写——partial（有文件被占用）时应用会拒绝启动、把收尾交给这里，脚本自己写了标记
+#       就会把唯一需要的重试给跳过。
 # 场景：应用内的自动迁移搬不完时应用会拒绝启动（被备份程序永久占着文件时没有应用内的退路），
 #       这里是没有应用参与的手动兜底。双击同目录的 migrate-user-data.cmd 即可运行。
 # 规则：旧数据优先覆盖新目录同名文件；被覆盖的新目录条目先移进
@@ -11,13 +14,24 @@
 #       任何文件操作之前。与 src/main/user-data-migration.ts 的 assertMigratable 同一规则，
 #       那三条判据由 src/main/user-data-migration.test.ts 末尾的文本锁钉住。
 
+param(
+    # 忽略完成标记强行并入。默认关——认标记是保护，只有确认标记写错了才该带上它。
+    [switch]$Force
+)
+
 $ErrorActionPreference = 'Stop'
 $appData = [Environment]::GetFolderPath('ApplicationData')
 $target = Join-Path $appData 'Mochi'
 $backupDirName = '.legacy-migration-overwritten'
 $runtimeFiles = @('lockfile', 'SingletonLock', 'SingletonSocket', 'SingletonCookie')
-# 搬运顺序 = 应用内 pre-ready 的顺序：先历史 live2d-cyrene，再上一代 cyrene-verge（后者同名文件赢）
-$sources = @('live2d-cyrene', 'cyrene-verge')
+# 搬运顺序 = 应用内 pre-ready 的顺序：先历史 live2d-cyrene，再上一代 cyrene-verge（后者同名文件赢）。
+# Marker 就是应用内各自的完成标记名（src/main/app-identity.ts 的 VERGE_MIGRATION_MARKER 与
+# src/main/user-data-migration.ts 的 MIGRATION_MARKER_FILE_NAME），两个名字必须不同——
+# 预检那个「不同名」判据在应用侧，这里只保证脚本查的是同一个名字。
+$sources = @(
+    @{ Name = 'live2d-cyrene'; Marker = '.legacy-user-data-migrated' },
+    @{ Name = 'cyrene-verge'; Marker = '.migrated-from-cyrene-verge' }
+)
 
 function Test-ForbiddenPath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -32,7 +46,7 @@ Write-Host "目标目录: $target"
 
 # 硬闸门：先于任何文件操作，按路径段拒绝上游 Cyrene
 $guarded = @($appData, $target)
-foreach ($sourceName in $sources) { $guarded += (Join-Path $appData $sourceName) }
+foreach ($source in $sources) { $guarded += (Join-Path $appData $source.Name) }
 foreach ($candidate in $guarded) {
     if (Test-ForbiddenPath -Path $candidate) {
         Write-Host "迁移被拒绝：'$candidate' 命中上游 Cyrene 目录。%APPDATA%\Cyrene 是上游 Cyrene 的真实用户数据，本 fork 全程只读禁写：不搬运、不删除、不覆盖。" -ForegroundColor Red
@@ -46,10 +60,20 @@ if ($running) {
     exit 1
 }
 
-foreach ($sourceName in $sources) {
+foreach ($source in $sources) {
+    $sourceName = $source.Name
     $legacy = Join-Path $appData $sourceName
     if (-not (Test-Path -LiteralPath $legacy)) {
         Write-Host "未发现旧数据目录 $legacy，跳过。"
+        continue
+    }
+
+    # 完成标记闸门：应用认这个标记，认到就只留目录不并入（user-data-migration.ts 的 already_migrated
+    # 分支）。这里必须同样拒绝，否则脚本会凭一份陈旧目录覆盖掉目标里更新的文件——而应用启动时不会。
+    # 目标不存在时标记不可能存在，所以这道闸门对下面的整体改名分支天然是空操作。
+    $markerPath = Join-Path $target $source.Marker
+    if ((Test-Path -LiteralPath $markerPath) -and (-not $Force)) {
+        Write-Host "$legacy 已被应用内的迁移记为完成（目标目录有 $($source.Marker)），不并入、原样保留。`n  确认标记写错了才加 -Force 强行重跑。" -ForegroundColor Yellow
         continue
     }
 

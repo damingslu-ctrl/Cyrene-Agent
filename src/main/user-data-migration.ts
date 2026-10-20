@@ -63,7 +63,9 @@ export interface LegacyUserDataMigrationInput {
    * 完成标记文件名；默认历史 `.legacy-user-data-migrated`。
    *
    * 每一次独立的迁移必须用**不同**的名字：pre-ready 里 live2d 那步先跑，首启时目标目录已被
-   * 单实例锁建出、旧目录早就不在，它什么也没搬却按 `none` 分支把标记**补记**进目标。
+   * `configureIdentity` 的日志落盘接收器建出（`installFileLogSink` 会 `mkdirSync(userData/logs)`；
+   * Windows 上单实例锁不在 userData 落文件）、旧目录早就不在，它什么也没搬却按 `none` 分支
+   * 把标记**补记**进目标。
    * 复用同名标记会让后跑的身份迁移一进门就看到「已迁移过」，静默返回 already_migrated，
    * 数据留在旧目录不搬。
    */
