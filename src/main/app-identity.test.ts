@@ -1,13 +1,19 @@
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { BRAND } from "../shared/brand";
 import {
   VERGE_INSTANCE_NAME,
+  VERGE_LEGACY_DIR_NAME,
+  VERGE_MIGRATION_MARKER,
   configureVergeIdentity,
   hasExplicitUserDataDir,
   resolveAppUserDataPath,
   type IdentityApp,
 } from "./app-identity";
+
+/** 历史 live2d 那次迁移的标记名，写死在这里正是为了跟新标记比出「不同名」。 */
+const LIVE2D_MIGRATION_MARKER = ".legacy-user-data-migrated";
 
 function makeRecordingApp(userDataPath = "C:/AppData/Roaming/unresolved") {
   const calls: string[] = [];
@@ -20,12 +26,28 @@ function makeRecordingApp(userDataPath = "C:/AppData/Roaming/unresolved") {
 }
 
 describe("app-identity", () => {
-  it("userData 目录落在独立的 cyrene-verge 下", () => {
+  it("userData 目录落在独立的 Mochi 下", () => {
     const resolved = resolveAppUserDataPath("C:/AppData/Roaming");
     expect(path.basename(resolved)).toBe(VERGE_INSTANCE_NAME);
     expect(resolved).toContain(VERGE_INSTANCE_NAME);
     // 不改身份时这里会是 …\Cyrene（上游安装版的账本），必须不是它
     expect(resolved).not.toMatch(/[/\\]Cyrene[/\\]?$/);
+  });
+
+  it("实例名取自 brand 单点，不再写死目录名（改名只动一处）", () => {
+    expect(VERGE_INSTANCE_NAME).toBe(BRAND.productName);
+    expect(VERGE_INSTANCE_NAME).toBe("Mochi");
+    // 上一代目录名只作迁移源存在，绝不能还当身份用
+    expect(VERGE_LEGACY_DIR_NAME).toBe("cyrene-verge");
+    expect(VERGE_INSTANCE_NAME).not.toBe(VERGE_LEGACY_DIR_NAME);
+    expect(resolveAppUserDataPath("C:/AppData/Roaming")).toBe(
+      path.join("C:/AppData/Roaming", BRAND.dataDirName),
+    );
+  });
+
+  it("两次迁移的标记名必须不同（同名会让身份迁移静默跳过，数据留在旧目录）", () => {
+    expect(VERGE_MIGRATION_MARKER).toBe(".migrated-from-cyrene-verge");
+    expect(VERGE_MIGRATION_MARKER).not.toBe(LIVE2D_MIGRATION_MARKER);
   });
 
   it("正对照：显式传 name 时按传入值拼路径（证明拼接用的是 name 而不是常量）", () => {

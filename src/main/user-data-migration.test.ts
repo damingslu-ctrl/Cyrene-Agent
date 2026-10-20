@@ -7,15 +7,22 @@ import { migrateLegacyUserData } from "./user-data-migration";
 
 vi.mock("node:fs", async (original) => ({ ...await original<typeof import("node:fs")>() }));
 
-// 用临时目录模拟 appData，构造旧目录 live2d-cyrene 与新目录 Cyrene 的各种组合
+// 用临时目录模拟 appData，构造旧目录 live2d-cyrene 与新目录 Mochi 的各种组合
 let root: string;
+/** Task 9 的用例各自再开一个 appData（名字前缀不同），统一在 afterEach 里回收，不往 TEMP 漏目录。 */
+const tmpRoots: string[] = [];
 
 function legacyDir(): string {
   return path.join(root, "live2d-cyrene");
 }
 
+/**
+ * 迁移目标一律用 `Mochi`：Task 9 起 `%APPDATA%\Cyrene` 是上游的真实数据、全程只读禁写，
+ * 迁移器按名字拒绝它（闸门同时查 target 的 basename）。这份 fixture 当年写 `Cyrene`
+ * 是因为那时它就是目标目录名；现在换成 fork 自己的目录名，语义不变。
+ */
 function targetDir(): string {
-  return path.join(root, "Cyrene");
+  return path.join(root, "Mochi");
 }
 
 function writeFixture(dir: string, name: string, content: string): void {
@@ -48,6 +55,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   fs.rmSync(root, { recursive: true, force: true });
+  for (const dir of tmpRoots) fs.rmSync(dir, { recursive: true, force: true });
+  tmpRoots.length = 0;
 });
 
 describe("migrateLegacyUserData", () => {
@@ -184,5 +193,177 @@ describe("migrateLegacyUserData — 迁移只发生一次", () => {
     expect(migrate().status).toBe("merged");
     expect(readTarget("app-settings.json")).toBe('{"language":"zh-CN"}');
     expect(readTarget("installer-options.json")).toBe('{"launchAtLogin":true}');
+  });
+});
+
+/** 整棵子树的快照（相对路径 → 文件内容），用来证明「一个字节都没动」。 */
+function snapshotTree(dir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (current: string): void => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else {
+        out[path.relative(dir, full)] = fs.readFileSync(full, "utf8");
+      }
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+describe("migrateLegacyUserData — Task 9 身份迁移（cyrene-verge → Mochi）", () => {
+  /** 身份迁移的标记名：与历史 live2d 那次必须不同，见下面第三例。 */
+  const VERGE_MARKER = ".migrated-from-cyrene-verge";
+
+  it("迁移器拒绝任何指向 Cyrene 的 legacy 目录（那是用户的真实数据，只读禁写）", () => {
+    // 全程 tmp：这里只是同名模拟，真实 %APPDATA%\Cyrene 任何测试都不碰
+    const appData = fs.mkdtempSync(path.join(os.tmpdir(), "mochi-mig-"));
+    tmpRoots.push(appData);
+    const forbidden = path.join(appData, "Cyrene");
+    fs.mkdirSync(path.join(forbidden, "cyrene-chats"), { recursive: true });
+    fs.writeFileSync(path.join(forbidden, "cyrene-chats", "a.json"), "{}", "utf8");
+    fs.writeFileSync(path.join(forbidden, "app-settings.json"), '{"language":"zh-CN"}', "utf8");
+    const before = snapshotTree(forbidden);
+
+    expect(() =>
+      migrateLegacyUserData({
+        appDataPath: appData,
+        targetUserDataPath: path.join(appData, "Mochi"),
+        legacyDirName: "Cyrene",
+        markerFileName: VERGE_MARKER,
+      }),
+    ).toThrow(/禁写|forbidden/);
+
+    // 正对照：被拒绝之后 Cyrene 目录一个字节没动
+    expect(snapshotTree(forbidden)).toEqual(before);
+    expect(fs.readdirSync(path.join(forbidden, "cyrene-chats"))).toEqual(["a.json"]);
+    expect(fs.existsSync(path.join(appData, "Mochi"))).toBe(false);
+
+    // 反方向同样拒绝：Cyrene 当迁移目标也不许（闸门查 target 的 basename）
+    fs.mkdirSync(path.join(appData, "cyrene-verge"), { recursive: true });
+    expect(() =>
+      migrateLegacyUserData({
+        appDataPath: appData,
+        targetUserDataPath: forbidden,
+        legacyDirName: "cyrene-verge",
+        markerFileName: VERGE_MARKER,
+      }),
+    ).toThrow(/禁写|forbidden/);
+    expect(snapshotTree(forbidden)).toEqual(before);
+    expect(fs.existsSync(path.join(appData, "cyrene-verge"))).toBe(true);
+  });
+
+  it("cyrene-verge -> Mochi 整体重命名并落标记，重跑为 already_migrated", () => {
+    const appData = fs.mkdtempSync(path.join(os.tmpdir(), "mochi-mig-"));
+    tmpRoots.push(appData);
+    const legacy = path.join(appData, "cyrene-verge");
+    fs.mkdirSync(path.join(legacy, "logs"), { recursive: true });
+    fs.writeFileSync(path.join(legacy, "logs", "cyrene.log"), "x", "utf8");
+
+    const run = () =>
+      migrateLegacyUserData({
+        appDataPath: appData,
+        targetUserDataPath: path.join(appData, "Mochi"),
+        legacyDirName: "cyrene-verge",
+        markerFileName: VERGE_MARKER,
+      });
+
+    expect(run().status).toBe("renamed");
+    expect(fs.existsSync(path.join(appData, "Mochi", "logs", "cyrene.log"))).toBe(true);
+    expect(fs.existsSync(legacy)).toBe(false);
+    expect(fs.existsSync(path.join(appData, "Mochi", VERGE_MARKER))).toBe(true);
+
+    // 幂等：旧目录已经不在了，重跑什么也不做，Mochi 完好
+    expect(run().status).toBe("none");
+    expect(fs.readFileSync(path.join(appData, "Mochi", "logs", "cyrene.log"), "utf8")).toBe("x");
+
+    // 旧目录若重新出现（例如又跑了一次旧版 fork），凭标记拒绝再并入，当前数据不被陈旧副本覆盖
+    fs.mkdirSync(path.join(legacy, "logs"), { recursive: true });
+    fs.writeFileSync(path.join(legacy, "logs", "cyrene.log"), "stale", "utf8");
+    expect(run().status).toBe("already_migrated");
+    expect(fs.readFileSync(path.join(appData, "Mochi", "logs", "cyrene.log"), "utf8")).toBe("x");
+    expect(fs.readFileSync(path.join(legacy, "logs", "cyrene.log"), "utf8")).toBe("stale");
+  });
+
+  it("两个标记名必须不同：随重命名搬进 Mochi 的历史标记不许把身份迁移判成 already_migrated", () => {
+    const appData = fs.mkdtempSync(path.join(os.tmpdir(), "mochi-mig-"));
+    tmpRoots.push(appData);
+    const legacy = path.join(appData, "cyrene-verge");
+    fs.mkdirSync(path.join(appData, "live2d-cyrene"), { recursive: true });
+    fs.writeFileSync(path.join(appData, "live2d-cyrene", "memory.json"), '{"v":"real"}', "utf8");
+    fs.mkdirSync(path.join(legacy, "logs"), { recursive: true });
+    fs.writeFileSync(path.join(legacy, "logs", "cyrene.log"), "current", "utf8");
+
+    // 第一步（pre-ready 的历史迁移）：live2d-cyrene 并入 cyrene-verge，历史标记落进 cyrene-verge
+    expect(
+      migrateLegacyUserData({ appDataPath: appData, targetUserDataPath: legacy }).status,
+    ).toBe("merged");
+    expect(fs.existsSync(path.join(legacy, ".legacy-user-data-migrated"))).toBe(true);
+
+    // 第二步（身份迁移）：整体重命名会把历史标记一起搬进 Mochi。
+    // 若两次迁移复用同一个标记名，这一步会静默返回 already_migrated，数据留在旧目录不搬。
+    expect(
+      migrateLegacyUserData({
+        appDataPath: appData,
+        targetUserDataPath: path.join(appData, "Mochi"),
+        legacyDirName: "cyrene-verge",
+        markerFileName: VERGE_MARKER,
+      }).status,
+    ).toBe("renamed");
+    // 两个标记并存才是「两次迁移都记过账」；历史标记没把身份迁移带跑
+    expect(fs.existsSync(path.join(appData, "Mochi", ".legacy-user-data-migrated"))).toBe(true);
+    expect(fs.existsSync(path.join(appData, "Mochi", VERGE_MARKER))).toBe(true);
+    expect(fs.existsSync(path.join(appData, "Mochi", "memory.json"))).toBe(true);
+    expect(fs.existsSync(legacy)).toBe(false);
+  });
+
+  it("大小写归一：Windows 路径不区分大小写，`cyrene` / `CYRENE` 同样拒绝", () => {
+    const appData = fs.mkdtempSync(path.join(os.tmpdir(), "mochi-mig-"));
+    tmpRoots.push(appData);
+    const upstream = path.join(appData, "Cyrene");
+    fs.mkdirSync(path.join(upstream, "cyrene-chats"), { recursive: true });
+    fs.writeFileSync(path.join(upstream, "cyrene-chats", "a.json"), "{}", "utf8");
+    const before = snapshotTree(upstream);
+    fs.mkdirSync(path.join(appData, "cyrene-verge"), { recursive: true });
+
+    // 源目录名的小写形态
+    expect(() =>
+      migrateLegacyUserData({
+        appDataPath: appData,
+        targetUserDataPath: path.join(appData, "Mochi"),
+        legacyDirName: "cyrene",
+        markerFileName: VERGE_MARKER,
+      }),
+    ).toThrow(/禁写|forbidden/);
+    // 目标目录名的大写形态
+    expect(() =>
+      migrateLegacyUserData({
+        appDataPath: appData,
+        targetUserDataPath: path.join(appData, "CYRENE"),
+        legacyDirName: "cyrene-verge",
+        markerFileName: VERGE_MARKER,
+      }),
+    ).toThrow(/禁写|forbidden/);
+
+    expect(snapshotTree(upstream)).toEqual(before);
+    expect(fs.existsSync(path.join(appData, "Mochi"))).toBe(false);
+    // 大写形态在文件系统上指的就是同一个目录：从那条路径看回去，内容依旧一个字节没动
+    expect(snapshotTree(path.join(appData, "CYRENE"))).toEqual(before);
+  });
+
+  it("新字段有默认值：不传 legacyDirName/markerFileName 时仍是 live2d-cyrene + 历史标记", () => {
+    const appData = fs.mkdtempSync(path.join(os.tmpdir(), "mochi-mig-"));
+    tmpRoots.push(appData);
+    const legacy = path.join(appData, "live2d-cyrene");
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(path.join(legacy, "memory.json"), '{"v":"real"}', "utf8");
+
+    expect(
+      migrateLegacyUserData({ appDataPath: appData, targetUserDataPath: path.join(appData, "Mochi") }).status,
+    ).toBe("renamed");
+    expect(fs.existsSync(path.join(appData, "Mochi", ".legacy-user-data-migrated"))).toBe(true);
+    expect(fs.existsSync(path.join(appData, "Mochi", VERGE_MARKER))).toBe(false);
   });
 });

@@ -1,14 +1,19 @@
 /**
- * 旧 userData 目录 → 新目录（Cyrene）的一次性数据迁移。
+ * 旧 userData 目录 → 新目录的一次性数据迁移。
  *
  * 背景：历史上 userData 目录名由 package.json 的 name 字段决定（live2d-cyrene），
- * 开发版与安装版共用。补充 productName 后目录统一为 Cyrene，老用户升级时需要
- * 把旧目录数据搬过来。调用时机必须满足两点：
+ * 开发版与安装版共用。补充 productName 后目录跟着改名，老用户升级时需要把旧目录
+ * 数据搬过来。源目录名与完成标记名都是入参（默认值就是那次历史迁移的取值），所以
+ * 同一个迁移器既服务 live2d-cyrene → 当前目录，也服务 cyrene-verge → Mochi。
+ * 调用时机必须满足两点：
  *   1. 单实例锁获取成功之后（避免两个实例并发搬运）；
  *   2. 任何读取 userData 的代码之前（首个读取点是 GPU 开关里的 loadGeneralSettings）。
  *
  * 安全策略：只做重命名/复制，绝不主动删除旧目录里有内容的东西；
- * 任一条目失败就留在旧目录，下次启动或用 scripts/migrate-user-data.ps1 重试。
+ * 任一条目失败就留在旧目录，下次启动自动重试。（`scripts/migrate-user-data.ps1` 那份手动兜底
+ * 脚本还写着历史那次的 `live2d-cyrene → Cyrene` 目标，别拿它搬身份迁移 —— Cyrene 只读禁写。）
+ * 另有一道按名字的硬闸门（`assertMigratable`）：上游 `Cyrene` 目录里是用户的真实数据，
+ * 本 fork 全程只读禁写，任何迁移都不许拿它当源或目标。
  */
 
 import * as fs from "fs";
@@ -34,11 +39,32 @@ const MIGRATION_MARKER_FILE_NAME = ".legacy-user-data-migrated";
 /** 合并时被旧目录同名条目覆盖的目标条目移到这里，而不是直接删除，便于找回。 */
 const OVERWRITTEN_BACKUP_DIR_NAME = ".legacy-migration-overwritten";
 
+/**
+ * 只读禁写的上游目录名：这是用户真实数据，任何迁移都不许把它当源或目标。
+ *
+ * 上游安装版（`Cyrene`）与本 fork 是两个产品，账本必须物理隔离；一旦哪次迁移把
+ * 它当成源，用户升级 fork 时就会把上游的真实数据搬空——246 MB，不可逆。所以这道
+ * 闸门按名字拒绝，且在任何文件系统操作之前抛出（`user-data-migration.test.ts` 里
+ * 用「抛出之后整棵子树逐文件比对不变」把它钉住）。
+ */
+const FORBIDDEN_DIR_NAMES = new Set(["Cyrene"]);
+/** Windows 路径不区分大小写，闸门比较前先归一（`%APPDATA%\cyrene` 与 `%APPDATA%\Cyrene` 是同一个目录）。 */
+const FORBIDDEN_DIR_NAMES_LOWER = new Set([...FORBIDDEN_DIR_NAMES].map((name) => name.toLowerCase()));
+
 export interface LegacyUserDataMigrationInput {
   /** app.getPath("appData") —— 旧目录的父目录 */
   appDataPath: string;
   /** app.getPath("userData") —— 迁移目标，即应用当前真正使用的数据目录 */
   targetUserDataPath: string;
+  /** 迁移源目录名；默认历史 live2d-cyrene，身份迁移显式传 `cyrene-verge`。 */
+  legacyDirName?: string;
+  /**
+   * 完成标记文件名；默认历史 `.legacy-user-data-migrated`。
+   *
+   * 每一次独立的迁移必须用**不同**的名字：整体重命名会把上一次的标记原样搬进新目录，
+   * 复用同名标记会让新迁移一眼看到「已迁移过」而静默跳过，数据留在旧目录不搬。
+   */
+  markerFileName?: string;
 }
 
 export type LegacyUserDataMigrationStatus =
@@ -54,14 +80,40 @@ export interface LegacyUserDataMigrationResult {
   status: LegacyUserDataMigrationStatus;
 }
 
+/**
+ * 迁移前的硬闸门：拒绝任何以 `Cyrene` 为源或目标的搬运，并解析两次迁移各自的取值。
+ *
+ * 按名字判，不看路径也不看内容 —— 连 `existsSync` 都不许先跑，否则「读一下确认是不是
+ * 那个目录」本身就已经碰了只读禁写的目录。三处归一：
+ *   - 两边都取 `basename`，让 `sub/Cyrene` 这类拼接写法与尾部分隔符一样被挡；
+ *   - 比较前转小写，因为 Windows 路径不区分大小写，`%APPDATA%\cyrene` 就是同一个目录；
+ *   - `targetUserDataPath` 先 `resolve`，避免相对路径的 basename 判空漏网。
+ */
+function assertMigratable(input: LegacyUserDataMigrationInput): {
+  legacyDirName: string;
+  markerFileName: string;
+} {
+  const legacyDirName = input.legacyDirName ?? LEGACY_USER_DATA_DIR_NAME;
+  const markerFileName = input.markerFileName ?? MIGRATION_MARKER_FILE_NAME;
+  for (const candidate of [legacyDirName, input.targetUserDataPath]) {
+    const name = path.basename(path.resolve(candidate));
+    if (FORBIDDEN_DIR_NAMES_LOWER.has(name.toLowerCase())) {
+      throw new Error(`迁移被拒绝：\`%APPDATA%\\${name}\` 是上游 Cyrene 的真实用户数据，本 fork 全程只读禁写（spec §6）。`);
+    }
+  }
+  return { legacyDirName, markerFileName };
+}
+
 export function migrateLegacyUserData(
   input: LegacyUserDataMigrationInput,
 ): LegacyUserDataMigrationResult {
-  const legacyPath = path.join(input.appDataPath, LEGACY_USER_DATA_DIR_NAME);
+  // 闸门先于任何文件系统操作：拒绝上游 Cyrene，同时把两次迁移各自的目录名/标记名定下来
+  const { legacyDirName, markerFileName } = assertMigratable(input);
+  const legacyPath = path.join(input.appDataPath, legacyDirName);
   if (path.resolve(legacyPath) === path.resolve(input.targetUserDataPath)) {
     return { status: "skipped" };
   }
-  const markerPath = path.join(input.targetUserDataPath, MIGRATION_MARKER_FILE_NAME);
+  const markerPath = path.join(input.targetUserDataPath, markerFileName);
   if (!fs.existsSync(legacyPath)) {
     // 已有安装（含本修复之前完成迁移的用户）：目标在、旧目录不在，说明迁移已完成或从未需要。
     // 补记完成标记，以后旧版即使重新建出旧目录也不会再并入。

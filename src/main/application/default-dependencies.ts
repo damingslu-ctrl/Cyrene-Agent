@@ -134,6 +134,7 @@ import { resolveGitExecutable, type ResolvedGitExecutable } from "../code-git/gi
 import { registerCodeGitIpc } from "../code-git/code-git-ipc";
 import { installSingleInstanceGuard } from "../single-instance";
 import { migrateLegacyUserData } from "../user-data-migration";
+import { migrateVergeUserData } from "../verge-identity-migration";
 import { createWindowManager } from "../windows/window-manager";
 import { createTray } from "../tray";
 import { createSplashWindow } from "../startup/create-splash-window";
@@ -339,6 +340,13 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           targetUserDataPath: app.getPath("userData"),
         });
       },
+      // 身份改名（cyrene-verge → Mochi）带来的一次性搬运。目标一律传本次真正生效的
+      // userData：显式 --user-data-dir 时那是探针目录，不能让 brand 默认值把它顶掉，
+      // 否则账本搬到 Mochi、进程却读探针目录，等于白搬一次还留下两份数据。
+      migrateVergeUserData: () => migrateVergeUserData({
+        appDataPath: app.getPath("appData"),
+        targetUserDataPath: app.getPath("userData"),
+      }),
       registerPrivilegedSchemes,
       configureGpuSwitches: () => {
         if (loadGeneralSettings().disableGpuElectron) {

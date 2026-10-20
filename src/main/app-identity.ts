@@ -12,8 +12,25 @@
 
 import * as path from "node:path";
 
-/** fork 的实例名：与上游 `Cyrene` 区分，同时决定 userData 目录名。 */
-export const VERGE_INSTANCE_NAME = "cyrene-verge";
+import { BRAND } from "../shared/brand";
+
+/** fork 的实例名：从此由 brand 单点决定（原来写死 `cyrene-verge`），同时决定单实例锁与 userData 目录名。 */
+export const VERGE_INSTANCE_NAME = BRAND.productName;
+
+/**
+ * 上一代 fork 目录名：只作为 Task 9 身份迁移的显式源（`verge-identity-migration.ts`），
+ * 不作任何其他用途 —— 身份一律以 `VERGE_INSTANCE_NAME` 为准，别再拿这个常量去解析目录。
+ */
+export const VERGE_LEGACY_DIR_NAME = "cyrene-verge";
+
+/**
+ * 身份迁移（`cyrene-verge` → `Mochi`）的完成标记名。
+ *
+ * 必须不同于历史 live2d 迁移的 `.legacy-user-data-migrated`：整体重命名会把旧目录里的
+ * 那份历史标记原样搬进新目录，复用同名标记会让身份迁移看到「已迁移过」而静默跳过，
+ * 数据留在 `%APPDATA%\cyrene-verge` 不搬 —— 用户以为换了目录，其实还在用旧的。
+ */
+export const VERGE_MIGRATION_MARKER = ".migrated-from-cyrene-verge";
 
 /**
  * 解析 fork 的 userData 目录。
@@ -32,7 +49,7 @@ export function resolveAppUserDataPath(
  * 命令行里有没有显式给 `--user-data-dir`。
  *
  * `app.setPath("userData", …)` 的优先级**高于** Chromium 的命令行开关：不认这个开关
- * 的话，`--user-data-dir=D:/x` 会被我们静默吞掉，仍然解析到 `%APPDATA%\cyrene-verge`，
+ * 的话，`--user-data-dir=D:/x` 会被我们静默吞掉，仍然解析到 `%APPDATA%\Mochi`，
  * 下游（屏幕层验收等）靠它指定 profile 的机制就失效了。所以显式给过时要让路。
  *
  * 只认带值的写法（`--user-data-dir=<path>`，以及 Chromium 等价的单短横线简写）；
