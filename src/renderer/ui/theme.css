@@ -6,11 +6,11 @@
 
 :root {
   --rb-feedback-radius: 18px;
-  --rb-feedback-surface: #2b2f3a;
-  --rb-feedback-fg: #f7f4ec;
-  --rb-feedback-muted: #868a96;
-  --rb-feedback-border: rgba(138, 180, 255, 0.28);
-  --rb-feedback-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+  --rb-feedback-surface: #1c202a;
+  --rb-feedback-fg: #e8e6df;
+  --rb-feedback-muted: #9a9daa;
+  --rb-feedback-border: rgba(232, 230, 223, 0.14);
+  --rb-feedback-shadow: 0 28px 70px rgba(0, 0, 0, 0.38);
   --rb-feedback-details-bg: rgba(232, 230, 223, 0.06);
   --rb-feedback-danger: #f27d92;
   --rb-feedback-success: #7fd6a2;
