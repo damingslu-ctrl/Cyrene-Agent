@@ -104,6 +104,18 @@
   --rb-task-card-accent-ring: rgba(138, 180, 255, 0.1);
   --rb-task-card-mascot-surface: color-mix(in srgb, var(--rb-accent) 10%, var(--rb-surface-elevated));
   --rb-task-card-progress-track: var(--rb-border-default);
+  /* 这 9 个名字上游只写在 tokens.css 的 :root，而 :root 现在是**浅色**默认层
+     （对齐 normalizeUiTheme() 的 pearl-white 兜底）。深色档若不在此声明，
+     就会静默继承浅色值 —— palette:check 看不见（它没有层叠视图），派生锁能看见。 */
+  --rb-violet-600: #b86275;
+  --rb-grad-bg: radial-gradient(ellipse at top, #1a2131 0%, #101420 60%);
+  --md-code-bg: rgba(232, 230, 223, 0.05);
+  --md-code-border: #2c303a;
+  --md-inline-code-bg: rgba(232, 230, 223, 0.08);
+  --md-inline-code-text: #e8e6df;
+  --md-quote-bg: rgba(138, 180, 255, 0.06);
+  --md-table-border: #2c303a;
+  --md-copy-bg: rgba(232, 230, 223, 0.06);
 
   --cy-pill-bg: #252525;
   --cy-pill-border: #4a4a4a;
