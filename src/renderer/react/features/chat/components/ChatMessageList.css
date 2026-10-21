@@ -1676,7 +1676,8 @@
   margin: 20px 0;
   border: 0;
   border-top: 0;
-  background: linear-gradient(
+  /* 不用 background 简写：简写里的 color-mix() 被样式解析器整条丢弃，计算值变成 none。 */
+  background-image: linear-gradient(
     90deg,
     transparent 0%,
     color-mix(in srgb, var(--rb-pink-100) 22%, transparent) 16%,
