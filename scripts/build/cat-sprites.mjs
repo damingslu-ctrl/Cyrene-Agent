@@ -54,7 +54,7 @@ async function main() {
 
   for (const t of targets) {
     const raster = renderOps(catIconOps(), t.size, t.size);
-    const png = encodePng(t.size, t.size, raster.data);
+    const png = encodePng(t.size, t.size, raster.rgba);
     const full = path.join(ROOT, t.out);
     await fs.promises.mkdir(path.dirname(full), { recursive: true });
     fs.writeFileSync(full, png);
@@ -63,13 +63,13 @@ async function main() {
 
   // tray icon 32x32
   const trayRaster = renderOps(catIconOps(), 32, 32);
-  const trayPng = encodePng(32, 32, trayRaster.data);
+  const trayPng = encodePng(32, 32, trayRaster.rgba);
   fs.writeFileSync(path.join(ROOT, "assets", "tray-icon.ico"), trayPng);
   console.log("wrote assets/tray-icon.ico (PNG-in-ICO placeholder)");
 
   // installer source 150x150
   const instRaster = renderOps(catIconOps(), 150, 150);
-  const instPng = encodePng(150, 150, instRaster.data);
+  const instPng = encodePng(150, 150, instRaster.rgba);
   const instDir = path.join(ROOT, "build", "installer");
   await fs.promises.mkdir(instDir, { recursive: true });
   fs.writeFileSync(path.join(instDir, "mochi-installer-source.png"), instPng);
