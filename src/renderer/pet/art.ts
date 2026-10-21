@@ -18,19 +18,24 @@ import {
   PAPER, SHADOW, WARN, withAlpha, PET_PRIVATE,
 } from "../../shared/pet-tokens";
 import { INK_COAT, type CatCoat } from "../../shared/cat-coats";
+import type { Mood } from "../../shared/cat-types";
 import { ribbon, cubicTo, arc, Xf } from "./xf";
 
 // ===========================================================================
 // 类型别名（对应 ui.rs）
 // ===========================================================================
 
-export type Mood = "idle" | "happy" | "thinking" | "grumpy" | "sleep";
+export type { Mood } from "../../shared/cat-types";
 
 export interface Pose {
   paw: number;
   yawn: number;
   stretch: number;
   tilt: number;
+  /** 趴伏量 0..1：压扁并拉长同一团子，支脚仍在 (60,100)。R-D8——卧/趴/探头共用这一条轴。 */
+  sprawl?: number;
+  /** 蓬起量 0..1：横向炸开、尾幅加宽、耳外八。R-D8——「炸毛」近似。 */
+  puff?: number;
   /** 日程/告警的「在意程度」0..1，供调度器用；draw_cat 本身不消费（native 同理）。 */
   engagement: number;
 }
@@ -55,7 +60,7 @@ export interface CatInput {
 // viewBox 常量（ui.rs 里的定值）
 // ===========================================================================
 
-const VB = 120; // viewBox 宽（native ui.rs:622）
+export const VB = 120; // viewBox 宽（native ui.rs:622）
 const TILT_DEG = 13.0;
 
 const BODY_TOP = (mood: Mood, c: CatCoat) => (mood === "grumpy" ? BREAK_FILL : c.furTop);
@@ -211,8 +216,10 @@ export function buildCatOps(input: CatInput): DrawOp[] {
   const sy_body = 1.0 + breathe;
   const dy_total = jumpY + breathe * 6.0;
   const rot_deg = Math.sin(t * 0.4) * 3.0 * (1.0 - sleep) * settle;
-  const sx_all = 1.0 + 0.055 * pose.stretch;
-  const sy_all = sy_body * (1.0 - 0.075 * pose.stretch);
+  const sprawl = Math.max(0, Math.min(1, pose.sprawl ?? 0));
+  const puff = Math.max(0, Math.min(1, pose.puff ?? 0));
+  const sx_all = (1.0 + 0.055 * pose.stretch + 0.30 * sprawl + 0.14 * puff) * (1 + 0.05 * puff);
+  const sy_all = sy_body * (1.0 - 0.075 * pose.stretch - 0.34 * sprawl) * (1 + 0.07 * puff);
 
   // 身体变换 xf（整只猫）
   const xf = new Xf();
@@ -250,9 +257,9 @@ export function buildCatOps(input: CatInput): DrawOp[] {
 
   // —— 尾巴（绕尾根 90,88 摆动）ui.rs:684-712 ——
   const sway = (sleep > 0.5 ? 1.0 : mood === "happy" ? 8.0 : energy * 6.0) + pet * 7.0;
-  const wag = sway * settle * Math.sin(t * 3.0) + 11.0 * pose.stretch;
+  const wag = (sway * settle * Math.sin(t * 3.0) + 11.0 * pose.stretch) * (1 - 0.75 * puff);
   const spine = tailSpine();
-  const tail = bendPoly(ribbon(spine, 12.0, 7.5), 0, 0, wag, 90, 88);
+  const tail = bendPoly(ribbon(spine, 12.0 + 6.0 * puff, 7.5 + 4.0 * puff), 0, 0, wag, 90, 88);
   // 渐变范围必须和身体同一条（34..106）：光源是全局的，不是每条尾巴自己打一遍。
   byLayer.tail.push(xfGrad(xf, "tail", BODY_TOP(mood, c), BODY_BOT(mood, c), 34, 106, tail));
   // 白尾尖：染在尾巴**末端那一段**上，不是端点上一颗圆。
@@ -262,10 +269,14 @@ export function buildCatOps(input: CatInput): DrawOp[] {
 
   // —— 耳朵（跟脸一起歪）ui.rs:714-724 ——
   const twitch = earTwitch(t, mood);
-  const l_ear = bendPoly(earLOuter(), 0, 0, twitch, 42, 38);
-  const l_in = bendPoly(earLInner(), 0, 0, twitch, 42, 38);
-  const r_ear = bendPoly(earROuter(), 0, 0, -twitch, 78, 38);
-  const r_in = bendPoly(earRInner(), 0, 0, -twitch, 78, 38);
+  // 炸毛：两只耳往外撑，剪影才有「刺」。正负号看枢轴——左耳枢轴 42、耳尖在左，
+  // 角度取负才是外翻；右耳枢轴 78、原式本来就取 -twitch。
+  const lTw = twitch - 8 * puff;
+  const rTw = -twitch + 8 * puff;
+  const l_ear = bendPoly(earLOuter(), 0, 0, lTw, 42, 38);
+  const l_in = bendPoly(earLInner(), 0, 0, lTw, 42, 38);
+  const r_ear = bendPoly(earROuter(), 0, 0, rTw, 78, 38);
+  const r_in = bendPoly(earRInner(), 0, 0, rTw, 78, 38);
   byLayer.ears.push(xfFill(fx, "ears", BODY_COL(mood, c), l_ear));
   byLayer.ears.push(xfFill(fx, "ears", BODY_COL(mood, c), r_ear));
   byLayer.ears.push(xfFill(fx, "ears", INNER_EAR(mood, c), l_in));
