@@ -1,39 +1,39 @@
 /* Pearl-white semantic theme contract. */
 [data-ui-theme="pearl-white"] {
-  --rb-surface-page: #ECECEE;
-  --rb-surface-workspace: #FFFFFF;
+  --rb-surface-page: #eeeae0;
+  --rb-surface-workspace: #f9f7f1;
   --rb-surface-elevated: #ffffff;
-  --rb-surface-hover: #fff1f6;
-  --rb-surface-active: #fde0ed;
+  --rb-surface-hover: #f2f6fe;
+  --rb-surface-active: #e7eefd;
   --rb-surface-soft: var(--rb-surface-hover);
   --rb-surface-secondary: var(--rb-surface-soft);
-  --rb-code-bg: #fafafa;
-  --rb-diff-bg: #fbfafb;
-  --rb-diff-add-bg: #e6ffec;
-  --rb-diff-add-text: #116329;
-  --rb-diff-remove-bg: #ffebe9;
-  --rb-diff-remove-text: #82071e;
-  --rb-diff-info-bg: #ddf4ff;
-  --rb-diff-info-text: #0550ae;
-  --rb-text-primary: #1d1d1f;
-  --rb-text-secondary: #8e8e93;
-  --rb-text-disabled: #6e6e73;
+  --rb-code-bg: #f8f8f9;
+  --rb-diff-bg: #fcfcfc;
+  --rb-diff-add-bg: #eaf6ef;
+  --rb-diff-add-text: #499f6d;
+  --rb-diff-remove-bg: #fbedf0;
+  --rb-diff-remove-text: #c16174;
+  --rb-diff-info-bg: #ecf2fd;
+  --rb-diff-info-text: #537ed3;
+  --rb-text-primary: #2b2f3a;
+  --rb-text-secondary: #787d8a;
+  --rb-text-disabled: #a1a5ae;
   --rb-text-on-accent: #ffffff;
-  --rb-border-default: #f2f2f2;
-  --rb-border-subtle: rgba(0, 0, 0, 0.06);
-  --rb-border-elevated: #d2d2d7;
-  --rb-border-focus: #ff9fbd;
-  --rb-accent: #ff5b8a;
-  --rb-accent-hover: #f04b7c;
-  --rb-danger: #d94f61;
-  --rb-success: #43a877;
-  --rb-warning: #c58a31;
-  --rb-info: #ff5b8a;
-  --rb-shadow-workspace: inset 0 2px 8px rgba(31, 35, 48, 0.04), inset 0 0 2px rgba(31, 35, 48, 0.03);
-  --rb-shadow-bubble-neutral: 2px 2px 3px rgba(31, 35, 48, 0.06), 3px 5px 16px rgba(31, 35, 48, 0.055);
-  --rb-shadow-bubble-accent: 2px 2px 4px rgba(255, 91, 138, 0.12), 3px 7px 16px rgba(255, 91, 138, 0.16);
-  --rb-shadow-control-hover: 2px 2px 5px rgba(31, 35, 48, 0.075), 3px 8px 18px rgba(31, 35, 48, 0.065);
-  --rb-shadow-control-focus: 0 0 0 3px rgba(255, 91, 138, 0.10), 2px 6px 16px rgba(31, 35, 48, 0.08);
+  --rb-border-default: #e8e4db;
+  --rb-border-subtle: #f3f1ec;
+  --rb-border-elevated: #d8d1c2;
+  --rb-border-focus: #5b8def;
+  --rb-accent: #5b8def;
+  --rb-accent-hover: #4a7fe0;
+  --rb-danger: #dd6a7f;
+  --rb-success: #4fb477;
+  --rb-warning: #d97757;
+  --rb-info: #5b8def;
+  --rb-shadow-workspace: inset 0 2px 8px rgba(43, 47, 58, 0.04), inset 0 0 2px rgba(43, 47, 58, 0.03);
+  --rb-shadow-bubble-neutral: 2px 2px 3px rgba(43, 47, 58, 0.06), 3px 5px 16px rgba(43, 47, 58, 0.06);
+  --rb-shadow-bubble-accent: 2px 2px 4px rgba(91, 141, 239, 0.12), 3px 7px 16px rgba(91, 141, 239, 0.16);
+  --rb-shadow-control-hover: 2px 2px 5px rgba(43, 47, 58, 0.08), 3px 8px 18px rgba(43, 47, 58, 0.06);
+  --rb-shadow-control-focus: 0 0 0 3px rgba(91, 141, 239, 0.12), 2px 6px 16px rgba(43, 47, 58, 0.08);
   --rb-task-card-surface: var(--rb-surface-elevated);
   --rb-task-card-border: var(--rb-border-subtle);
   --rb-task-card-shadow: var(--rb-shadow-bubble-neutral);
@@ -46,7 +46,7 @@
   --rb-task-card-accent: var(--rb-accent);
   --rb-task-card-accent-soft: var(--rb-pink-50);
   --rb-task-card-accent-border: var(--rb-border-focus);
-  --rb-task-card-accent-ring: rgba(255, 91, 138, 0.10);
+  --rb-task-card-accent-ring: rgba(91, 141, 239, 0.1);
   --rb-task-card-mascot-surface: color-mix(in srgb, var(--rb-accent) 8%, var(--rb-surface-elevated));
   --rb-task-card-progress-track: var(--rb-border-default);
 }
@@ -55,60 +55,60 @@
   color-scheme: light;
 
   /* Surfaces — pure white */
-  --rb-bg-0: #ffffff;
-  --rb-bg-1: #f5f5f7;
-  --rb-bg-2: #fafafc;
-  --rb-bg-3: #ffffff;
+  --rb-bg-0: #eeeae0;
+  --rb-bg-1: #f9f7f1;
+  --rb-bg-2: #f2f6fe;
+  --rb-bg-3: #e7eefd;
   --rb-bg-elevated: #ffffff;
 
   /* Text — near-black */
-  --rb-text-strong:  #1d1d1f;
-  --rb-text-default: #2c2c2e;
-  --rb-text-muted:   #4f4a57;
-  --rb-text-faint:   #6f6876;
+  --rb-text-strong: #2b2f3a;
+  --rb-text-default: #2b2f3a;
+  --rb-text-muted: #787d8a;
+  --rb-text-faint: #a1a5ae;
   --rb-text-on-pink: #ffffff;
 
   /* Borders / dividers */
-  --rb-border-faint: rgba(0, 0, 0, 0.06);
-  --rb-border-soft:  #e5e5ea;
-  --rb-border-strong:#d2d2d7;
-  --rb-border-grid:  rgba(0, 0, 0, 0.04);
+  --rb-border-faint: #f3f1ec;
+  --rb-border-soft: #e8e4db;
+  --rb-border-strong: #d8d1c2;
+  --rb-border-grid: #f1f5fe;
 
   /* Glows / shadows — soft black, no color cast */
-  --rb-glow-pink:   0 0 12px rgba(255, 91, 138, 0.18);
-  --rb-glow-soft:   0 0 6px  rgba(0, 0, 0, 0.06);
-  --rb-glow-secondary: 0 0 10px rgba(0, 0, 0, 0.04);
-  --rb-shadow-card:    0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
-  --rb-shadow-elevated:0 8px 32px rgba(0, 0, 0, 0.10);
-  --rb-shadow-pink:    0 4px 16px rgba(255, 91, 138, 0.20);
+  --rb-glow-pink: 0 0 20px rgba(91, 141, 239, 0.26);
+  --rb-glow-soft: 0 0 12px rgba(43, 47, 58, 0.1);
+  --rb-glow-secondary: 0 0 18px rgba(221, 106, 127, 0.14);
+  --rb-shadow-card: 0 4px 16px rgba(43, 47, 58, 0.1), 0 1px 2px rgba(43, 47, 58, 0.06);
+  --rb-shadow-elevated: 0 12px 40px rgba(43, 47, 58, 0.14), 0 0 0 1px rgba(91, 141, 239, 0.1);
+  --rb-shadow-pink: 0 8px 32px rgba(91, 141, 239, 0.22);
 
   /* Pink accent stays — Cyrene's color */
-  --rb-pink-50:  #fff1f6;
-  --rb-pink-100: #ffd6e4;
-  --rb-pink-200: #ffb1cb;
-  --rb-pink-300: #ff7da8;
-  --rb-pink-400: #ff6b97;
-  --rb-pink-500: #ff5b8a;
-  --rb-pink-600: #e84a78;
-  --rb-pink-700: #c43a64;
-  --rb-pink-glow: #ff6ec7;
+  --rb-pink-50: #f5f8fe;
+  --rb-pink-100: #e5edfc;
+  --rb-pink-200: #cadafa;
+  --rb-pink-300: #abc5f7;
+  --rb-pink-400: #85aaf3;
+  --rb-pink-500: #5b8def;
+  --rb-pink-600: #4a7fe0;
+  --rb-pink-700: #446fbf;
+  --rb-pink-glow: #8ab4ff;
 
   /* Light-mode component primitives */
   --rb-card-bg:        #ffffff;
-  --rb-divider-light:  rgba(0, 0, 0, 0.08);
-  --rb-hover-light:    rgba(0, 0, 0, 0.04);
-  --rb-active-light:   rgba(0, 0, 0, 0.08);
+  --rb-divider-light: rgba(43, 47, 58, 0.08);
+  --rb-hover-light: rgba(43, 47, 58, 0.04);
+  --rb-active-light: rgba(43, 47, 58, 0.08);
   --rb-input-bg:       #ffffff;
-  --rb-input-border:   #d2d2d7;
-  --rb-input-text:     #1d1d1f;
-  --rb-input-placeholder: #6f6876;
-  --rb-slider-track:   rgba(0, 0, 0, 0.08);
+  --rb-input-border: #d8d1c2;
+  --rb-input-text: #2b2f3a;
+  --rb-input-placeholder: #9c9fa9;
+  --rb-slider-track: rgba(43, 47, 58, 0.18);
   --rb-slider-fill:    var(--rb-pink-500);
   --rb-slider-thumb:   #ffffff;
-  --rb-toggle-off:     #e5e5ea;
+  --rb-toggle-off: #e8e4db;
   --rb-toggle-on:      var(--rb-pink-500);
-  --rb-scroll-thumb:   rgba(0, 0, 0, 0.18);
-  --rb-scroll-thumb-hover: rgba(0, 0, 0, 0.32);
+  --rb-scroll-thumb: rgba(74, 81, 98, 0.28);
+  --rb-scroll-thumb-hover: rgba(74, 81, 98, 0.44);
 
 }
 
@@ -1239,31 +1239,31 @@
 
 /* ===== Markdown render variables (light theme overrides) ===== */
 [data-ui-theme="pearl-white"] {
-  --md-code-bg:           rgba(0, 0, 0, 0.03);
+  --md-code-bg: #f8f8f9;
   --md-code-border:       var(--rb-pink-200);
-  --md-inline-code-bg:    rgba(236, 72, 153, 0.08);
-  --md-inline-code-text:  #1d1d1f;
+  --md-inline-code-bg: #f3f4f4;
+  --md-inline-code-text: #2b2f3a;
   --md-quote-border:      var(--rb-pink-400);
-  --md-quote-bg:          rgba(236, 72, 153, 0.04);
+  --md-quote-bg: #f7fafe;
   --md-table-border:      var(--rb-pink-200);
   --md-link-color:        var(--rb-pink-600);
   --md-link-hover:        var(--rb-pink-700);
   --md-copy-text:         var(--rb-text-muted);
-  --md-copy-bg:           rgba(0, 0, 0, 0.03);
+  --md-copy-bg: #f7f7f7;
   --md-copy-border:       var(--rb-border-soft);
   --md-katex-text:        var(--rb-text-default);
 
   /* 渲染层统一反馈 Token（pearl-white 覆盖：珍珠白表面、微粉边框） */
   --rb-feedback-radius: 18px;
-  --rb-feedback-surface: rgba(255, 255, 255, 0.96);
+  --rb-feedback-surface: #2b2f3a;
   --rb-feedback-fg: var(--rb-text-strong);
   --rb-feedback-muted: var(--rb-text-muted);
-  --rb-feedback-border: rgba(220, 183, 207, 0.75);
-  --rb-feedback-shadow: 0 28px 70px rgba(67, 42, 59, 0.17);
-  --rb-feedback-details-bg: rgba(0, 0, 0, 0.04);
-  --rb-feedback-danger: #d94f61;
-  --rb-feedback-success: #43a877;
-  --rb-feedback-warning: #c58a31;
+  --rb-feedback-border: rgba(138, 180, 255, 0.28);
+  --rb-feedback-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+  --rb-feedback-details-bg: rgba(232, 230, 223, 0.06);
+  --rb-feedback-danger: #f27d92;
+  --rb-feedback-success: #7fd6a2;
+  --rb-feedback-warning: #f0c4b4;
   --rb-feedback-info: var(--rb-pink-500);
   --rb-feedback-motion: 180ms;
 }

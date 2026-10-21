@@ -25,6 +25,8 @@
     "check:renderer": "tsc -p tsconfig.renderer.json",
     "sync:brand": "node scripts/build/sync-brand.mjs",
     "check:brand": "node scripts/build/sync-brand.mjs --check",
+    "palette:apply": "node scripts/build/apply-theme-palette.mjs",
+    "palette:check": "node scripts/build/apply-theme-palette.mjs --check",
     "sync:file-icons": "node scripts/sync-file-icons.mjs",
     "build:renderer": "vite build",
     "perf:chat-baseline": "node scripts/perf/chat-renderer-baseline.mjs",
