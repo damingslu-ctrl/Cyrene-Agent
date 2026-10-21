@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  ACCENT, BG_SOLID, GREEN, INK, PAPER, PANEL_CARD, PANEL_CARD_STROKE, PANEL_SEP,
-  SHADOW, WARN, wash, withAlpha, hex,
-} from "./tokens";
+  ACCENT, BG_SOLID, CAT_PALETTE, GREEN, INK, PAPER, PANEL_CARD, PANEL_CARD_STROKE, PANEL_SEP,
+  PET_PRIVATE, SHADOW, WARN, wash, withAlpha, hex,
+} from "./pet-tokens";
 
 describe("视觉 token 台账", () => {
   // 这些字面量是按 native 源码抄的（坐标写在 tokens.ts 每个 token 的行上注释里）；
@@ -59,5 +59,45 @@ describe("视觉 token 台账", () => {
     expect(() => withAlpha(SHADOW, Number.NaN)).toThrow(RangeError);
     expect(() => wash(ACCENT, 256, BG_SOLID)).toThrow(RangeError);
     expect(() => wash("#fff", 10, BG_SOLID)).toThrow(RangeError); // 3 位缩写不许混进台账
+  });
+});
+
+describe("色板成员表", () => {
+  it("板内色就是 CAT_PALETTE 这些，别把单侧专用色混进来", () => {
+    // 派生器（Task 14）只能从这份名单里取色，所以这份名单 = 全客户端配色的合法输入域。
+    expect(Object.keys(CAT_PALETTE).sort()).toEqual([
+      "ACCENT", "ACCENT_DEEP", "ACCENT_FG", "ACCENT_HOVER", "BG_SOLID", "BREAK_EAR",
+      "BREAK_FILL", "BREAK_SOFT", "DIM", "EYE", "FG", "GREEN", "GREEN_FG", "INK",
+      "INK_SOFT", "PANEL_CARD", "PANEL_SEP", "PANEL_STROKE", "PAPER", "PAPER_SHADE",
+      "ROSE", "ROSE_DEEP", "SHADOW", "TODAY_BAR", "WARN", "WARN_FG",
+    ]);
+  });
+
+  it("单侧专用色进台账但明写不入库，且和 art.ts 的字面量逐一对上", () => {
+    // 台账规矩原文（palette.rs:1-10）：只放两个以上模块在同一件事上用的颜色。
+    // 这一批本期破例收进来，是为了让派生锁能按名字**排除**它们：
+    // 没有名单，「HUD_BOX 不在板上」和「HUD_BOX 忘了抄进板」在测试里长得一模一样。
+    expect(PET_PRIVATE.HUD_BOX).toBe("#1a1d26");
+    expect(PET_PRIVATE.HUD_INK).toBe("#e8eaf0");
+    expect(PET_PRIVATE.HUD_UP).toBe("#7dcda0");
+    expect(PET_PRIVATE.CAP_BORDER_ON).toBe("#3a404e");
+    expect(PET_PRIVATE.CAP_DOWN_ON).toBe("#87afeb");
+    expect(PET_PRIVATE.CAP_BOX_OFF).toBe("#14161d");
+    expect(PET_PRIVATE.CAP_BORDER_OFF).toBe("#2c303c");
+    expect(PET_PRIVATE.CAP_INK_OFF).toBe("#969caa");
+    expect(PET_PRIVATE.CAP_UP_OFF).toBe("#5c9474");
+    expect(PET_PRIVATE.CAP_DOWN_OFF).toBe("#6480a8");
+    expect(PET_PRIVATE.BADGE_INK).toBe("#ffffff");
+  });
+
+  it("正对照：CAT_PALETTE 与 PET_PRIVATE 的值域不相交，且都是不透明 6 位 hex", () => {
+    const board = new Set(
+      Object.values(CAT_PALETTE).filter((v): v is string => typeof v === "string"),
+    );
+    expect(board.size).toBeGreaterThanOrEqual(20); // 名单不是空的，否则下面的循环会空过
+    for (const v of [...board, ...Object.values(PET_PRIVATE)]) {
+      expect(v).toMatch(/^#[0-9a-f]{6}$/);
+    }
+    for (const v of Object.values(PET_PRIVATE)) expect(board.has(v)).toBe(false);
   });
 });

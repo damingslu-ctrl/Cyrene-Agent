@@ -111,3 +111,40 @@ export function withAlpha(color: Color, alpha: number): string {
   }
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
+
+/**
+ * 板内色名单：全客户端配色（`palette-from-cat.ts`）唯一的合法输入域。
+ * `PANEL_*` 三个是**函数**（要在具体底上预混才成形），名单里按函数放进去，
+ * 由派生器显式调用；成员表断言用 `typeof` 跳过它们，不让函数被当颜色拼进 CSS。
+ */
+export const CAT_PALETTE: Record<string, Color | (() => Color)> = {
+  ACCENT, ACCENT_DEEP, ACCENT_FG, ACCENT_HOVER,
+  GREEN, GREEN_FG, WARN, WARN_FG,
+  PAPER, PAPER_SHADE, INK, INK_SOFT, EYE,
+  ROSE, ROSE_DEEP,
+  BREAK_FILL, BREAK_SOFT, BREAK_EAR,
+  BG_SOLID, FG, DIM, TODAY_BAR, SHADOW,
+  PANEL_CARD: PANEL_CARD as () => Color,
+  PANEL_SEP: PANEL_SEP as () => Color,
+  PANEL_STROKE: PANEL_CARD_STROKE as () => Color,
+};
+
+/**
+ * 单侧专用色（本期从 `art.ts` 收编，仍**不进板**）。
+ * 台账原文的理由成立：它们只在流量胶囊/徽章这一件事上出现。收进来的唯一理由是
+ * 派生锁需要能按名字排除它们——否则「没抄进板」与「不该进板」在测试里不可区分。
+ * 新增者请一并更新 `pet-tokens.test.ts` 的字面量断言。
+ */
+export const PET_PRIVATE = {
+  HUD_BOX: "#1a1d26", // main.rs:2988 气泡盒与胶囊共用的墨底
+  HUD_INK: "#e8eaf0", // rgb(232,234,240) 读数墨白
+  HUD_UP: "#7dcda0", // rgb(125,205,160) 上行绿
+  CAP_BORDER_ON: "#3a404e",
+  CAP_DOWN_ON: "#87afeb",
+  CAP_BOX_OFF: "#14161d",
+  CAP_BORDER_OFF: "#2c303c",
+  CAP_INK_OFF: "#969caa",
+  CAP_UP_OFF: "#5c9474",
+  CAP_DOWN_OFF: "#6480a8",
+  BADGE_INK: "#ffffff", // ui.rs:1205 Color32::WHITE
+} as const;

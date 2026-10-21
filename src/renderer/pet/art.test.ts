@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildCapsuleOps, buildCatOps, layerKinds, fmtSpeed, fmtSpeedOpt, SPOKEN_CAP } from "./art";
 import { opsBounds, type DrawOp } from "./ops";
-import { INK, INK_SOFT, PAPER, parse, withAlpha } from "./tokens";
+import { INK, INK_SOFT, PAPER, parse, withAlpha } from "../../shared/pet-tokens";
 
 const S = (37 * 2) / 120; // u=37 档的 s（art.ts 的 `s = u*2/VB`）
 

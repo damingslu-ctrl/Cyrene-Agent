@@ -15,8 +15,8 @@
 import type { DrawOp, PetLayer, Point2 } from "./ops";
 import {
   ACCENT, BREAK_EAR, BREAK_FILL, BREAK_SOFT, EYE, GREEN, INK, INK_SOFT,
-  PAPER, PAPER_SHADE, ROSE, ROSE_DEEP, SHADOW, WARN, withAlpha,
-} from "./tokens";
+  PAPER, PAPER_SHADE, ROSE, ROSE_DEEP, SHADOW, WARN, withAlpha, PET_PRIVATE,
+} from "../../shared/pet-tokens";
 import { ribbon, cubicTo, arc, Xf } from "./xf";
 
 // ===========================================================================
@@ -61,8 +61,8 @@ const BODY_COL = (mood: Mood) => (mood === "grumpy" ? BREAK_FILL : INK);
 const INNER_EAR = (mood: Mood) => (mood === "grumpy" ? BREAK_EAR : ROSE_DEEP);
 const SHADOW_ALPHA = (mood: Mood) => (mood === "grumpy" ? 0.10 : 0.20);
 
-/** 徽章里的白色笔画：只在 `badge` 这一段用，按 `palette.rs` 的台账规矩不入库。 */
-const BADGE_INK = "#ffffff"; // ui.rs:1205 Color32::WHITE
+/** 徽章里的白色笔画：只在 `badge` 这一段用，已收编进 `PET_PRIVATE`，仍不算板内色。 */
+const BADGE_INK = PET_PRIVATE.BADGE_INK; // ui.rs:1205 Color32::WHITE
 
 // ===========================================================================
 // native 助手对位（ui.rs:396-509）
@@ -501,15 +501,16 @@ export function buildCatOps(input: CatInput): DrawOp[] {
 // ===========================================================================
 
 /**
- * 以下全是 main.rs 单侧专用的色，按 `palette.rs:1-10` 的台账规矩**不进 tokens.ts**
- * （「只放两个以上模块在同一件事上用的颜色」）。
+ * 以下全是 main.rs 单侧专用的色，本期已收编进 `pet-tokens.ts` 的 `PET_PRIVATE`
+ * 台账，仍**不算板内色**（不进 `CAT_PALETTE`，派生器不认它们）——
+ * 「只放两个以上模块在同一件事上用的颜色」这条规矩没变，收编只是让锁能按名字排除。
  */
-const HUD_BOX = "#1a1d26"; // rgb(26,29,38)：气泡盒与胶囊共用的墨底
-const HUD_INK = "#e8eaf0"; // rgb(232,234,240)：读数墨白
-const HUD_UP = "#7dcda0"; // rgb(125,205,160)：上行绿
+const HUD_BOX = PET_PRIVATE.HUD_BOX; // rgb(26,29,38)：气泡盒与胶囊共用的墨底
+const HUD_INK = PET_PRIVATE.HUD_INK; // rgb(232,234,240)：读数墨白
+const HUD_UP = PET_PRIVATE.HUD_UP; // rgb(125,205,160)：上行绿
 /** 五槽依次是 `(底, 描边, 读数, 上行, 下行)`。 */
-const CAP_ON = [HUD_BOX, "#3a404e", HUD_INK, HUD_UP, "#87afeb"];
-const CAP_OFF = ["#14161d", "#2c303c", "#969caa", "#5c9474", "#6480a8"];
+const CAP_ON = [HUD_BOX, PET_PRIVATE.CAP_BORDER_ON, HUD_INK, HUD_UP, PET_PRIVATE.CAP_DOWN_ON];
+const CAP_OFF = [PET_PRIVATE.CAP_BOX_OFF, PET_PRIVATE.CAP_BORDER_OFF, PET_PRIVATE.CAP_INK_OFF, PET_PRIVATE.CAP_UP_OFF, PET_PRIVATE.CAP_DOWN_OFF];
 /** 两档各自的 alpha（底与描边在静默时再退 15，读数/上行/下行不动）。 */
 const CAP_A_ON = [205, 205, 255, 255, 255];
 const CAP_A_OFF = [190, 190, 255, 255, 255];
