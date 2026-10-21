@@ -88,6 +88,57 @@ describe("配色派生器", () => {
     }
   });
 
+  it("表面五档与 pink 阶梯不许出现平阶（档位存在就必须看得见）", () => {
+    // 这条锁的是「层级」本身，不是某个具体 α。两条都是本期实测踩出来的：
+    // 深色档原先 page==workspace、hover(α16)≈elevated(ΔRGB≤2)，鼠标悬停等于没反馈；
+    // pink-400 原先直接写 ACCENT_FG，与 500 同值——现有 charcoal-pink.css:53-54 是分开的一对。
+    // 阈值按「用户能不能认出这是另一个状态」定，不按当前数值凑：
+    // 交互相邻档要求任一通道差 ≥8；page→workspace 是面与面的差别，≥5 即可。
+    const chan = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+    const maxDelta = (a: string, b: string) =>
+      Math.max(...chan(a).map((v, i) => Math.abs(v - chan(b)[i])));
+    // contrastRatio 对 #000000 是亮度的严格单调函数（(L+0.05)/0.05），借它当尺，不再实现一遍亮度。
+    const lum = (h: string) => contrastRatio(h, "#000000");
+
+    const surfaces = [
+      "--rb-surface-page", "--rb-surface-workspace", "--rb-surface-elevated",
+      "--rb-surface-hover", "--rb-surface-active",
+    ];
+    const pink = ["--rb-pink-50", "--rb-pink-100", "--rb-pink-200", "--rb-pink-300",
+      "--rb-pink-400", "--rb-pink-500", "--rb-pink-600", "--rb-pink-700"];
+
+    for (const scheme of ["light", "dark"] as const) {
+      const t = TOKENS_BY_SCHEME[scheme];
+      const s = surfaces.map((n) => t[n]);
+      for (let i = 0; i < s.length; i++) {
+        for (let j = i + 1; j < s.length; j++) {
+          expect(s[i], `${scheme} ${surfaces[i]} == ${surfaces[j]}`).not.toBe(s[j]);
+        }
+      }
+      expect(maxDelta(s[0], s[1]), `${scheme} page→workspace`).toBeGreaterThanOrEqual(5);
+      expect(maxDelta(s[2], s[3]), `${scheme} elevated→hover`).toBeGreaterThanOrEqual(8);
+      expect(maxDelta(s[3], s[4]), `${scheme} hover→active`).toBeGreaterThanOrEqual(8);
+
+      const p = pink.map((n) => t[n]);
+      const lower = p.slice(0, 6).map(lum); // 50→500：从表面一侧抬到基准
+      const upper = p.slice(5).map(lum); // 500→700：从基准压到按压态
+      const strict = (xs: number[], label: string, dir: "up" | "down") => {
+        for (let i = 1; i < xs.length; i++) {
+          const moved = dir === "up" ? xs[i] > xs[i - 1] : xs[i] < xs[i - 1];
+          expect(moved, `${scheme} ${label} ${pink[0]}… 第 ${i} 步不单调`).toBe(true);
+        }
+      };
+      // 方向逐档不同是设计使然：浅色的 50 是「往纸上压一层」，深色的 50 是「往墨底抬一层」，
+      // 两档的 50 都意味着「离表面最近的淡 tint」，所以相对亮度一支升、一支降。
+      strict(lower, "pink-50→500", scheme === "dark" ? "up" : "down");
+      strict(upper, "pink-500→700", "down");
+      for (let i = 1; i < p.length; i++) {
+        expect(maxDelta(p[i - 1], p[i]), `${scheme} ${pink[i - 1]}→${pink[i]}`)
+          .toBeGreaterThanOrEqual(8);
+      }
+    }
+  });
+
   it("原生窗底色取的是页底令牌而不是工作区，且是合法 #rrggbb", () => {
     expect(WINDOW_BACKGROUNDS["pearl-white"]).toBe(LIGHT_TOKENS["--rb-surface-page"]);
     expect(WINDOW_BACKGROUNDS["charcoal-pink"]).toBe(DARK_TOKENS["--rb-surface-page"]);

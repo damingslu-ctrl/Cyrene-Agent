@@ -35,11 +35,14 @@ const onInk = (fg: Color, a: number, base: Color = BG_SOLID): string => wash(fg,
 function build(scheme: ThemeScheme): TokenMap {
   const light = scheme === "light";
   // —— 表面 ——
+  // 深色档的五档必须真的分开：现有 `charcoal-pink.css:5-9` 是 #141414/#1b1b1b/#252525/#303030，
+  // 相邻步长 7/10/11。把 page 与 workspace 都写成 BG_SOLID、hover 又落回 elevated，
+  // 等于把「悬停」这件事在深色下画没了——所以 α 按现有步长对位取（8/—/28/44）。
   const page = light ? onPaper(PAPER_SHADE, 72, PAPER) : BG_SOLID;
-  const workspace = light ? onPaper(PAPER, 190, WHITE) : BG_SOLID;
+  const workspace = light ? onPaper(PAPER, 190, WHITE) : onInk(FG, 8);
   const elevated = light ? WHITE : PANEL_CARD();
-  const hover = light ? onPaper(ACCENT, 20, WHITE) : onInk(FG, 16);
-  const active = light ? onPaper(ACCENT, 38, WHITE) : onInk(FG, 26);
+  const hover = light ? onPaper(ACCENT, 20, WHITE) : onInk(FG, 28);
+  const active = light ? onPaper(ACCENT, 38, WHITE) : onInk(FG, 44);
   // —— 强调标度（名字仍叫 pink）——
   const accent = light ? ACCENT : ACCENT_FG;
   const accentHover = light ? ACCENT_DEEP : ACCENT_HOVER;
@@ -83,7 +86,9 @@ function build(scheme: ThemeScheme): TokenMap {
     "--rb-pink-100": light ? onPaper(ACCENT, 40, WHITE) : onInk(ACCENT_FG, 52),
     "--rb-pink-200": light ? onPaper(ACCENT, 82, WHITE) : onInk(ACCENT_FG, 82),
     "--rb-pink-300": light ? onPaper(ACCENT, 130, WHITE) : onInk(ACCENT_FG, 122),
-    "--rb-pink-400": light ? onPaper(ACCENT, 190, WHITE) : ACCENT_FG,
+    // 400 与 500 在深色下必须分开：现有 `charcoal-pink.css:53-54` 是 #ff6b97 / #ff5b8a。
+    // 直接写 ACCENT_FG 会和 500 同值（平阶），所以取 α=155 抬在 300(α122) 与 500(全亮) 之间。
+    "--rb-pink-400": light ? onPaper(ACCENT, 190, WHITE) : onInk(ACCENT_FG, 155),
     "--rb-pink-500": accent,
     "--rb-pink-600": accentHover,
     "--rb-pink-700": light ? wash(ACCENT_DEEP, 205, INK) : onInk(ACCENT_FG, 190),
@@ -164,7 +169,9 @@ function build(scheme: ThemeScheme): TokenMap {
       : `radial-gradient(ellipse at top, ${onInk(ACCENT_FG, 20)} 0%, ${BG_SOLID} 60%)`,
     // 代码块 / diff：三色从 success/danger/info 推，不抄 GitHub 的现成绿红
     "--rb-code-bg": light ? onPaper(INK, 8, WHITE) : elevated,
-    "--rb-diff-bg": light ? onPaper(INK, 4, WHITE) : BG_SOLID,
+    // 现有 `charcoal-pink.css:13` 把 diff 底写成 #1b1b1b，正是那一档的 bg-1/workspace；
+    // 写成 BG_SOLID 会让 diff 块与页底同色（差异视图失去底衬），所以跟 workspace 同一档。
+    "--rb-diff-bg": light ? onPaper(INK, 4, WHITE) : onInk(FG, 8),
     "--rb-diff-add-bg": light ? onPaper(GREEN, 30, WHITE) : onInk(GREEN, 44),
     "--rb-diff-add-text": light ? wash(GREEN, 215, INK) : GREEN_FG,
     "--rb-diff-remove-bg": light ? onPaper(ROSE_DEEP, 30, WHITE) : onInk(ROSE_DEEP, 48),
