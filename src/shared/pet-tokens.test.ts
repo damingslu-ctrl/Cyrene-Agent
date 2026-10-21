@@ -5,7 +5,7 @@ import {
 } from "./pet-tokens";
 
 describe("视觉 token 台账", () => {
-  // 这些字面量是按 native 源码抄的（坐标写在 tokens.ts 每个 token 的行上注释里）；
+  // 这些字面量是按 native 源码抄的（坐标写在 pet-tokens.ts 每个 token 的行上注释里）；
   // `hex()` 对合法小写十六进制是恒等往返，所以这条锁的是「台账里的字面量没被人顺手改跑」，
   // 不是「值绑回了 palette.rs」。rebase native 时要对着那三处坐标逐条核。
   it("品牌三色 / 奶油纸色 / 墨色 / 面板基色的字面量与 native 源码一致", () => {
@@ -88,6 +88,15 @@ describe("色板成员表", () => {
     expect(PET_PRIVATE.CAP_UP_OFF).toBe("#5c9474");
     expect(PET_PRIVATE.CAP_DOWN_OFF).toBe("#6480a8");
     expect(PET_PRIVATE.BADGE_INK).toBe("#ffffff");
+  });
+
+  it("排除名单也要完整：PET_PRIVATE 的成员名逐名钉住", () => {
+    // 这张名单存在的全部理由是「派生锁能按名字**排除**单侧专用色」。名单少一个名字，
+    // 排除就漏一个——所以成员名和 CAT_PALETTE 一样要钉死，只钉值不够。
+    expect(Object.keys(PET_PRIVATE).sort()).toEqual([
+      "BADGE_INK", "CAP_BORDER_OFF", "CAP_BORDER_ON", "CAP_BOX_OFF", "CAP_DOWN_OFF",
+      "CAP_DOWN_ON", "CAP_INK_OFF", "CAP_UP_OFF", "HUD_BOX", "HUD_INK", "HUD_UP",
+    ]);
   });
 
   it("正对照：CAT_PALETTE 与 PET_PRIVATE 的值域不相交，且都是不透明 6 位 hex", () => {

@@ -6,7 +6,9 @@
  * 重声明过 `ACCENT/WARN/GREEN`、`main.rs` 的尘环写死过 `247,244,236`、`panel.rs`
  * 更是把 `rgba(0x5b,0x8d,0xef,N)` 手抄了 26 处。手抄的代价不是不好看，是
  * **改一处不会跟着改另外三处**，而 248px 的面板里一个跑掉的蓝看不出来。
- * 单侧专用的色（胶囊的 CAP_ON/CAP_OFF、面板的 theme）留在各自模块里，别搬进来。
+ * 单侧专用的色原则上留在各自模块里。本期唯一的例外是文件末尾的 `PET_PRIVATE`
+ * （胶囊的 CAP_ON/CAP_OFF、HUD、徽章墨白）：它们仍**不是板内色**，不收进 `CAT_PALETTE`，
+ * 搬进来的唯一理由是让派生锁能按名字排除它们——见那里的注释与 `pet-tokens.test.ts` 的成员表。
  *
  * ⚠️ alpha 的两种量纲（native 自己就是两套，混用会把半透压成实心盘）：
  * - `withAlpha(hex, 0..1)` 对 `ui.rs:145 with_alpha(c, a: f32)`；
