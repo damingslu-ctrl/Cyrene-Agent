@@ -16,6 +16,8 @@ describe("配色派生器", () => {
 
   it("derivedValue 对未派生的令牌抛错，而不是返回 undefined", () => {
     expect(() => derivedValue("light", "--rb-没有这个令牌")).toThrow(/未派生/);
+    // Task 16 的派生锁按名字取值，两档都得抛——只钉 light 则 `scheme==="dark"?{}:…` 这类滑疏读绿。
+    expect(() => derivedValue("dark", "--rb-没有这个令牌")).toThrow(/未派生/);
     expect(derivedValue("light", "--rb-accent")).toBe(LIGHT_TOKENS["--rb-accent"]);
   });
 
@@ -60,6 +62,8 @@ describe("配色派生器", () => {
       Object.values(CAT_PALETTE).filter((v): v is string => typeof v === "string"),
     );
     // 这一条只查「裸值」档（值里只有一个 hex 的令牌）：它们必须是板内色。
+    // 注意 `PANEL_CARD()` 等三个「洗的是洗过的」嵌套预混：它们能过是因为巧有单步三元组
+    // 落在同一个 RGB，不是枚举真盖住了它们。真正的锁是 Task 16 的按算式复算。
     // 多 hex 的值（gradient/shadow）与 rgba 由 Task 16 的完整锁按算式复算。
     // ⚠️ 与 brief 文本唯一的偏差（理由与实测数字见 task-14-report.md）：`wash()` 的返回值
     // 本身就是一个裸 hex，所以「值里只有一个 hex」并不能推出「它是板内色」——实测 104 个令牌里
@@ -142,6 +146,13 @@ describe("配色派生器", () => {
   it("原生窗底色取的是页底令牌而不是工作区，且是合法 #rrggbb", () => {
     expect(WINDOW_BACKGROUNDS["pearl-white"]).toBe(LIGHT_TOKENS["--rb-surface-page"]);
     expect(WINDOW_BACKGROUNDS["charcoal-pink"]).toBe(DARK_TOKENS["--rb-surface-page"]);
+    // 上面两条是同一个表达式自行对自行，令牌改名时两边同时变 undefined 仍然绿；
+    // 真正的钳铮是下面的类型守卫，但它报 TypeError 而不报消息。技术上够用，意图不明确。
+    expect("--rb-surface-page" in LIGHT_TOKENS).toBe(true);
+    expect("--rb-surface-page" in DARK_TOKENS).toBe(true);
+    // 标题里那句「而不是工作区」得自己钉住：深色档原先 page==workspace，那时这句是空话。
+    expect(WINDOW_BACKGROUNDS["pearl-white"]).not.toBe(LIGHT_TOKENS["--rb-surface-workspace"]);
+    expect(WINDOW_BACKGROUNDS["charcoal-pink"]).not.toBe(DARK_TOKENS["--rb-surface-workspace"]);
     for (const v of Object.values(WINDOW_BACKGROUNDS)) expect(v).toMatch(/^#[0-9a-f]{6}$/);
   });
 });
