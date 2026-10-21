@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildCapsuleOps, buildCatOps, layerKinds, fmtSpeed, fmtSpeedOpt, SPOKEN_CAP } from "./art";
 import { opsBounds, type DrawOp } from "./ops";
 import { INK, INK_SOFT, PAPER, parse, withAlpha } from "../../shared/pet-tokens";
+import { CAT_COATS } from "../../shared/cat-coats";
 
 const S = (37 * 2) / 120; // u=37 档的 s（art.ts 的 `s = u*2/VB`）
 
@@ -288,5 +289,25 @@ describe("读数格式化", () => {
     expect(withAlpha(INK, 0.5)).toBe("rgba(43, 47, 58, 0.5)");
     expect(parse(PAPER)).toEqual({ r: 247, g: 244, b: 236 });
     expect(INK_SOFT).toBe("#4a5162");
+  });
+});
+
+describe("花色轴接进 buildCatOps", () => {
+  const bodyGrad = (ops: DrawOp[]) => of(ops, "body")[0] as Extract<DrawOp, { kind: "gradPath" }>;
+  const pawFill = (ops: DrawOp[]) => of(ops, "paws")[0] as Ellipse;
+
+  it("带花色时同一层换的是对应槽，不是随机换色", () => {
+    const none = buildCatOps(base);
+    const paper = buildCatOps({ ...base, coat: CAT_COATS.paper });
+    expect(bodyGrad(none).stops[0].color).toBe(INK);
+    expect(bodyGrad(paper).stops[0].color).toBe(CAT_COATS.paper.furTop);
+    expect(bodyGrad(paper).stops[0].color).not.toBe(INK);   // 正对照：真换了
+  });
+
+  it("白爪读 light 槽——用蓝猫验，奶油猫的 light 本来就是 PAPER", () => {
+    expect(pawFill(buildCatOps(base)).fill).toBe(PAPER);
+    const azure = buildCatOps({ ...base, coat: CAT_COATS.azure });
+    expect(pawFill(azure).fill).toBe(CAT_COATS.azure.light);
+    expect(CAT_COATS.azure.light).not.toBe(PAPER);         // 正对照：槽值不与默认撞色
   });
 });
