@@ -62,8 +62,10 @@ describe("配色派生器", () => {
       Object.values(CAT_PALETTE).filter((v): v is string => typeof v === "string"),
     );
     // 这一条只查「裸值」档（值里只有一个 hex 的令牌）：它们必须是板内色。
-    // 注意 `PANEL_CARD()` 等三个「洗的是洗过的」嵌套预混：它们能过是因为巧有单步三元组
-    // 落在同一个 RGB，不是枚举真盖住了它们。真正的锁是 Task 16 的按算式复算。
+    // 三个 `PANEL_*()` 里只有 `PANEL_CARD_STROKE()` 是「洗过的洗过的」（对 `PANEL_CARD()` 再洗一次，
+    // `pet-tokens.ts:72`），它能过是巧有单步三元组落在同一个 RGB，不是枚举真盖住了它；
+    // `PANEL_CARD()` / `PANEL_SEP()` 是单步（WHITE 过 BG_SOLID），枚举直接覆盖。
+    // 真正的锁是 Task 16 的按算式逐个复算。
     // 多 hex 的值（gradient/shadow）与 rgba 由 Task 16 的完整锁按算式复算。
     // ⚠️ 与 brief 文本唯一的偏差（理由与实测数字见 task-14-report.md）：`wash()` 的返回值
     // 本身就是一个裸 hex，所以「值里只有一个 hex」并不能推出「它是板内色」——实测 104 个令牌里
@@ -119,9 +121,17 @@ describe("配色派生器", () => {
           expect(s[i], `${scheme} ${surfaces[i]} == ${surfaces[j]}`).not.toBe(s[j]);
         }
       }
+      // 四个相邻步长一个都不许省：原先只钉了三段，`workspace→elevated` 被压到 ΔRGB=1 也读绿。
       expect(maxDelta(s[0], s[1]), `${scheme} page→workspace`).toBeGreaterThanOrEqual(5);
+      expect(maxDelta(s[1], s[2]), `${scheme} workspace→elevated`).toBeGreaterThanOrEqual(4);
       expect(maxDelta(s[2], s[3]), `${scheme} elevated→hover`).toBeGreaterThanOrEqual(8);
       expect(maxDelta(s[3], s[4]), `${scheme} hover→active`).toBeGreaterThanOrEqual(8);
+      // 再把「不相邻的两档也不许贴到一起」钉住（实测今日最小值：dark 5 / light 11）。
+      for (let i = 0; i < s.length; i++) {
+        for (let j = i + 1; j < s.length; j++) {
+          expect(maxDelta(s[i], s[j]), `${scheme} ${surfaces[i]} vs ${surfaces[j]}`).toBeGreaterThanOrEqual(3);
+        }
+      }
 
       const p = pink.map((n) => t[n]);
       const lower = p.slice(0, 6).map(lum); // 50→500：从表面一侧抬到基准
@@ -139,6 +149,12 @@ describe("配色派生器", () => {
       for (let i = 1; i < p.length; i++) {
         expect(maxDelta(p[i - 1], p[i]), `${scheme} ${pink[i - 1]}→${pink[i]}`)
           .toBeGreaterThanOrEqual(8);
+      }
+      // 相邻只能阻止「把 400 写成 500」，阻不住「把 700 写成 400」——非相邻的两档必须也两两不同。
+      for (let i = 0; i < p.length; i++) {
+        for (let j = i + 1; j < p.length; j++) {
+          expect(p[i], `${scheme} ${pink[i]} == ${pink[j]}`).not.toBe(p[j]);
+        }
       }
     }
   });
