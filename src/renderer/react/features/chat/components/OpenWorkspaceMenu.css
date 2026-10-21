@@ -75,7 +75,7 @@
 
 /* 启动失败：红态 2 秒后自动衰减回 idle */
 .cy-open-workspace[data-phase="error"] .cy-open-workspace__main {
-  color: var(--rb-danger, #e5484d);
+  color: var(--rb-danger);
 }
 
 /* ── 下拉菜单 ── */
@@ -114,7 +114,7 @@
 }
 
 .cy-open-workspace__item.is-selected {
-  color: var(--rb-accent, rgb(255 91 138));
+  color: var(--rb-accent);
 }
 
 /* 菜单项名称占据剩余宽度，勾选标记贴右 */

@@ -16,7 +16,7 @@
   border-radius: 14px;
   overflow: hidden;
   color: var(--rb-text-primary, #1d1d1f);
-  box-shadow: var(--rb-shadow-card, -4px 0 16px rgb(44 31 38 / 5%));
+  box-shadow: var(--rb-shadow-card);
   animation: cy-right-inspector-slide-in 0.22s ease;
   app-region: no-drag;
 }
@@ -92,7 +92,7 @@
 .cy-right-inspector__tab-trigger[data-state="active"] {
   background: var(--rb-bg-1, #fffbfc);
   color: var(--rb-text-primary, #2f2d31);
-  box-shadow: inset 0 -2px 0 var(--rb-accent, #ff5b8a);
+  box-shadow: inset 0 -2px 0 var(--rb-accent);
 }
 
 .cy-right-inspector__tab-trigger[data-state="inactive"]:hover {
@@ -103,7 +103,7 @@
 .cy-right-inspector__tab-trigger:focus-visible,
 .cy-right-inspector__tab-close:focus-visible,
 .cy-right-inspector__close:focus-visible {
-  outline: 2px solid var(--rb-accent, #ff5b8a);
+  outline: 2px solid var(--rb-accent);
   outline-offset: -2px;
 }
 
@@ -187,7 +187,7 @@
   border-radius: 999px;
   background: var(--rb-text-secondary, #a99fa5);
 }
-.cy-right-inspector__dot.is-review { background: var(--rb-accent, #ff5b8a); }
+.cy-right-inspector__dot.is-review { background: var(--rb-accent); }
 .cy-right-inspector__dot.is-executing { background: #d98f2b; animation: cy-right-inspector-dot-pulse 1.4s ease-in-out infinite; }
 .cy-right-inspector__dot.is-completed { background: #3e9c63; }
 

@@ -6,7 +6,7 @@ import { isDev } from "../env";
 import { DEFAULT_WORKSPACE_WINDOW_SIZE } from "../window-layout";
 import { loadGeneralSettings } from "../settings/settings-facade";
 import { getEffectiveUiTheme } from "../system-ui-theme";
-import { WINDOW_BACKGROUNDS } from "../../shared/palette-from-cat";
+import { WINDOW_BACKGROUNDS, WINDOW_BACKGROUND_NO_THEME_CONTEXT } from "../../shared/palette-from-cat";
 import { stopCall, setCallWindow } from "../call/call-manager";
 import { attachContextMenu } from "./context-menu";
 import { getWorkspaceInitialBounds } from "./workspace-window-bounds";
@@ -146,7 +146,7 @@ export function createOnboardingBrowserWindow(): BrowserWindow {
     center: true,
     title: `欢迎使用 ${BRAND.productName}`,
     icon: getCurrentAppIconPath(),
-    backgroundColor: WINDOW_BACKGROUNDS["pearl-white"],
+    backgroundColor: WINDOW_BACKGROUND_NO_THEME_CONTEXT,
     autoHideMenuBar: true,
     show: false,
     frame: false,

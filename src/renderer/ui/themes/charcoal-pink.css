@@ -117,9 +117,9 @@
   --md-table-border: #2c303a;
   --md-copy-bg: rgba(232, 230, 223, 0.06);
 
-  --cy-pill-bg: #252525;
-  --cy-pill-border: #4a4a4a;
-  --cy-pill-status: #ff9bb8;
+  --cy-pill-bg: var(--rb-surface-elevated);
+  --cy-pill-border: var(--rb-border-strong);
+  --cy-pill-status: var(--rb-pink-300);
 }
 
 [data-ui-theme="charcoal-pink"] .cy-page,
@@ -140,7 +140,7 @@
 [data-ui-theme="charcoal-pink"] .cy-tool-executions__detail {
   border-color: #363636;
   background: #252525;
-  color: #ff9bb8;
+  color: var(--rb-pink-300);
 }
 
 [data-ui-theme="charcoal-pink"] .cy-file-drop-overlay {
@@ -165,7 +165,7 @@
 }
 
 [data-ui-theme="charcoal-pink"] .cy-composer .ant-sender-actions-btn {
-  color: #24151b;
+  color: var(--rb-text-primary);
 }
 
 [data-ui-theme="charcoal-pink"] .cy-composer .ant-sender-actions-btn:disabled {
@@ -222,7 +222,7 @@
 }
 
 [data-ui-theme="charcoal-pink"] .cy-model-selector__models button[data-current] {
-  background: #3a232c;
+  background: var(--rb-surface-elevated);
 }
 
 /* 输入区各下拉的底色统一由浮层外壳（.cy-composer-menu-popover）提供，
@@ -260,13 +260,13 @@
 }
 
 [data-ui-theme="charcoal-pink"] .cy-message-markdown blockquote {
-  border-color: #ff5b8a;
+  border-color: var(--rb-accent);
   color: #a3a3a3;
 }
 
 [data-ui-theme="charcoal-pink"] .cy-message-markdown :not(pre) > code {
   background: #303030;
-  color: #ff9bb8;
+  color: var(--rb-pink-300);
 }
 
 [data-ui-theme="charcoal-pink"] .cy-message-markdown th {
@@ -290,10 +290,10 @@
 }
 
 [data-ui-theme="charcoal-pink"] .cy-message-markdown input[type="checkbox"]:checked::after {
-  border-color: #24151b;
+  border-color: var(--rb-text-primary);
 }
 
 [data-ui-theme="charcoal-pink"] ::selection {
   color: #ebebeb;
-  background: #5a3040;
+  background: var(--rb-pink-700);
 }

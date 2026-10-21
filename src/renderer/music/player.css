@@ -730,8 +730,8 @@ body {
 
 /* 删除缓存（危险操作，hover 提示红） */
 .queue-delete:hover {
-  color: #f87171;
-  background: rgba(248, 113, 113, 0.12);
+  color: var(--rb-danger);
+  background: color-mix(in srgb, var(--rb-danger) 12%, transparent);
 }
 
 /* ============ 错误条 ============ */
@@ -741,15 +741,15 @@ body {
   align-items: center;
   gap: 8px;
   padding: 8px 20px;
-  background: rgba(214, 51, 108, 0.07);
-  border-top: 1px solid rgba(214, 51, 108, 0.25);
+  background: color-mix(in srgb, var(--rb-accent) 7%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--rb-accent) 25%, transparent);
   color: var(--accent-deep);
   font-size: 12.5px;
 }
 
 .mp-error-retry {
   margin-left: auto;
-  border: 1px solid rgba(214, 51, 108, 0.4);
+  border: 1px solid color-mix(in srgb, var(--rb-accent) 40%, transparent);
   background: transparent;
   color: var(--accent-deep);
   border-radius: 6px;
@@ -760,7 +760,7 @@ body {
 }
 
 .mp-error-retry:hover {
-  background: rgba(214, 51, 108, 0.08);
+  background: color-mix(in srgb, var(--rb-accent) 8%, transparent);
 }
 
 /* ============ mpv 内核缺失提示条 ============ */
@@ -932,7 +932,7 @@ body {
   background: var(--accent);
   color: #fff;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(240, 98, 146, 0.35);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--rb-accent) 35%, transparent);
   transition:
     transform 0.12s,
     background 0.15s,

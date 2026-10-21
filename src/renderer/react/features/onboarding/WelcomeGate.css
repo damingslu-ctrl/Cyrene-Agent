@@ -192,7 +192,7 @@
 
 .cy-onboarding__error {
   margin: 0 auto 0 0;
-  color: var(--rb-danger, #c0395d);
+  color: var(--rb-danger);
   font: var(--rb-text-small);
 }
 

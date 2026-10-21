@@ -1,5 +1,5 @@
 /**
- * 派生锁：CSS 里每一个**还在直接着色的** `--rb-*` / `--md-*` 值，都必须等于
+ * 派生锁：CSS 里每一个**还在直接着色的** `--rb-*` / `--md-*` / `--cy-*` 值，都必须等于
  * `src/shared/palette-from-cat.ts` 算出来的那一个。
  *
  * 两条互补的断言，缺一条就是漏的：
@@ -13,13 +13,13 @@
  * 顺序 + `theme.css` 自己的 @import 决定了「谁最后写的谁生效」。所以这个测试不是逐文件断言，
  * 而是按真实源序解析后再断言生效值——不然它测的是「每个文件单独看着对」。
  *
- * 已知局限（**这三条是范围，不是漏扫**，都归 Task 19 的同一份提交收口；不许在这里放松断言）：
- * 1. 本锁只看**主题级**的 `--rb-*` / `--md-*` 声明。规则里的字面量（例如
- *    `themes/charcoal-pink.css:263` 的 `border-color: #ff5b8a;`）不在射程内——所以禁用色那条
- *    断言只声明「生效的主题级着色令牌里没有上游品牌色」，不声明「这四份文件干净」。
- * 2. `--cy-*` 一族（`themes/charcoal-pink.css:120-122` 的 `--cy-pill-bg/-border/-status`）
- *    连正则都不认，正向/反向/禁用三条全看不见。Task 19 把这三行换成 `var()` 的同时把正则放宽到
- *    `--(?:rb|md|cy)-`——放宽与迁移必须同一次提交，否则当场红。
+ * 已知局限（**这些是范围，不是漏扫**；Task 19 已按 R-16-3 收口前两条）：
+ * 1. 本锁只看**主题级**的声明。规则里的字面量（`border-color: #ff5b8a;` 这种）不在射程内——
+ *    所以禁用色那条断言只声明「生效的主题级着色令牌里没有上游品牌色」，不声明「这四份文件干净」。
+ *    规则级字面量由 `brand-color-migration.test.ts` 的**原文**逐字扫描负责（Task 19 扩的范围）。
+ * 2. `--cy-*` 一族从 Task 19 起进正则（`--(?:rb|md|cy)-`）：`themes/charcoal-pink.css:120-122`
+ *    的 `--cy-pill-bg/-border/-status` 已换成 `var(--rb-*)`，三条断言看到的都是间接层
+ *    （`COLOR_LITERAL` 不命中）。若以后有人把色值硬写回 `--cy-*`，反向断言会当场点名。
  * 3. 跨行选择器列表只在**含主题级段**时抛错（R-16-4）。四份文件今天有 155 处跨行列表，全是
  *    `[data-ui-theme="…"] .foo` 这类带后缀的 scoped 选择器——本锁靠整串相等本来就不消费它们，
  *    对它们抛错只会让整把锁收集失败（`Tests no tests`），比红更坏。会落错档的只有「列表里某一段
@@ -112,10 +112,10 @@ function collectDecls(css: string, label: string): Decl[] {
     selectorContinuation = trimmed.endsWith(",");
     if (selectorContinuation) pendingList.push(trimmed.slice(0, -1).trim());
     else pendingList = [];
-    if ((text.match(/--(?:rb|md)-[a-z0-9-]+\s*:/g) ?? []).length > 1) {
+    if ((text.match(/--(?:rb|md|cy)-[a-z0-9-]+\s*:/g) ?? []).length > 1) {
       throw new Error(`${label}: 一行两条声明，按行解析会漏掉第二条：${trimmed}`);
     }
-    const m = /^\s*(--(?:rb|md)-[a-z0-9-]+)\s*:\s*([^;]+);/.exec(text);
+    const m = /^\s*(--(?:rb|md|cy)-[a-z0-9-]+)\s*:\s*([^;]+);/.exec(text);
     if (m && depth > 0) out.push({ name: m[1], value: m[2].trim(), selector });
   }
   if (depth !== 0) throw new Error(`${label}: 文件结束时仍处在 ${depth} 层块内`);
@@ -193,9 +193,11 @@ describe("配色派生锁", () => {
   });
 
   it("生效的主题级着色令牌里没有上游品牌粉/紫字面量（规则里的字面量不在本条射程，见文件头局限 1）", () => {
+    // `#ff9bb8` 是 Task 15 漏掉的深色胶囊状态色（R-C15-6），`#4a4a4a` 是同一处写死的灰：
+    // 两者都必须来自角色令牌，不许再以字面量出现在主题级声明里。
     const banned = [/#ff5b8a/i, /#f04b7c/i, /#ec4899/i, /#db2777/i, /#be185d/i, /#9f7aea/i,
       /#b794f4/i, /#7c5fcc/i, /#e91e63/i, /#f88fbc/i, /#ff6ec7/i, /#ff7aa0/i, /#ff9fbd/i,
-      /#221c46/i, /#181432/i, /#08070f/i, /#fef7ff/i, /#a094c1/i];
+      /#221c46/i, /#181432/i, /#08070f/i, /#fef7ff/i, /#a094c1/i, /#ff9bb8/i, /#4a4a4a/i];
     const hits: string[] = [];
     for (const [scheme, eff] of [["light", light], ["dark", dark]] as const) {
       for (const [name, value] of eff) {

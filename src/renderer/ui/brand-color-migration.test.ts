@@ -2,25 +2,25 @@
  * 品牌色锁：模块 CSS 里的每一个上游粉/紫字面量，要么已经被换成表里指定的令牌，
  * 要么在表里被明确 `keep` 并写了理由。
  *
- * 四条断言，一条都不能省：
+ * 五条断言，一条都不能省：
  * 1. 表形：表不是空表（≥ 60 条），每个 `keep` 都带理由，且表里不许残留 `needsReview`
  *    （那是草案期的临时标记，裁决完必须消失）。
- * 2. 残留：扫模块 CSS，凡命中分类器且不在 `keep` 集合里的写法 → 红。**Task 18 结束时这条是红的**，
- *    它是 Task 19 的输入，不是失败。
- * 3. 可解析：表里 `token` 与 `expr` 提到的**每一个** `--rb-*` / `--md-*`，必须同时在
+ * 2. 残留（模块）：扫模块 CSS，凡命中分类器且不在 `keep` 集合里的写法 → 红。
+ * 3. 残留（主题文件原文）：四份主题文件里除 `--rb-*` 声明行（值就是色板本身）之外，
+ *    凡命中分类器且不在 `keep` 集合里的写法 → 红（R-16-3 I1(b)，Task 19 收口）。
+ * 4. 可解析：表里 `token` 与 `expr` 提到的**每一个** `--rb-*` / `--md-*`，必须同时在
  *    `tokens.css`、`pearl-white.css`、`charcoal-pink.css` 三处声明，且在派生表两档都有值。
  *    理由：`plan-approval-preview.html` 与 `plugin-market-preview.html` 这两个入口只 link
  *    `ui/theme.css`，拿不到 `tokens.css`；而只在一份主题文件里出现的令牌，换过去就会在另一档
  *    主题里解析为空——**颜色直接消失**。
- * 4. 反空转的上界：`keep` 行数 ≤ 60。没有这条，「把红族 51 处全判 keep」也能过前三条，
+ * 5. 反空转的上界：`keep` 行数 ≤ 60。没有这条，「把红族 51 处全判 keep」也能过前三条，
  *    而那是把上游粉留在屏幕上的最快路径。
  *
  * 已知局限（**是范围，不是漏扫**）：
  * - `hsl()/hsla()` 不做（实测 39 处里只有 `music/components/LoadingScreen.css:41-42` 是字面 hue，
  *   h=11 橙 / h=175 青，非品牌身份）。
- * - `--cy-*` 一族的放宽与迁移归 Task 19；本锁只认 `--(?:rb|md)-`。
- * - 四份主题文件不在本锁射程内（它们的规则级字面量由 Task 19 的同一份提交收口，
- *   见 `theme-palette-derivation.test.ts` 文件头局限 1）。
+ * - 本锁不关心令牌名：`--cy-*` 与 `--rb-*` 一样逐字扫。Task 19 已把三行 `--cy-pill-*` 换成
+ *   `var(--rb-*)`，所以它们不再产生命中；若有人写回色值，这里和派生锁会同时红。
  */
 import { readFileSync } from "node:fs";
 import { globSync } from "node:fs";
@@ -53,6 +53,25 @@ function moduleCss(): string[] {
     .filter((f) => !THEME_FILES.includes(f));
 }
 
+/** 主题文件里的 `--rb-*` 声明行是色板本身（回写脚本同样跳过），其余原文一律在射程内。 */
+const PALETTE_DECL = /^\s*--rb-[a-z0-9-]+\s*:/i;
+
+function scanResidue(files: string[], skipPaletteDecls: boolean): { residue: string[]; hits: number } {
+  const residue: string[] = [];
+  let hits = 0;
+  for (const file of files) {
+    const css = readFileSync(resolve(REPO, file), "utf8");
+    const lines = css.split("\n");
+    for (const hit of scanColorLiterals(css)) {
+      hits += 1;
+      if (skipPaletteDecls && PALETTE_DECL.test(lines[hit.line - 1] ?? "")) continue;
+      if (KEEP.has(hit.text.toLowerCase())) continue;
+      residue.push(`${file}:${hit.line} ${hit.property}: ${hit.text}`);
+    }
+  }
+  return { residue, hits };
+}
+
 describe("上游品牌色只能来自迁移表的裁决", () => {
   const rows = migration as Record<string, { token?: string; expr?: string; keep?: boolean; reason?: string; needsReview?: boolean }>;
 
@@ -70,14 +89,15 @@ describe("上游品牌色只能来自迁移表的裁决", () => {
   });
 
   it("模块 CSS 里不残留未裁决的品牌色写法", () => {
-    const residue: string[] = [];
-    for (const file of moduleCss()) {
-      const css = readFileSync(resolve(REPO, file), "utf8");
-      for (const hit of scanColorLiterals(css)) {
-        if (KEEP.has(hit.text.toLowerCase())) continue;
-        residue.push(`${file}:${hit.line} ${hit.property}: ${hit.text}`);
-      }
-    }
+    const { residue } = scanResidue(moduleCss(), false);
+    expect(residue, `${residue.length} 处未清\n${residue.slice(0, 40).join("\n")}`).toEqual([]);
+  });
+
+  it("四份主题文件的原文也不残留未裁决的品牌色写法", () => {
+    const { residue, hits } = scanResidue(THEME_FILES, true);
+    // 正对照：主题文件里仍留着两条 keep 的软墨（`rgba(38, 28, 46, α)`，两档各两处），
+    // 扫不到就说明「零残留」是因为分类器在这四份文件上一无所获，而不是真的干净。
+    expect(hits, "主题文件一处命中都没有，这条断言的负结果不可信").toBeGreaterThan(0);
     expect(residue, `${residue.length} 处未清\n${residue.slice(0, 40).join("\n")}`).toEqual([]);
   });
 

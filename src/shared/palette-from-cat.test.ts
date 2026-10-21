@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  DARK_TOKENS, LIGHT_TOKENS, TOKENS_BY_SCHEME, WINDOW_BACKGROUNDS, contrastRatio, derivedValue,
+  DARK_TOKENS, LIGHT_TOKENS, TOKENS_BY_SCHEME, WINDOW_BACKGROUNDS,
+  WINDOW_BACKGROUND_NO_THEME_CONTEXT, contrastRatio, derivedValue,
 } from "./palette-from-cat";
 import { CAT_PALETTE, wash } from "./pet-tokens";
 
@@ -170,5 +171,9 @@ describe("配色派生器", () => {
     expect(WINDOW_BACKGROUNDS["pearl-white"]).not.toBe(LIGHT_TOKENS["--rb-surface-workspace"]);
     expect(WINDOW_BACKGROUNDS["charcoal-pink"]).not.toBe(DARK_TOKENS["--rb-surface-workspace"]);
     for (const v of Object.values(WINDOW_BACKGROUNDS)) expect(v).toMatch(/^#[0-9a-f]{6}$/);
+    // 「没有主题上下文」是独立决定（欢迎窗 + chrome://gpu），不是 `["pearl-white"]` 的第二份抄写：
+    // 两处调用点都只许引用这个名字。今天它恰好等于浅色页底，改浅色档时跟着变是对的。
+    expect(WINDOW_BACKGROUND_NO_THEME_CONTEXT).toBe(LIGHT_TOKENS["--rb-surface-page"]);
+    expect(WINDOW_BACKGROUND_NO_THEME_CONTEXT).toMatch(/^#[0-9a-f]{6}$/);
   });
 });

@@ -29,8 +29,8 @@
 }
 
 .skill-panel__search:focus {
-  border-color: var(--rb-accent, var(--cy-pill-border, #ff9fbd));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rb-accent, #ff5b8a) 15%, transparent);
+  border-color: var(--rb-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rb-accent) 15%, transparent);
 }
 
 .skill-panel__icon-btn {
@@ -49,7 +49,7 @@
 }
 
 .skill-panel__icon-btn:hover {
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
   background: var(--rb-surface-active, #fde0ed);
   border-color: var(--rb-surface-active, #fde0ed);
 }
@@ -84,7 +84,7 @@
 
 .skill-panel__tab.is-active {
   background: var(--rb-surface-active, #fde0ed);
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
 }
 
 /* 来源过滤（全部 / 内置 / 用户） */
@@ -215,7 +215,7 @@
 }
 
 .skill-card__source--builtin {
-  color: #5f27cd;
+  color: var(--rb-accent);
   background: #efeafc;
 }
 
@@ -255,11 +255,11 @@
 }
 
 .skill-card__pill:hover {
-  box-shadow: 0 0 0 3px rgba(255, 91, 138, 0.08);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rb-accent) 8%, transparent);
 }
 
 .skill-card__pill.is-on {
-  background: var(--rb-accent, #ff5b8a);
+  background: var(--rb-accent);
 }
 
 .skill-card__pill-knob {

@@ -13,6 +13,8 @@ export interface LiteralHit {
   text: string;
   family: BrandFamily;
   line: number;
+  /** 命中起点在该行内的列（0 基）。回写脚本靠它定位，不靠 `indexOf(text)` 猜第一处。 */
+  index: number;
   property: string;
   /** 带 alpha 的写法记 0..1；`#rrggbb`/`#rgb`/不带 alpha 的 `rgb()` 记 null。 */
   alpha: number | null;
@@ -114,7 +116,10 @@ export function scanColorLiterals(css: string): LiteralHit[] {
       );
       if (!fam) continue;
       property = propertyAt(raw, m.index!, property);
-      out.push({ text: m[0], family: fam, line: i + 1, property, alpha, fallbackOf: fallbackOfAt(raw, m.index!) });
+      out.push({
+        text: m[0], family: fam, line: i + 1, index: m.index!,
+        property, alpha, fallbackOf: fallbackOfAt(raw, m.index!),
+      });
     }
     for (const re of [FUNC_COMMA, FUNC_SPACE]) {
       for (const m of raw.matchAll(re)) {
@@ -126,6 +131,7 @@ export function scanColorLiterals(css: string): LiteralHit[] {
           text: m[0],
           family: fam,
           line: i + 1,
+          index: m.index!,
           property,
           alpha: parseAlpha(m[4]),
           fallbackOf: fallbackOfAt(raw, m.index!),

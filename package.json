@@ -27,6 +27,8 @@
     "check:brand": "node scripts/build/sync-brand.mjs --check",
     "palette:apply": "node scripts/build/apply-theme-palette.mjs",
     "palette:check": "node scripts/build/apply-theme-palette.mjs --check",
+    "palette:migrate": "node scripts/build/apply-color-migration.mjs",
+    "palette:migrate:check": "node scripts/build/apply-color-migration.mjs --check",
     "sync:file-icons": "node scripts/sync-file-icons.mjs",
     "build:renderer": "vite build",
     "perf:chat-baseline": "node scripts/perf/chat-renderer-baseline.mjs",

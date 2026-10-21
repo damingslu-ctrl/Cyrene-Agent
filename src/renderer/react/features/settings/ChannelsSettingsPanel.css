@@ -88,7 +88,7 @@
 .cy-channels-provider__copy small { overflow: hidden; color: var(--rb-text-secondary); font: var(--rb-text-micro); text-overflow: ellipsis; white-space: nowrap; }
 .cy-channels-status.ant-tag { margin: 0; border: 0; border-radius: 999px; background: var(--rb-surface-hover); color: var(--rb-text-secondary); font: var(--rb-text-micro); }
 .cy-channels-status--running.ant-tag { background: color-mix(in srgb, #22a06b 12%, var(--rb-surface-elevated)); color: #168654; }
-.cy-channels-status--error.ant-tag { background: color-mix(in srgb, #e5484d 12%, var(--rb-surface-elevated)); color: #c9353c; }
+.cy-channels-status--error.ant-tag { background: color-mix(in srgb, var(--rb-danger) 12%, var(--rb-surface-elevated)); color: var(--rb-danger); }
 
 .cy-channels-number { width: 104px; }
 .cy-channels-global-select { width: min(280px, 100%); flex: 0 1 280px; }

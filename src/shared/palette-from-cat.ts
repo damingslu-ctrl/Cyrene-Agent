@@ -213,6 +213,13 @@ export const WINDOW_BACKGROUNDS: Record<"pearl-white" | "charcoal-pink", string>
   "charcoal-pink": DARK_TOKENS["--rb-surface-page"],
 };
 
+/**
+ * 没有主题上下文时的原生窗底色：欢迎窗（首启时设置还读不到）与 `chrome://gpu`
+ * （Chromium 自绘的浅色页）。两处都必须写死浅色页底，不能跟随 app 主题；
+ * 这个决定只此一处，避免两个调用点各自猜。
+ */
+export const WINDOW_BACKGROUND_NO_THEME_CONTEXT = LIGHT_TOKENS["--rb-surface-page"];
+
 /** 按令牌名取值；不在表里就抛——静默返回 undefined 会把「忘了派生」读成「这令牌没颜色」。 */
 export function derivedValue(scheme: ThemeScheme, token: string): string {
   const value = TOKENS_BY_SCHEME[scheme][token];

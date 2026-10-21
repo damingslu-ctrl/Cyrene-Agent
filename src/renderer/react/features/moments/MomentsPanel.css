@@ -55,9 +55,9 @@
   padding: 8px 12px;
   border: 1px solid var(--rb-border-default, #e8e8ec);
   border-radius: 8px;
-  color: #d4384d;
+  color: var(--rb-danger);
   font-size: 12px;
-  background: rgba(212, 56, 77, 0.06);
+  background: color-mix(in srgb, var(--rb-danger) 6%, transparent);
 }
 
 .moments-panel__empty {
@@ -249,8 +249,8 @@
 }
 
 .moments-composer__tool:hover {
-  color: var(--rb-accent, #ff5b8a);
-  background: rgba(255, 91, 138, 0.08);
+  color: var(--rb-accent);
+  background: color-mix(in srgb, var(--rb-accent) 8%, transparent);
 }
 
 .moments-composer__count {
@@ -258,7 +258,7 @@
 }
 
 .moments-composer__error {
-  color: #d4384d;
+  color: var(--rb-danger);
   font-size: 12px;
 }
 
@@ -267,7 +267,7 @@
   border: none;
   border-radius: 8px;
   padding: 7px 22px;
-  background: var(--rb-accent, #ff5b8a);
+  background: var(--rb-accent);
   color: #fff;
   font-size: 13px;
   font-weight: 600;
@@ -315,7 +315,7 @@
 }
 
 .moment-card__avatar-fallback {
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
   font-size: 16px;
   font-weight: 700;
 }
@@ -326,7 +326,7 @@
 }
 
 .moment-card__name {
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
   font-size: 14px;
   font-weight: 600;
   line-height: 1.3;
@@ -411,7 +411,7 @@
 }
 
 .moment-card__delete:hover {
-  color: #d4384d;
+  color: var(--rb-danger);
 }
 
 .moment-card__actions {
@@ -436,13 +436,13 @@
 }
 
 .moment-card__action:hover {
-  color: var(--rb-accent, #ff5b8a);
-  border-color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
+  border-color: var(--rb-accent);
 }
 
 .moment-card__action.is-active {
-  color: var(--rb-accent, #ff5b8a);
-  border-color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
+  border-color: var(--rb-accent);
 }
 
 .moment-card__action-count {
@@ -464,7 +464,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
   font-weight: 600;
   padding: 2px 0;
 }
@@ -495,7 +495,7 @@
 }
 
 .moment-card__comment:hover {
-  background: rgba(255, 91, 138, 0.06);
+  background: color-mix(in srgb, var(--rb-accent) 6%, transparent);
 }
 
 .moment-card__comment-main {
@@ -505,7 +505,7 @@
 }
 
 .moment-card__comment-name {
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
   font-weight: 600;
 }
 
@@ -544,14 +544,14 @@
 }
 
 .moment-card__comment-editor input:focus {
-  border-color: var(--rb-accent, #ff5b8a);
+  border-color: var(--rb-accent);
 }
 
 .moment-card__comment-send {
   border: none;
   border-radius: 6px;
   padding: 5px 12px;
-  background: var(--rb-accent, #ff5b8a);
+  background: var(--rb-accent);
   color: #fff;
   font-size: 12px;
   cursor: pointer;
@@ -577,7 +577,7 @@
 
 .moment-card__comment-error {
   margin-top: 4px;
-  color: #d4384d;
+  color: var(--rb-danger);
   font-size: 12px;
 }
 
@@ -624,7 +624,7 @@
   padding: 0 4px;
   box-sizing: border-box;
   border-radius: 8px;
-  background: #ff3b5c;
+  background: var(--rb-accent);
   color: #fff;
   font-size: 10px;
   font-weight: 700;
@@ -711,7 +711,7 @@
 
 /* 昔涟的名字走粉色主色，与角色蓝区分开 */
 .moments-notice-item__name.is-cyrene {
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
 }
 
 .moments-notice-item__excerpt {
@@ -731,7 +731,7 @@
 
 /* 通知跳转定位后的高亮：短暂点亮目标卡片帮助视线跟上 */
 @keyframes moment-card-flash {
-  0% { background: rgba(255, 91, 138, 0.16); }
+  0% { background: color-mix(in srgb, var(--rb-accent) 16%, transparent); }
   100% { background: transparent; }
 }
 

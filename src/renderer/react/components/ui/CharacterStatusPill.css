@@ -19,7 +19,7 @@
 .cy-character-pill[data-state="open"] {
   transform: translateY(-1px);
   border-color: var(--rb-accent);
-  box-shadow: 0 3px 10px rgba(255, 91, 138, 0.24);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--rb-accent) 24%, transparent);
 }
 
 .cy-character-pill:focus-visible {
@@ -57,7 +57,7 @@
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: rgba(255, 91, 138, 0.42);
+  background: color-mix(in srgb, var(--rb-accent) 42%, transparent);
   animation: cy-character-pill-presence 2.6s ease-in-out infinite;
 }
 

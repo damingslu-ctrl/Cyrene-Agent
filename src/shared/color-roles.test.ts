@@ -36,16 +36,16 @@ describe("品牌色分类器", () => {
   });
 
   it("提案：红一律 needsReview，紫调近黑按属性分流", () => {
-    expect(proposeToken({ text: "#e81123", family: "red", line: 1, property: "background",
+    expect(proposeToken({ text: "#e81123", family: "red", line: 1, index: 0, property: "background",
       alpha: null, fallbackOf: null }))
       .toBe("needsReview");
-    expect(proposeToken({ text: "#19161f", family: "violet", line: 1, property: "background",
+    expect(proposeToken({ text: "#19161f", family: "violet", line: 1, index: 0, property: "background",
       alpha: null, fallbackOf: null })).toBe("--rb-surface-elevated");
-    expect(proposeToken({ text: "#19161f", family: "violet", line: 1, property: "color",
+    expect(proposeToken({ text: "#19161f", family: "violet", line: 1, index: 0, property: "color",
       alpha: null, fallbackOf: null })).toBe("--rb-text-primary");
-    expect(proposeToken({ text: "#ff5b8a", family: "pink", line: 1, property: "background",
+    expect(proposeToken({ text: "#ff5b8a", family: "pink", line: 1, index: 0, property: "background",
       alpha: null, fallbackOf: null })).toBe("--rb-accent");
-    expect(proposeToken({ text: "#ff9fbd", family: "pink", line: 1, property: "border-color",
+    expect(proposeToken({ text: "#ff9fbd", family: "pink", line: 1, index: 0, property: "border-color",
       alpha: null, fallbackOf: null })).toBe("--rb-pink-100");
   });
 
@@ -61,9 +61,9 @@ describe("品牌色分类器", () => {
   });
 
   it("近黑：不透明的是面，带 alpha 的是阴影墨——后者不许自动提案", () => {
-    expect(proposeToken({ text: "#19161f", family: "violet", line: 1, property: "background",
+    expect(proposeToken({ text: "#19161f", family: "violet", line: 1, index: 0, property: "background",
       alpha: null, fallbackOf: null })).toBe("--rb-surface-elevated");
-    expect(proposeToken({ text: "rgb(25 22 31 / 22%)", family: "violet", line: 1,
+    expect(proposeToken({ text: "rgb(25 22 31 / 22%)", family: "violet", line: 1, index: 0,
       property: "box-shadow", alpha: 0.22, fallbackOf: null })).toBe("needsReview");
   });
 });

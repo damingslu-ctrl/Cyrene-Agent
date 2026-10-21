@@ -60,8 +60,8 @@
 }
 
 .tool-panel__search:focus {
-  border-color: var(--rb-accent, var(--cy-pill-border, #ff9fbd));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rb-accent, #ff5b8a) 15%, transparent);
+  border-color: var(--rb-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rb-accent) 15%, transparent);
 }
 
 /* 模式标签（Work / Code / Learn / Chat）+ 右侧当前模式提示 */
@@ -90,7 +90,7 @@
 
 .tool-panel__tab.is-active {
   background: var(--rb-surface-active, #fde0ed);
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
 }
 
 .tool-panel__mode-hint {
@@ -209,11 +209,11 @@
 }
 
 .tool-card__pill:hover {
-  box-shadow: 0 0 0 3px rgba(255, 91, 138, 0.08);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rb-accent) 8%, transparent);
 }
 
 .tool-card__pill.is-on {
-  background: var(--rb-accent, #ff5b8a);
+  background: var(--rb-accent);
 }
 
 .tool-card__pill-knob {

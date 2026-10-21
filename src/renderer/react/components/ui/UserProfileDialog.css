@@ -93,8 +93,8 @@
   overflow: hidden;
   border: 1px solid var(--rb-border-default, rgb(0 0 0 / 8%));
   border-radius: 18px;
-  color: var(--rb-accent, #ff5b8a);
-  background: color-mix(in srgb, var(--rb-accent, #ff5b8a) 10%, white);
+  color: var(--rb-accent);
+  background: color-mix(in srgb, var(--rb-accent) 10%, white);
   font-size: 21px;
 }
 
@@ -145,7 +145,7 @@
 .cy-user-profile__field input::placeholder { color: var(--rb-text-secondary, #9a9aa1); }
 .cy-user-profile__field input:hover,
 .cy-user-profile__field select:hover,
-.cy-user-profile__date-trigger:hover { border-color: color-mix(in srgb, var(--rb-accent, #ff5b8a) 40%, var(--rb-border-default, #ddd)); }
+.cy-user-profile__date-trigger:hover { border-color: color-mix(in srgb, var(--rb-accent) 40%, var(--rb-border-default, #ddd)); }
 
 .cy-user-profile__field input:focus-visible,
 .cy-user-profile__field select:focus-visible,
@@ -154,8 +154,8 @@
 .cy-user-profile__secondary-button:focus-visible,
 .cy-user-profile__primary-button:focus-visible,
 .cy-user-profile__close:focus-visible {
-  border-color: var(--rb-accent, #ff5b8a);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rb-accent, #ff5b8a) 18%, transparent);
+  border-color: var(--rb-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rb-accent) 18%, transparent);
 }
 
 .cy-user-profile__field select { cursor: pointer; }
@@ -234,15 +234,15 @@
   transition: transform 120ms ease, border-color 120ms ease, background-color 120ms ease;
 }
 
-.cy-user-profile__secondary-button:hover { border-color: color-mix(in srgb, var(--rb-accent, #ff5b8a) 38%, var(--rb-border-default, #ddd)); background: var(--rb-surface-hover, #fff1f6); }
-.cy-user-profile__primary-button { border-color: var(--rb-accent, #ff5b8a); color: #fff; background: var(--rb-accent, #ff5b8a); }
+.cy-user-profile__secondary-button:hover { border-color: color-mix(in srgb, var(--rb-accent) 38%, var(--rb-border-default, #ddd)); background: var(--rb-surface-hover, #fff1f6); }
+.cy-user-profile__primary-button { border-color: var(--rb-accent); color: #fff; background: var(--rb-accent); }
 .cy-user-profile__primary-button:hover { filter: brightness(0.97); }
 .cy-user-profile__secondary-button:active,
 .cy-user-profile__primary-button:active { transform: scale(0.98); }
 .cy-user-profile__secondary-button:disabled,
 .cy-user-profile__primary-button:disabled { cursor: wait; opacity: 0.65; }
 
-.cy-user-profile__error { margin: 15px 0 0; color: #c2415d; font-size: 12px; line-height: 1.45; }
+.cy-user-profile__error { margin: 15px 0 0; color: var(--rb-danger); font-size: 12px; line-height: 1.45; }
 .cy-user-profile__spin { animation: cy-user-profile-spin 900ms linear infinite; }
 @keyframes cy-user-profile-spin { to { transform: rotate(360deg); } }
 
@@ -260,8 +260,8 @@
 .cy-user-profile__select-options { z-index: 1502; }
 
 .cy-user-profile__calendar-popover .rdp-root {
-  --rdp-accent-color: var(--rb-accent, #ff5b8a);
-  --rdp-accent-background-color: color-mix(in srgb, var(--rb-accent, #ff5b8a) 13%, white);
+  --rdp-accent-color: var(--rb-accent);
+  --rdp-accent-background-color: color-mix(in srgb, var(--rb-accent) 13%, white);
   --rdp-day-height: 36px;
   --rdp-day-width: 36px;
   --rdp-day_button-height: 32px;
@@ -279,9 +279,9 @@
 .cy-user-profile__calendar-popover .rdp-dropdown { cursor: pointer; }
 .cy-user-profile__calendar-popover .rdp-weekday { color: var(--rb-text-secondary, #85858d); font-weight: 450; }
 .cy-user-profile__calendar-popover .rdp-day_button { font-size: 12px; }
-.cy-user-profile__calendar-popover .rdp-day_button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--rb-accent, #ff5b8a) 45%, transparent); background: var(--rdp-accent-background-color); }
+.cy-user-profile__calendar-popover .rdp-day_button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--rb-accent) 45%, transparent); background: var(--rdp-accent-background-color); }
 .cy-user-profile__calendar-popover .rdp-selected .rdp-day_button { color: #fff; font-weight: 600; }
-.cy-user-profile__calendar-popover .rdp-today:not(.rdp-selected) .rdp-day_button { color: var(--rb-accent, #ff5b8a); font-weight: 650; }
+.cy-user-profile__calendar-popover .rdp-today:not(.rdp-selected) .rdp-day_button { color: var(--rb-accent); font-weight: 650; }
 .cy-user-profile__calendar-popover .rdp-outside .rdp-day_button { color: var(--rb-text-secondary, #85858d); }
 
 @media (max-width: 520px) {

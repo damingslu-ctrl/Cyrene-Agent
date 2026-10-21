@@ -38,7 +38,7 @@
 
 .cy-file-tree .ant-tree .ant-tree-node-selected,
 .cy-file-tree .ant-tree .ant-tree-node-content-wrapper:hover {
-  background: rgb(255 91 138 / 8%);
+  background: color-mix(in srgb, var(--rb-accent) 8%, transparent);
 }
 
 .cy-file-tree .ant-tree .ant-tree-node-selected {
@@ -179,8 +179,8 @@
 }
 
 .cy-file-preview__md-btn.is-active {
-  background: rgba(255, 91, 138, 0.1);
-  color: var(--rb-accent, #ff5b8a);
+  background: color-mix(in srgb, var(--rb-accent) 10%, transparent);
+  color: var(--rb-accent);
 }
 
 /* Markdown 渲染预览区：滚动 + 内边距，样式复用聊天的 markdown 体系 */

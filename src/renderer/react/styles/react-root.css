@@ -93,7 +93,7 @@ html body {
   padding: 10px 16px;
   border-radius: 999px;
   background: #fff;
-  box-shadow: 0 8px 24px rgb(255 91 138 / 16%);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--rb-accent) 16%, transparent);
 }
 
 .cy-page.is-collapsed {
@@ -215,14 +215,14 @@ html body {
   transition: color .12s ease, background .12s ease, border-color .12s ease;
 }
 .cy-inspector-browser-toggle:hover {
-  border-color: color-mix(in srgb, var(--rb-accent, #e75d87) 45%, transparent);
+  border-color: color-mix(in srgb, var(--rb-accent) 45%, transparent);
   background: var(--rb-surface-hover, #fff1f6);
-  color: var(--rb-accent, #e75d87);
+  color: var(--rb-accent);
 }
 
 /* 全局文字选中：用应用粉色强调色替代浏览器默认蓝 */
 ::selection {
-  background: rgba(255, 91, 138, 0.24);
+  background: color-mix(in srgb, var(--rb-accent) 24%, transparent);
   color: inherit;
 }
 
@@ -267,7 +267,7 @@ html body {
 
 .cy-dock-separator:hover::after,
 .cy-dock-separator:active::after {
-  background: var(--rb-accent, #ff5b8a);
+  background: var(--rb-accent);
 }
 
 .cy-page-newtask {
@@ -401,8 +401,8 @@ html body {
   border: none;
   border-radius: 50%;
   background: var(--rb-surface-elevated, rgba(255, 255, 255, 0.92));
-  color: var(--rb-text-primary, #4c3762);
-  box-shadow: 0 4px 14px rgba(76, 55, 98, 0.18);
+  color: var(--rb-text-primary);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--rb-pink-700) 18%, transparent);
   cursor: pointer;
   transition: transform 0.2s ease, opacity 0.2s ease;
   backdrop-filter: blur(6px);

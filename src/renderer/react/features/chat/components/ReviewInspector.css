@@ -97,7 +97,7 @@
   user-select: none;
 }
 .cy-review-inspector__line.is-add .cy-review-inspector__line-marker { color: #116329; }
-.cy-review-inspector__line.is-remove .cy-review-inspector__line-marker { color: #82071e; }
+.cy-review-inspector__line.is-remove .cy-review-inspector__line-marker { color: var(--rb-danger); }
 .cy-review-inspector__line.is-context .cy-review-inspector__line-marker { color: transparent; }
 
 .cy-review-inspector__line-text {
@@ -105,7 +105,7 @@
   overflow: visible;
 }
 .cy-review-inspector__line.is-add .cy-review-inspector__line-text { color: #116329; }
-.cy-review-inspector__line.is-remove .cy-review-inspector__line-text { color: #82071e; }
+.cy-review-inspector__line.is-remove .cy-review-inspector__line-text { color: var(--rb-danger); }
 .cy-review-inspector__line.is-context .cy-review-inspector__line-text { color: var(--rb-text-secondary, #8b8489); }
 
 /* kind 徽标 */
@@ -119,7 +119,7 @@
 }
 .cy-review-inspector__kind.is-modified { background: #ddf4ff; color: #0550ae; }
 .cy-review-inspector__kind.is-created  { background: #e6ffec; color: #116329; }
-.cy-review-inspector__kind.is-deleted  { background: #ffebe9; color: #82071e; }
+.cy-review-inspector__kind.is-deleted  { background: #ffebe9; color: var(--rb-danger); }
 .cy-review-inspector__kind.is-renamed  { background: #ddf4ff; color: #0550ae; }
 .cy-review-inspector__kind.is-binary   { background: #f0f0f0; color: #6e7781; }
 .cy-review-inspector__kind.is-large    { background: #f0f0f0; color: #6e7781; }

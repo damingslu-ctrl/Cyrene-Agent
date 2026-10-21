@@ -90,7 +90,7 @@
 }
 
 .cy-composer.ant-sender:focus-within {
-  border-color: rgba(255, 91, 138, 0.32);
+  border-color: color-mix(in srgb, var(--rb-accent) 32%, transparent);
   box-shadow: var(--rb-shadow-control-focus);
 }
 
@@ -317,13 +317,13 @@
   min-width: 0;
   height: 28px;
   padding: 3px 8px;
-  border: 1px solid rgba(255, 91, 138, 0.38);
+  border: 1px solid color-mix(in srgb, var(--rb-accent) 38%, transparent);
   border-radius: 7px;
   outline: none;
   background: var(--rb-surface-elevated);
   color: var(--rb-text-primary);
   font: 400 13px/1.4 var(--rb-font-sans, sans-serif);
-  box-shadow: 0 0 0 2px rgba(255, 91, 138, 0.08);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rb-accent) 8%, transparent);
 }
 
 .cy-queue-dock__actions {
@@ -455,8 +455,8 @@
 
 .cy-composer__attachment.is-web-element {
   max-width: 290px;
-  border: 1px solid color-mix(in srgb, var(--rb-accent, #e75d87) 42%, transparent);
-  background: color-mix(in srgb, var(--rb-accent, #e75d87) 10%, var(--rb-bg-2, #faf8fa));
+  border: 1px solid color-mix(in srgb, var(--rb-accent) 42%, transparent);
+  background: color-mix(in srgb, var(--rb-accent) 10%, var(--rb-bg-2, #faf8fa));
 }
 
 .cy-composer__web-element {
@@ -464,7 +464,7 @@
   min-width: 0;
   align-items: center;
   gap: 8px;
-  color: var(--rb-accent, #e75d87);
+  color: var(--rb-accent);
 }
 
 .cy-composer__web-element > span { display: grid; min-width: 0; }

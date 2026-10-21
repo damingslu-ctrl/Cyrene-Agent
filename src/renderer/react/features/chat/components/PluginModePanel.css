@@ -89,19 +89,19 @@
 }
 
 .plugin-panel__icon-button:hover:not(:disabled) {
-  color: var(--rb-accent, #ff5b8a);
-  border-color: var(--cy-pill-border, #ff9fbd);
+  color: var(--rb-accent);
+  border-color: var(--cy-pill-border, var(--rb-pink-100));
 }
 
 .plugin-panel__icon-button.is-accent {
   color: #fff;
-  border-color: var(--rb-accent, #ff5b8a);
-  background: var(--rb-accent, #ff5b8a);
+  border-color: var(--rb-accent);
+  background: var(--rb-accent);
 }
 
 .plugin-panel__icon-button.is-accent:hover:not(:disabled) {
   color: #fff;
-  background: var(--rb-accent-hover, #f04b7c);
+  background: var(--rb-accent-hover);
 }
 
 .plugin-panel__icon-button:disabled {
@@ -128,8 +128,8 @@
 }
 
 .plugin-panel__search:focus {
-  border-color: var(--cy-pill-border, #ff9fbd);
-  box-shadow: 0 0 0 3px rgba(255, 91, 138, 0.1);
+  border-color: var(--cy-pill-border, var(--rb-pink-100));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rb-accent) 10%, transparent);
 }
 
 .plugin-panel__notices {
@@ -147,8 +147,8 @@
 }
 
 .plugin-panel__notice.is-error {
-  color: #c9342d;
-  background: rgba(255, 69, 58, 0.08);
+  color: var(--rb-danger);
+  background: color-mix(in srgb, var(--rb-danger) 8%, transparent);
 }
 
 .plugin-panel__grid {
@@ -256,8 +256,8 @@
 }
 
 .plugin-card-ui__status.is-failed {
-  color: #c9342d;
-  background: rgba(255, 69, 58, 0.1);
+  color: var(--rb-danger);
+  background: color-mix(in srgb, var(--rb-danger) 10%, transparent);
 }
 
 .plugin-card-ui__status.is-starting,
@@ -283,7 +283,7 @@
 }
 
 .plugin-card-ui__error {
-  color: #c9342d;
+  color: var(--rb-danger);
 }
 
 .plugin-card-ui__actions {
@@ -307,21 +307,21 @@
 }
 
 .plugin-card-ui__button:hover:not(:disabled) {
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
   border-color: var(--rb-surface-active, #fde0ed);
   background: var(--rb-surface-active, #fde0ed);
 }
 
 .plugin-card-ui__button.is-enabled {
   color: #fff;
-  border-color: var(--rb-accent, #ff5b8a);
-  background: var(--rb-accent, #ff5b8a);
+  border-color: var(--rb-accent);
+  background: var(--rb-accent);
 }
 
 .plugin-card-ui__button.is-danger:hover:not(:disabled) {
-  color: #c9342d;
-  border-color: rgba(255, 69, 58, 0.12);
-  background: rgba(255, 69, 58, 0.08);
+  color: var(--rb-danger);
+  border-color: color-mix(in srgb, var(--rb-danger) 12%, transparent);
+  background: color-mix(in srgb, var(--rb-danger) 8%, transparent);
 }
 
 .plugin-card-ui__button:disabled {

@@ -25,5 +25,5 @@
   flex: 1;
   height: 1px;
   min-width: 24px;
-  background: var(--rb-border-strong, rgba(236, 72, 153, 0.4));
+  background: var(--rb-border-strong);
 }

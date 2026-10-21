@@ -116,7 +116,7 @@
 .learn-exam-panel__grading p { margin:8px 0; }
 .learn-exam-panel__grading ul { padding-left:20px; }
 .learn-exam-panel__notice { color:var(--exam-muted); }
-.learn-exam-panel__notice.is-error { color:#ef4444; }
+.learn-exam-panel__notice.is-error { color:var(--rb-danger); }
 .learn-exam-panel__footer { flex:none; min-height:58px; display:flex; justify-content:space-between; align-items:center; gap:16px; padding:8px 22px; border-top:1px solid var(--exam-border); background:var(--exam-surface); color:var(--exam-muted); }
 .learn-exam-panel__footer > span { display:flex; gap:14px; align-items:center; font-size:12px; }
 .learn-exam-panel__footer > span b { color:hsl(var(--foreground)); }

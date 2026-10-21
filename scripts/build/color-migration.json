@@ -477,5 +477,67 @@
   },
   "rgb(192 122 162 / 32%)": {
     "expr": "color-mix(in srgb, var(--rb-accent) 32%, transparent)"
+  },
+  "#ffb1cb": {
+    "token": "--rb-pink-100"
+  },
+  "#ffd6e4": {
+    "token": "--rb-pink-50"
+  },
+  "#f2c4d5": {
+    "token": "--rb-pink-50"
+  },
+  "rgba(232, 74, 120, 0.18)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 18%, transparent)"
+  },
+  "rgba(232, 74, 120, 0.34)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 34%, transparent)"
+  },
+  "rgba(255, 214, 228, 0.42)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-50) 42%, transparent)"
+  },
+  "rgba(255, 91, 138, 0.28)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 28%, transparent)"
+  },
+  "rgba(255, 91, 138, 0.25)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 25%, transparent)"
+  },
+  "rgba(38, 28, 46, 0.05)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgba(38, 28, 46, 0.14)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgba(116, 80, 96, 0.08)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-700) 8%, transparent)"
+  },
+  "#b91c1c": {
+    "token": "--rb-danger"
+  },
+  "#e11d48": {
+    "token": "--rb-danger"
+  },
+  "#be123c": {
+    "token": "--rb-danger"
+  },
+  "rgba(248, 113, 113, 0.34)": {
+    "expr": "color-mix(in srgb, var(--rb-danger) 34%, transparent)"
+  },
+  "rgba(248, 113, 113, 0.32)": {
+    "expr": "color-mix(in srgb, var(--rb-danger) 32%, transparent)"
+  },
+  "#ff9bb8": {
+    "token": "--rb-pink-300"
+  },
+  "#24151b": {
+    "token": "--rb-text-primary"
+  },
+  "#3a232c": {
+    "token": "--rb-surface-elevated"
+  },
+  "#5a3040": {
+    "token": "--rb-pink-700"
   }
 }

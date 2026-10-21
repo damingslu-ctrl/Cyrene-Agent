@@ -108,7 +108,7 @@
 .cy-message-avatar__image {
   object-fit: cover;
   border: 1px solid #FEE2ED;
-  filter: drop-shadow(0 2px 8px rgba(76, 55, 98, 0.22));
+  filter: drop-shadow(0 2px 8px color-mix(in srgb, var(--rb-pink-700) 22%, transparent));
   animation: cyrene-avatar-float 3s ease-in-out infinite;
 }
 
@@ -126,7 +126,7 @@
 .cy-message-avatar__user {
   background:
     radial-gradient(circle at 30% 28%, rgb(61 174 255 / 42%) 0%, transparent 55%),
-    radial-gradient(circle at 70% 75%, rgb(236 72 153 / 46%) 0%, transparent 60%),
+    radial-gradient(circle at 70% 75%, color-mix(in srgb, var(--rb-accent) 46%, transparent) 0%, transparent 60%),
     rgb(255 255 255 / 80%);
   border: 1px solid var(--rb-border-default);
 }
@@ -191,10 +191,10 @@
   align-items: center;
   gap: 9px;
   padding: 8px 11px;
-  border: 1px solid color-mix(in srgb, var(--rb-accent, #e75d87) 45%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rb-accent) 45%, transparent);
   border-radius: 11px;
-  background: color-mix(in srgb, var(--rb-accent, #e75d87) 12%, var(--rb-bg-2, #252328));
-  color: var(--rb-accent, #e75d87);
+  background: color-mix(in srgb, var(--rb-accent) 12%, var(--rb-bg-2, #252328));
+  color: var(--rb-accent);
 }
 
 .cy-message__web-element-copy { display: grid; min-width: 0; }
@@ -222,7 +222,7 @@
 }
 
 .cy-message__image-attachment figcaption.is-error {
-  background: rgb(180 42 70 / 82%);
+  background: color-mix(in srgb, var(--rb-danger) 82%, transparent);
 }
 
 .cy-generated-image-attachments {
@@ -238,7 +238,7 @@
   min-width: 0;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--rb-border-default, rgb(120 100 110 / 20%));
+  border: 1px solid var(--rb-border-default);
   border-radius: 13px;
   background: var(--rb-surface-workspace, #fff);
   box-shadow: 0 2px 9px rgb(25 15 20 / 7%);
@@ -264,7 +264,7 @@
 .cy-generated-image-card .cy-attachment__action:focus-visible,
 .cy-generated-image-preview button:focus-visible,
 .cy-generated-image-preview__close:focus-visible {
-  outline: 2px solid var(--rb-accent, #e75d87);
+  outline: 2px solid var(--rb-accent);
   outline-offset: 2px;
 }
 
@@ -294,7 +294,7 @@
 }
 
 .cy-generated-image-card__missing-label {
-  color: #b42345;
+  color: var(--rb-danger);
   font-size: 10px;
 }
 
@@ -346,8 +346,8 @@
 
 .cy-generated-image-card .cy-attachment__action:hover,
 .cy-generated-image-preview footer button:hover {
-  background: color-mix(in srgb, var(--rb-accent, #e75d87) 10%, transparent);
-  color: var(--rb-accent, #e75d87);
+  background: color-mix(in srgb, var(--rb-accent) 10%, transparent);
+  color: var(--rb-accent);
 }
 
 .cy-generated-image-card .cy-attachment__action:disabled,
@@ -358,7 +358,7 @@
 
 .cy-generated-image-card__error {
   margin: 0;
-  color: #b42345;
+  color: var(--rb-danger);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -451,7 +451,7 @@
   align-items: center;
   gap: 7px;
   padding: 6px 10px;
-  border: 1px solid var(--rb-border-default, rgb(120 100 110 / 20%));
+  border: 1px solid var(--rb-border-default);
   border-radius: 8px;
   background: transparent;
   color: var(--rb-text-primary, #f5f1f3);
@@ -614,11 +614,11 @@
 }
 
 .cy-run-activity__header:hover {
-  color: #a5527d;
+  color: var(--rb-accent);
 }
 
 .cy-run-activity__header:focus-visible {
-  outline: 2px solid rgb(200 116 155 / 55%);
+  outline: 2px solid color-mix(in srgb, var(--rb-pink-100) 55%, transparent);
   outline-offset: 3px;
   border-radius: 7px;
 }
@@ -664,7 +664,7 @@
   width: 18px;
   height: 18px;
   flex: 0 0 18px;
-  color: #b7688e;
+  color: var(--rb-accent);
   transition: transform 180ms ease;
 }
 
@@ -723,11 +723,11 @@
 }
 
 .cy-agent-round__header:hover {
-  color: #a84f7a;
+  color: var(--rb-accent);
 }
 
 .cy-agent-round__header:focus-visible {
-  outline: 2px solid rgb(209 144 173 / 42%);
+  outline: 2px solid color-mix(in srgb, var(--rb-pink-100) 42%, transparent);
   outline-offset: 2px;
   border-radius: 6px;
 }
@@ -760,14 +760,14 @@
 
 /* 完成态标题后的文件改动提示：项目主粉高亮 */
 .cy-agent-round__files {
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
   font-weight: 600;
 }
 
 .cy-agent-round__chevron {
   width: 16px;
   height: 16px;
-  color: #b7688e;
+  color: var(--rb-accent);
   transition: transform 180ms ease;
 }
 
@@ -783,7 +783,7 @@
 
 .cy-run-activity__process {
   padding: 7px 9px;
-  border-left: 2px solid rgb(209 144 173 / 45%);
+  border-left: 2px solid color-mix(in srgb, var(--rb-pink-100) 45%, transparent);
   color: var(--rb-text-secondary);
   font-size: 12px;
 }
@@ -804,7 +804,7 @@
 
 .cy-run-activity__divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgb(209 144 173 / 38%), transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--rb-pink-100) 38%, transparent), transparent);
 }
 
 .cy-run-activity__empty {
@@ -945,7 +945,7 @@
 }
 
 .cy-tool-executions__file-stats .is-remove {
-  color: var(--rb-diff-remove-text, #82071e);
+  color: var(--rb-diff-remove-text);
 }
 
 .cy-tool-executions__file:focus-visible {
@@ -973,7 +973,7 @@
   border: 1px solid rgb(31 35 48 / 8%);
   border-radius: 5px;
   background: rgb(255 255 255 / 68%);
-  color: #80516c;
+  color: var(--rb-pink-700);
   font: 12px/1.4 var(--rb-font-mono, monospace);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1087,7 +1087,7 @@
   display: block;
   width: 38px;
   height: 38px;
-  color: #b15b8a;
+  color: var(--rb-accent);
 }
 
 .cy-reasoning-status-art img {
@@ -1300,7 +1300,7 @@
 }
 
 .cy-file-link:hover {
-  color: color-mix(in srgb, var(--rb-accent) 82%, #8f3657);
+  color: color-mix(in srgb, var(--rb-accent) 82%, var(--rb-accent));
   text-decoration: underline;
 }
 
@@ -1340,7 +1340,7 @@
 
 .cy-web-link:hover {
   background: color-mix(in srgb, var(--rb-accent) 16%, transparent);
-  color: color-mix(in srgb, var(--rb-accent) 82%, #8f3657);
+  color: color-mix(in srgb, var(--rb-accent) 82%, var(--rb-accent));
 }
 
 .cy-web-link__favicon {
@@ -1413,8 +1413,8 @@
 
 .cy-mermaid--zoomable:hover,
 .cy-svg-card--zoomable:hover {
-  border-color: #e8a0b4;
-  box-shadow: 0 2px 10px rgba(232, 160, 180, 0.25);
+  border-color: var(--rb-pink-100);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--rb-pink-100) 25%, transparent);
 }
 
 /* 放大预览：解除气泡内 max-width 压缩，按 SVG 原始尺寸展示，容器滚动 */
@@ -1520,7 +1520,7 @@
   padding: 3px 0 5px;
   overflow-x: auto;
   overflow-y: hidden;
-  color: #33272d;
+  color: var(--rb-text-primary);
   font-size: 1.16em;
   line-height: 1.6;
 }
@@ -1541,7 +1541,7 @@
 }
 
 .cy-message-markdown li[data-streamdown="list-item"]::marker {
-  color: #bd6d8a;
+  color: var(--rb-accent);
 }
 
 /* GFM 任务列表使用产品色复选框，禁用态也保持清晰，不再回落成系统灰。 */
@@ -1594,7 +1594,7 @@
 .cy-message-markdown blockquote {
   margin: 10px 0;
   padding-left: 12px;
-  border-left: 3px solid #ffc0d2;
+  border-left: 3px solid var(--rb-pink-50);
   color: #686868;
 }
 
@@ -1602,7 +1602,7 @@
   padding: 2px 5px;
   border-radius: 5px;
   background: #f5f5f5;
-  color: #d73a72;
+  color: var(--rb-accent);
   font-family: Consolas, "Cascadia Code", monospace;
 }
 
@@ -1679,9 +1679,9 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgb(238 170 191 / 22%) 16%,
-    rgb(224 142 171 / 44%) 50%,
-    rgb(238 170 191 / 22%) 84%,
+    color-mix(in srgb, var(--rb-pink-100) 22%, transparent) 16%,
+    color-mix(in srgb, var(--rb-pink-100) 44%, transparent) 50%,
+    color-mix(in srgb, var(--rb-pink-100) 22%, transparent) 84%,
     transparent 100%
   );
 }

@@ -1,6 +1,6 @@
 import { BrowserWindow } from "electron";
 import { IPC } from "../../shared/ipc-channels";
-import { WINDOW_BACKGROUNDS } from "../../shared/palette-from-cat";
+import { WINDOW_BACKGROUND_NO_THEME_CONTEXT } from "../../shared/palette-from-cat";
 import { createIpcScope, type IpcScope } from "../application/ipc-scope";
 import { clearUsage, getUsageReport } from "../token-usage-store";
 import {
@@ -103,9 +103,10 @@ export function registerWindowSystemIpc(deps: WindowSystemIpcDependencies): void
     const win = new BrowserWindow({
       width: 1024,
       height: 768,
-      // chrome://gpu 是 Chromium 自绘的浅色页；这里仍取派生值而不是留空，
-      // 否则暗色主题下会先闪一块 Electron 默认白（C4 的第三处原生面）。
-      backgroundColor: WINDOW_BACKGROUNDS["pearl-white"],
+      // chrome://gpu 是 Chromium 自绘的浅色页，跟随的是 **OS** 外观（本仓不设
+      // nativeTheme.themeSource），与 app 主题无关；这里仍取派生值而不是留空，
+      // 否则 OS 深色下会先闪一块 Electron 默认白（C4 的第三处原生面）。
+      backgroundColor: WINDOW_BACKGROUND_NO_THEME_CONTEXT,
     });
     win.loadURL("chrome://gpu");
     win.show();
