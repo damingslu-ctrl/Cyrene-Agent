@@ -6,6 +6,7 @@ import { isDev } from "../env";
 import { DEFAULT_WORKSPACE_WINDOW_SIZE } from "../window-layout";
 import { loadGeneralSettings } from "../settings/settings-facade";
 import { getEffectiveUiTheme } from "../system-ui-theme";
+import { WINDOW_BACKGROUNDS } from "../../shared/palette-from-cat";
 import { stopCall, setCallWindow } from "../call/call-manager";
 import { attachContextMenu } from "./context-menu";
 import { getWorkspaceInitialBounds } from "./workspace-window-bounds";
@@ -58,8 +59,10 @@ export function createReactChatWindowShell(): BrowserWindow {
   const workArea = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
   const bounds = getWorkspaceInitialBounds(workArea);
   const { rememberWindowState, uiTheme } = loadGeneralSettings();
-  // 非透明窗口：底色跟随主题，避免暗色主题启动瞬间闪白
-  const windowBackgroundColor = getEffectiveUiTheme(uiTheme) === "charcoal-pink" ? "#141414" : "#fff8fb";
+  // 非透明窗口：底色跟随主题，避免暗色主题启动瞬间闪白。
+  // 值来自 src/shared/palette-from-cat.ts——渲染侧的 CSS 与这里的原生底色必须是同一次派生，
+  // 否则「窗口底色」和「页面底色」会是两只猫的两张纸。
+  const windowBackgroundColor = WINDOW_BACKGROUNDS[getEffectiveUiTheme(uiTheme)];
   const window = new BrowserWindow({
     ...persistedWindowState("cyrene.workspace", rememberWindowState, true),
     ...bounds,
@@ -143,7 +146,7 @@ export function createOnboardingBrowserWindow(): BrowserWindow {
     center: true,
     title: `欢迎使用 ${BRAND.productName}`,
     icon: getCurrentAppIconPath(),
-    backgroundColor: "#fff8fb",
+    backgroundColor: WINDOW_BACKGROUNDS["pearl-white"],
     autoHideMenuBar: true,
     show: false,
     frame: false,

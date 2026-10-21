@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { WINDOW_BACKGROUNDS } from "../../shared/palette-from-cat";
 
 const mocks = vi.hoisted(() => ({
   browserWindowOptions: [] as Array<Record<string, unknown>>,
@@ -24,6 +25,7 @@ vi.mock("electron", () => ({
     getBounds = vi.fn(() => mocks.restoredBounds);
     isMaximized = vi.fn(() => mocks.maximized);
     setBounds = mocks.setBounds;
+    setMenuBarVisibility = vi.fn();
     loadFile = vi.fn((file: string) => mocks.loadedFiles.push(file));
     loadURL = vi.fn((url: string) => mocks.loadedUrls.push(url));
     constructor(options: Record<string, unknown>) {
@@ -56,7 +58,7 @@ vi.mock("./window-state", () => ({
   stickerManagerWindow: null,
 }));
 
-import { createCallWindow, createReactChatWindowShell, persistedWindowState } from "./create-aux-windows";
+import { createCallWindow, createOnboardingBrowserWindow, createReactChatWindowShell, persistedWindowState } from "./create-aux-windows";
 
 function lastBrowserWindowOptions() {
   const options = mocks.browserWindowOptions.at(-1);
@@ -123,11 +125,20 @@ describe("workspace window defaults and persistence", () => {
     });
   });
 
-  it("uses the current system appearance for the workspace background", () => {
+  it("工作区窗底色等于派生表，而不是主进程里自己写死的值", () => {
     mocks.themeChoice = "system";
     mocks.systemDark = true;
     createReactChatWindowShell();
-    expect(lastBrowserWindowOptions().backgroundColor).toBe("#141414");
+    expect(lastBrowserWindowOptions().backgroundColor).toBe(WINDOW_BACKGROUNDS["charcoal-pink"]);
+
+    mocks.systemDark = false;
+    mocks.browserWindowOptions.length = 0;
+    createReactChatWindowShell();
+    expect(lastBrowserWindowOptions().backgroundColor).toBe(WINDOW_BACKGROUNDS["pearl-white"]);
+  });
+
+  it("正对照：两档窗口底色确实不同（否则说明派生表被写成一个值了）", () => {
+    expect(WINDOW_BACKGROUNDS["pearl-white"]).not.toBe(WINDOW_BACKGROUNDS["charcoal-pink"]);
   });
 
   it("upgrades only the old default window size after saved bounds are restored", () => {
@@ -149,4 +160,10 @@ describe("workspace window defaults and persistence", () => {
     mocks.readyToShow?.();
     expect(mocks.setBounds).not.toHaveBeenCalled();
   });
+});
+
+it("欢迎窗底色跟随派生表（原来是写死的 #fff8fb）", () => {
+  createOnboardingBrowserWindow();
+  expect(mocks.browserWindowOptions.at(-1)?.backgroundColor)
+    .toBe(WINDOW_BACKGROUNDS["pearl-white"]);
 });

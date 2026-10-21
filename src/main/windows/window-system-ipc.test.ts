@@ -3,6 +3,8 @@
 // ipcMain 必须一并给：ipc-scope.ts 顶层 import 它（仅作默认参数，但要得到具名导出才不炸）。
 import { describe, expect, it, vi } from "vitest";
 
+const { browserWindowOptions } = vi.hoisted(() => ({ browserWindowOptions: [] as unknown[] }));
+
 vi.mock("electron", () => ({
   app: { getAppPath: () => "/app" },
   ipcMain: {
@@ -14,10 +16,14 @@ vi.mock("electron", () => ({
   BrowserWindow: class {
     loadURL = vi.fn();
     show = vi.fn();
+    constructor(options?: unknown) {
+      browserWindowOptions.push(options);
+    }
   },
 }));
 
 import { IPC } from "../../shared/ipc-channels";
+import { WINDOW_BACKGROUNDS } from "../../shared/palette-from-cat";
 import { createIpcScope, type IpcScopeMainLike } from "../application/ipc-scope";
 import { registerWindowSystemIpc } from "./window-system-ipc";
 import type { PetResizePayload } from "./pet-bounds";
@@ -52,6 +58,7 @@ function setup() {
   return {
     send: (payload: unknown) => resizeListener({}, payload),
     setPetWindowBounds: windowManager.setPetWindowBounds as ReturnType<typeof vi.fn>,
+    fire: (channel: string) => listeners.get(channel)?.({}),
   };
 }
 
@@ -108,4 +115,12 @@ describe("window-system-ipc VERGE_PET_RESIZE 载荷校验", () => {
     send({ ...makePayload(), x: undefined });
     expect(setPetWindowBounds).not.toHaveBeenCalled();
   });
+});
+
+it("chrome://gpu 窗带派生浅色底（C4 的第三处：此前是 Electron 默认白）", () => {
+  const { fire } = setup();
+  fire(IPC.SETTINGS_OPEN_CHROME_GPU);
+  const opts = browserWindowOptions.at(-1) as { backgroundColor?: string };
+  expect(opts?.backgroundColor).not.toBeUndefined();
+  expect(opts?.backgroundColor).toBe(WINDOW_BACKGROUNDS["pearl-white"]);
 });
