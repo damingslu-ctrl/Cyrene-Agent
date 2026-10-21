@@ -12,6 +12,18 @@
  * 层叠是这里最容易看错的东西：同一个令牌名现在在四个文件里各写一遍，而入口 HTML 的 link
  * 顺序 + `theme.css` 自己的 @import 决定了「谁最后写的谁生效」。所以这个测试不是逐文件断言，
  * 而是按真实源序解析后再断言生效值——不然它测的是「每个文件单独看着对」。
+ *
+ * 已知局限（**这三条是范围，不是漏扫**，都归 Task 19 的同一份提交收口；不许在这里放松断言）：
+ * 1. 本锁只看**主题级**的 `--rb-*` / `--md-*` 声明。规则里的字面量（例如
+ *    `themes/charcoal-pink.css:263` 的 `border-color: #ff5b8a;`）不在射程内——所以禁用色那条
+ *    断言只声明「生效的主题级着色令牌里没有上游品牌色」，不声明「这四份文件干净」。
+ * 2. `--cy-*` 一族（`themes/charcoal-pink.css:120-122` 的 `--cy-pill-bg/-border/-status`）
+ *    连正则都不认，正向/反向/禁用三条全看不见。Task 19 把这三行换成 `var()` 的同时把正则放宽到
+ *    `--(?:rb|md|cy)-`——放宽与迁移必须同一次提交，否则当场红。
+ * 3. 跨行选择器列表只在**含主题级段**时抛错（R-16-4）。四份文件今天有 155 处跨行列表，全是
+ *    `[data-ui-theme="…"] .foo` 这类带后缀的 scoped 选择器——本锁靠整串相等本来就不消费它们，
+ *    对它们抛错只会让整把锁收集失败（`Tests no tests`），比红更坏。会落错档的只有「列表里某一段
+ *    整串就是主题级选择器」这一种形状，那时才抛。
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -28,35 +40,80 @@ const SOURCES = [
 
 const COLOR_LITERAL = /#[0-9a-fA-F]{3,8}\b|rgba?\(/;
 
+/**
+ * 派生表里有名字、四份 CSS 的**主题级层里没有声明**的 (档, 名字)。这是地板，不是白名单：
+ * `--rb-glow-secondary` 只写在 `themes/pearl-white.css:80`，深色档没有来源，而它全仓 0 消费者
+ * （`grep -rn "var(--rb-glow-secondary" src/` = 0），所以今天画不出任何东西。
+ * 一旦有人给它加消费者，正确修法是把深色值补进 `themes/charcoal-pink.css` 的主题级块
+ * （见 R-16-1 的九行），不是把它留在下面这条数组里。
+ */
+const WITHOUT_SOURCE: Record<"light" | "dark", string[]> = {
+  light: [],
+  dark: ["--rb-glow-secondary"],
+};
+
 interface Decl { name: string; value: string; selector: string }
 
 /**
  * 行级扫描。这四份主题文件是平铺的（没有 CSS 嵌套、没有一行两声明），
  * 所以一旦出现「同一行里既有 `{` 又有 `}`」或花括号不配对，就抛错而不是猜——
  * 尺自己崩了不许读成 PASS（验收三层尺纪律）。
+ *
+ * 一行两声明同样**抛错**：它不会让锁红，只会让第二条声明被行级正则漏掉，那是比红更坏的失效。
+ *
+ * 跨行选择器列表**只在含主题级段时**抛错（R-16-4，见文件头局限 3）：解析器只记末段选择器，
+ * 所以 `:root,\n.foo { … }` 会把声明记到 `.foo` 名下、漏掉主题根；而 `[data-ui-theme="…"] .foo`
+ * 这种带后缀的段不是主题级，锁本来就不消费，对它们抛错只会让整把锁收集失败。
  */
+const THEME_LEVEL = /^(?::root|\[data-ui-theme="[a-z-]+"\])$/;
+
 function collectDecls(css: string, label: string): Decl[] {
   const out: Decl[] = [];
   let selector = "";
   let depth = 0;
+  let selectorContinuation = false;
+  let pendingList: string[] = [];
   const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
   for (const line of stripped.split("\n")) {
     const text = line.replace(/\r$/, "");
     const opens = (text.match(/\{/g) ?? []).length;
     const closes = (text.match(/\}/g) ?? []).length;
-    if (opens && closes && text.trim() !== "}") {
+    if (opens && closes) {
       throw new Error(`${label}: 不支持的单行块，请把这一行拆开：${text.trim()}`);
     }
     if (opens) {
-      selector = text.slice(0, text.indexOf("{")).trim();
+      const beforeBrace = text.slice(0, text.indexOf("{")).trim();
+      if (selectorContinuation) {
+        const segments = [...pendingList, beforeBrace]
+          .join(",")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const themeLevel = segments.filter((s) => THEME_LEVEL.test(s));
+        if (themeLevel.length) {
+          throw new Error(
+            `${label}: 跨行选择器列表里含主题级段（${themeLevel.join(", ")}），` +
+              `解析器只记末段选择器，会把这条声明落错档：${text.trim()}`,
+          );
+        }
+      }
+      selector = beforeBrace;
       depth += opens;
+      pendingList = [];
       continue;
     }
     if (closes) {
       depth -= closes;
       if (depth < 0) throw new Error(`${label}: 花括号不配对`);
-      if (depth === 0) selector = "";
+      if (depth === 0) { selector = ""; selectorContinuation = false; pendingList = []; }
       continue;
+    }
+    const trimmed = text.trim();
+    selectorContinuation = trimmed.endsWith(",");
+    if (selectorContinuation) pendingList.push(trimmed.slice(0, -1).trim());
+    else pendingList = [];
+    if ((text.match(/--(?:rb|md)-[a-z0-9-]+\s*:/g) ?? []).length > 1) {
+      throw new Error(`${label}: 一行两条声明，按行解析会漏掉第二条：${trimmed}`);
     }
     const m = /^\s*(--(?:rb|md)-[a-z0-9-]+)\s*:\s*([^;]+);/.exec(text);
     if (m && depth > 0) out.push({ name: m[1], value: m[2].trim(), selector });
@@ -108,13 +165,16 @@ describe("配色派生锁", () => {
     it(`${scheme}：表里的令牌若在 CSS 里是字面量，值必须等于派生结果`, () => {
       const eff = scheme === "light" ? light : dark;
       const bad: string[] = [];
+      const missing: string[] = [];
       for (const [name, derived] of Object.entries(TOKENS_BY_SCHEME[scheme])) {
         const current = eff.get(name);
-        if (current === undefined) continue; // 该档确实没声明这个令牌（theme.css 的珍珠块已删）
+        if (current === undefined) { missing.push(name); continue; }
         if (!COLOR_LITERAL.test(current)) continue; // var()/color-mix()：故意的间接层
         if (current !== derived) bad.push(`${name}: 生效=${current} 派生=${derived}`);
       }
       expect(bad, `${scheme} 有 ${bad.length} 条与派生结果不一致\n${bad.join("\n")}`).toEqual([]);
+      expect(missing.sort(), `${scheme} 表里有名字而 CSS 里没有声明：${missing.join(", ")}`)
+        .toEqual(WITHOUT_SOURCE[scheme]);
     });
   }
 
@@ -126,12 +186,13 @@ describe("配色派生锁", () => {
         if (TOKENS_BY_SCHEME[scheme][name] === undefined) orphans.push(`${scheme} ${name} = ${value}`);
       }
     }
-    // 白名单：确有不参与派生的着色令牌时，在这里加条目并写明理由；空表是本期目标。
+    // 白名单按 `<scheme> <name>` **整串相等**匹配：前缀匹配会让 `light --rb-foo` 顺带放行
+    // `light --rb-foobar`。今天为空表——空表是本期目标。
     const WHITELIST: string[] = [];
-    expect(orphans.filter((o) => !WHITELIST.some((w) => o.startsWith(w)))).toEqual([]);
+    expect(orphans.filter((o) => !WHITELIST.includes(o.slice(0, o.indexOf(" = "))))).toEqual([]);
   });
 
-  it("没有任何主题文件留着上游品牌粉/紫的字面量", () => {
+  it("生效的主题级着色令牌里没有上游品牌粉/紫字面量（规则里的字面量不在本条射程，见文件头局限 1）", () => {
     const banned = [/#ff5b8a/i, /#f04b7c/i, /#ec4899/i, /#db2777/i, /#be185d/i, /#9f7aea/i,
       /#b794f4/i, /#7c5fcc/i, /#e91e63/i, /#f88fbc/i, /#ff6ec7/i, /#ff7aa0/i, /#ff9fbd/i,
       /#221c46/i, /#181432/i, /#08070f/i, /#fef7ff/i, /#a094c1/i];
