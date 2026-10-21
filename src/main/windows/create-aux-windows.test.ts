@@ -163,7 +163,11 @@ describe("workspace window defaults and persistence", () => {
 });
 
 it("欢迎窗底色跟随派生表（原来是写死的 #fff8fb）", () => {
+  const before = mocks.browserWindowOptions.length;
   createOnboardingBrowserWindow();
-  expect(mocks.browserWindowOptions.at(-1)?.backgroundColor)
-    .toBe(WINDOW_BACKGROUNDS["pearl-white"]);
+  const created = mocks.browserWindowOptions.slice(before);
+  // 身份对照：`at(-1)` 读到的是上一份测试遗留的工作窗，欢迎窗压根没被构造时它照样绿。
+  expect(created, "欢迎窗没有被构造，读到的是遗留的工作窗").toHaveLength(1);
+  expect(String(created[0]?.title)).toContain("欢迎使用");
+  expect(created[0]?.backgroundColor).toBe(WINDOW_BACKGROUNDS["pearl-white"]);
 });
