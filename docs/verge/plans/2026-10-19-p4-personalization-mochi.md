@@ -6548,3 +6548,152 @@ Expected：工作区干净；提交数与任务数同量级。
 - 30, 31 → 32（验收记录引用总门数字）
 
 其余任务互不阻塞，可按批次并进；但**每个任务自己的测试-实现-提交循环不许跳过**。
+
+---
+
+## 落地记录
+
+写在 2026-10-22 收口时。执行期的完整台账（70+ 条编号裁决 `R-*`、每笔提交的 numstat、
+每条变异自检）在 `.superpowers/sdd/2026-10-19-p4-personalization-mochi/progress.md`，
+而 `.superpowers/` 在 `.gitignore:155` 里——**台账不进仓**。仓内只剩两份可接手材料：
+本节与 `docs/verge/notes/2026-10-19-p4-acceptance.md`。所以本节按编号写，便于对照。
+
+下面只写三类东西，不写「已完成 Task N」流水账。
+
+### 1. 实际改了计划的地方
+
+**文件与路径**
+
+| 计划写的 | 实际 | 说明 |
+| --- | --- | --- |
+| `docs/verge/notes/2026-10-19-p4-acceptance.md` | 同左（**未改**） | 计划字面如此，按计划落。**但仓里既有的笔记约定是 `docs/verge/plans/notes/`**（`p0-install.md` 就在那儿），两处并存——下期想统一就把这份挪过去，别再开第三个目录。 |
+| `scripts/verify/p4-visual-oracle.mjs` | 同左，**外加** `p4-cdp-capture.mjs`、`p4-readme-shots.mjs` | 计划只列一把尺；实际要拍屏得自己驱动 CDP（计划写的 chrome-devtools MCP 本会话不可用）。 |
+| Task 28 无脚本 | **新增** `scripts/build/cat-contact-sheet.mjs` | 联系表（198 figures / 26 组 / broken 0）用来肉眼过一遍两主题。 |
+| `scripts/build/sync-brand.mjs` 只生成身份字段 | **身份字段 + 窗口标题**两件事 | `buildBrandFields` 管 `electron-builder.yml` / `package.json`；`buildWindowTitles` 管 5 份用户可见窗口 html 的 `<title>`。计划没区分这两个职责。 |
+| （计划未提） | `scripts/build/apply-theme-palette.mjs` + npm 脚本 `palette:apply` / `palette:check` | C3 落盘脚本。`src/shared/palette-from-cat.ts` 是 104 个带色 `--rb-*`/`--md-*` 声明值的**唯一来源**，计划只说「派生器」。 |
+| （计划未提） | `resources/cyrene-skills` → **`resources/mochi-skills`** | 装机后用户能在资源管理器里看见的目录名，跟着品牌走。仓库侧 `vendor/cyrene-skills/` 保留原名（构建源不是用户可见物）。联动 6 文件 12 处：`src/main/external-content-paths.ts`、`src/main/skills/snapshot-install{.ts,.test.ts}`、`scripts/packaging/build-skills-snapshot.mjs`、`scripts/verify/installer-artifacts.mjs`。 |
+
+**尺寸档**
+
+- 像素尺的 198 条目标，工具原话：`checked 198 targets · 12 只猫 × 6 档 + 25 档散点 + 17 张非角色 + 52 张表情`。
+- 单张分布：min **4,908 B** / p50 **7,499 B** / max **25,797 B**（max 是 1280×720 的 `cyrene-welcome.png`）。
+- `du -sh src/renderer` **6.8 MB**（D 轨前基线 237 MB）。
+
+**测试方式**
+
+| 计划写的 | 实际怎么跑 |
+| --- | --- |
+| `npx pnpm@10.33.0 run build` | `npm run build:renderer`（本机 pnpm 不可用，见 R-D27-1：`ERR_PNPM_UNEXPECTED_STORE`，node_modules 链在 `D:\pnpm-store\v10` 而 pnpm 要 `D:\.pnpm-store\v10`）。 |
+| Task 31 用 chrome-devtools MCP 抓图 | 本会话该 MCP 不可用 → 改直连 CDP（`/json/list` 找 target → `Page.captureScreenshot`），并给每条 CDP 命令加 45 s 回音期限（R-31-5）。 |
+| 探针跑在 `D:\cyrene-p0-probe` | 改 `D:\cyrene-p4-accept\profile7`（`profile1…profile13`、`profile-readme`）。一次性 profile 一律落在 `D:\cyrene-p4-accept\` 下，脚本里有 `assertSafeProfile` 拦。 |
+| 像素尺用 Task 22 的 `decodePng` 读截图 | **不能用**：产品解码器只支持 8bit RGBA，CDP 截图是 8bit **RGB**（color type 2）+ 自适应行过滤 + 4 KB IDAT，直接 `RangeError`。尺子自带标准 PNG 解码（type 0/2/3/4/6、五种过滤、tRNS、CRC 校验），并先拿产品 `encodePng` 的产物做字节级自检。 |
+| 肉眼看「图标是猫」 | 三段量法：装机 exe 图标 vs 同次构建 `win-unpacked` → **MAD 0**；`icon.ico` **原生 256 帧** vs `assets/mochi-icon.png` → **MAD 0**；vs 通用 Electron 图标 → **MAD 267.9**（反对照有牙）。统一白底合成——`ExtractAssociatedIcon` 永远只给 32×32 且丢 alpha，不能用它判小图同一性。 |
+| CDP 量托盘菜单 | 量不到：托盘是 `Menu.buildFromTemplate` 的原生窗口，不在 page target 里。改**替代证据链**：装机 `app.asar`（282,909,676 B）字节盘点 `麻糬`×100 / `Mochi`×152 / `dev.damin.mochi`×4，116 处 `Cyrene` 逐处取上下文归类，**全部是标识符**，零用户可见文案。 |
+| 32 个任务 | **97 个提交**（`master..HEAD`）。一条任务常要拆成「先落锁」「再实现」「修复轮」「受控构建镜像」几笔。 |
+
+### 2. 计划里写错、被实测推翻的地方
+
+按期序。**每条都附推翻它的那条输出**——没输出的「实测推翻」不算数。
+
+**A/B 期**
+
+| 计划写的 | 实测 | 推翻它的输出 |
+| --- | --- | --- |
+| Task 12 的静态锁扫描器按计划内联遍历 | 照抄会**漏掉 `.github` 和两个根文件**，A 系列锁等于瞎 | `R-B12-1`：抽出 `src/main/egress/scan-source-files.ts` 共用（Task 1 与 Task 12 两把锁同一份遍历器）。 |
+| 插件市场注册表规则按精确字符串匹配 | 需要容忍分隔符，且**没有正对照** | `R-B12-2`。 |
+| Task 9 的 `pre-ready.ts:59` 提及产品名 | 应点名**旧数据目录**而不是产品 | 同上批（`task-10b-brief.md`）。 |
+
+**C 期（配色统一）**
+
+| 计划写的 | 实测 | 推翻它的输出 |
+| --- | --- | --- |
+| Task 18 颜色分类器的 `FUNC` 只认逗号 | 模块 CSS 里 **107 行用空格+斜杠语法**（`rgb(255 91 138 / 10%)` 等），品牌族 40 写法 / 57 处**一个都扫不到** | `R-18-4`（Critical）：后果不是「少清几处」而是**锁会说谎**——Task 19 清完看得见的那批，锁转绿，`#ff5b8a` 仍在 5 处画着。拆成 `FUNC_COMMA` + `FUNC_SPACE` 两条。 |
+| Task 18 `classifyRgb(242,125,146)` 期望 `null` | 实测 h=349.2 / s=0.483 → `"red"`，且同一份 brief 的下一条又断言 ROSE 就在 red 窗口里 | `R-18-2`：**修期望值，窗口不动**。 |
+| Task 18 `proposeToken("#ff5b8a")` 期望 `--rb-accent` | 纯按 v 分档会落 `--rb-pink-100`（v=1.0） | `R-18-3`：加 s 闸门 `v>=0.9&&s<0.25→pink-50` / `v>=0.78&&s<0.45→pink-100` / `v>=0.55→accent` / 否则 `pink-700`。 |
+| Task 18 属性提取用 `/^\s*([a-z-]+)\s*:/i` | 匹配不到**单行规则**（`property` 留空），brief 自己的正对照第一条就会红；模块 CSS 实测 **170 行**是单行规则 | `R-18-2`：改成「就近向前找 `([a-zA-Z-]+)\s*:`」。 |
+| Task 18 靶值 `#19161f`（6 处）/ `#4c3762`（4 处） | 仓库里分别 **0 处 / 1 处**（且是死 `var()` 兜底） | `R-18-1`：改按**完备性**扫，不追总数。 |
+| Task 15 落盘后 `--check` 应当直接绿 | 首次挂掉的真因是 `(.*)$` **不匹配 CRLF 行尾的 `\r`**（JS 里 `.` 不吞 `\r`），不是折行声明 | `R-15-4`：实现者改 `([\s\S]*)$` 修好。**控制器自己的诊断错了一次**，已写进裁决。 |
+| Task 15 的 `theme.css` 回写 ≤9 条 | 实测 **21** 条（块内 44 条） | `R-15-5` 前的当场纠正：上限 65/80/84（实测回写与之一致）。 |
+| Task 16 的派生锁只按 `palette:check` 的行判 | 9 个名字上游只写在 `tokens.css` 的 `:root`；Task 15 按裁决把 `:root` 换成浅色默认层后，**深色档对这 9 条再无来源**，静默继承浅色值 | `R-16-1`：把 brief 的 `collectDecls()/effective()` 原样写成 `D:\p4-t16-preflight.mjs` 跑真实 CSS，报出 **9 条深色正向分歧**。修法按 brief 规矩回 Task 15 补 `DARK_TOKENS`，**不放松断言**。 |
+| Task 15 落盘脚本「整份文件一个档」 | 初审判出 **1 条 Important = 真回归**：浅色派生值被写进 `theme.css:7` 的 `:root`，而 `:root` 与 `[data-ui-theme="x"]` 同为 (0,1,0)、`@import` 排它自己 `:root` 之前 → 默认深色面板上画出珍珠白反馈色 | `R-C15-1`：修复轮 `d2920867` 改成**按所属选择器**判档；复审用「改 `BLOCK_SCHEMES[2].scheme` 能精确复现那 5 行且不出别的」证明路由真在驱动输出。**控制器自己的独立核验当时也带同一个盲区，没抓到它。** |
+| Task 16 的可达集枚举锁够用 | 可达集只是**下界**，改个 α 仍然通过 | `R-14-4`：Task 16 的派生锁必须**按算式逐个复算**。 |
+| Task 17 的验收 grep 按名字找 `#141414` | 会误报 `palette-from-cat.ts:38` 的**历史注释**与一个 `it()` 标题 | `R-17-1`：验收 grep 必须**按值限定**（如 `backgroundColor: "#141414"`）。 |
+
+**D 期（形象换猫）**
+
+| 计划写的 | 实测 | 推翻它的输出 |
+| --- | --- | --- |
+| Task 20 示例里的 `keyof typeof CAT_COATS` | 类型循环 | `R-20-1`：实测报 **TS2502 / TS2456**，按计划 Interfaces 改成显式联合 `"ink"\|"paper"\|"gray"\|"azure"\|"rose"`。 |
+| Task 20 用 `paper.light` 证「light 槽换了」 | **假绿**——`paper.light === PAPER` | `R-20-2`：改用 azure 并加 `azure.light !== PAPER` 正对照。 |
+| Task 21 的耳外八 `rTw = twitch - 8*puff` | 符号反了：puff=0 时给出 `+twitch`（原式右耳是 `-twitch`），正角度还会把右耳尖往**外**转、左耳尖往**内**转，默认档锁必红 | `R-21-1`：落地 `lTw = twitch - 8*puff; rTw = -twitch + 8*puff`，枢轴 42/78 不动。 |
+| Task 21 的「op 数取值 ≥9」 | 实测只有 **5 种**（姿态改的是坐标不是图元数） | `R-21-2`：改判据为整串 op 的**几何签名 12 两两不等**，保留 `ops.length>20` 与包围盒面积>8000 两条下限。 |
+| Task 22 超采样 | 忘了把 op 坐标乘 `ss`，形状缩在左上角 `1/ss` | `R-22-1`：disc 质心判据必红。 |
+| Task 22 `paintOp` 写直通色、降采样除以 alpha | 半透色被**除两次** | `R-22-2`：改为缓冲存预乘色、出口除回。白爪测试抓不到（会饱和），**半透叠色的 `px[0]≈43` 才抓得到**。 |
+| Task 22 的描边定义 | `strokeRoundRect` 内缩 width 与 `strokePath` 的 ±width/2 互相矛盾 | `R-22-3`：统一为 canvas 的「以路径为中心」。`R-22-6`：`strokePath` 用「到折线距离 ≤ w/2」实现，无退化段 NaN。 |
+| Task 22 的 `inkCentroid` | 用像素下标，对偶数宽对称形状**恒欠 0.5** | `R-22-4`：改用像素中心。 |
+| Task 22 的 ICO 测试偏移 `6+6*12` | 应为 `6+6*16`；`ico[7]` 是首档高度=16 不是 0 | `R-22-5`。 |
+| Task 23 说 rename 应为 48 条 | 实测 **121 条** | `R-23-1`：目录级 `git mv` 在 git 里按文件逐条记账（72 status-moods + 12 头像 + 12 立绘 + 12 委托卡 + 12 人格卡 + 麻糬.md）。 |
+| Task 23 说委托卡正文只有称谓 | 实测是**完整动漫人格卡** | `R-23-2`：整份重写（保留工作流结构），否则委托出去的 agent 会以风堇的医师身份说话。 |
+| Task 23 Step 6 要求 grep「黄金裔」清零 | 命中的是 **798 行世界书**（不在 Task 23 文件表） | `R-23-3`。 |
+| Task 23 直接提交 24 份重写的卡 | 会掉 R（相似度 <1%） | `R-23-4`：拆成两条——先 `update-index` 再改内容。 |
+| Task 24 的跨条目判据 ①（覆盖度差 / 质心距） | **假阴性**：`thinking/peek/.1` 与 `idle/peek/0` 判不出差别 | `R-24-1`。 |
+| Task 24 的「原生 vs 自定义」两条档 | 逐像素差 **0.000%**（`energy` 在 t=0 只调动画幅度） | `R-24-2`：`自定义` 改 `prone`。 |
+| Task 24 的统一带 [0.22,0.80] + 质心 12% | 会把整类 `square`/`bust` 判红——肖像是脸填满画框 | `R-24-3`。另加一条显式违规「`crop:"wide"` 却缺 `height`」（`R-24-4`），防方形档被更松的横幅带静默兜住。`full` 锚点 60→77（`R-24-5`）。 |
+| Task 26 的 fixture 清单 | 少两处：`moments-service.test.ts:1596` 与 `moment-media-matcher.test.ts:62` 还有 `stickers/sleepynow.jpg` | `R-26-1`：实改 4 处 + `moments-types.ts` 注释。 |
+| Task 26 说旧目录 47 jpg / 5 png | 实测 **44 jpg / 6 png / 2 gif**，差的 3 个正是 `peek.gif`/`clingy-confused.gif`/`love-calm.png` 三张 `RIFF…WEBP` 冒充后缀 | `R-26-2`。`R-26-3`：6 张同名 png 是**覆盖**（`M`），`git rm` 只处理 46 个非 png。 |
+| Task 25 说 40 张贴纸 | 39 ≠ 40 | `R-25-2`：**不补空文件凑数**。 |
+| Task 25 的 splash 起窗脚本 | 第一次「先起应用再连 CDP」扑空（splash 早关，`NO_SPLASH_TARGET`） | `R-25-4`：splash 必须真起窗看。`R-D27-3` 同类教训：**找不到 canvas 先怀疑探针锁错窗**（`/index\.html/` 锁到了 toast 窗 → 假红）。 |
+| Task 29 的三处计数 | i18n 实际 **74/48/74**（计划 85/1/1）、prompts **21 个文件**（计划只点 5 个 worldbook）、skills **21 个文件**（计划只点 1 个目录） | `R-29-1`：按「会不会被用户或模型读到」重定范围。 |
+| Task 29 说「注释里的旧名保留」 | `allow_multiple` 把注释一起改了，**回退反而更脏** | `R-29-2`：注释一并改名。 |
+| Task 29 说不改 `skills/cyrene-original-voice` 目录名 | 不改是对的（调度器按目录名硬编码引用），但 `references/boundary.md:11` 的台词原文是**唯一**剩下的旧名，逐字保留 | `R-29-3`：`skills/` 下 1 处、`prompts/` 0 处、生产 `src` 0 处。 |
+
+**E 期（收口）**
+
+| 计划写的 | 实测 | 推翻它的输出 |
+| --- | --- | --- |
+| Task 31 探针产物落在 `D:\cyrene-p0-probe\egress-probe.json`、键名 `entries` | 实现落在 userData **之内**、键名 `external`；探针档的 userData 已在卷根下一层，`path.dirname(userData)` 就是 `D:\`，`mkdirSync(recursive)` 只吞 EEXIST → **弹模态 Error 框、进程不退出也不落盘** | `R-31-1`：以验收侧为准（outDir = userData，键名 `external`），落盘失败改成打一行 + `app.exit(1)`——探针档的唯一契约是「退出码即判据」。 |
+| Task 31 探针排完尺就退出 | `external=0` 是**「什么都没跑」的 0**（vacuous 探针） | `R-31-3`：探针分支必须 `return application.start()`；另写仓外正对照 `p4-egress-control.mjs`，实测 `saw 1 → 26 → 51 webRequest events`（最后一件是 `dist/renderer/assets/moments-*.png`），证明通道活着。**正对照不绿，`external=0` 不作数。** |
+| Task 31 尺子登记在 `webRequest` 上 | 登记在**可改报文**的 channel 上会让 Chromium 把主框架 `file://` 导航压进异步等待 → 没有 `ready-to-show` → 判致命失败；且 Electron 每条 channel 只保留最后一个 listener，别人的 listener 会被静默顶掉 | `R-31-2`：只登记通报通道 `onSendHeaders` + `onErrorOccurred`（同 URL 去重、记 `via`），并加「禁登记阻塞 channel」的锁。 |
+| Task 31 头像判据「四角与面板底色差 < 6」 | 实际 `ChatMessageList.css:97-124` 挂着 `filter: drop-shadow(0 2px 8px …pink 22%)` 向下偏移 2px，下角必然离底色 7–9；方底真露出来是粉描边那个量级（21） | `R-31-6`：6 → **15**，并拆出「上两角 < 6」。 |
+| Task 31 居中口径 `ink(>20)` | 奶油猫毛 `#f7f4ec` 压奶油面板 `#f9f7f1` 最大通道差只有 5，对 `INK_DELTA` 完全隐形——旧口径量的是**眉毛不是脸**（浅色档旧口径 4.576 假红，新口径 1.675） | `R-31-6`：`ink(>20)` → `silhouette(>4)`，阈值 3 CSS px 不动。旧口径继续报数只作诊断。放宽过的尺补 **11 张合成图变异自检**。 |
+| Task 31 要用**仓外临时配置**剥掉三项缺失 `extraResources` | 不需要——electron-builder 自己对缺失源打 `file source doesn't exist` 并跳过，**用仓内原配置就能出包** | `R-31-7`（原裁决作废）：结论的另一半仍成立且必须传下去——**这个测试包不是发布产物**。 |
+| Task 30 说「红了回到对应任务修，不在本任务里打补丁」 | 唯一的仓库变更是受控镜像 `dist/renderer/splash.html`（`vite build` 的产物副本，源文件 Task 29 已改） | `R-30-1`：镜像同步算「门禁产物对齐」，不算「在本任务打补丁」——补丁指改实现让门变绿，这里改的是已提交源码的既有产物副本。 |
+| Task 28 台账记「198 张 / 2.1 MB」 | 逐字节真值 **1,797,100 B = 1.71 MiB** | 不是资产变了，是**算法不同**：台账那个 2.1 MB 是按 4 KB 块向上取整后的和（198 × ⌈size/4096⌉ × 4096 = **2,125,824 B**）；资产集合在 `26d06198` / `04996dcb` / `HEAD` 三个提交点实测**一个字节都没变**，min/p50/max 三项与台账逐位相同。差异只在总量那一行的口径。 |
+
+**一条贯穿全期的教训**（不是某条计划的错，是环境）：`grep -c $'\r$'` 在这套 Git Bash 上对**任何** CRLF 文件都返回 0（MSYS grep 先把 `\r` 吃掉）——用它判行尾是**空判据**。行尾一律用字节统计。相关地，`src/main/verge/pet-menu.ts` 是 autocrlf 幻影文件（numstat 空、diff 空），**永不暂存**，回退用 `cp` 不用 `git checkout --`（R-16-6）。`settings-facade.ts` 那次 42/42 的幻影 churn，解法是从 `git cat-file blob HEAD:path` 重放那一行内容改动再覆盖回工作树（R-29-6）。
+
+### 3. 明确移到下一期的项
+
+**（a）计划内明文允许的**
+
+1. `package.json` 的 `pixi.js` / `pixi-live2d-display` 两个 devDependencies 仍在（`^7.3.0` / `0.5.0-beta`）。运行时树已由 Task 27 删净，asar 里那处命中就是 package.json 文本本身。删掉属「可以整体删」而非必须（R-D27-1：pnpm store 路径冲突，未手改 lockfile）。
+2. **装机侧 `installerSidebar` 的两行配置已在 Task 11 删掉**（计划 line 1931 的自裁裁决：「若 24bit BMP
+   编码器实现代价过大，裁决：`installerSidebar` 两行整条删除」）——实测 `electron-builder.yml` 里
+   已无 `installerSidebar` 键（只剩 `icon: assets/mochi-icon.png`）。**留到下一期的只是那份没被引用的
+   历史素材**：`build/installer/installer-sidebar.bmp` 与 `build/installer/cyrene-installer-source.png`
+   （后者是 Task 11 新画的 `mochi-installer-source.png` 的旧版同物）仍在仓里，无消费者。
+3. **`docs/design/*`（51 份带日期的上游工程记录）一个字没改**。实测它们**不含**第三方 IP 版权叙述，只有关于被抄代码（dsh / ZCode / gamebot）的 MIT 署名注记——那些不能改写。R-29-7 只动了 `README.md` / `README.en.md` / `MODEL_LICENSE.md` / banner 文案。
+4. **`vendor/cyrene-skills/`（仓库侧构建源）保留原名**，只把**装机后**的目录改成 `resources/mochi-skills/`（见 §1）。
+5. **免责声明页保留米哈游 / Live2D 鸣谢**（R-31-13，计划 Task 4 Step 4 明文「保留条款内容」）。外链确实清零了（`github=0`、`http://` 与 `https://` 计数 0）；删第三方 IP 的防御性声明不是个人化收益而是法务回退。
+
+**（b）本期发现、明确不做、等下一期**
+
+6. **发布包前置没跑**：测试安装包缺 `cyrene-screenshot.exe` / mpv / MinGit 三项随包二进制，**不是发布产物**。发布包必须先 `cargo` 构建截图助手 + `prepare:mingit` + `prepare:mpv` 再 `package:win`。
+7. **窗口标题修复的屏幕层复验**：`src/renderer/react/index.html` 的 `麻糬 · 聊天（React）` → 去掉后缀（提交 `05f73b27`，并给标题加了会红的锁）。第三眼那轮读数跑在修复**之前**，所以 `packaged-identity3.json` 里仍是旧标题——**它是「已修 + 已上锁」，不是「已验收通过」**。
+8. **`tsconfig.main.json` 的 `exclude` 含 `src/main/**/*.test.ts`** —— 主进程**测试文件不参与类型检查**。评审第 6 条已提出，**本期 DEFERRED**（属项目原样，不在本期范围）。
+9. **`src/main/egress/upstream-off.test.ts` 的例外匹配没有路径边界**（第 176 行 `posixPath(file).endsWith(candidate.file)`）：例外项写 `features/chat/components/svg-sanitize.test.ts` 时，`别的目录/features/chat/components/svg-sanitize.test.ts` 也会被一并豁免。
+10. **CSP 尺只认 `scheme://`**（`learn-exam-csp.test.ts:18` 的 `/(?:https?|wss?):\/\/([^\s;'"]+)/g`）：今天 CSP 由固定模板生成、没有裸域名；但若有人写成 `font-src 'self' gstatic.com`（无协议），这条尺看不见。
+11. **A1 公告规则的名字覆盖面窄**：规则里点名的 10 个标识符中，只有 **2 个**（`NewsItem`、`cyrene-announcement`）是上游 `src/main/news/news-feed.ts` 里真实存在的名字；其余 8 个（`NewsEntry` / `NewsFetch` / `NewsPayload` / `NewsResult` / `createNewsFeedService` / `parseNews` / `registerNewsIpc` / 裸 `news`）是被「整目录删除」带走的，锁没有单独复述它们的名字。
+12. **`ConversationSidebar.css` 等处的 `var(--rb-text-primary, #1d1d1f)` 是死兜底**（实测 5 处：`:59` `:90` `:109` `:113` `:114`）：`--rb-text-primary` 永远有值，那个 `#1d1d1f` 永远不生效。属残余字面量，不影响观感。
+13. **`ChatMessageList.test.ts:264` 的 `not.toContain("昔涟已完成")` 已失真**：改名后该字符串本就不可能出现，这条负向断言**恒真**——「负向断言不报错」不代表它还有效。
+14. **renderer 的 tsconfig 没有 `noEmit`**（项目原样，按 R-D6 不动）。
+15. **`packages/*` 的 fork-worker 仍被禁用**（`vitest.config.mts:19` 注释）：`plugin-sdk/src/testing/index.test.ts` 在 windows-2025 镜像下会让 vitest worker 静默崩溃。
+16. **迁移夹具往 `os.tmpdir()` 写**（C 盘）。测试产物落在 C 盘 TEMP，与「产物一律放 D:」的纪律不一致；属测试夹具的既有写法。
+17. **`cpSync` 兜底路径会留下空的 `%APPDATA%\cyrene-verge` 孤儿目录**（评审第 7 条）。
+18. **M5「gpu 同步构造」的假设**保留为已知限制，未做加固。
+
+**（c）授权与纪律上没做、也不该顺手做的**
+
+19. `git push` 禁止（remote `upstream` 是原来的 GitHub 仓）；`verge`→`master` 的合并需要用户显式同意。
+20. `%APPDATA%\Cyrene`（246 MB 上游用户数据）全程**只读禁写**；验收一律用 `D:\cyrene-p4-accept\` 下的一次性 profile。
+21. 验收全程没点过节点行 / 「选择最优」/「立即实测」，没对 mihomo 发过 `PUT`/`POST`/`GET /group/*/delay`，没启停过用户自己的其他应用。
