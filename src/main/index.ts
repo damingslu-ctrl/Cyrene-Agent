@@ -8,7 +8,6 @@
  */
 
 import { app } from "electron";
-import * as path from "node:path";
 import { createApplication } from "./application/application";
 import { createDefaultApplicationDependencies } from "./application/default-dependencies";
 import { installEgressWatchdog } from "./egress/egress-watchdog";
@@ -66,7 +65,10 @@ if (application.isPrimaryProcess()) {
       if (egressProbeMs !== null) {
         // 探针档短路：不进入 shell → core 编排，registerCoreIpc 不会跑，
         // 模型供应商的 key-gated 请求不会混进表里。
-        armEgressProbe(egressProbeMs, path.dirname(app.getPath("userData")));
+        // 产物就落在 userData 里：Task 31 的验收判据钉的就是 `<user-data-dir>/egress-probe.json`，
+        // 而且 `--user-data-dir` 本身就指定了一次性目录。曾经写成它的父目录，
+        // 在 Windows 上父目录就是卷根，`mkdir 'D:\'` 直接 EPERM。
+        armEgressProbe(egressProbeMs, app.getPath("userData"));
         return;
       }
       egressWatchdog = installEgressWatchdog();
