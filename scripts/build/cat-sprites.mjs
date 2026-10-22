@@ -1,9 +1,10 @@
 // 生成位图资产：在 Node 里跑与桌面猫同一套 DrawOp（src/renderer/pet/art.ts）。
-// 用法：node scripts/build/cat-sprites.mjs [--check] [--only=icons]
-// - 默认：按 src/renderer/pet/cat-sprite-manifest.ts 的 SPRITE_TARGETS + NON_CHARACTER_TARGETS 生成全表 PNG。
+// 用法：node scripts/build/cat-sprites.mjs [--check] [--only=icons|stickers]
+// - 默认：按清单生成全表 PNG（角色 SPRITE_TARGETS + 非角色 NON_CHARACTER_TARGETS + 表情 CAT_STICKERS）。
 //   清单即数据——别在本文件里再手抄一份目标表（手抄必漏，漏了 --check 也只看已有文件）。
 // - --check：不写盘。逐条过像素尺 + 与磁盘逐字节比 + 两条跨条目判据，任一红即 exit 1。
-// - --only=icons：Task 11 的装机图标支路（assets/ 与 build/installer/），与全表无关。
+// - --only=icons：装机图标支路（assets/ 与 build/installer/），与全表无关。
+// - --only=stickers：只写 52 张表情包（改表情表时不必重画全表）。
 // 输出全部进 git（像素尺要能跨提交比较，构建期不依赖网络）。
 import fs from "node:fs";
 import path from "node:path";
@@ -67,23 +68,48 @@ function pairDistinct(bad, label, a, b) {
   }
 }
 
-/** 角色位图与非角色位图是两张表，但只有一条生成/校验管线——分表是为了让 Task 28 能只 import 一张。 */
-function allTargets(m) {
-  return [...m.SPRITE_TARGETS, ...m.NON_CHARACTER_TARGETS];
+/** 52 张表情包：512² bust，id 即文件名。表在 `src/shared/cat-sticker-set.ts`，不在这里手抄。 */
+function stickerTargets(m) {
+  return m.CAT_STICKERS.map((s) => ({
+    out: `src/renderer/public/stickers/${s.id}.png`,
+    size: m.STICKER_SIZE,
+    crop: "bust",
+    coat: s.coat,
+    pose: s.pose,
+    mood: s.mood,
+    maxKb: 60,
+  }));
 }
 
-async function generate() {
-  const m = await loadManifest();
-  const targets = allTargets(m);
-  const total = { kb: 0 };
+/** 三张表（角色 / 非角色 / 表情包）走同一条生成与校验管线——分表是为了让下游只 import 需要的那张。 */
+function allTargets(m) {
+  return [...m.SPRITE_TARGETS, ...m.NON_CHARACTER_TARGETS, ...stickerTargets(m)];
+}
+
+async function writeTargets(m, targets) {
+  let kb = 0;
   for (const t of targets) {
     const { png } = render(m, t);
     const full = path.join(ROOT, t.out);
     await fs.promises.mkdir(path.dirname(full), { recursive: true });
     fs.writeFileSync(full, png);
-    total.kb += png.length / 1024;
+    kb += png.length / 1024;
   }
-  console.log(`wrote ${targets.length} PNGs · ${total.kb.toFixed(1)} KB`);
+  return kb;
+}
+
+async function generate() {
+  const m = await loadManifest();
+  const targets = allTargets(m);
+  const kb = await writeTargets(m, targets);
+  console.log(`wrote ${targets.length} PNGs · ${kb.toFixed(1)} KB`);
+}
+
+async function generateStickers() {
+  const m = await loadManifest();
+  const targets = stickerTargets(m);
+  const kb = await writeTargets(m, targets);
+  console.log(`wrote ${targets.length} stickers · ${kb.toFixed(1)} KB`);
 }
 
 async function check() {
@@ -126,7 +152,7 @@ async function check() {
   }
 
   console.log(
-    `checked ${rows.length} targets · ${cats.size} 只猫 × 6 档 + ${loose.length} 档散点 + ${m.NON_CHARACTER_TARGETS.length} 张非角色`,
+    `checked ${rows.length} targets · ${cats.size} 只猫 × 6 档 + ${loose.length} 档散点 + ${m.NON_CHARACTER_TARGETS.length} 张非角色 + ${m.CAT_STICKERS.length} 张表情`,
   );
   if (bad.length) {
     for (const line of bad) console.error(`✗ ${line}`);
@@ -166,7 +192,8 @@ async function generateIcons() {
 async function main() {
   const only = process.argv.find((a) => a.startsWith("--only="))?.split("=")[1];
   if (only === "icons") return generateIcons();
-  if (only !== undefined) throw new Error(`未知的 --only=${only}（只支持 icons）`);
+  if (only === "stickers") return generateStickers();
+  if (only !== undefined) throw new Error(`未知的 --only=${only}（只支持 icons / stickers）`);
   if (process.argv.includes("--check")) return check();
   return generate();
 }

@@ -1593,7 +1593,7 @@ describe("createMomentsMediaMatcher 具体闭包", () => {
       id: "media_sticker_sleepynow",
       type: "image",
       origin: "character_asset",
-      ref: "stickers/sleepynow.jpg",
+      ref: "stickers/sleepynow.png",
     });
   });
 
@@ -1675,7 +1675,7 @@ describe("moments worldbook 注入与图片读取", () => {
 
     it("character_asset 配图不作为视觉输入", () => {
       const images = loadUserMomentPostImages(makePost({
-        media: [{ id: "m1", type: "image", origin: "character_asset", ref: "stickers/peek.gif" }],
+        media: [{ id: "m1", type: "image", origin: "character_asset", ref: "stickers/peek.png" }],
       }));
 
       expect(images).toEqual([]);
@@ -1712,7 +1712,7 @@ describe("moments worldbook 注入与图片读取", () => {
       mocks.loadModelSettings.mockReturnValue({ multimodal: false });
 
       const images = loadUserMomentPostImages(makePost({
-        media: [{ id: "m1", type: "image", origin: "character_asset", ref: "stickers/peek.gif" }],
+        media: [{ id: "m1", type: "image", origin: "character_asset", ref: "stickers/peek.png" }],
       }));
 
       expect(images).toEqual([]);

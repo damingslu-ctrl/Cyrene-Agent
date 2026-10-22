@@ -59,7 +59,7 @@ describe("resolveMomentStickerMedia", () => {
       id: "media_sticker_sleepynow",
       type: "image",
       origin: "character_asset",
-      ref: "stickers/sleepynow.jpg",
+      ref: "stickers/sleepynow.png",
     });
   });
 

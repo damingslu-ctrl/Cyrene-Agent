@@ -25,7 +25,7 @@ export interface MomentMedia {
   /**
    * user_attachment 时为副本文件名（如 "1.jpg"）；
    * character_asset 时为渲染端可直接消费的引用——内置贴图存 public 相对路径
-   * （如 "stickers/peek.gif"，渲染端 resolveAsset 解析），用户贴图存 local-sticker:// 完整 URL。
+   * （如 "stickers/peek.png"，渲染端 resolveAsset 解析），用户贴图存 local-sticker:// 完整 URL。
    */
   ref: string;
 }

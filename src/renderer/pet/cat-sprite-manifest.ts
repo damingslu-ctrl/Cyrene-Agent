@@ -21,6 +21,9 @@ import type { CharacterStatusMood } from "../react/character-status-moods";
 
 export { CAT_CROPS, buildSpriteOps, alphaCoverage, encodeIco, encodePng, inkCentroid, renderOps };
 export type { Raster };
+// 52 张表情包的表住在 shared（main 侧的目录测试也要读）；这里只做出口，
+// 好让 `scripts/build/cat-sprites.mjs` 仍然只 import 一个 esbuild 入口。
+export { CAT_STICKERS, STICKER_SIZE } from "../../shared/cat-sticker-set";
 
 export interface SpriteTarget {
   /** 相对仓库根的写盘路径，也是构建门的比对键。 */
