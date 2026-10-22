@@ -16,7 +16,7 @@ export const BANNER_LINES = [
 
 export const ABOUT_LINES = [
   "Build:    local · no online update checks",
-  "License:  MIT (see MODEL_LICENSE.md for model terms)",
+  "License:  MIT (see LICENSE)",
 ] as const;
 
 /** Default framed-box width when the terminal width is unknown or too narrow. */
