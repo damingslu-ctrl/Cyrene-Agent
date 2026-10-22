@@ -36,7 +36,7 @@ export function resolvePlaywrightMcpCliPath(): string {
  * 期望的 Playwright MCP server 配置。
  *
  * 运行时分发方式（不依赖用户机器的 Node.js / npx）：
- *   process.execPath（dev: electron.exe / 打包: Cyrene.exe）
+ *   process.execPath（dev: electron.exe / 打包: Mochi.exe）
  *   + ELECTRON_RUN_AS_NODE=1（Electron 以纯 Node 模式运行 cli.js）
  *   + --browser msedge（用系统自带 Edge，无需下载 Chromium）
  * 版本随 package.json 精确锁定（@playwright/mcp 无 ^ 漂移）。

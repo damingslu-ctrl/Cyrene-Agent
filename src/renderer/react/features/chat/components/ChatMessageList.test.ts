@@ -261,7 +261,7 @@ describe("formal answer visibility", () => {
     }));
 
     expect(html).not.toContain("cy-agent-round");
-    expect(html).not.toContain("昔涟已完成");
+    expect(html).not.toContain("麻糬已完成");
     expect(html).toContain("思考目录结构");
     expect(html).toContain("先看项目结构");
     expect(html).toContain("查找 IPC 入口");
@@ -539,8 +539,8 @@ describe("function-calling round presentation", () => {
     const completedArt = html.match(/cy-reasoning-status-art is-complete[^>]*><img src="([^"]+)"/)?.[1];
     expect(thinkingArt).toContain(encodeURIComponent("思考中.png"));
     expect(completedArt).toContain(encodeURIComponent("提醒.png"));
-    expect(html).toContain("昔涟已完成 · 浏览 1 个目录");
-    expect(html).toContain("昔涟正在读取文件");
+    expect(html).toContain("麻糬已完成 · 浏览 1 个目录");
+    expect(html).toContain("麻糬正在读取文件");
     expect(html).toContain("先看项目结构");
     expect(html).toContain("继续检查取消链路");
     expect(html).toContain("查找 IPC 入口");
@@ -559,7 +559,7 @@ describe("function-calling round presentation", () => {
       interrupted: false,
     }));
 
-    expect(html).toContain("昔涟已完成");
+    expect(html).toContain("麻糬已完成");
     expect(html).toContain('class="cy-agent-round__files"');
     expect(html).toContain("1 个文件已被改动");
   });
@@ -608,7 +608,7 @@ describe("function-calling round presentation", () => {
       interrupted: false,
     }));
 
-    expect(html).toContain("昔涟委托了");
+    expect(html).toContain("麻糬委托了");
     expect(html).toContain("年糕");
     expect(html).toContain("检查取消链路");
   });

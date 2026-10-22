@@ -12,7 +12,7 @@ import { renderMermaidSVG } from "beautiful-mermaid";
 import { isOverSourceLimit, sanitizeSvg, stripFontImports } from "./svg-sanitize";
 import { SvgPreviewModal } from "./SvgPreviewModal";
 
-/** Cyrene 粉白主题：底色米白、主文字暖棕、点缀樱花粉 */
+/** 麻糬粉白主题：底色米白、主文字暖棕、点缀樱花粉 */
 const CYRENE_THEME = {
   bg: "#fffafc",
   fg: "#4a3f44",

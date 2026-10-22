@@ -1090,7 +1090,7 @@
   }
 }
 
-/* 昔涟消息字体预览：与聊天 AI 回复气泡消费同一组 CSS 变量，拖动滑块即时可见效果 */
+/* 麻糬消息字体预览：与聊天 AI 回复气泡消费同一组 CSS 变量，拖动滑块即时可见效果 */
 .cy-message-typography-preview {
   flex: 1;
   min-width: 0;

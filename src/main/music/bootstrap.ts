@@ -17,7 +17,7 @@ export function bootstrapMusicService(paths: MusicPaths): MusicBootstrap {
   const tools = buildMusicTools(service);
   for (const tool of tools) toolRegistry.register(tool);
   // Do not start the music backend here.  It is connected lazily by the first
-  // real music action (ensureReady) so an idle Cyrene window never holds a
+  // real music action (ensureReady) so an idle Mochi window never holds a
   // network session merely because the extension is installed.
 
   let shuttingDown = false;

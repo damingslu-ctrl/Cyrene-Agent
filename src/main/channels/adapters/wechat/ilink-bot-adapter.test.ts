@@ -321,7 +321,7 @@ describe("ILinkBotAdapter inbound media", () => {
     const sendText = vi.fn(async () => ({ ok: true }));
     (adapter as any).onMessage = onMessage;
     (adapter as any).client = { sendText };
-    (adapter as any).saveInboundMedia = vi.fn(async () => "C:/Users/testuser/Desktop/Cyrene 收件箱/archive.zip");
+    (adapter as any).saveInboundMedia = vi.fn(async () => "C:/Users/testuser/Desktop/Mochi 收件箱/archive.zip");
 
     await (adapter as any).dispatchInbound({
       msgId: "msg-file-1",
@@ -362,7 +362,7 @@ describe("ILinkBotAdapter inbound media", () => {
     );
     expect(sendText).toHaveBeenLastCalledWith(
       "wx-user-1",
-      "收好啦，伙伴。人家已经帮你放到桌面的“Cyrene 收件箱”里了：C:/Users/testuser/Desktop/Cyrene 收件箱/archive.zip",
+      "收好啦，伙伴。人家已经帮你放到桌面的“Mochi 收件箱”里了：C:/Users/testuser/Desktop/Mochi 收件箱/archive.zip",
       "ctx-text",
     );
     expect(onMessage).not.toHaveBeenCalled();
@@ -374,7 +374,7 @@ describe("ILinkBotAdapter inbound media", () => {
     const sendText = vi.fn(async () => ({ ok: true }));
     (adapter as any).onMessage = onMessage;
     (adapter as any).client = { sendText };
-    (adapter as any).saveInboundMedia = vi.fn(async () => "C:/Users/testuser/Desktop/Cyrene 收件箱/movie.mp4");
+    (adapter as any).saveInboundMedia = vi.fn(async () => "C:/Users/testuser/Desktop/Mochi 收件箱/movie.mp4");
 
     await (adapter as any).dispatchInbound({
       msgId: "msg-text-2",
@@ -412,7 +412,7 @@ describe("ILinkBotAdapter inbound media", () => {
     expect(sendText).toHaveBeenNthCalledWith(
       1,
       "wx-user-1",
-      "好呀，伙伴，尽管把文件发过来吧。我会帮你放到桌面的“Cyrene 收件箱”里哦~~",
+      "好呀，伙伴，尽管把文件发过来吧。我会帮你放到桌面的“Mochi 收件箱”里哦~~",
       "ctx-text",
     );
     expect((adapter as any).saveInboundMedia).toHaveBeenCalledWith(
@@ -421,7 +421,7 @@ describe("ILinkBotAdapter inbound media", () => {
     );
     expect(sendText).toHaveBeenLastCalledWith(
       "wx-user-1",
-      "收好啦，伙伴。人家已经帮你放到桌面的“Cyrene 收件箱”里了：C:/Users/testuser/Desktop/Cyrene 收件箱/movie.mp4",
+      "收好啦，伙伴。人家已经帮你放到桌面的“Mochi 收件箱”里了：C:/Users/testuser/Desktop/Mochi 收件箱/movie.mp4",
       "ctx-video",
     );
     expect(onMessage).not.toHaveBeenCalled();
@@ -433,7 +433,7 @@ describe("ILinkBotAdapter inbound media", () => {
     const sendText = vi.fn(async () => ({ ok: true }));
     (adapter as any).onMessage = onMessage;
     (adapter as any).client = { sendText };
-    (adapter as any).saveInboundMedia = vi.fn(async () => "C:/Users/testuser/Desktop/Cyrene 收件箱/report.pdf");
+    (adapter as any).saveInboundMedia = vi.fn(async () => "C:/Users/testuser/Desktop/Mochi 收件箱/report.pdf");
     (adapter as any).downloadMedia = vi.fn();
 
     await (adapter as any).dispatchInbound({

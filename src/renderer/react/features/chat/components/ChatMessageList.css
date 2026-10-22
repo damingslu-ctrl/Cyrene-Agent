@@ -475,7 +475,7 @@
   text-decoration: underline;
 }
 
-/* 昔涟正式回答固定为无边框文本（气泡开关已删除）；用户消息气泡始终保留 */
+/* 麻糬正式回答固定为无边框文本（气泡开关已删除）；用户消息气泡始终保留 */
 .cy-message--assistant .ant-bubble-content {
   max-width: 100%;
   padding: 0;
@@ -1237,7 +1237,7 @@
   line-height: 1.75;
 }
 
-/* 排版数值由设置页"昔涟消息字体"控制：写入根节点 CSS 变量，未设置时回落这里的默认值 */
+/* 排版数值由设置页"麻糬消息字体"控制：写入根节点 CSS 变量，未设置时回落这里的默认值 */
 .cy-message__assistant-body .cy-message-markdown {
   font-weight: var(--cy-msg-weight, 400);
   font-size: var(--cy-msg-size, 15px);

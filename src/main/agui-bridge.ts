@@ -677,7 +677,7 @@ export function registerAgUiIpc(
     }
 
     const threadId = `thread-${Date.now()}`;
-    const agent = new CyreneAgent({ threadId, description: "Cyrene 主聊天" });
+    const agent = new CyreneAgent({ threadId, description: "Mochi 主聊天" });
     // 纯 ChatLoop 没有 Harness 生命周期，由 bridge 将已接纳的 run 标记为 running；
     // Chat 启用工具时会进入 Harness，由 Harness adapter 创建同一条运行记录。
     if (mode === "chat" && (options.tools ?? []).length === 0) {

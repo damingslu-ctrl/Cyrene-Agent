@@ -1,4 +1,4 @@
-// ZCode Read/Write/Edit/Glob/Grep interfaces adapted to Cyrene's tool runtime.
+// ZCode Read/Write/Edit/Glob/Grep interfaces adapted to Mochi's tool runtime.
 // ZCode source: E:\ZCode\apps\zcode-cli\packages\core\src\tool\handlers
 // Licensed under Apache-2.0; see THIRD_PARTY_NOTICES.md.
 
@@ -75,7 +75,7 @@ export function registerZCodeFileTools(legacy: {
     id: "Write",
     name: "Write",
     description:
-      "创建文件或完整覆写已读取的文件。路径必须是绝对路径；写入会经过 Cyrene 文件权限与变更审查。" +
+      "创建文件或完整覆写已读取的文件。路径必须是绝对路径；写入会经过麻糬文件权限与变更审查。" +
       "局部修改请用 Edit。",
     enabled: true,
     risk: "fs-write",
@@ -106,7 +106,7 @@ export function registerZCodeFileTools(legacy: {
     name: "Edit",
     description:
       "对文件中的文本做精确替换。先 Read 目标文件；old_string 必须能唯一定位，" +
-      "需要替换所有匹配时设置 replace_all=true。写入会经过 Cyrene 文件权限与变更审查。",
+      "需要替换所有匹配时设置 replace_all=true。写入会经过麻糬文件权限与变更审查。",
     enabled: true,
     risk: "fs-write",
     modes: ["learn", "code", "work"],

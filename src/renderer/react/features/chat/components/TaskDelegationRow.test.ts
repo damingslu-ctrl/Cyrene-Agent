@@ -10,7 +10,7 @@ describe("TaskDelegationRow", () => {
       nickname: "年糕", assetFileName: "年糕.png", status: "running", roundId: "round-1",
     } }));
 
-    expect(html).toContain("昔涟委托了");
+    expect(html).toContain("麻糬委托了");
     expect(html).toContain("年糕");
     expect(html).toContain("正在运行");
     expect(html).toContain("alt=\"年糕\"");

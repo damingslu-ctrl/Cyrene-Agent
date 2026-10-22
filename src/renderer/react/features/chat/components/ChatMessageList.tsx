@@ -147,7 +147,7 @@ interface ChatMessageListProps {
   workspaceRoot?: string;
   /** 点击界内文件链接 → 打开右侧预览标签并定位行号 */
   onOpenFileLink?: (relPath: string, line?: number) => void;
-  /** 点击助手消息网页链接 → 在 Cyrene 右侧浏览器打开，或从右键菜单选择外部浏览器。 */
+  /** 点击助手消息网页链接 → 在麻糬右侧浏览器打开，或从右键菜单选择外部浏览器。 */
   onOpenWebLink?: (url: string, destination: "cyrene" | "external") => void | Promise<void>;
   onMailDraftChange?: (messageId: string, card: MailDraftCardData) => void;
 }

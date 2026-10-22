@@ -29,7 +29,7 @@ function Preview() {
   const [section, setSection] = useState("聊天");
   return createElement("div", { className: "user-menu-preview" },
     createElement("aside", { className: "user-menu-preview__sidebar" },
-      createElement("div", { className: "user-menu-preview__brand" }, "Cyrene"),
+      createElement("div", { className: "user-menu-preview__brand" }, "Mochi"),
       createElement("div", { className: "user-menu-preview__nav" },
         ...["新建任务", "搜索", "定时任务", "空间动态"].map((item) => createElement("button", { key: item, type: "button" }, item)),
       ),

@@ -19,7 +19,7 @@ export async function summarizeMemory(input: {
   signal?: AbortSignal;
 }): Promise<SummaryMemoryResult> {
   const systemPrompt = [
-    "你负责维护 Cyrene 的 Markdown 记忆文件。只总结输入中明确出现的事实，不推测、不补全未知信息。",
+    "你负责维护麻糬的 Markdown 记忆文件。只总结输入中明确出现的事实，不推测、不补全未知信息。",
     "sessionSummary 记录当前会话的目标、已完成事项、重要决定、未完成事项和必要上下文；去掉闲聊、重复内容与已经失效的信息。",
     input.hasWorkspace
       ? "workspaceSummary 只记录可供同一项目其他会话复用的稳定项目事实、约定和进展。没有新增长期有效的跨会话事实时，原样保留已有工作区摘要；没有旧摘要且没有新事实时返回空字符串。"

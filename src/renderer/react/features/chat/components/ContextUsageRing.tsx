@@ -6,7 +6,7 @@
 // - 占用比 = totalTokens / contextWindowTokens；SVG 弧长只吃 clamp 后的
 //   visualRatio（ratio>1 时文本诚实显示如 118%，圆环 clamp 到整圈）。
 // - 颜色分级：正常主题强调色；≥70% 暖色；≥90% 警示红。仅变色，无动画。
-// - 菜单趣味性：按档位切换 Cyrene 小人（开心/提醒/担心）+ 一句拟人提示。
+// - 菜单趣味性：按档位切换麻糬小人（开心/提醒/担心）+ 一句拟人提示。
 // - 小人可点击主动压缩（chats:compact）：悬停 crossfade 到压缩小人图，
 //   点击把模型窗口内旧消息摘要成一条记忆，聊天窗口经 CHATS_CHANGED 重载。
 import { Popover } from "antd";

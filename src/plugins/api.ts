@@ -1,5 +1,5 @@
 /**
- * Cyrene Plugin API v1.
+ * Mochi Plugin API v1.
  *
  * This file is the stable, plugin-facing contract. It deliberately does not
  * import from src/main or src/shared so internal application refactors do not
@@ -58,7 +58,7 @@ export interface PluginManifest {
   settingsSection?: PluginSettingsSection;
   /** Honored only for bundled plugins. User plugins always require opt-in. */
   defaultEnabled: boolean;
-  /** Host services requested from Cyrene. This is not a security sandbox. */
+  /** Host services requested from Mochi. This is not a security sandbox. */
   deps?: PluginCapability[];
 }
 

@@ -87,7 +87,7 @@ describe("voice call preview dialog", () => {
     const conversation = document.querySelector('[role="dialog"] .cy-call-preview__conversation');
     expect(conversation).not.toBeNull();
     expect(conversation?.textContent).toContain("你");
-    expect(conversation?.textContent).toContain("昔涟");
+    expect(conversation?.textContent).toContain("麻糬");
     expect(document.querySelector('[role="dialog"] .cy-call-preview__avatar-scene')).toBeNull();
 
     await act(async () => {

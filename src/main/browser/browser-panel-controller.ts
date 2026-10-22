@@ -276,7 +276,7 @@ export class BrowserPanelController {
     const hit = await this.validateTargetAt(checked.contents, checked.target, input.observationId);
     if (!hit.ok) return hit.reason;
     const win = this.getWindow();
-    if (!win || win.isDestroyed() || !win.isFocused()) return "Cyrene 窗口当前未获得焦点。已暂停浏览器操作，请先点回 Cyrene 窗口。";
+    if (!win || win.isDestroyed() || !win.isFocused()) return "麻糬窗口当前未获得焦点。已暂停浏览器操作，请先点回麻糬窗口。";
     checked.contents.sendInputEvent({ type: "mouseMove", x: hit.x, y: hit.y });
     checked.contents.sendInputEvent({ type: "mouseDown", x: hit.x, y: hit.y, button: "left", clickCount: 1 });
     checked.contents.sendInputEvent({ type: "mouseUp", x: hit.x, y: hit.y, button: "left", clickCount: 1 });
@@ -293,7 +293,7 @@ export class BrowserPanelController {
     const hit = await this.validateTargetAt(checked.contents, checked.target, input.observationId);
     if (!hit.ok) return hit.reason;
     const win = this.getWindow();
-    if (!win || win.isDestroyed() || !win.isFocused()) return "Cyrene 窗口当前未获得焦点。已暂停浏览器操作，请先点回 Cyrene 窗口。";
+    if (!win || win.isDestroyed() || !win.isFocused()) return "麻糬窗口当前未获得焦点。已暂停浏览器操作，请先点回麻糬窗口。";
     checked.contents.sendInputEvent({ type: "mouseMove", x: hit.x, y: hit.y });
     checked.contents.sendInputEvent({ type: "mouseDown", x: hit.x, y: hit.y, button: "left", clickCount: 1 });
     checked.contents.sendInputEvent({ type: "mouseUp", x: hit.x, y: hit.y, button: "left", clickCount: 1 });
@@ -309,7 +309,7 @@ export class BrowserPanelController {
     if (!checked.ok) return checked.reason;
     this.setControlAction("pressing");
     const win = this.getWindow();
-    if (!win || win.isDestroyed() || !win.isFocused()) return "Cyrene 窗口当前未获得焦点。已暂停浏览器操作，请先点回 Cyrene 窗口。";
+    if (!win || win.isDestroyed() || !win.isFocused()) return "麻糬窗口当前未获得焦点。已暂停浏览器操作，请先点回麻糬窗口。";
     const keys: Record<string, string> = { Enter: "ENTER", Escape: "ESC", Tab: "TAB", ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT", Backspace: "BACKSPACE", Delete: "DELETE", Space: "SPACE" };
     const keyCode = keys[input.key];
     if (!keyCode) return "不支持该按键。可用：Enter、Escape、Tab、方向键、Backspace、Delete、Space。";
@@ -334,7 +334,7 @@ export class BrowserPanelController {
     if (!checked.ok) return checked.reason;
     this.setControlAction("scrolling");
     const win = this.getWindow();
-    if (!win || win.isDestroyed() || !win.isFocused()) return "Cyrene 窗口当前未获得焦点。已暂停浏览器操作，请先点回 Cyrene 窗口。";
+    if (!win || win.isDestroyed() || !win.isFocused()) return "麻糬窗口当前未获得焦点。已暂停浏览器操作，请先点回麻糬窗口。";
     let x = Math.floor(this.bounds!.width / 2);
     let y = Math.floor(this.bounds!.height / 2);
     if (input.ref || input.observationId) {

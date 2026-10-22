@@ -1,4 +1,4 @@
-/* 昔涟头像触发器：头像 + 右下角在线点。展开态由 Popover 注入 data-state。 */
+/* 麻糬头像触发器：头像 + 右下角在线点。展开态由 Popover 注入 data-state。 */
 .cy-character-pill {
   position: relative;
   display: inline-flex;

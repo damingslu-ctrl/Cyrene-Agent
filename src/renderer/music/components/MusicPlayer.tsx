@@ -110,7 +110,7 @@ export default function MusicPlayer({
       <header className="mp-header">
         <div className="mp-brand">
           <img className="mp-brand-logo" src={logo} alt="logo" />
-          <span className="mp-brand-name">Cyrene Music</span>
+          <span className="mp-brand-name">Mochi Music</span>
         </div>
         <nav
           className="mp-playlists"
