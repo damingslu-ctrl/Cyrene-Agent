@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderOps, alphaCoverage, inkCentroid } from "../../shared/sprite-raster";
 import { CAT_CROPS, buildSpriteOps } from "./cat-variants";
-import { MOOD_TO_VARIANT, SPRITE_TARGETS, checkTarget } from "./cat-sprite-manifest";
+import { MOOD_TO_VARIANT, NON_CHARACTER_TARGETS, SPRITE_TARGETS, checkTarget } from "./cat-sprite-manifest";
 
 describe("位图资产清单", () => {
   it("清单里每个 out 都是当前真实被读的键（R-D2：25 张散点状态图文件名冻结）", () => {
@@ -46,5 +46,35 @@ describe("位图资产清单", () => {
     const size = { w: t.size, h: t.size };
     const r = renderOps(buildSpriteOps({ coat: t.coat, pose: t.pose, crop: "full" }, size), size.w, size.h);
     expect(checkTarget(r, t).some((line) => line.startsWith("覆盖度"))).toBe(true);
+  });
+
+  it("非角色资产 17 条：只有一张非方图（欢迎横幅），抽样同一把尺", () => {
+    expect(NON_CHARACTER_TARGETS).toHaveLength(17);
+    const banner = NON_CHARACTER_TARGETS.filter((t) => t.height !== undefined);
+    expect(banner.map((t) => `${t.size}×${t.height}`)).toEqual(["1280×720"]);
+    const picks = [
+      "src/renderer/public/cyrene-welcome.png",
+      "src/renderer/public/loading.png",
+      "src/renderer/react/assets/moments.png",
+    ];
+    for (const out of picks) {
+      const t = NON_CHARACTER_TARGETS.find((x) => x.out === out)!;
+      const crop = CAT_CROPS[t.crop];
+      const size = { w: t.size, h: t.height ?? t.size };
+      const ops = buildSpriteOps(
+        { coat: t.coat, pose: t.pose, crop: t.crop, mood: t.mood, blink: t.blink, pet: t.pet, energy: t.energy },
+        size,
+      );
+      const r = renderOps(ops, size.w, size.h, { mask: crop.mask === "disc" ? "disc" : "none" });
+      const bad = checkTarget(r, t);
+      expect(bad, `${t.out}: ${bad.join("; ")}`).toEqual([]);
+    }
+  });
+
+  it("正对照：横幅档没给 height 会判红（方形档不许借用更松的横幅带宽）", () => {
+    const t = NON_CHARACTER_TARGETS.find((x) => x.height !== undefined)!;
+    const size = { w: t.size, h: t.height! };
+    const r = renderOps(buildSpriteOps({ coat: t.coat, pose: t.pose, crop: t.crop }, size), size.w, size.h);
+    expect(checkTarget(r, { ...t, height: undefined })).toContain("wide 取景只服务横幅档（缺 height）");
   });
 });

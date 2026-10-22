@@ -149,6 +149,55 @@ export const SPRITE_TARGETS: readonly SpriteTarget[] = [
   })),
 ];
 
+type NonCharacterRow = {
+  out: string;
+  size: number;
+  height?: number;
+  crop: CropName;
+  coat: CoatName;
+  pose: PoseName;
+  mood: Mood;
+  maxKb?: number;
+};
+
+/**
+ * 界面上的「我」：17 处非角色位图。全部画助手本猫，花色只是每处的性格底色
+ * （`rose` 朋友圈 / `azure` 音乐 / `gray` 插件），不是名册里的某只猫。
+ * `nickname` 因此统一填助手本名——它只做标注，不参与绘制。
+ *
+ * 图标两条（`icons/cyrene-pink|sun.png`）按 `ui-icon.ts` 的标签走墨猫/奶猫，
+ * 与 `assets/icon-presets/` 下真正生效的装机图标同图：预视图和被应用的结果必须是同一只猫。
+ */
+const NON_CHARACTER_ROWS: readonly NonCharacterRow[] = [
+  // 上下文用量环（显示框 52px）：normal ↔ warm ↔ alert ↔ compact 四档
+  { out: "src/renderer/public/context-usage/normal.png", size: 256, crop: "bust", coat: "paper", pose: "sit", mood: "idle" },
+  { out: "src/renderer/public/context-usage/warm.png", size: 256, crop: "bust", coat: "paper", pose: "tilt", mood: "thinking" },
+  // 警告档用炸毛而不是红：红是 WARN 语义，本期不动
+  { out: "src/renderer/public/context-usage/alert.png", size: 256, crop: "square", coat: "paper", pose: "puff", mood: "grumpy" },
+  { out: "src/renderer/public/context-usage/compact.png", size: 256, crop: "square", coat: "paper", pose: "wash", mood: "thinking" },
+  // 全表唯一非方图：WelcomeGate 首屏 `min(860px,100%) × 16/9`（R-D1）
+  { out: "src/renderer/public/cyrene-welcome.png", size: 1280, height: 720, crop: "wide", coat: "paper", pose: "happy", mood: "happy", maxKb: 120 },
+  // splash 直接按文件名 loadFile，不走 vite：这条坏了只能靠真起一次窗口发现
+  { out: "src/renderer/public/loading.png", size: 320, crop: "bust", coat: "paper", pose: "peek", mood: "idle" },
+  { out: "src/renderer/public/avatars/cyrene-avatar.png", size: 256, crop: "round", coat: "paper", pose: "sit", mood: "idle" },
+  { out: "src/renderer/music/assets/logo.png", size: 256, crop: "round", coat: "azure", pose: "sit", mood: "idle" },
+  { out: "src/renderer/music/assets/music2.png", size: 256, crop: "bust", coat: "azure", pose: "tilt", mood: "happy" },
+  { out: "src/renderer/toast/assets/toast-avatar.png", size: 256, crop: "round", coat: "paper", pose: "peek", mood: "happy" },
+  { out: "src/renderer/settings/100.png", size: 256, crop: "bust", coat: "paper", pose: "wash", mood: "idle" },
+  { out: "src/renderer/react/assets/moments.png", size: 256, crop: "square", coat: "rose", pose: "peek", mood: "happy" },
+  { out: "src/renderer/react/assets/new.png", size: 256, crop: "square", coat: "paper", pose: "stretch", mood: "happy" },
+  { out: "src/renderer/react/assets/plugin.png", size: 256, crop: "square", coat: "gray", pose: "wash", mood: "thinking" },
+  { out: "src/renderer/public/icons/cyrene-pink.png", size: 256, crop: "full", coat: "ink", pose: "sit", mood: "idle" },
+  { out: "src/renderer/public/icons/cyrene-sun.png", size: 256, crop: "square", coat: "paper", pose: "happy", mood: "happy" },
+  { out: "src/renderer/public/icons/sticker-picker.png", size: 256, crop: "square", coat: "paper", pose: "tilt", mood: "happy" },
+];
+
+export const NON_CHARACTER_TARGETS: readonly SpriteTarget[] = NON_CHARACTER_ROWS.map((row) => ({
+  ...poseVariant(row.pose),
+  ...row,
+  nickname: ASSISTANT_NICKNAME,
+}));
+
 interface CropCriteria {
   /** 覆盖度区间。 */
   cov: readonly [number, number];

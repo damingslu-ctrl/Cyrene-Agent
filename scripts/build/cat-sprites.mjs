@@ -1,6 +1,6 @@
 // 生成位图资产：在 Node 里跑与桌面猫同一套 DrawOp（src/renderer/pet/art.ts）。
 // 用法：node scripts/build/cat-sprites.mjs [--check] [--only=icons]
-// - 默认：按 src/renderer/pet/cat-sprite-manifest.ts 的 SPRITE_TARGETS 生成全表 PNG。
+// - 默认：按 src/renderer/pet/cat-sprite-manifest.ts 的 SPRITE_TARGETS + NON_CHARACTER_TARGETS 生成全表 PNG。
 //   清单即数据——别在本文件里再手抄一份目标表（手抄必漏，漏了 --check 也只看已有文件）。
 // - --check：不写盘。逐条过像素尺 + 与磁盘逐字节比 + 两条跨条目判据，任一红即 exit 1。
 // - --only=icons：Task 11 的装机图标支路（assets/ 与 build/installer/），与全表无关。
@@ -67,22 +67,28 @@ function pairDistinct(bad, label, a, b) {
   }
 }
 
+/** 角色位图与非角色位图是两张表，但只有一条生成/校验管线——分表是为了让 Task 28 能只 import 一张。 */
+function allTargets(m) {
+  return [...m.SPRITE_TARGETS, ...m.NON_CHARACTER_TARGETS];
+}
+
 async function generate() {
   const m = await loadManifest();
+  const targets = allTargets(m);
   const total = { kb: 0 };
-  for (const t of m.SPRITE_TARGETS) {
+  for (const t of targets) {
     const { png } = render(m, t);
     const full = path.join(ROOT, t.out);
     await fs.promises.mkdir(path.dirname(full), { recursive: true });
     fs.writeFileSync(full, png);
     total.kb += png.length / 1024;
   }
-  console.log(`wrote ${m.SPRITE_TARGETS.length} PNGs · ${total.kb.toFixed(1)} KB`);
+  console.log(`wrote ${targets.length} PNGs · ${total.kb.toFixed(1)} KB`);
 }
 
 async function check() {
   const m = await loadManifest();
-  const rows = m.SPRITE_TARGETS.map((t) => ({ t, ...render(m, t) }));
+  const rows = allTargets(m).map((t) => ({ t, ...render(m, t) }));
   const bad = [];
 
   for (const row of rows) {
@@ -119,7 +125,9 @@ async function check() {
     for (let j = i + 1; j < loose.length; j += 1) pairDistinct(bad, "status-moods", loose[i], loose[j]);
   }
 
-  console.log(`checked ${rows.length} targets · ${cats.size} 只猫 × 6 档 + ${loose.length} 档散点`);
+  console.log(
+    `checked ${rows.length} targets · ${cats.size} 只猫 × 6 档 + ${loose.length} 档散点 + ${m.NON_CHARACTER_TARGETS.length} 张非角色`,
+  );
   if (bad.length) {
     for (const line of bad) console.error(`✗ ${line}`);
     throw new Error(`${bad.length} 条判据未过`);
