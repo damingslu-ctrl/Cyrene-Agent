@@ -99,7 +99,7 @@ export async function verifyInstallerArtifacts(options = {}) {
     windowsHide: true,
     timeout: 10_000,
   });
-  await stat(path.join(resourcesDir, "cyrene-skills", "skills-snapshot.zip"));
+  await stat(path.join(resourcesDir, "mochi-skills", "skills-snapshot.zip"));
 
   return {
     installerPath,

@@ -81,8 +81,11 @@ function safeRelativePath(relativePath: string): string | null {
 /**
  * Resolve the third-party skills snapshot archive path.
  *  - Packaged: extraResources copies vendor/cyrene-skills into
- *    resources/cyrene-skills/skills-snapshot.zip (outside asar, real disk path).
+ *    resources/mochi-skills/skills-snapshot.zip (outside asar, real disk path).
  *  - Dev: repository vendor/cyrene-skills/skills-snapshot.zip.
+ *
+ * 打包侧的目录名是**装到机器上用户能看见的名字**（resources/mochi-skills/），
+ * 所以跟着品牌走；仓库侧的 vendor/cyrene-skills 是构建源，名字按仓库纪律保留。
  * Returns null when the archive is absent (e.g. build-skills-snapshot not run).
  */
 export function resolveSkillsSnapshotArchivePath(
@@ -92,7 +95,7 @@ export function resolveSkillsSnapshotArchivePath(
   const isPackaged = options.isPackaged ?? app.isPackaged;
   const exists = options.existsSync ?? ((p: string) => fs.existsSync(p));
   const candidate = isPackaged
-    ? path.join(options.resourcesPath ?? process.resourcesPath, "cyrene-skills", "skills-snapshot.zip")
+    ? path.join(options.resourcesPath ?? process.resourcesPath, "mochi-skills", "skills-snapshot.zip")
     : path.join(paths.installRoot, "vendor", "cyrene-skills", "skills-snapshot.zip");
   return exists(candidate) ? candidate : null;
 }

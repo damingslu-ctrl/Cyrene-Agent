@@ -57,7 +57,7 @@ extraResources:
     to: components
   # 第三方 skills 快照归档：首启解压到 userData/skills（见 src/main/skills/snapshot-install.ts）
   - from: vendor/cyrene-skills
-    to: cyrene-skills
+    to: mochi-skills
 win:
   icon: assets/mochi-icon.png
   # 保留应用支持的英文、简体中文和繁体中文界面语言。
