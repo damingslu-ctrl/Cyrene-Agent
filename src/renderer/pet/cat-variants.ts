@@ -65,18 +65,26 @@ export interface CatCrop {
 }
 
 /**
- * 框是初值，Task 24 的 `--check` 会按「墨覆盖度 ∈ [0.22, 0.80] 且质心离中 < 12%」一次校平。
- * 全身含尾与投影，故 y 拉到 114；半身只到胸线；方/圆头像框到耳下 6px，留得出耳朵。
- * `wide` 是本期唯一的 16:9 档，只服务 `public/cyrene-welcome.png`（R-D1 实测：`min(860px,100%)` × `aspect-ratio:16/9`）。
- * 它的 `window` 由**目标宽高比**反推而不是由 anatomy 反推：高取 `full` 的 106，宽 = 106×16/9 = 188.4，
- * 于是 x 越过 viewBox 的 0..120 边界——**多出去的是透明边，不是越界**，猫在 16:9 海报里本来就该有横向留白。
- * `placeCrop` 不许把 x 夹回 [0,120]（夹了就把 16:9 变成 4:3，`--check` 的尺寸判据当场红）。
+ * 取景不是「裁切」，是「缩放 + 落位」：`window` 只决定每 viewBox 单位几个像素，画布边界才是真正的裁剪线。
+ * 所以下面的 `window` 记的是**要装下的那块 anatomy**，`anchor` 才是构图——要挪画面就改 anchor。
+ *
+ * 五个框都是 Task 24 全表实测后定的（实测量见 `--check` 的覆盖度/质心/边缘接触）：
+ * - 整只猫的真实墨迹是 x 16.5..137.5、y 8.6..116.1（`prone` 的尾巴最右、`happy` 的耳朵最高），
+ *   **不以 x=60 对称**——尾巴把重心整个拽到右边。`full` 因此装下整条尾巴（anchor x=77），
+ *   否则 240px 的欢迎页上会看到尾巴在右缘被平切。
+ * - `bust` 留 10% 白：`happy` 是唯一会把头弹出画布顶的姿态（jumpY -8），9% 时耳尖正好贴边。
+ * - `square` 是「脸填满画框」的那一档：耳朵本来就该顶到上缘，84px 下脸越大越好认。
+ * - `round` 是 42px 的圆头像，重心落在画布中心附近（锚 50 时 `prone` 的头会掉到下半张）。
+ * - `wide` 是本期唯一的 16:9 档，只服务 `public/cyrene-welcome.png`（R-D1 实测：`min(860px,100%)` × `aspect-ratio:16/9`）。
+ *   它的 `window` 由**目标宽高比**反推而不是由 anatomy 反推：高取 `full` 的 106，宽 = 106×16/9 = 188.4，
+ *   于是 x 越过 viewBox 的 0..120 边界——**多出去的是透明边，不是越界**，猫在 16:9 海报里本来就该有横向留白。
+ *   `placeCrop` 不许把 x 夹回 [0,120]（夹了就把 16:9 变成 4:3，`--check` 的尺寸判据当场红）。
  */
 export const CAT_CROPS: Record<CropName, CatCrop> = {
-  full: { window: [14, 8, 106, 114], anchor: [60, 62], pad: 0.06, mask: "none" },
-  bust: { window: [26, 20, 94, 88], anchor: [60, 56], pad: 0.05, mask: "none" },
-  square: { window: [34, 20, 86, 72], anchor: [60, 46], pad: 0.04, mask: "none" },
-  round: { window: [34, 20, 86, 72], anchor: [60, 46], pad: 0.04, mask: "disc" },
+  full: { window: [16, 8, 138, 112], anchor: [77, 63], pad: 0.08, mask: "none" },
+  bust: { window: [24, 14, 96, 94], anchor: [60, 57], pad: 0.1, mask: "none" },
+  square: { window: [32, 14, 88, 78], anchor: [60, 48], pad: 0.08, mask: "none" },
+  round: { window: [32, 12, 88, 80], anchor: [60, 58], pad: 0.18, mask: "disc" },
   wide: { window: [-34.2, 6, 154.2, 112], anchor: [60, 59], pad: 0.02, mask: "none" },
 };
 
@@ -91,7 +99,13 @@ export interface SpriteSpec {
   energy?: number;
 }
 
-export const SPRITE_DROPPED_LAYERS: readonly PetLayer[] = ["zzz", "capsule", "unread"];
+/**
+ * 静帧不画「活猫的记号」。前三个是 R-D10 的文本层；`badge` 是 Task 24 全表实测后补的：
+ * 同一枚状态徽章画在 (103,28)、半径 11，在五个取景里分别落成「全身刚好装下 / 半身切一半 /
+ * 方图整个在画布外 / 圆图在盘沿刮出一道月牙」——同一样东西四种下场，静态情绪图里它又只是
+ * 情绪的重复（姿态与脸已经说了同一句话）。要改这项，先看 `--check` 的覆盖度/质心全表。
+ */
+export const SPRITE_DROPPED_LAYERS: readonly PetLayer[] = ["zzz", "capsule", "unread", "badge"];
 
 export function placeCrop(crop: CatCrop, size: { w: number; h: number }): { u: number; center: { x: number; y: number } } {
   const [x0, y0, x1, y1] = crop.window;

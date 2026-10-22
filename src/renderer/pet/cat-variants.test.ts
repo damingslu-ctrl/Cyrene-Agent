@@ -45,12 +45,17 @@ describe("姿态与取景轴", () => {
     expect(seen.size, "有姿态画出来一模一样＝姿态没差别").toBe(POSES.length);
   });
 
-  it("取景算式：越紧的框，映射比例 s 越大，且猫心落在画布中心", () => {
+  it("取景算式：越紧的框，映射比例 s 越大；full 把尾巴装进来后身体轴左移", () => {
     const size = { w: 512, h: 512 };
     const s = CROPS.map((c) => placeCrop(CAT_CROPS[c], size).u);
     expect(s[1]).toBeGreaterThan(s[0]);   // bust 比 full 紧
     expect(s[2]).toBeGreaterThan(s[1]);   // square 更紧
-    expect(Math.abs(placeCrop(CAT_CROPS.full, size).center.x - 256)).toBeLessThan(40);
+    // Task 24 实测：墨迹横跨 x 16.5..137.5，尾巴把包围盒中点推到 77，于是 `full` 的锚点从身体轴 60
+    // 挪到 77 —— 否则 240px 的欢迎页上尾巴在右缘被平切。旧断言「center 距画布中心 <40px」是
+    // 尾巴被切掉时才成立的构图；现在身体轴按设计左移半个尾宽（实测 65.6px @512），仍要落在带内。
+    const dx = 256 - placeCrop(CAT_CROPS.full, size).center.x;
+    expect(dx).toBeGreaterThan(40);
+    expect(dx).toBeLessThan(90);
   });
 
   it("wide 档确实是 16:9，且横向不夹回 viewBox（欢迎海报唯一非方图，R-D1）", () => {
@@ -72,7 +77,12 @@ describe("姿态与取景轴", () => {
     expect(raw.some((o) => o.kind === "text"), "raw 里没有 Z，正对照失效").toBe(true);
     const viaSprite = buildSpriteOps({ coat: "ink", pose: "sleep", crop: "full" }, { w: 256, h: 256 });
     expect(viaSprite.some((o) => o.layer === "zzz")).toBe(false);
-    expect(SPRITE_DROPPED_LAYERS).toEqual(["zzz", "capsule", "unread"]);
+    // `badge` 是 Task 24 全表实测后补进名单的：同一枚徽章在五个取景里落成四种下场
+    // （全身刚好装下 / 半身切一半 / 方图整个出画 / 圆图在盘沿刮出月牙），静帧情绪图不要它。
+    expect(SPRITE_DROPPED_LAYERS).toEqual(["zzz", "capsule", "unread", "badge"]);
+    expect(viaSprite.some((o) => o.layer === "badge")).toBe(false);
+    // 正对照：badge 在原始图层里确实存在（`happy` 必画绿勾），过滤器不是空转。
+    expect(buildCatOps({ ...NEUTRAL, mood: "happy" }).some((o) => o.layer === "badge")).toBe(true);
   });
 
   it("不带 coat、不带两轴时逐 op 与默认花色等价（运行时那只猫逐像素不变）", () => {
