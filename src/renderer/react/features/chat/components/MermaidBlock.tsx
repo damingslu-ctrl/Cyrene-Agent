@@ -9,19 +9,9 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "../../../i18n";
 import { renderMermaidSVG } from "beautiful-mermaid";
+import { MERMAID_THEME } from "../../../../../shared/palette-from-cat";
 import { isOverSourceLimit, sanitizeSvg, stripFontImports } from "./svg-sanitize";
 import { SvgPreviewModal } from "./SvgPreviewModal";
-
-/** 麻糬粉白主题：底色米白、主文字暖棕、点缀樱花粉 */
-const CYRENE_THEME = {
-  bg: "#fffafc",
-  fg: "#4a3f44",
-  line: "#d9b8c4",
-  accent: "#e8a0b4",
-  muted: "#9a8a91",
-  surface: "#fdf0f3",
-  border: "#f0d4dc",
-};
 
 type MermaidResult =
   | { kind: "svg"; svg: string }
@@ -32,7 +22,7 @@ type MermaidResult =
 export function renderMermaidSafe(code: string): MermaidResult {
   if (isOverSourceLimit(code)) return { kind: "fuse" };
   try {
-    const raw = renderMermaidSVG(code, CYRENE_THEME);
+    const raw = renderMermaidSVG(code, MERMAID_THEME);
     const svg = sanitizeSvg(stripFontImports(raw));
     if (!svg) return { kind: "error" };
     return { kind: "svg", svg };

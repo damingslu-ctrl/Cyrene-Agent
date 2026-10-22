@@ -10,6 +10,8 @@ import { Alert, Button, Modal, Spin } from "antd";
 import { BarChart3, Info, RefreshCcw } from "lucide-react";
 import { useTranslation } from "../../i18n";
 import { SettingsSegmented } from "../../components/ui/SettingsControls";
+import { CATEGORICAL_COLORS } from "../../../../shared/palette-from-cat";
+import { DIM, withAlpha } from "../../../../shared/pet-tokens";
 import {
   buildDailyModelSeries,
   buildHeatmap,
@@ -322,8 +324,10 @@ export function UsageStatsPanel() {
   );
 }
 
-const CHART_TICK_COLOR = "rgba(120, 110, 130, 0.75)";
-const CHART_GRID_COLOR = "rgba(120, 110, 130, 0.14)";
+// chart.js 画在 canvas 上，fillStyle 不认 CSS 变量；所以刻度与网格线只能是具体值。
+// 取板上 DIM（次要墨）按 alpha 压出来：坐标轴文字用 0.75，网格线用 0.14。
+const CHART_TICK_COLOR = withAlpha(DIM, 0.75);
+const CHART_GRID_COLOR = withAlpha(DIM, 0.14);
 
 // chart.js 动画上下文运行时带 index 字段（官方 Progressive Line 示例的用法，类型定义里没声明），此处收窄。
 interface LineAnimCtx {
@@ -431,7 +435,7 @@ function TrendChart({ days, t }: { days: UsageDay[]; t: (key: string) => string 
                 return model ? `${model.name}: ${formatTokenCompact(Number(item.parsed?.y ?? 0))}` : "";
               },
               labelColor: (item) => {
-                const color = series.models[item.datasetIndex]?.color ?? "#ec4899";
+                const color = series.models[item.datasetIndex]?.color ?? CATEGORICAL_COLORS[0];
                 return { borderColor: color, backgroundColor: color, borderWidth: 0, borderRadius: 2 };
               },
             },

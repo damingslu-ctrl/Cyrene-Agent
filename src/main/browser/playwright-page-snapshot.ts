@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { runInNewContext } from "node:vm";
 import type { WebContents } from "electron";
+import { ACCENT, withAlpha } from "../../shared/pet-tokens";
 
 const PLAYWRIGHT_WORLD_ID = 9876;
 const PLAYWRIGHT_GLOBAL = "__cyrenePlaywrightInjected";
@@ -237,9 +238,9 @@ const START_ELEMENT_PICKER_SCRIPT = `(() => {
       savedStyles.set(element, ["outline", "outline-offset", "box-shadow"].map((name) => [
         name, element.style.getPropertyValue(name), element.style.getPropertyPriority(name),
       ]));
-      element.style.setProperty("outline", "2px solid #ff4f91", "important");
+      element.style.setProperty("outline", "2px solid ${ACCENT}", "important");
       element.style.setProperty("outline-offset", "2px", "important");
-      element.style.setProperty("box-shadow", "0 0 0 4px rgba(255,79,145,.25)", "important");
+      element.style.setProperty("box-shadow", "0 0 0 4px ${withAlpha(ACCENT, 0.25)}", "important");
     }
   };
   const onMove = (event) => {

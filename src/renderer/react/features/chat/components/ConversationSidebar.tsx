@@ -14,6 +14,7 @@ import { SettingsSegmented } from "../../../components/ui/SettingsControls";
 import { reportChatPerfRender } from "./chat-perf-probe";
 import type { ChatSessionMeta, ConversationMode } from "../../../../../shared/chat-types";
 import type { SidebarOrganizationDraft, SidebarOrganizationSnapshot } from "../../../../../shared/sidebar-organization";
+import { LIGHT_TOKENS, PICKER_PRESET_COLORS } from "../../../../../shared/palette-from-cat";
 
 interface ConversationSidebarProps {
   mode: ConversationMode;
@@ -86,7 +87,7 @@ function formatModifiedTime(timestamp: number): string {
 
 function getThemeAccentColor(): string {
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--rb-accent").trim();
-  return /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : "#ff5b8a";
+  return /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : LIGHT_TOKENS["--rb-accent"];
 }
 
 function ProjectInfoCard({
@@ -1231,7 +1232,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
               value={nameDialog.color ?? getThemeAccentColor()}
               format="hex"
               showText
-              presets={[{ label: t("sidebar.colorPresets"), colors: ["#ff5b8a", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#64748b"] }]}
+              presets={[{ label: t("sidebar.colorPresets"), colors: [...PICKER_PRESET_COLORS] }]}
               onChange={(color) => setNameDialog((current) => current ? { ...current, color: color.toHexString() } : current)}
             />
           </div>

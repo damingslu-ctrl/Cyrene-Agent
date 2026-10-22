@@ -205,6 +205,83 @@ export const DARK_TOKENS: TokenMap = build("dark");
 export const TOKENS_BY_SCHEME: Record<ThemeScheme, TokenMap> = { light: LIGHT_TOKENS, dark: DARK_TOKENS };
 
 /**
+ * 定性色板：甜甜圈 / 堆叠条这类「按模型分色」的图表要几个能互相分开的颜色。
+ *
+ * 为什么不给 CSS 变量：chart.js 画在 canvas 上，`fillStyle = "var(--x)"` 不成立，
+ * 必须给具体值。这几个值全部取自猫板（`pet-tokens.ts`），不引入板外色。
+ *
+ * 猫板只有四个色相族（蓝 / 绿 / 橙 / 胭脂红），所以这里是「四族 + 两档亮度」——
+ * 这是板本身的限制，不是偷懒：真要更多互不相同的色相就得离开猫板。
+ */
+export const CATEGORICAL_COLORS = [
+  ACCENT,       // 蓝
+  GREEN,        // 绿
+  WARN,         // 橙
+  ROSE_DEEP,    // 胭脂红
+  ACCENT_FG,    // 蓝（亮档）
+  GREEN_FG,     // 绿（亮档）
+] as const;
+
+/**
+ * 分组 / 分类取色器的预设色：八个能互相分开的猫板色。
+ *
+ * 为什么单独一份而不是复用 `CATEGORICAL_COLORS`：图表要的是「尽量不同的色相」，
+ * 取色器要的是「八个摆在一起还认得出」的色板——后者允许同色系的两档（蓝的两档、
+ * 绿的两档）并排，因为人眼是靠明度而不是靠色相分开相邻色块的。
+ */
+export const PICKER_PRESET_COLORS = [
+  ACCENT,       // 蓝
+  ACCENT_FG,    // 蓝（亮）
+  GREEN,        // 绿
+  GREEN_FG,     // 绿（亮）
+  WARN,         // 橙
+  ROSE_DEEP,    // 胭脂红
+  ROSE,         // 胭脂红（亮）
+  DIM,          // 灰
+] as const;
+
+/**
+ * Mantine 的主色标度：Mantine 只认 `theme.colors` 里的一族十档，且主色不吃 CSS 变量，
+ * 所以这里给具体值。十档全部由猫板的蓝一族洗出来（浅 → 深），不引入板外色。
+ *
+ * 两档主色各占一格，位置由 Mantine 的 `primaryShade` 决定：
+ * - index 6 = ACCENT = 浅色档的 `--rb-accent`；
+ * - index 8 = ACCENT_FG = 深色档的 `--rb-accent`（深底上必须抬到亮端）。
+ *
+ * index 8 比 index 7 亮不是笔误：这族的「深」是给浅底用的，深底档的主色反而要亮。
+ */
+export const MANTINE_ACCENT_SCALE = [
+  wash(ACCENT, 12, WHITE),
+  wash(ACCENT, 32, WHITE),
+  wash(ACCENT, 64, WHITE),
+  wash(ACCENT, 104, WHITE),
+  wash(ACCENT, 160, WHITE),
+  ACCENT_HOVER,
+  ACCENT,                                  // index 6：浅色档主色
+  ACCENT_DEEP,
+  ACCENT_FG,                               // index 8：深色档主色
+  wash(ACCENT_DEEP, 205, INK),
+] as const;
+
+/**
+ * Mermaid 图主题：气泡里渲染的流程图/时序图，beautiful-mermaid 只吃具体色值
+ * （SVG 里没有 CSS 变量），所以这里给一份从猫板派生出来的固定浅底主题。
+ *
+ * 为什么是浅底不跟主题：图内容本身要印在聊天气泡里，气泡底色由主题决定，
+ * 让图底跟着主题翻会把节点描边和气泡描边搅在一起。原版就是固定的米白底，
+ * 这里只把「麻糬粉白」换成「猫板米白 + 猫蓝强调」。
+ */
+export const MERMAID_THEME = {
+  bg: PAPER,                                  // 奶油纸：图底
+  fg: INK,                                    // 墨：主文字
+  line: PAPER_SHADE,                          // 线 / 箭头
+  accent: ACCENT,                             // 猫蓝：节点描边与高亮
+  muted: DIM,                                 // 次要文字
+  surface: wash(PAPER_SHADE, 45, PAPER),      // 节点底（比图底沉一档）
+  border: wash(PAPER_SHADE, 110, PAPER),      // 节点描边
+} as const;
+
+/**
  * 主进程给原生窗用的底色。CSS 变量在 `new BrowserWindow()` 那一刻还不存在（渲染进程还没起来），
  * 只能传字符串——这就是色板必须住在 `src/shared/` 的理由（见 Task 17）。
  */
