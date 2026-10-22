@@ -768,7 +768,7 @@ export class AgentRunController {
       streaming: true,
       responseStarted: true,
       // 终态已定：后面几帧只是把正文补完，不能再把阶段退回「组织回复」，
-      // 否则回复都出完了，面板头还挂着"昔涟正在组织回复…"。
+      // 否则回复都出完了，面板头还挂着"麻糬正在组织回复…"。
       ...(this.terminalStage ? {} : { runStage: { kind: "responding" } as AgentRunStage }),
     });
   }

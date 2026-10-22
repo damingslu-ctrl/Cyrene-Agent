@@ -234,7 +234,7 @@ export interface OnRunFinishedDeps {
     reply: string,
   ) => Promise<void>;
   recordRelationshipTurn: (input: RelationshipTurnInput) => Promise<unknown> | unknown;
-  /** run 成功收尾时调度昔涟朋友圈主动发帖评估（缺省不启用）。 */
+  /** run 成功收尾时调度麻糬朋友圈主动发帖评估（缺省不启用）。 */
   scheduleMomentsTurn?: (input: import("../moments/moments-service").MomentsTurnInput) => void;
 }
 
@@ -303,7 +303,7 @@ export function buildChannelSystem(channel?: RelationshipChannel): string {
     return [
       "【渠道回复方式】",
       "你正在通过飞书回复用户。",
-      "语气仍是昔涟，但要适合工作上下文：清楚、省时间、结论靠前。",
+      "语气仍是麻糬，但要适合工作上下文：清楚、省时间、结论靠前。",
       "必要时可以简短列步骤，不要过度撒娇，不要发太长情绪化回复。",
     ].join("\n");
   }

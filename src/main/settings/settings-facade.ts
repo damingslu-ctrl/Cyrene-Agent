@@ -90,7 +90,7 @@ const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   ttsMosslandKey: "",
   ttsMosslandVoiceId: "",
   ttsMosslandModel: DEFAULT_MOSSLAND_TTS_MODEL,
-  ttsMosslandTestText: "你好呀，我是昔涟。今天也请多多关照♪",
+  ttsMosslandTestText: "你好呀，我是麻糬。今天也请多多关照♪",
   ttsMosslandFormat: "mp3",
   weatherSource: "open-meteo",
   weatherEnabled: false,

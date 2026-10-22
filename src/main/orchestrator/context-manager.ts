@@ -5,7 +5,7 @@ import { getTimeoutSettings } from "../timeout-manager";
 import { recoverPortableMessage } from "./vendors/model-history";
 import { recordRequest, recordUsage } from "../token-usage-store";
 
-const COMPRESSION_PROMPT = `你正在帮"昔涟"整理对话记忆。请把下面这段较早的对话历史总结成一段简洁的摘要，供后续回复参考。
+const COMPRESSION_PROMPT = `你正在帮"麻糬"整理对话记忆。请把下面这段较早的对话历史总结成一段简洁的摘要，供后续回复参考。
 
 要求：
 1. 保留用户的核心目标、当前任务、未完成的待办事项。
@@ -67,7 +67,7 @@ function formatConversation(messages: ChatMessage[]): string {
   return messages
     .map(recoverPortableMessage)
     .map((m) => {
-      const prefix = m.role === "user" ? "用户" : m.role === "assistant" ? "昔涟" : m.role;
+      const prefix = m.role === "user" ? "用户" : m.role === "assistant" ? "麻糬" : m.role;
       const text = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
       return `--- ${prefix} ---\n${text}`;
     })

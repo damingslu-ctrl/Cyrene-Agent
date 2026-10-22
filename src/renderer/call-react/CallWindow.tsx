@@ -18,7 +18,7 @@ function statusLabel(state: string, error: string): string {
   switch (state) {
     case "LISTENING": return "正在聆听你说话";
     case "THINKING": return "正在想怎么回答…";
-    case "SPEAKING": return "昔涟正在说话";
+    case "SPEAKING": return "麻糬正在说话";
     case "ENDED": return "本次通话已结束";
     case "ERROR": return "通话连接遇到问题";
     default: return "正在连接…";
@@ -41,7 +41,7 @@ export function CallWindow() {
   return (
     <main className={`cy-call-window is-${state.toLowerCase()}`}>
       <header className="cy-call-window__titlebar">
-        <div className="cy-call-window__brand"><Sparkles size={14} aria-hidden="true" /><span>昔涟 · 语音通话</span></div>
+        <div className="cy-call-window__brand"><Sparkles size={14} aria-hidden="true" /><span>麻糬 · 语音通话</span></div>
         <button type="button" className="cy-call-window__close" onClick={hangup} aria-label="结束通话"><X size={17} /></button>
       </header>
 
@@ -69,7 +69,7 @@ export function CallWindow() {
               <div className="cy-call-window__messages" role="log" aria-live="polite" ref={conversationRef}>
                 {messages.length ? messages.map((message) => (
                   <article className={`cy-call-window__message is-${message.speaker}`} key={message.id}>
-                    <span>{message.speaker === "user" ? "你" : "昔涟"}</span>
+                    <span>{message.speaker === "user" ? "你" : "麻糬"}</span>
                     <p>{message.text}</p>
                   </article>
                 )) : <p className="cy-call-window__empty">你们的对话会出现在这里</p>}
@@ -79,7 +79,7 @@ export function CallWindow() {
             <motion.section
               key="avatar"
               className="cy-call-window__avatar-scene"
-              aria-label="昔涟通话画面"
+              aria-label="麻糬通话画面"
               initial={reduceMotion ? false : { opacity: 0, scale: 0.985 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.985 }}
@@ -90,12 +90,12 @@ export function CallWindow() {
                 <span className="cy-call-window__orbit cy-call-window__orbit--outer" aria-hidden="true" />
                 <span className="cy-call-window__orbit cy-call-window__orbit--inner" aria-hidden="true" />
                 <button type="button" className="cy-call-window__avatar" onClick={() => setShowConversation(true)} aria-label="查看通话对话">
-                  {avatar && <img src={avatar} alt="昔涟" draggable={false} />}
+                  {avatar && <img src={avatar} alt="麻糬" draggable={false} />}
                 </button>
                 <span className="cy-call-window__sparkle cy-call-window__sparkle--one" aria-hidden="true">✦</span>
                 <span className="cy-call-window__sparkle cy-call-window__sparkle--two" aria-hidden="true">✧</span>
               </div>
-              <h1>昔涟</h1>
+              <h1>麻糬</h1>
               <p className="cy-call-window__hint">轻点头像，看看你们正在聊什么</p>
               <div className={`cy-call-window__waveform ${active ? "is-active" : ""}`} aria-label={`麦克风音量 ${Math.round(volume * 100)}%`}>
                 <AudioLines size={17} aria-hidden="true" />

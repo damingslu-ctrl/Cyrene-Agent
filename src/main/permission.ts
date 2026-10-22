@@ -244,7 +244,7 @@ export async function checkPermission(input: {
   if (policy === "deny") {
     return {
       allowed: false,
-      reason: "当前档位「" + ACCESS_LEVEL_LABEL[level] + "」不允许此操作（risk=" + input.risk + "）。请到设置 → 昔涟 → 本地文件权限提升档位。",
+      reason: "当前档位「" + ACCESS_LEVEL_LABEL[level] + "」不允许此操作（risk=" + input.risk + "）。请到设置 → 麻糬 → 本地文件权限提升档位。",
     };
   }
   // ask → 弹审批（不设超时，等用户回应或 run 终态取消）

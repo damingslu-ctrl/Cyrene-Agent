@@ -21,7 +21,7 @@ system-status/
   "name": "系统状态",
   "version": "0.1.0",
   "description": "查询系统状态：CPU/内存/GPU/磁盘/网络/电池",
-  "author": "Cyrene",
+  "author": "Mochi",
   "entry": "index.cjs",
   "icon": "avatar.png",
   "defaultEnabled": false

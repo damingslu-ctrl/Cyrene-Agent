@@ -158,7 +158,7 @@ export async function initWorldbook(): Promise<void> {
   await worldbook.loadFromDirectory();
 
   // 把实体图谱中的已有实体名灌入 jieba 自定义词典
-  // 防止 "昔涟"、"小鹿" 等 AI 伴侣核心名词被错误切分
+  // 防止 "麻糬"、"小鹿" 等 AI 伴侣核心名词被错误切分
   await feedEntityNamesToJieba();
   logger.info(LogTag.RAG, "worldbook initialized");
 }

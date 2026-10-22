@@ -89,7 +89,7 @@ const defaults: TtsValues = {
   ttsMosslandKey: "",
   ttsMosslandVoiceId: "",
   ttsMosslandModel: DEFAULT_MOSSLAND_TTS_MODEL,
-  ttsMosslandTestText: "你好，我是昔涟，很高兴见到你。",
+  ttsMosslandTestText: "你好，我是麻糬，很高兴见到你。",
   ttsMosslandFormat: "mp3",
 };
 
@@ -101,7 +101,7 @@ const providerFields: Record<Provider, Array<keyof TtsValues>> = {
   mossland: ["ttsMosslandKey", "ttsMosslandVoiceId", "ttsMosslandModel", "ttsMosslandTestText", "ttsMosslandFormat"],
 };
 
-const testText = "你好，我是昔涟，很高兴见到你。";
+const testText = "你好，我是麻糬，很高兴见到你。";
 const providerDocs = {
   minimax: "https://platform.minimax.cn/docs/api-reference/voice-cloning-uploadcloneaudio",
   minimaxErrors: "https://platform.minimax.cn/docs/api-reference/errorcode",

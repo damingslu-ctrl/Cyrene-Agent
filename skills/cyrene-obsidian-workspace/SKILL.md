@@ -1,7 +1,7 @@
 ---
 name: cyrene-obsidian-workspace
 
-description: Cyrene 在 Learn 模式下操作 Obsidian Vault 的规范：目录约定、文件读取、按标题定位、创建与修改 Markdown 的安全原则。
+description: Mochi 在 Learn 模式下操作 Obsidian Vault 的规范：目录约定、文件读取、按标题定位、创建与修改 Markdown 的安全原则。
 version: 1.0.0
 autoInject: true
 effectKind: mutation
@@ -9,9 +9,9 @@ modes:
   - learn
 ---
 
-# Cyrene Obsidian Workspace
+# Mochi Obsidian Workspace
 
-本 Skill 描述 Cyrene 在 Learn 模式下如何操作绑定的 Obsidian Vault。常驻规则已由 `learn_system.md` 定义，本 Skill 只保留可执行的文件操作规范。
+本 Skill 描述 Mochi 在 Learn 模式下如何操作绑定的 Obsidian Vault。常驻规则已由 `learn_system.md` 定义，本 Skill 只保留可执行的文件操作规范。
 
 ## Vault 目录约定
 

@@ -7,7 +7,7 @@ modes:
   - work
 ---
 
-# Cyrene Work Hygiene
+# Mochi Work Hygiene
 
 本 Skill 是可变的工作区施工规范：让用户能一眼找到原始资料、进行中的材料和最终交付物。它不替代已有的 Office Skills，也不要求为了整齐而建立空目录。
 

@@ -88,13 +88,13 @@ export function MomentPostCard({
   const [commentError, setCommentError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
-  // 作者显示名：昔涟/用户走既定名，其余角色昵称按当前语言翻译
+  // 作者显示名：麻糬/用户走既定名，其余角色昵称按当前语言翻译
   const authorName = (author: MomentAuthor): string =>
     author === "cyrene" ? t("moments.cyreneName") : author === "user" ? userDisplayName : translateCharacterName(author, t);
   const isCharacterAuthor = (author: MomentAuthor): boolean => author !== "user" && author !== "cyrene";
 
   const likedByUser = likes.some((like) => like.actor === "user");
-  // 点赞行只展示真实落库的点赞（角色/昔涟的延迟点赞到达后经广播刷新出现）
+  // 点赞行只展示真实落库的点赞（角色/麻糬的延迟点赞到达后经广播刷新出现）
   const likeNames = likes.map((like) => authorName(like.actor));
   const commentsById = useMemo(() => new Map(comments.map((comment) => [comment.id, comment])), [comments]);
   const replyTarget = replyTo ? commentsById.get(replyTo) : undefined;

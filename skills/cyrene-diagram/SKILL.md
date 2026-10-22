@@ -1,11 +1,11 @@
 ---
 name: cyrene-diagram
-description: 手写 SVG 学习卡片的设计契约：何时用 SVG 卡片（而非 Mermaid）、Cyrene 粉白主题 token、防重叠布局铁律、复杂度预算与输出纪律。
+description: 手写 SVG 学习卡片的设计契约：何时用 SVG 卡片（而非 Mermaid）、Mochi 粉白主题 token、防重叠布局铁律、复杂度预算与输出纪律。
 version: 1.0.0
 autoInject: true
 ---
 
-# Cyrene Diagram（SVG 学习卡片）
+# Mochi Diagram（SVG 学习卡片）
 
 当信息的组织方式是**卡片 / 分层 / 矩阵**而非"节点 + 连线"时，手写一张 SVG 学习卡片；
 标准结构图（流程、时序、状态、类图、ER）优先用 Mermaid 围栏，不要手画。

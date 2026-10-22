@@ -65,7 +65,7 @@ export function shouldRetrievePostContext(query: string): boolean {
 // ── 格式化辅助 ──────────────────────────────────────────────────
 
 function authorLabel(author: MomentPost["author"]): string {
-  return author === "cyrene" ? "昔涟" : "用户";
+  return author === "cyrene" ? "麻糬" : "用户";
 }
 
 function pad2(value: number): string {
@@ -103,8 +103,8 @@ function isMomentReaction(interaction: MomentComment | MomentReaction): interact
 // ── Layer 1：Recent Moments State（每轮常驻） ────────────────────
 
 /**
- * 最近 48h 内最多 3 条动态摘要（不分 author，昔涟自身动态同样覆盖）。
- * 昔涟的点赞 / 评论以行内标注体现；无近期动态时返回空串（调用方按空省略）。
+ * 最近 48h 内最多 3 条动态摘要（不分 author，麻糬自身动态同样覆盖）。
+ * 麻糬的点赞 / 评论以行内标注体现；无近期动态时返回空串（调用方按空省略）。
  */
 export function buildRecentMomentsBlock(
   posts: readonly MomentPost[],
@@ -122,10 +122,10 @@ export function buildRecentMomentsBlock(
     let line = `- ${formatRecentTime(post.createdAt, now)} ${authorLabel(post.author)}发布了动态："${excerpt}"`;
     const annotations: string[] = [];
     if (interactions.some((i) => isMomentReaction(i) && i.actor === "cyrene" && i.postId === post.id)) {
-      annotations.push("昔涟已点赞");
+      annotations.push("麻糬已点赞");
     }
     if (interactions.some((i) => !isMomentReaction(i) && i.author === "cyrene" && i.postId === post.id)) {
-      annotations.push("昔涟已评论");
+      annotations.push("麻糬已评论");
     }
     if (annotations.length > 0) line += `（${annotations.join("，")}）`;
     return line;
@@ -157,7 +157,7 @@ function scorePost(post: MomentPost, query: string, now: number): number {
   let score = 0;
   const ageHours = (now - post.createdAt) / 3_600_000;
   score += ageHours <= 48 ? (48 - ageHours) / 48 : 0.01;
-  // 指代方向：提到"你"优先昔涟动态，提到"我"优先用户动态
+  // 指代方向：提到"你"优先麻糬动态，提到"我"优先用户动态
   if (query.includes("你") && post.author === "cyrene") score += 1;
   if (query.includes("我") && post.author === "user") score += 1;
   // 关键词命中：查询与标题 + 正文的共享 2-gram 数（粗粒度，V1 不引入分词）
@@ -282,7 +282,7 @@ function renderSummary(turns: readonly ConversationSummaryTurn[]): string {
   return turns
     .map((turn) => {
       const clock = formatRecentTime(turn.at, turn.at);
-      return `[${clock}] 用户：${turn.user.trim()}\n[${clock}] 昔涟：${turn.assistant.trim()}`;
+      return `[${clock}] 用户：${turn.user.trim()}\n[${clock}] 麻糬：${turn.assistant.trim()}`;
     })
     .join("\n");
 }
@@ -290,7 +290,7 @@ function renderSummary(turns: readonly ConversationSummaryTurn[]): string {
 export interface PostGenerationPacketInput {
   /** 触发摘录：ring buffer 组装的会话原文 */
   summary: string;
-  /** 最近昔涟动态（供新颖性判断，避免重复发相似内容） */
+  /** 最近麻糬动态（供新颖性判断，避免重复发相似内容） */
   recentCyrenePosts: readonly MomentPost[];
   /** 插件提示词上下文，moments-post 场景；空串/缺省不注入 */
   pluginContext?: string;

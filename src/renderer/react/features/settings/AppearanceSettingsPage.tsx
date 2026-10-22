@@ -121,7 +121,7 @@ export function AppearanceSettingsPage({ section, onSelectSection, onBackToWorks
   // 版本称号（如 1.3.0 的"正式版"）随版本走，普通版本查不到就不显示
   const versionTitleKey = resolveVersionTitleKey(packageJson.version);
   const [avatarBusy, setAvatarBusy] = useState(false);
-  // 昔涟消息字体：ref 记住最新值，松手保存时不依赖可能过期的渲染闭包
+  // 麻糬消息字体：ref 记住最新值，松手保存时不依赖可能过期的渲染闭包
   const typographyRef = useRef<MessageTypography>(DEFAULT_MESSAGE_TYPOGRAPHY);
 
   useEffect(() => {
@@ -212,7 +212,7 @@ export function AppearanceSettingsPage({ section, onSelectSection, onBackToWorks
     }
   }
 
-  // 昔涟消息字体：拖动时实时写入 CSS 变量预览，松手由 saveTypography 落盘
+  // 麻糬消息字体：拖动时实时写入 CSS 变量预览，松手由 saveTypography 落盘
   function updateTypography(key: keyof MessageTypography, value: number) {
     const next = { ...typographyRef.current, [key]: value };
     typographyRef.current = next;

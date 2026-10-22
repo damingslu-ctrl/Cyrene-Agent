@@ -301,7 +301,7 @@ async function processFinalTranscript(text: string, generation: number): Promise
       return;
     }
     if (tts.ttsEngine === "mimo" && (!tts.ttsMimoKey || !tts.ttsMimoVoiceAudioPath)) {
-      sendError("TTS 未配置：请在设置中配置小米 MiMo API Key 和昔涟克隆音频");
+      sendError("TTS 未配置：请在设置中配置小米 MiMo API Key 和麻糬克隆音频");
       recoverToListening(generation);
       return;
     }

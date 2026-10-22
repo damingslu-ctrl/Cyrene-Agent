@@ -14,12 +14,12 @@ const MIX_FIXTURE = `## 测试常驻
 fixture permanent 条目，验证旁路（始终注入，不进 DMAE）。
 ---
 
-## 昔涟主角
-- 触发词: 昔涟, Cyrene, 迷迷, 翁法罗斯之心
+## 麻糬主角
+- 触发词: 麻糬, Mochi, 迷迷, 翁法罗斯之心
 - 内在价值: 90
 - 优先级: 200
 
-昔涟是核心角色。
+麻糬是核心角色。
 ---
 
 ## 哀丽秘榭
@@ -91,8 +91,8 @@ fixture permanent 条目，验证旁路（始终注入，不进 DMAE）。
 // 按权重选择（高 0.2 / 中-高 0.3 / 中 0.3 / 低 0.2）
 // 关键词池：每档给一组（用真实 fixture 里条目的触发词子集）
 const TIER_KEYWORDS: Array<{ tier: string; I: number; weight: number; keywords: string[] }> = [
-  // I=90 关键词池：必须与 fixture "昔涟主角" 条目的触发词字段一致，否则生成 rounds 也触发不到。
-  { tier: "high",     I: 90, weight: 0.2, keywords: ["昔涟", "Cyrene", "迷迷", "翁法罗斯之心"] },
+  // I=90 关键词池：必须与 fixture "麻糬主角" 条目的触发词字段一致，否则生成 rounds 也触发不到。
+  { tier: "high",     I: 90, weight: 0.2, keywords: ["麻糬", "Mochi", "迷迷", "翁法罗斯之心"] },
   { tier: "mid-high", I: 70, weight: 0.3, keywords: ["哀丽秘榭", "故乡", "麦田"] },
   { tier: "mid",      I: 45, weight: 0.3, keywords: ["咖啡", "Blender", "猫", "星穹铁道"] },
   { tier: "low",      I: 15, weight: 0.2, keywords: ["今天下午", "天气", "上周"] },

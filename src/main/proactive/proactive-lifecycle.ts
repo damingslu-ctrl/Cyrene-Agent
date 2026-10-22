@@ -183,7 +183,7 @@ export function createProactiveLifecycle(options: ProactiveLifecycleOptions): Pr
     if (!input.intentId) return { kind: "cancelled", reason: "durable_intent_required" };
 
     const session = (await chatsStore.getOrCreateSessionByPurpose("proactive-chat", {
-      title: "昔涟的主动消息",
+      title: "麻糬的主动消息",
       identityId: null,
     }));
     // Stable business identity makes a retry after a derived snapshot failure

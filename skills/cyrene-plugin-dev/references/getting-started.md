@@ -54,13 +54,13 @@ module.exports = {
 
 ### 4. 打包安装
 
-把 `my-first-plugin` 文件夹压成 zip（整体一个文件夹，或 manifest + 入口放 zip 根目录都行），然后：**Cyrene 聊天窗口 → 插件 → 右上角添加按钮 → 选 zip**。插件默认停用，点击“启用”才真正加载。
+把 `my-first-plugin` 文件夹压成 zip（整体一个文件夹，或 manifest + 入口放 zip 根目录都行），然后：**Mochi 聊天窗口 → 插件 → 右上角添加按钮 → 选 zip**。插件默认停用，点击“启用”才真正加载。
 
 本 fork 没有远端收录仓库：想让别人用你的插件，把文件夹压成 zip 直接发给对方，对方在「插件 → 添加」里导入即可。
 
 ### 5. 验证
 
-对昔涟说“打个招呼”，她会调用工具并转述返回内容；聊天窗口插件卡片状态为 `running` 即成功。
+对麻糬说“打个招呼”，她会调用工具并转述返回内容；聊天窗口插件卡片状态为 `running` 即成功。
 
 ---
 
@@ -157,7 +157,7 @@ ctx.events.on("plugin:weather:updated", (w) => refreshUi(w)); // 听别的插件
 await ctx.events.emit("updated", { value: 1 });               // 广播自己的
 ```
 
-**动态上下文**——让昔涟主动"知道"实时状态，不用用户开口问：
+**动态上下文**——让麻糬主动"知道"实时状态，不用用户开口问：
 
 ```js
 ctx.registerPromptProvider({

@@ -87,7 +87,7 @@ export interface ToolDefinition {
   modes?: ConversationMode[];
   /** chat 模式内置人格工具：不依赖 Chat 工具增强总开关、不需要 Chat tab
    *  显式勾选，默认对 chat 会话可见（用户 override.chat === false 仍可关闭）。
-   *  语义是"这是昔涟人格的一部分"——朋友圈等生活能力不应要求用户先翻工具开关。 */
+   *  语义是"这是麻糬人格的一部分"——朋友圈等生活能力不应要求用户先翻工具开关。 */
   chatBuiltin?: boolean;
   /** Chat 内只有本轮带附件时才开放的内置只读工具。 */
   requiresFileAttachments?: boolean;

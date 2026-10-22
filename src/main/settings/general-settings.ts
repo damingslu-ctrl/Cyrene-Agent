@@ -32,13 +32,13 @@ export interface GeneralSettings {
   citaSemanticEngine: "remote";
   /** Chat 模式的轻量社交上下文；默认关闭，开启后每轮最多多一次异步抽取调用。 */
   chatSocialContextEnabled: boolean;
-  /** 朋友圈功能总开关：关闭后 UI 隐藏、Chat 上下文不注入、昔涟不反应不发帖。 */
+  /** 朋友圈功能总开关：关闭后 UI 隐藏、Chat 上下文不注入、麻糬不反应不发帖。 */
   momentsEnabled: boolean;
   /** Chat 模式注入近期朋友圈动态背景；默认开启（只读本地数据，无额外 LLM 调用）。 */
   chatMomentsContextEnabled: boolean;
-  /** 昔涟主动发帖；默认关闭（审慎，与 proactiveChatMode 默认 off 一致）。 */
+  /** 麻糬主动发帖；默认关闭（审慎，与 proactiveChatMode 默认 off 一致）。 */
   cyreneMomentsPostingEnabled: boolean;
-  /** 昔涟对朋友圈动态的点赞/评论反应；默认开启（Feed 内被动行为，不打扰）。 */
+  /** 麻糬对朋友圈动态的点赞/评论反应；默认开启（Feed 内被动行为，不打扰）。 */
   cyreneMomentsReactionsEnabled: boolean;
   /** 角色对朋友圈动态的点赞/评论/互聊；默认开启（有独立日调用上限兜底成本）。 */
   momentsCharacterReactionsEnabled: boolean;
@@ -65,7 +65,7 @@ export interface GeneralSettings {
   /** @deprecated 旧版透明窗口开关，仅保留用于配置兼容。 */
   uiThemeRadius: boolean;
   uiIcon: UiIcon;
-  /** 昔涟回复正文的排版（字号/行距/字距/字重），只作用于 AI 回复气泡。 */
+  /** 麻糬回复正文的排版（字号/行距/字距/字重），只作用于 AI 回复气泡。 */
   messageTypography: MessageTypography;
   /** 聊天窗口打开时默认选中的模式。 */
   defaultChatMode: DefaultChatMode;

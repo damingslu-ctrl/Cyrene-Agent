@@ -1,4 +1,4 @@
-/** 昔涟回复正文的排版设置：只作用于聊天里 AI 回复气泡的 Markdown 正文。 */
+/** 麻糬回复正文的排版设置：只作用于聊天里 AI 回复气泡的 Markdown 正文。 */
 export interface MessageTypography {
   /** 字号（px） */
   fontSize: number;

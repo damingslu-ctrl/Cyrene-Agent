@@ -183,7 +183,7 @@ describe("buildReplyMessages", () => {
     const user = String(messages[1].content);
     expect(user).toContain("[原始动态]");
     expect(user).toContain("昔涟发的动态");
-    expect(user).toContain("用户（回复昔涟）：用户回复昔涟");
+    expect(user).toContain("用户（回复麻糬）：用户回复昔涟");
     expect(user).toContain("之前聊到的约定");
     expect(user).toContain('"shouldReply"');
   });

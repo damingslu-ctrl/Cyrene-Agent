@@ -67,7 +67,7 @@ export const installMcpServerTool: ToolDefinition = {
   id: "install_mcp_server",
   name: "安装 MCP",
   description:
-    "把一个 MCP server 加到昔涟的工具盘里：写入配置 → 启动 → 发现工具。\n\n" +
+    "把一个 MCP server 加到麻糬的工具盘里：写入配置 → 启动 → 发现工具。\n\n" +
     "何时用：\n" +
     "- 用户明确要装某个 MCP server（'帮我装 xxx mcp'）\n" +
     "- 用户给了 MCP 的 GitHub 仓库或配置\n\n" +

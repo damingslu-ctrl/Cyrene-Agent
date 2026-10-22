@@ -58,7 +58,7 @@ const SUMMARY_TOOL_KEYS: Record<string, string> = {
   run_shell: "agentRounds.summaryRunShell",
 };
 
-/** 实时执行中的工具动作名（"昔涟正在{{action}}"用）；优先主进程携带的中文展示名，未知名原样返回。 */
+/** 实时执行中的工具动作名（"麻糬正在{{action}}"用）；优先主进程携带的中文展示名，未知名原样返回。 */
 function liveToolLabel(name: string, displayName?: string): string {
   if (displayName) return displayName;
   const key = LIVE_TOOL_LABEL_KEYS[name];

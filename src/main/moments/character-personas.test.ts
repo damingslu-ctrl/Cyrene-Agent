@@ -315,7 +315,7 @@ describe("formatCharacterTimeline", () => {
     };
     expect(formatCharacterTimeline(timeline)).toBe(
       [
-        '9月5日 10:30 昔涟发布："今天的风很舒服呢"',
+        '9月5日 10:30 麻糬发布："今天的风很舒服呢"',
         "  你点了赞。",
       ].join("\n"),
     );
