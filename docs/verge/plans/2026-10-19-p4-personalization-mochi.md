@@ -6702,7 +6702,8 @@ Expected：工作区干净；提交数与任务数同量级。
 ### 4. 终审修复轮（验收后新增，2026-10-23）
 
 这一轮**不在原计划里**：Task 32 冻结后做整分支终审，扫出三处「上游仍可访问」的洞、两片锁的盲区
-和一条空转测试。修复共 6 笔（`21a18032` / `72cacbb7` / `9b9cbea7` / `d92f541f` / `d1e8644c` / `ed693cd6`）。
+和一条空转测试；收口前复看两把联网工具，又扫出一个重定向旁路（B-4）。
+修复共 7 笔（`21a18032` / `72cacbb7` / `9b9cbea7` / `d92f541f` / `d1e8644c` / `ed693cd6` / `8a4bcfb0`）。
 下面按 §1–§3 的同一口径记，不重述流水。
 
 **4.1 实际改了计划的地方**
@@ -6718,6 +6719,7 @@ Expected：工作区干净；提交数与任务数同量级。
 | 扫描器扩展名 | `SCAN_EXTENSIONS` 补 `.js` / `.cjs` / `.ps1` / `.py` / `.cmd` / `.bat`；正对照钉住四个真实文件（`panel-bridge.js`、`native-import.cjs`、`migrate-user-data.ps1`、`music-component-entry.py`） | 这四份会进产物或被装机流程执行，此前整份在出口规则射程外 |
 | 窗口标题锁 | 从手抄五份 html 改成**目录派生 + 白名单**；表情包窗口的「表情包管理」正是手抄漏掉的；title 并进 `sync-brand.mjs` 生成器 | 手抄清单每新增一个窗口就漏一次 |
 | 派生锁 / 颜色锁 | 派生锁逐层解开 `var()` 间接层并回写表与 CSS 的 6 处不一致；TS/TSX 七处上游粉改走猫板派生；颜色锁补 hsl 与 `.ts/.tsx` 两片盲区，清掉考试页的裸 HSL 上游粉 | 原锁对 `var()` 一律豁免、只认 hex/rgb，也只看 CSS |
+| 重定向闸门 | 新增 `src/main/egress/safe-fetch.ts`：`fetchWithoutUpstreamRedirects()` 手动逐跳，每跳 `isUpstreamUrl`，命中抛 `UpstreamRedirectBlockedError` 且不向上游发请求；两把抓取工具全改走它 | 计划只设计「入口拒绝上游 URL」，没设计「非上游 URL 302 到上游」这条路径；`redirect:"follow"` 让入口闸门只看得到第一跳 |
 
 **4.2 被实测推翻的地方**
 
@@ -6730,6 +6732,8 @@ Expected：工作区干净；提交数与任务数同量级。
 | 多 session 注销测试能证明「注销干净」 | **空转**：变异成「已有 session 就返回」时它仍绿——第二个 session 一个 channel 都没登记，注销循环跑了个寂寞 | `R-F7`：注销前先断言 `sessionCount()===2` 与 `second.registered.length>0` |
 | 变异自检只需证明「实现坏了测试会红」 | 还得证明**测试自己不是空的**；本轮 11 条红里有 1 条最初没红，就是空转 | 同上 |
 | 「定向回归绿 = 改动收口」 | 改了 `fetch_url` 的模型可见描述，`built-in-tools.snapshot.test.ts` 不在定向集合里 → 首轮全量 **1 failed / 594 passed**，红的正是模型可见字段快照 | 更新快照，并改掉 `install_mcp_server` 里「先用 `fetch_url` 读 README」的失效指引（上游 README 已取不到）→ 复跑 **595 passed / 5708 passed / 1 skipped / exit 0**（`D:\cyrene-p4-accept\fix-vitest.log`）。**定向集合是省时，不是收口判据。** |
+| 「入口拒绝上游 URL = 这条外呼路径封死了」 | `fetch_url` / `download_file` 用 `redirect:"follow"`：入口检查只看得见第一跳，非上游短链 302 到 GitHub raw 时请求照发。这是终审 freeze 之后才被复看抓到的 | `safe-fetch.test.ts` 6 个上游 host 各自在跟跳前拒绝（`fetch` 只调用一次）；两把工具各加「只请求短链一次、不落盘」；变异短路逐跳闸门 → **8 条当场红**（R-F8） |
+| 「`CI=true npx vitest run 2>&1 \| tail` 的退出码可信」 | 读到的是 **`tail` 的 0**：那一轮实际 `1 failed \| 594 passed`，失败被读成通过 | 改落日志再取 `echo "exit=$?"`；以后全量一律 `> 日志 2>&1` 后单独读退出码（R-F9，验收记录 §6） |
 
 **4.3 明确移到下一期**
 
@@ -6737,4 +6741,5 @@ Expected：工作区干净；提交数与任务数同量级。
 23. **内置浏览器子资源层不拦**：导航 / 重定向 / 弹窗 / 右键 / favicon / 会话恢复都过闸门，但第三方页面自己发出的 `<img src="https://github.com/…">` 这类子资源请求仍会取。A 期口径是「客户端不主动访问上游」，页面内嵌属用户所访站点的行为；请求级阻断会踩 R-31-2 的阻塞通道坑，留待下期。（R-F6）
 24. **`session-created` 的射程边界**：它只覆盖装尺之后创建的 partition。今天所有 partition 都在 ready 后创建（组合根在 `application.start()` 之前装尺），所以够用；若未来出现 pre-ready session，要改成显式登记，不能假设事件一定到。
 25. **A7 只钉调用形状**：它证明闸门还在被调用，不证明调用后真的拒绝（那由各入口的单测证明）。静态锁与单测是两条腿，缺一条都别读成全绿。
+26. **A8 的射程只到这两把工具**：`fetchWithoutUpstreamRedirects()` 修的是 `fetch_url` / `download_file`。以后新增任何主进程外呼（`net.fetch`、第三方 SDK 自带下载器等），必须自己接逐跳闸门并补锁；**「有 A8」不等于「所有外呼都逐跳校验」**。（R-F8）
 
