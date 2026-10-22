@@ -160,8 +160,19 @@ describe("上游出口清零（静态标识面）", () => {
     expect(files.length).toBeGreaterThan(300);
     // 根配置文件必须真的进了扫描集合：A3 的 publish / 依赖判据只能在这里被证伪，
     // 少了它们规则就是「永远扫不到」的死锁而不是锁。
-    expect(files.map((file) => path.relative(process.cwd(), file))).toEqual(
+    const rel = files.map((file) => posixPath(path.relative(process.cwd(), file)));
+    expect(rel).toEqual(
       expect.arrayContaining(["electron-builder.yml", "package.json"]),
+    );
+    // A-2 正对照：扩展名集合是活的。这四个文件只靠 `.js/.cjs/.ps1/.py` 分支才进得来——
+    // 有人把 SCAN_EXTENSIONS 收回去时这里先红，而不是等上游域名搬进 .cjs 才发现。
+    expect(rel).toEqual(
+      expect.arrayContaining([
+        "src/main/plugin-panel/panel-bridge.js",
+        "src/plugins/native-import.cjs",
+        "scripts/migrate-user-data.ps1",
+        "scripts/packaging/music-component-entry.py",
+      ]),
     );
   });
 

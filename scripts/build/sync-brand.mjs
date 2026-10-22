@@ -86,6 +86,7 @@ export function buildWindowTitles(brand) {
     { file: path.join("src", "renderer", "call-react", "index.html"), title: `${zh} · 语音通话` },
     { file: path.join("src", "renderer", "music", "index.html"), title: `${zh} · 音乐` },
     { file: path.join("src", "renderer", "toast", "index.html"), title: `${zh} · 提醒` },
+    { file: path.join("src", "renderer", "sticker-manager", "index.html"), title: `${zh} · 表情包` },
   ];
 }
 

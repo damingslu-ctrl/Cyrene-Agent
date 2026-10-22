@@ -51,15 +51,19 @@ const ZERO_TOLERANCE_FILES = [
   "src/main/orchestrator/tools/builtin-tools/fetch-url-tool.ts",
 ];
 
-/** 标题/提示形状判据覆盖的文件（同目录内的其余旧拼写是 (c) 档数据键，不在此判据范围）。 */
-const TITLE_SHAPE_FILES = [
+/**
+ * 标题/提示形状判据覆盖的文件：窗口工厂整目录派生（同目录内的其余旧拼写是 (c) 档数据键，
+ * 不在本判据范围），加两个不在 windows/ 下的落点——托盘提示与原生导入对话框。
+ *
+ * 写成派生而不是手抄清单：「表情包管理」窗口的 `title:` 字面量正是手抄时漏掉的——新增窗口工厂
+ * 只要没被登记，它就能带着任意文案进任务栏而锁全绿。改目录派生后，新工厂自动进射程。
+ */
+const NON_WINDOW_TITLE_FILES = [
   "src/main/tray.ts",
-  "src/main/windows/create-aux-windows.ts",
-  "src/main/windows/create-music-player-window.ts",
-  "src/main/windows/create-toast-window.ts",
   // Task 10a 实扫时新发现的 (a) 档落点：原生导入对话框的标题与 zip 过滤器名
   "src/main/plugin-runtime.ts",
 ];
+const TITLE_SHAPE_FILES = [...windowsDirFiles(), ...NON_WINDOW_TITLE_FILES];
 
 /**
  * 反向判据：清扫过的落点必须真的从 brand 取值。
@@ -82,10 +86,14 @@ function read(rel: string): string {
   return readFileSync(path.resolve(process.cwd(), rel), "utf8");
 }
 
+/**
+ * 窗口工厂目录里的**产品代码**。要滤掉 `*.test.ts`：那几份 mock 里的 `name: "cyrene.settings"`
+ * 是 (c) 档持久化键，形状与标题字面量相同，进射程会把「数据键必须保留」误判成残留。
+ */
 function windowsDirFiles(): string[] {
   const dir = path.resolve(process.cwd(), "src/main/windows");
   return readdirSync(dir)
-    .filter((name) => name.endsWith(".ts"))
+    .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
     .map((name) => `src/main/windows/${name}`);
 }
 

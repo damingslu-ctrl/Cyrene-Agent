@@ -206,7 +206,7 @@ export async function createStickerManagerWindow(): Promise<{ ok: boolean; error
     height,
     minWidth: 460,
     minHeight: 360,
-    title: "表情包管理",
+    title: `${BRAND.productName} · 表情包`,
     backgroundColor: "#00000000",
     autoHideMenuBar: true,
     show: false,

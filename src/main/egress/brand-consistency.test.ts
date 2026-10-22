@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, globSync } from "node:fs";
+import * as path from "node:path";
 import { resolve } from "node:path";
 import { load } from "js-yaml";
 import { describe, expect, it } from "vitest";
@@ -53,16 +54,30 @@ describe("身份生成物与 brand.ts 一致", () => {
  * 精确标题，这里守的是**形状**（必须以品牌名开头、不许带开发后缀），
  * 两者不重复定义同一份文案。
  *
- * 只覆盖**用户可见的窗口**：dev 预览页（react-perf / user-menu-preview /
- * plan-approval-preview / ui-preview）不在册。
+ * 文件集**从目录派生**（A-3）：原来手抄五份，于是 `sticker-manager/index.html`
+ * 这种后加的窗口天然在射程外——锁看着绿，其实没扫过它。现在把 `src/renderer/**`
+ * 下所有 html 都算进来，只放行下面这张逐条写理由的排除表。
  */
-const WINDOW_HTMLS = [
-  "src/renderer/index.html",
-  "src/renderer/react/index.html",
-  "src/renderer/call-react/index.html",
-  "src/renderer/music/index.html",
-  "src/renderer/toast/index.html",
+const NOT_A_WINDOW: Array<{ file: string; reason: string }> = [
+  {
+    file: "src/renderer/learn-exam.html",
+    reason: "考试页是浏览器面板里的 WebContentsView 文档（`cyrene-exam://` 协议），没有独立窗口与任务栏名额；它的 <title> 是内嵌页的语义标题",
+  },
+  { file: "src/renderer/react-perf/index.html", reason: "dev 性能基线页（Perf Harness），不随包发布" },
+  { file: "src/renderer/plan-approval-preview.html", reason: "dev 预览页：预览卡片的静态样子" },
+  { file: "src/renderer/user-menu-preview.html", reason: "dev 预览页：头像侧边菜单" },
+  { file: "src/renderer/ui/preview.html", reason: "dev 预览页：设计令牌对照" },
+  { file: "src/renderer/ui/modal.html", reason: "全仓零引用的 dev 片段（`modal.html` 无任何 loadFile/loadURL 指向它）" },
 ];
+
+function windowHtmls(): string[] {
+  const dir = resolve(process.cwd(), "src/renderer");
+  return globSync("**/*.html", { cwd: dir })
+    .map((f) => f.split(path.sep).join("/"))
+    .sort()
+    .map((f) => `src/renderer/${f}`)
+    .filter((f) => !NOT_A_WINDOW.some((entry) => entry.file === f));
+}
 
 function titleOf(relPath: string): string {
   const html = readFileSync(resolve(process.cwd(), relPath), "utf8");
@@ -78,8 +93,26 @@ function titleLooksShipped(title: string): boolean {
 }
 
 describe("窗口标题是品牌派生的，没有开发残余", () => {
+  it("派生的窗口清单非空，且排除表没有过期条目", () => {
+    const htmls = windowHtmls();
+    // 正对照：glob 跑空会让下面那条「逐个合格」直接读成绿。
+    expect(htmls.length, "一个窗口 html 都没派生出来").toBeGreaterThanOrEqual(5);
+    expect(htmls).toEqual(
+      expect.arrayContaining([
+        "src/renderer/index.html",
+        "src/renderer/react/index.html",
+        "src/renderer/sticker-manager/index.html",
+      ]),
+    );
+    // 排除表是显式破例，不是放宽判据：被排除的文件必须仍然存在，否则条目已过期，
+    // 下一个人会把「文件改名了」误读成「已经处理过了」。
+    for (const { file } of NOT_A_WINDOW) {
+      expect(() => readFileSync(resolve(process.cwd(), file), "utf8"), `${file} 已不存在，排除表过期`).not.toThrow();
+    }
+  });
+
   it("用户可见窗口的标题以品牌名开头且不带「（React）」", () => {
-    for (const relPath of WINDOW_HTMLS) {
+    for (const relPath of windowHtmls()) {
       const title = titleOf(relPath);
       expect(titleLooksShipped(title), `${relPath} 的标题「${title}」不合格`).toBe(true);
     }

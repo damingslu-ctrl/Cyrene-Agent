@@ -25,6 +25,8 @@
     "check:renderer": "tsc -p tsconfig.renderer.json",
     "sync:brand": "node scripts/build/sync-brand.mjs",
     "check:brand": "node scripts/build/sync-brand.mjs --check",
+    "check:roster": "node scripts/build/check-roster.mjs",
+    "check:sprites": "node scripts/build/cat-sprites.mjs --check",
     "palette:apply": "node scripts/build/apply-theme-palette.mjs",
     "palette:check": "node scripts/build/apply-theme-palette.mjs --check",
     "palette:migrate": "node scripts/build/apply-color-migration.mjs",
