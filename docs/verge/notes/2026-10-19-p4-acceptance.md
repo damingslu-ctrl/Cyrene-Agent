@@ -2,7 +2,8 @@
 
 - 计划：[docs/verge/plans/2026-10-19-p4-personalization-mochi.md](../plans/2026-10-19-p4-personalization-mochi.md)
 - Spec：[docs/verge/specs/2026-10-19-mochi-personalization-design.md](../specs/2026-10-19-mochi-personalization-design.md)
-- 分支 `verge`，收口提交 `f65cc73d`（`master..HEAD` 共 **97** 个提交），工作区干净。
+- 分支 `verge`；**代码收口**提交 `f65cc73d`，本文件随文档收口提交 `ef0db71c` 落库
+  （`master..HEAD` 共 **98** 个提交，截至 `ef0db71c`），工作区干净。
 - 机器：Windows 11 / Git Bash / Node v24.18.0 / Electron 44.4.3，账号**不在** Administrators 组。
 - 证据根目录 `D:\cyrene-p4-accept\`（截图 / 报告 / 日志），**全部在仓外**，不进 git。
 - `%APPDATA%\Cyrene`（246 MB 上游用户数据）**全程只读禁写**，本次验收没有触碰。
