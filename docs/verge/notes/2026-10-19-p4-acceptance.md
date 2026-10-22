@@ -2,8 +2,10 @@
 
 - 计划：[docs/verge/plans/2026-10-19-p4-personalization-mochi.md](../plans/2026-10-19-p4-personalization-mochi.md)
 - Spec：[docs/verge/specs/2026-10-19-mochi-personalization-design.md](../specs/2026-10-19-mochi-personalization-design.md)
-- 分支 `verge`；**代码收口**提交 `f65cc73d`，本文件随文档收口提交 `ef0db71c` 落库
-  （`master..HEAD` 共 **98** 个提交，截至 `ef0db71c`），工作区干净。
+- 分支 `verge`；**代码收口**提交 `f65cc73d`，本文件随文档收口提交 `ef0db71c` 落库；
+  之后又跑了**终审修复轮** `21a18032…ed693cd6`（6 笔，见 §8）。
+  `master..HEAD` 共 **105** 个提交（截至 `ed693cd6`；本文档随后的文档提交不计入该数），
+  修复轮结束时 `git status --short` 为空。
 - 机器：Windows 11 / Git Bash / Node v24.18.0 / Electron 44.4.3，账号**不在** Administrators 组。
 - 证据根目录 `D:\cyrene-p4-accept\`（截图 / 报告 / 日志），**全部在仓外**，不进 git。
 - `%APPDATA%\Cyrene`（246 MB 上游用户数据）**全程只读禁写**，本次验收没有触碰。
@@ -22,13 +24,18 @@
 | 类型（renderer） | `npx tsc -p tsconfig.renderer.json` | **exit 0**（该项目**没有** `noEmit`，不是本期的改动，按 R-D6 不动） |
 | 全量测试 | `CI=true npx vitest run` | **Test Files 593 passed (593) · Tests 5677 passed \| 1 skipped (5678) · Duration 162.43s · exit 0**（日志 `D:\cyrene-p4-accept\final-vitest.log`） |
 | 资产像素尺 | `node scripts/build/cat-sprites.mjs --check` | `checked 198 targets · 12 只猫 × 6 档 + 25 档散点 + 17 张非角色 + 52 张表情` / **all clear** · exit 0 |
-| 出口静态锁 | `CI=true npx vitest run src/main/egress` | **7 files / 43 tests passed** |
+| 出口静态锁 | `CI=true npx vitest run src/main/egress` | **7 files / 50 tests passed**（修复轮后复跑；收口时为 43 条，A2/A6/A7 补了 7 条） |
+| 终审修复轮定向回归 | `CI=true npx vitest run src/main/egress/ src/main/browser/ src/main/orchestrator/tools/builtin-tools/ src/renderer/react/features/chat/components/svg-sanitize.test.ts` | **22 files / 168 tests passed** |
 | 运行时出口 | `npx electron . --user-data-dir=D:\cyrene-p4-accept\profile7 --egress-probe=20000` | stdout 末行 `[egress-probe] external=0 -> …\profile7\egress-probe.json`，**退出码 0**；JSON 里 `"external": []`（键名是 `external`，计划里写的 `entries` 是笔误，见落地记录） |
 
 **关于「全绿」的诚实补充**：出口尺的 `external=0` 一开始是**假绿**（探针档排完尺就 `return`，量的是一个空转进程，R-31-3）。
 现在探针分支必须真的启动应用，并且有仓外正对照 `p4-egress-control.mjs` 证明通道活着
 （实测 `saw 1 → 26 → 51 webRequest events`，最后一件是 `dist/renderer/assets/moments-*.png`）。
 正对照不绿，`external=0` 不作数。
+
+**射程补充（修复轮）**：上表那次 `external=0` 的 JSON 是 B-2 之前的产物，只挂了 `defaultSession`——
+内置浏览器与考试页的 partition 当时不在表里。修复轮后探针会写 `scope.webRequestSessions` 与
+`scope.excludes`；即使如此，`external=0` 也只覆盖 Chromium 的请求，主进程 `fetch()` 看不见（R-F5）。
 
 **验收器纪律**：全程没点过节点行 / 「选择最优」/「立即实测」，没对 mihomo 发过
 `PUT` / `POST` / `GET /group/*/delay`，没启停过用户自己的其他应用。
@@ -195,12 +202,22 @@ min / p50 / max 三项与台账**逐位相同**。差异只在总量那一行的
   属测试夹具的既有写法，未改。
 - **`cpSync` 兜底路径会留下空的 `%APPDATA%\cyrene-verge` 孤儿目录**（评审第 7 条）。
 - **M5「gpu 同步构造」的假设保留为已知限制**，未做加固。
+- **主进程 `fetch()` / undici 不经过 `webRequest`**（R-F5）：出口看门狗只看得见 Chromium 的请求。
+  `fetch_url` / `download_file` 的上游拒绝靠**入口闸门 + A7 静态锁**，不是运行时观测。
+  探针 JSON 的 `scope.excludes` 明写这条盲区——**下期不许把 `external=0` 读成「主进程也没发」**。
+- **内置浏览器子资源层不拦**（R-F6）：导航 / 重定向 / 弹窗 / 右键 / favicon / 会话恢复都过上游闸门，
+  但第三方页面自己发出的 `<img src="https://github.com/…">` 这类子资源请求仍会取。A 期口径是
+  「客户端不主动访问上游」，页面内嵌属用户所访站点的行为；请求级阻断会踩 R-31-2 的阻塞通道坑，留待下期。
+- **`session-created` 的射程边界**：只覆盖装尺之后创建的 partition。今天所有 partition 都在 ready 后创建
+  （组合根在 `application.start()` 之前装尺），够用；若未来出现 pre-ready session，要改成显式登记。
+- **A7 只钉调用形状**：它证明闸门还在被调用，不证明调用后真的拒绝（那由各入口单测证明）。
+  静态锁与单测是两条腿，缺一条都别读成全绿。
 
 ---
 
 ## 6. 尺子坏过几次（不是产品坏了，但必须记）
 
-数出来的：**9 处**，全部在 Task 31 的第二层与第三层，坏的全是尺。
+数出来的：**10 处**，前 9 处在 Task 31 的第二层与第三层，第 10 处在终审修复轮（§8），坏的全是尺。
 
 - **R-31-1**：`--egress-probe` 第一次真跑就弹模态 Error 框，进程不退出也不落盘。
   根因：探针档的 userData 已在卷根下一层，`path.dirname(userData)` 就是 `D:\`，
@@ -219,6 +236,10 @@ min / p50 / max 三项与台账**逐位相同**。差异只在总量那一行的
 - **R-31-11**：第三眼尺坏在两处——拿「正文 > 200 字」当 React 挂载判据（全新 profile 的主窗
   本来就只有 114 字），以及找「关于」二字（这一版把那页叫「免责声明」），
   外加我自己造词时码点写错（`糬` 是 U+7CEC=31980 不是 31974），把 `麻糬` 计数读成 0。
+- **R-F7**：变异自检抓到一条**空转测试**——把看门狗 `attach` 改成「已有 session 就返回」时，
+  多 session 注销测试仍然绿：第二个 session 一个 channel 都没登记，注销循环空转。
+  修法是注销前先断言 `sessionCount()===2` 且 `second.registered.length>0`。
+  **「注销了 0 个」也是空转**；放宽阈值或新写尺子时，变异自检要连「测试自己是不是空的」一起证。
 
 ---
 
@@ -238,9 +259,56 @@ node scripts/build/sync-brand.mjs --check
 # 运行时出口（探针档必须真的启动应用）
 npx electron . --user-data-dir=D:\cyrene-p4-accept\profile7 --egress-probe=20000
 
+# 终审修复轮定向回归（出口 / 内置浏览器 / 两个抓取工具 / SVG 消毒）
+CI=true npx vitest run src/main/egress/ src/main/browser/ src/main/orchestrator/tools/builtin-tools/ src/renderer/react/features/chat/components/svg-sanitize.test.ts
+
 # 视觉
 node scripts/verify/p4-visual-oracle.mjs D:\cyrene-p4-accept\shots
 ```
 
 一次性 profile 只许落在 `D:\cyrene-p4-accept\` 下面（脚本里有 `assertSafeProfile` 拦），
 **绝不碰 `%APPDATA%`**。
+
+---
+
+## 8. 终审修复轮（2026-10-23）
+
+Task 32 冻结后做整分支终审，又扫出三处「上游仍可访问」的洞、两片锁的盲区和一条空转测试。
+修复轮共 6 笔提交：`21a18032`（TS/TSX 上游粉）、`72cacbb7`（派生锁 `var()` 间接层）、
+`9b9cbea7`（颜色锁 hsl + TS/TSX）、`d92f541f`（扫描扩展名 / 标题锁 / CI）、
+`d1e8644c`（B-1/B-2/B-3）、`ed693cd6`（模型可见快照 + `install_mcp` 指引）。
+本节只记「修了什么、证据是什么、还剩什么」。
+
+| 发现 | 修复 | 证据 |
+| --- | --- | --- |
+| **B-1** 内置浏览器与两个抓取工具仍能访问上游 | 新增 `src/main/browser/browser-navigation.ts` 作为唯一导航闸门：地址栏、页内导航、重定向、弹窗、右键、favicon、会话恢复七个入口全过闸；`fetch_url` 删除 GitHub API 特化分支，与 `download_file` 一起在缓存/网络之前拒绝上游域名；错误码 `blocked_upstream_host` 配三语提示 | `browser-navigation.test.ts`（7 个上游 host + 仿冒域名正对照）、`fetch-url-tool.test.ts`（7 个 host + `format=raw`）、`download-file-tool.test.ts`；A7 静态锁钉住三个入口的调用形状 |
+| **B-2** 出口尺只挂 `defaultSession` | `installEgressWatchdogEverywhere()` 挂 `defaultSession` + `session-created` 的所有 partition；探针 JSON 加 `scope.webRequestSessions` 与 `scope.excludes` | 多 session 记账 / 去重 / 注销测试；探针源锁断言组合根用 Everywhere |
+| **B-3** SVG 的 `@import` 只挡了字体域 | `stripStyleImports` 在 DOMPurify 前后各剥一次：`url()` 带不带引号、裸字符串、媒体查询尾巴都删；`@media` / `@keyframes` 保留 | `svg-sanitize.test.ts` 任意宿主四种写法 + 保留规则正对照 |
+| **A-2** 出口扫描器漏 `.js/.cjs/.py/.ps1` | 补扩展名并加正对照，钉住四个真实文件 | `upstream-off.test.ts` 的扫描集合断言 |
+| **A-3** 标题锁手抄五份 html | 改目录派生 + 白名单；表情包窗口的「表情包管理」正是手抄漏掉的；title 并进 `sync-brand.mjs` | `brand-consistency.test.ts` |
+| **A-1 / C-1 / C-2** | 派生锁解 `var()` 间接层并回写 6 处不一致；TS/TSX 七处上游粉改猫板派生；颜色锁补 hsl 与 `.ts/.tsx`，清掉考试页裸 HSL 上游粉 | 各自提交 + 变异自检 |
+
+**门（修复轮实测）**
+
+| 门 | 结果 |
+| --- | --- |
+| 定向回归（上述四片） | **22 files / 168 tests passed**（复跑 2026-10-23） |
+| 全量测试 | **Test Files 595 passed (595) · Tests 5708 passed \| 1 skipped (5709) · 156.0s · exit 0**（日志 `D:\cyrene-p4-accept\fix-vitest.log`） |
+| 类型 main / preload / renderer | 三条 `tsc -p … --noEmit` **全部 exit 0** |
+
+**变异自检**：把三处实现故意改坏（`fetch_url` 闸门短路、`stripStyleImports` 恒等、
+watchdog 只挂第一个 session），**11 条测试当场变红**；从 `D:/cyrene-p4-accept/mutation-backup/`
+逐字节还原后全绿。变异还抓出一条空转测试（R-F7，见 §6）。
+
+**新增裁决**（完整版在计划「落地记录」§4）：
+
+- **R-F1**：内置浏览器拒绝上游时给「该地址属于已切断的上游站点」三语提示，而不是通用 `invalid_url`——
+  用户需要知道这是**本客户端的边界**，不是自己输错了。
+- **R-F5**：主进程 `fetch()` / undici 不经过 `webRequest`，是运行时尺的盲区；靠入口闸门 + A7 静态锁兜底，
+  探针 JSON 明写 `excludes`。
+- **R-F6**：内置浏览器子资源层不拦（页面自己嵌入的上游图片仍会取），留待下期；请求级阻断会踩 R-31-2。
+- **R-F7**：「注销了 0 个」也是空转；多 session 测试先断言覆盖面再断言注销。
+
+**这一轮的边界**：A7 证明闸门还在被调用，不证明调用后真的拒绝（后者由单测证明）；
+`external=0` 只覆盖 Chromium 的请求；内置浏览器里第三方页面自发的上游子资源仍会发出。
+三条都写进 §5.3，**下一个人不许把它们读成「已经全封死」**。

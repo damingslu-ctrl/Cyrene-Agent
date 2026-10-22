@@ -6553,8 +6553,9 @@ Expected：工作区干净；提交数与任务数同量级。
 
 ## 落地记录
 
-写在 2026-10-22 收口时。执行期的完整台账（70+ 条编号裁决 `R-*`、每笔提交的 numstat、
-每条变异自检）在 `.superpowers/sdd/2026-10-19-p4-personalization-mochi/progress.md`，
+写在 2026-10-22 收口时；2026-10-23 补 §4（终审修复轮）。执行期的完整台账
+（70+ 条编号裁决 `R-*`、每笔提交的 numstat、每条变异自检）在
+`.superpowers/sdd/2026-10-19-p4-personalization-mochi/progress.md`，
 而 `.superpowers/` 在 `.gitignore:155` 里——**台账不进仓**。仓内只剩两份可接手材料：
 本节与 `docs/verge/notes/2026-10-19-p4-acceptance.md`。所以本节按编号写，便于对照。
 
@@ -6589,7 +6590,7 @@ Expected：工作区干净；提交数与任务数同量级。
 | 像素尺用 Task 22 的 `decodePng` 读截图 | **不能用**：产品解码器只支持 8bit RGBA，CDP 截图是 8bit **RGB**（color type 2）+ 自适应行过滤 + 4 KB IDAT，直接 `RangeError`。尺子自带标准 PNG 解码（type 0/2/3/4/6、五种过滤、tRNS、CRC 校验），并先拿产品 `encodePng` 的产物做字节级自检。 |
 | 肉眼看「图标是猫」 | 三段量法：装机 exe 图标 vs 同次构建 `win-unpacked` → **MAD 0**；`icon.ico` **原生 256 帧** vs `assets/mochi-icon.png` → **MAD 0**；vs 通用 Electron 图标 → **MAD 267.9**（反对照有牙）。统一白底合成——`ExtractAssociatedIcon` 永远只给 32×32 且丢 alpha，不能用它判小图同一性。 |
 | CDP 量托盘菜单 | 量不到：托盘是 `Menu.buildFromTemplate` 的原生窗口，不在 page target 里。改**替代证据链**：装机 `app.asar`（282,909,676 B）字节盘点 `麻糬`×100 / `Mochi`×152 / `dev.damin.mochi`×4，116 处 `Cyrene` 逐处取上下文归类，**全部是标识符**，零用户可见文案。 |
-| 32 个任务 | **97 个提交**（`master..HEAD`）。一条任务常要拆成「先落锁」「再实现」「修复轮」「受控构建镜像」几笔。 |
+| 32 个任务 | **105 个提交**（`master..HEAD`，截至 `ed693cd6`）。一条任务常要拆成「先落锁」「再实现」「修复轮」「受控构建镜像」几笔；其中 **6 笔是 Task 32 之后的终审修复轮**（§4）。 |
 
 ### 2. 计划里写错、被实测推翻的地方
 
@@ -6697,3 +6698,43 @@ Expected：工作区干净；提交数与任务数同量级。
 19. `git push` 禁止（remote `upstream` 是原来的 GitHub 仓）；`verge`→`master` 的合并需要用户显式同意。
 20. `%APPDATA%\Cyrene`（246 MB 上游用户数据）全程**只读禁写**；验收一律用 `D:\cyrene-p4-accept\` 下的一次性 profile。
 21. 验收全程没点过节点行 / 「选择最优」/「立即实测」，没对 mihomo 发过 `PUT`/`POST`/`GET /group/*/delay`，没启停过用户自己的其他应用。
+
+### 4. 终审修复轮（验收后新增，2026-10-23）
+
+这一轮**不在原计划里**：Task 32 冻结后做整分支终审，扫出三处「上游仍可访问」的洞、两片锁的盲区
+和一条空转测试。修复共 6 笔（`21a18032` / `72cacbb7` / `9b9cbea7` / `d92f541f` / `d1e8644c` / `ed693cd6`）。
+下面按 §1–§3 的同一口径记，不重述流水。
+
+**4.1 实际改了计划的地方**
+
+| 项 | 实际 | 为什么计划没覆盖 |
+| --- | --- | --- |
+| 内置浏览器 | 新增 `src/main/browser/browser-navigation.ts` 作为唯一导航闸门：地址栏、页内导航、重定向、弹窗、右键、favicon、会话恢复七个入口全过；`BrowserPanelResult` 增加 `blocked_upstream_host`，三语提示 | 计划只锁「静态标识面」与「外部链接」，没设计「用户或模型主动把上游装进内置浏览器」这条运行时路径 |
+| `fetch_url` | 删除整段 GitHub API 特化（`GITHUB_RESERVED_PREFIXES` / `matchGithubRepoUrl` / `fetchGithubRepoSummary` / `formatGithubMeta`，-126 行）；上游域名在**缓存之前**拒绝 | 静态锁能证明「没有上游字符串」，证明不了「没有通往上游的功能路径」 |
+| `download_file` | 协议检查之后、任何网络之前加上游闸门 | 与 `fetch_url` 同口径 |
+| 出口看门狗 | `installEgressWatchdogEverywhere()` 覆盖 `defaultSession` + 所有 `session-created` 的 partition；探针 JSON 加 `scope.webRequestSessions` 与 `scope.excludes` | 旧尺只挂 `defaultSession`，而内置浏览器（`persist:cyrene-right-browser`）与考试页（`cyrene-learn-exam`）各用一个 session |
+| SVG 消毒 | `stripStyleImports` 在 DOMPurify **前后各剥一次**，覆盖 `url()` 带不带引号、裸字符串、媒体查询尾巴；`@media` / `@keyframes` 保留 | 原实现只删 Google Fonts 那一条域，模型手写 SVG 与 beautiful-mermaid 都能用 `@import` 外呼任意宿主 |
+| 出口静态锁 | 新增 **A7「运行时出口闸门在场」**，钉住三个入口的 `parseBrowserNavigation(` / `isUpstreamUrl(` 调用形状 | A6 只管「尺子装没装」，不管「闸门在不在」 |
+| 扫描器扩展名 | `SCAN_EXTENSIONS` 补 `.js` / `.cjs` / `.ps1` / `.py` / `.cmd` / `.bat`；正对照钉住四个真实文件（`panel-bridge.js`、`native-import.cjs`、`migrate-user-data.ps1`、`music-component-entry.py`） | 这四份会进产物或被装机流程执行，此前整份在出口规则射程外 |
+| 窗口标题锁 | 从手抄五份 html 改成**目录派生 + 白名单**；表情包窗口的「表情包管理」正是手抄漏掉的；title 并进 `sync-brand.mjs` 生成器 | 手抄清单每新增一个窗口就漏一次 |
+| 派生锁 / 颜色锁 | 派生锁逐层解开 `var()` 间接层并回写表与 CSS 的 6 处不一致；TS/TSX 七处上游粉改走猫板派生；颜色锁补 hsl 与 `.ts/.tsx` 两片盲区，清掉考试页的裸 HSL 上游粉 | 原锁对 `var()` 一律豁免、只认 hex/rgb，也只看 CSS |
+
+**4.2 被实测推翻的地方**
+
+| 原结论 | 实测 | 推翻它的输出 |
+| --- | --- | --- |
+| 验收记录 §1 的运行时出口 `external=0` | **只量了 defaultSession**。内置浏览器与考试页的 partition 完全不在表里；把探针当成全量出口证据是**射程外的假绿** | 多 session 测试：两个假 session 都记账、`sessionCount()===2`；变异成「只挂第一个」时测试红 |
+| 「静态出口锁通过 = 客户端不访问上游」 | `fetch_url` 有 GitHub API 特化、内置浏览器能装任何 http(s)、SVG 能 `@import` 任意宿主——三条都不在静态规则里 | 三组新测试：7 个上游 host 的 fetch 拒绝、7 个导航入口拦截、4 种 `@import` 写法剥离 |
+| A2 扫描器覆盖了「源码」 | `.js/.cjs/.ps1/.py` 整份没扫；把上游域名搬进 `.cjs` 即可绕过 | 正对照断言四个真实文件必须出现在扫描集合里 |
+| 标题锁手抄的五份 html 是全集 | 表情包窗口的标题 `表情包管理` 不在清单里，且它确实是用户可见窗口 | 改目录派生后该文件自动进集合，锁当场覆盖 |
+| 多 session 注销测试能证明「注销干净」 | **空转**：变异成「已有 session 就返回」时它仍绿——第二个 session 一个 channel 都没登记，注销循环跑了个寂寞 | `R-F7`：注销前先断言 `sessionCount()===2` 与 `second.registered.length>0` |
+| 变异自检只需证明「实现坏了测试会红」 | 还得证明**测试自己不是空的**；本轮 11 条红里有 1 条最初没红，就是空转 | 同上 |
+| 「定向回归绿 = 改动收口」 | 改了 `fetch_url` 的模型可见描述，`built-in-tools.snapshot.test.ts` 不在定向集合里 → 首轮全量 **1 failed / 594 passed**，红的正是模型可见字段快照 | 更新快照，并改掉 `install_mcp_server` 里「先用 `fetch_url` 读 README」的失效指引（上游 README 已取不到）→ 复跑 **595 passed / 5708 passed / 1 skipped / exit 0**（`D:\cyrene-p4-accept\fix-vitest.log`）。**定向集合是省时，不是收口判据。** |
+
+**4.3 明确移到下一期**
+
+22. **主进程 `fetch()` / undici 不经过 `webRequest`**：出口看门狗只看得见 Chromium 的请求。`fetch_url` / `download_file` 的上游拒绝靠**入口闸门 + A7 静态锁**，不是运行时观测；探针 JSON 的 `scope.excludes` 明写这条盲区。**下期不许把 `external=0` 读成「主进程也没发」。**（R-F5）
+23. **内置浏览器子资源层不拦**：导航 / 重定向 / 弹窗 / 右键 / favicon / 会话恢复都过闸门，但第三方页面自己发出的 `<img src="https://github.com/…">` 这类子资源请求仍会取。A 期口径是「客户端不主动访问上游」，页面内嵌属用户所访站点的行为；请求级阻断会踩 R-31-2 的阻塞通道坑，留待下期。（R-F6）
+24. **`session-created` 的射程边界**：它只覆盖装尺之后创建的 partition。今天所有 partition 都在 ready 后创建（组合根在 `application.start()` 之前装尺），所以够用；若未来出现 pre-ready session，要改成显式登记，不能假设事件一定到。
+25. **A7 只钉调用形状**：它证明闸门还在被调用，不证明调用后真的拒绝（那由各入口的单测证明）。静态锁与单测是两条腿，缺一条都别读成全绿。
+
