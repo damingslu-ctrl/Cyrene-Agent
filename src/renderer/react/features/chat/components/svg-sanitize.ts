@@ -3,9 +3,12 @@
  *
  * 四层防护：
  * 1. 长度熔断：源码超过上限直接降级，不进同步渲染（防 UI 线程卡死）
- * 2. 字体外呼剥离：删掉引擎硬编码注入的 Google Fonts @import（隐私 + 离线可用）
+ * 2. 样式外呼剥离：删掉 `<style>` 里所有 `@import`（引擎注入的 Google Fonts，以及模型能写的任意宿主）
  * 3. DOMPurify 消毒：剥 script / 事件属性 / javascript: 协议 / foreignObject 逃逸
  * 4. 调用方兜底：消毒后仍为空则按渲染失败降级
+ *
+ * 第 2 层必须剥「全部 @import」而不是只剥字体域名：DOMPurify 不解析 CSS，
+ * 一条 `@import url(https://任意宿主/x.css)` 能原样穿过消毒，然后在渲染进程里发网络请求。
  */
 
 import DOMPurify from "dompurify";
@@ -27,11 +30,12 @@ export function isOverHandwrittenSvgLimit(source: string): boolean {
 }
 
 /**
- * 剥离 <style> 块里的外部字体 @import。
- * beautiful-mermaid 会无条件注入 Google Fonts 导入，渲染端不该为一张图外呼网络。
+ * 剥离样式里所有 `@import` 规则（`url(...)` 带不带引号、裸字符串、带媒体查询尾巴都算）。
+ * beautiful-mermaid 会无条件注入 Google Fonts 导入；模型手写的 SVG 同样能用这条规则外呼任意宿主。
+ * 只删到本条规则结束（`;` / `<` / `}`），不碰 `@media`、`@keyframes` 等其余 @ 规则。
  */
-export function stripFontImports(svg: string): string {
-  return svg.replace(/@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\);?/g, "");
+export function stripStyleImports(svg: string): string {
+  return svg.replace(/@import\s+(?:url\(\s*(?:"[^"<]*"|'[^'<]*'|[^)<]*)\s*\)|"[^"<]*"|'[^'<]*')[^;<}]*;?/gi, "");
 }
 
 /**
@@ -39,10 +43,11 @@ export function stripFontImports(svg: string): string {
  * 返回空字符串说明内容被清空，调用方按渲染失败处理。
  */
 export function sanitizeSvg(svg: string): string {
-  const cleaned = DOMPurify.sanitize(svg, {
+  const cleaned = DOMPurify.sanitize(stripStyleImports(svg), {
     // 模型产出的图可能用到 foreignObject 内容，但那正是逃逸向量，直接整体禁掉
     FORBID_TAGS: ["script", "foreignObject", "iframe", "embed", "object", "link"],
     FORBID_ATTR: ["src", "href", "xlink:href"],
   });
-  return typeof cleaned === "string" ? cleaned : "";
+  // 消毒后再剥一次：DOMPurify 会把 style 内容重新序列化，出口必须自己保证没有 @import。
+  return typeof cleaned === "string" ? stripStyleImports(cleaned) : "";
 }

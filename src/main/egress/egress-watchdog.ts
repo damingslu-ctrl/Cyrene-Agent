@@ -14,8 +14,18 @@
  * 进程 0% CPU、没有 `did-fail-load`、preload 根本不执行。尺子不该有权拦请求。
  * 两条通道互补：`onSendHeaders` 认「报文真发出去了」，`onErrorOccurred` 认「发了但没通」
  * （上游域名被断后走的就是这条），只挂前者会把失败的尝试读成 0 笔 = 假绿。
+ *
+ * 覆盖面（B-2 修）：尺子按 **Session 对象**挂，不是只挂 defaultSession。
+ * 内置浏览器用 `persist:cyrene-right-browser`、考试页用 `cyrene-learn-exam`，
+ * 都是独立 partition 的 session；只挂 defaultSession 的话，这两个 partition 里的外呼
+ * 一笔都看不见。`installEgressWatchdogEverywhere` 会连 `app.on("session-created")`
+ * 一起接上，运行期新开的 partition 也自动进射程。
+ *
+ * 已知盲区（写在这里而不是假装没有）：**主进程的 `fetch()` / node `http`（undici）不经过
+ * `webRequest`**，本尺子看不见。那些请求的入口闸门由各工具自己把守（fetch_url /
+ * download_file 的上游黑名单），探针 JSON 的 `scope.excludes` 也把这条写明。
  */
-import { session, type Session } from "electron";
+import { app, session, type Session } from "electron";
 
 /** 本 fork 认得的自有 scheme：privileged scheme 注册点与 `local-sticker`/`moment-media`。 */
 const LOCAL_SCHEMES = ["cyrene-exam", "cyrene-plugin", "local-sticker", "moment-media", "mochi"];
@@ -28,6 +38,15 @@ export interface EgressEntry {
   atMs: number;
   /** `sent` = 报文真发出去了；`failed` = 发了但没通（域名解析不了走这条）。 */
   via: "sent" | "failed";
+}
+
+export interface EgressWatchdog {
+  entries(): EgressEntry[];
+  /** 把某个 session 纳入记账面；重复 attach 同一对象不会重复登记。 */
+  attach(target: Session): void;
+  /** 已纳入的 session 数（探针写进 JSON，用来证明覆盖面不是 1）。 */
+  sessionCount(): number;
+  dispose(): void;
 }
 
 /**
@@ -50,13 +69,15 @@ export function classifyRequest(url: string): "local" | "external" {
   return "external";
 }
 
-export function installEgressWatchdog(
-  target: Session = session.defaultSession,
-  startedAt: number = Date.now(),
-): { entries(): EgressEntry[]; dispose(): void } {
+interface WatchdogCore extends EgressWatchdog {
+  attach(target: Session): void;
+}
+
+function createWatchdog(startedAt: number): WatchdogCore {
   const table: EgressEntry[] = [];
   // 同一条 URL 只留第一笔：一条请求会在两条通道各出现一次，重复计数只会把表读脏。
   const seen = new Set<string>();
+  const attached = new Set<Session>();
   const record = (
     details: Electron.OnSendHeadersListenerDetails | Electron.OnErrorOccurredListenerDetails,
     via: EgressEntry["via"],
@@ -73,13 +94,46 @@ export function installEgressWatchdog(
       via,
     });
   };
-  target.webRequest.onSendHeaders((details) => record(details, "sent"));
-  target.webRequest.onErrorOccurred((details) => record(details, "failed"));
   return {
     entries: () => [...table],
+    attach: (target: Session) => {
+      if (attached.has(target)) return;
+      attached.add(target);
+      target.webRequest.onSendHeaders((details) => record(details, "sent"));
+      target.webRequest.onErrorOccurred((details) => record(details, "failed"));
+    },
+    sessionCount: () => attached.size,
     dispose: () => {
-      target.webRequest.onSendHeaders(null);
-      target.webRequest.onErrorOccurred(null);
+      for (const target of attached) {
+        target.webRequest.onSendHeaders(null);
+        target.webRequest.onErrorOccurred(null);
+      }
+      attached.clear();
+    },
+  };
+}
+
+export function installEgressWatchdog(
+  target: Session = session.defaultSession,
+  startedAt: number = Date.now(),
+): EgressWatchdog {
+  const watchdog = createWatchdog(startedAt);
+  watchdog.attach(target);
+  return watchdog;
+}
+
+/** defaultSession + 运行期新建的每个 partition（浏览器面板、考试页都在这一类里）。 */
+export function installEgressWatchdogEverywhere(startedAt: number = Date.now()): EgressWatchdog {
+  const watchdog = installEgressWatchdog(session.defaultSession, startedAt);
+  const onCreated = (created: Session) => watchdog.attach(created);
+  app.on("session-created", onCreated);
+  return {
+    entries: () => watchdog.entries(),
+    attach: (target: Session) => watchdog.attach(target),
+    sessionCount: () => watchdog.sessionCount(),
+    dispose: () => {
+      app.removeListener("session-created", onCreated);
+      watchdog.dispose();
     },
   };
 }

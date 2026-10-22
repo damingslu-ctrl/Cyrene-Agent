@@ -10,6 +10,7 @@ import {
 } from "../../shared/browser-panel-types";
 import { getLocaleContext } from "../locale-context";
 import { allowInternalNavigation } from "../windows/external-link";
+import { parseBrowserNavigation } from "./browser-navigation";
 import { BrowserSessionPersistence } from "./browser-session-persistence";
 import { getLearnExamPageSession } from "../protocols/bootstrap";
 import { parseLearnExamPageRequest } from "../protocols/learn-exam-page-protocol";
@@ -54,21 +55,16 @@ interface BrowserObservationRecord {
   snapshot: RuntimeSnapshot;
 }
 
-function parseHttpUrl(input: string): URL | null {
-  try {
-    const url = new URL(input.trim());
-    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
-  } catch {
-    return null;
-  }
-}
-
 function normalizeFaviconUrl(input: string, pageUrl: string): string | undefined {
   if (input.length > 32_768) return undefined;
   if (/^data:image\/(?:svg\+xml|png|webp|gif|x-icon|vnd\.microsoft\.icon)[;,]/i.test(input)) return input;
   try {
     const url = new URL(input, pageUrl);
-    return url.protocol === "http:" || url.protocol === "https:" ? url.href : undefined;
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    // 图标也是渲染进程真去取的网络请求：上游域名的 favicon 同样不许进。
+    const gate = parseBrowserNavigation(url.href);
+    if (!gate.ok && gate.error === "blocked_upstream_host") return undefined;
+    return url.href;
   } catch {
     return undefined;
   }
@@ -248,7 +244,12 @@ export class BrowserPanelController {
     const result = input.newTab
       ? await this.openInNewTab(input.url)
       : await this.navigateTab(checked.tab, input.url);
-    if (!result.ok) return `打开网页失败：${result.error}。只支持完整的 HTTP 或 HTTPS 地址。`;
+    if (!result.ok) {
+      if (result.error === "blocked_upstream_host") {
+        return "打开网页失败：该地址属于已切断的上游站点（GitHub / Gitee / 官方站），内置浏览器不打开。";
+      }
+      return `打开网页失败：${result.error}。只支持完整的 HTTP 或 HTTPS 地址。`;
+    }
     if (input.newTab && this.controlLease) this.controlLease.tabId = this.activeTabId;
     const active = this.getActiveTab();
     return JSON.stringify({ web: active?.state.url ?? input.url, tabId: active?.id, title: active?.state.title ?? "", status: active?.state.loading ? "loading" : "loaded" });
@@ -855,15 +856,12 @@ export class BrowserPanelController {
   async openInNewTab(input: string): Promise<BrowserPanelResult> {
     await this.readyPromise;
     if (this.disposed) return { ok: false, error: "unavailable" };
-    const url = parseHttpUrl(input);
-    if (!url) {
-      const unsupported = /^[a-z][a-z\d+.-]*:/i.test(input.trim());
-      return { ok: false, error: unsupported ? "unsupported_protocol" : "invalid_url" };
-    }
+    const gate = parseBrowserNavigation(input);
+    if (!gate.ok) return { ok: false, error: gate.error };
     const tab = this.createTab(true);
     this.applyBounds();
     this.publish();
-    return this.navigateTab(tab, url.href);
+    return this.navigateTab(tab, gate.url.href);
   }
 
   activateTab(tabId: string): boolean {
@@ -1006,11 +1004,9 @@ export class BrowserPanelController {
 
   private async navigateTab(tab: BrowserTab, input: string): Promise<BrowserPanelResult> {
     if (this.disposed || !this.tabs.includes(tab)) return { ok: false, error: "unavailable" };
-    const url = parseHttpUrl(input);
-    if (!url) {
-      const unsupported = /^[a-z][a-z\d+.-]*:/i.test(input.trim());
-      return { ok: false, error: unsupported ? "unsupported_protocol" : "invalid_url" };
-    }
+    const gate = parseBrowserNavigation(input);
+    if (!gate.ok) return { ok: false, error: gate.error };
+    const url = gate.url;
     if (tab.kind === "exam") {
       tab.unregisterExamPage?.();
       tab.unregisterExamPage = undefined;
@@ -1063,6 +1059,8 @@ export class BrowserPanelController {
         this.tabs = snapshot.tabs.map(({ id, url, examConversationId }) => {
           const page = parseLearnExamPageRequest(url);
           const isExam = page?.kind === "document" && !!examConversationId;
+          // 持久化里可能留着闸门上线前的上游地址：恢复时按当前边界再判一次，不合格的标签留空。
+          const restored = parseBrowserNavigation(url);
           return {
             id,
             kind: isExam ? "exam" as const : "web" as const,
@@ -1072,7 +1070,7 @@ export class BrowserPanelController {
             state: {
               id,
               kind: isExam ? "exam" as const : "web" as const,
-              url: isExam ? url : (parseHttpUrl(url)?.href ?? ""),
+              url: isExam ? url : (restored.ok ? restored.url.href : ""),
               title: "",
               loading: false,
               canGoBack: false,
@@ -1258,18 +1256,19 @@ export class BrowserPanelController {
     contents.on("will-navigate", (event, targetUrl) => {
       const allowed = tab.kind === "exam"
         ? targetUrl === tab.state.url && parseLearnExamPageRequest(targetUrl)?.kind === "document"
-        : !!parseHttpUrl(targetUrl);
+        : parseBrowserNavigation(targetUrl).ok;
       if (!allowed) event.preventDefault();
     });
     contents.on("will-redirect", (event, targetUrl) => {
-      if (tab.kind === "exam" || !parseHttpUrl(targetUrl)) event.preventDefault();
+      // 页面可以自行 302 到上游域名：跳转链同样要过闸门，不能只判协议。
+      if (tab.kind === "exam" || !parseBrowserNavigation(targetUrl).ok) event.preventDefault();
     });
     contents.setWindowOpenHandler(({ url, disposition }) => {
-      if (parseHttpUrl(url)) this.openNewTab(url, disposition !== "background-tab");
+      if (parseBrowserNavigation(url).ok) this.openNewTab(url, disposition !== "background-tab");
       return { action: "deny" };
     });
     contents.on("context-menu", (_event, params) => {
-      if (!params.linkURL || !parseHttpUrl(params.linkURL) || !this.parentWindow || this.parentWindow.isDestroyed()) return;
+      if (!params.linkURL || !parseBrowserNavigation(params.linkURL).ok || !this.parentWindow || this.parentWindow.isDestroyed()) return;
       const locale = getLocaleContext().uiLocale.toLowerCase();
       const label = locale.startsWith("zh") ? "在新标签页打开" : locale.startsWith("ja") ? "新しいタブで開く" : "Open link in new tab";
       Menu.buildFromTemplate([{
@@ -1283,18 +1282,18 @@ export class BrowserPanelController {
   }
 
   private openNewTab(url: string, activate: boolean): void {
-    const parsed = parseHttpUrl(url);
-    if (!parsed || this.disposed) return;
+    const gate = parseBrowserNavigation(url);
+    if (!gate.ok || this.disposed) return;
     const tab = this.createTab(activate);
     if (!activate) {
       // Background tabs should not create a page process until first selected.
-      tab.state = { ...tab.state, url: parsed.href };
+      tab.state = { ...tab.state, url: gate.url.href };
       this.publish();
       return;
     }
     this.applyBounds();
     this.publish();
-    void this.navigateTab(tab, parsed.href);
+    void this.navigateTab(tab, gate.url.href);
   }
 
   private applyBounds(): void {

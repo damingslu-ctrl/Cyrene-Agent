@@ -1,10 +1,8 @@
 // ── 工具 1：fetch_url ─────────────────────────────────────
-// 拉一个 URL 的纯文本 / Markdown 形式的 body，给 agent 读 README 用
+// 拉一个 URL 的纯文本 / Markdown 形式的 body，给 agent 读文档用
 //
-// 两条抓取路径：
-// - GitHub 仓库主页（github.com/所有者/仓库）：走官方 API 直接取仓库元信息 + README 原文，
-//   绕过几百 KB 的页面 HTML（导航/文件列表等噪音）
-// - 普通网页：抓 HTML → 正文提取（剥导航/页头/页脚/侧栏，优先 article/main 正文区）→ 转 markdown
+// 抓取路径：普通网页抓 HTML → 正文提取（剥导航/页头/页脚/侧栏，优先 article/main 正文区）→ 转 markdown。
+// 上游域名（GitHub / Gitee / 官方站）在入口直接拒绝：本客户端已切断上游，agent 不该再替它取内容。
 //
 // 注册方式：本模块导出 fetchUrlTool 常量，由 built-in-tools.ts facade 在原注册位置统一
 // toolRegistry.register，显式保证 registry 插入顺序（= 工具目录 prompt 生成顺序，门禁见
@@ -12,6 +10,7 @@
 
 import TurndownService from "turndown";
 import { BRAND } from "../../../../shared/brand";
+import { isUpstreamUrl } from "../../../../shared/upstream-hosts";
 import type { ToolDefinition } from "../registry/tool-registry";
 import type { ToolContext } from "../registry/tool-context";
 import { TtlResultCache } from "./ttl-result-cache";
@@ -99,112 +98,14 @@ function lastIndexOfTagClose(html: string, tag: string): number {
   return last;
 }
 
-// ── GitHub 仓库主页特化 ───────────────────────────────────
-// 仓库主页 HTML 有几百 KB 且 README 排在页面末尾，正文提取也难救；
-// 官方 API 直接给结构化数据：元信息 + README 原文，干净又省上下文。
-// 公共仓库读取不需要认证；失败（私有仓库/不存在/限流/超时）一律回退普通抓取。
-
-// github.com 下这些一级路径不是用户名，对应的二级页面不是仓库主页
-const GITHUB_RESERVED_PREFIXES = new Set([
-  "topics", "orgs", "users", "settings", "sponsors", "collections", "features",
-  "marketplace", "apps", "gists", "site", "security", "about", "pricing",
-  "enterprise", "explore", "trending", "search", "notifications", "dashboard",
-  "new", "pulls", "issues", "watching", "organizations", "codespaces",
-]);
-
-/** 识别 github.com/{owner}/{repo} 形式的仓库主页地址，其它地址返回 null */
-function matchGithubRepoUrl(rawUrl: string): { owner: string; repo: string } | null {
-  let u: URL;
-  try {
-    u = new URL(rawUrl);
-  } catch {
-    return null;
-  }
-  if (!/^(www\.)?github\.com$/i.test(u.hostname)) return null;
-  const m = u.pathname.match(/^\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
-  if (!m) return null;
-  const [, owner, repo] = m;
-  if (!owner || !repo) return null;
-  if (GITHUB_RESERVED_PREFIXES.has(owner.toLowerCase())) return null;
-  return { owner, repo };
-}
-
-/** 拉取 GitHub 仓库元信息 + README 原文；任何失败返回 null，由调用方回退普通抓取 */
-async function fetchGithubRepoSummary(
-  repo: { owner: string; repo: string },
-  url: string,
-  ctx?: ToolContext,
-): Promise<string | null> {
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
-  const combinedSignal = ctx?.signal ? AbortSignal.any([ctx.signal, ac.signal]) : ac.signal;
-  const apiBase = `https://api.github.com/repos/${repo.owner}/${repo.repo}`;
-  const headers = {
-    "User-Agent": `Mozilla/5.0 (${BRAND.productName}) Chrome/120 Safari/537.36`,
-    Accept: "application/vnd.github+json",
-  };
-  try {
-    // 元信息和 README 并行拉；元信息失败不拖累 README
-    const [metaResp, readmeResp] = await Promise.all([
-      fetch(apiBase, { signal: combinedSignal, headers, redirect: "follow" }),
-      fetch(apiBase + "/readme", {
-        signal: combinedSignal,
-        headers: { ...headers, Accept: "application/vnd.github.raw" },
-        redirect: "follow",
-      }),
-    ]);
-    if (!readmeResp.ok) return null;
-
-    // README 同样按字节上限截断，与普通抓取保持一致
-    const buf = await readmeResp.arrayBuffer();
-    const truncated = buf.byteLength > FETCH_MAX_BYTES;
-    const readme = new TextDecoder("utf-8").decode(
-      truncated ? buf.slice(0, FETCH_MAX_BYTES) : buf,
-    );
-
-    let header = "";
-    if (metaResp.ok) {
-      try {
-        header = formatGithubMeta((await metaResp.json()) as Record<string, unknown>, repo) + "\n\n---\n\n";
-      } catch {
-        // 元信息 JSON 解析失败不影响 README 输出
-      }
-    }
-
-    const meta = "URL: " + url + "\n来源: GitHub API（仓库元信息 + README 原文）"
-      + (truncated ? "\n[README 已截断到 " + FETCH_MAX_BYTES + " 字节]" : "") + "\n\n";
-    return meta + header + readme.trim();
-  } catch {
-    // 网络失败或超时，回退普通抓取
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/** 把仓库元信息整理成 markdown 头部，字段缺失就跳过不硬凑 */
-function formatGithubMeta(
-  meta: Record<string, unknown>,
-  repo: { owner: string; repo: string },
-): string {
-  const lines: string[] = ["# " + repo.owner + "/" + repo.repo];
-  const desc = typeof meta.description === "string" ? meta.description.trim() : "";
-  if (desc) lines.push("", "> " + desc);
-  const stats: string[] = [];
-  if (typeof meta.stargazers_count === "number") stats.push("stars: " + meta.stargazers_count);
-  if (typeof meta.forks_count === "number") stats.push("forks: " + meta.forks_count);
-  if (typeof meta.language === "string" && meta.language) stats.push("language: " + meta.language);
-  if (typeof meta.default_branch === "string" && meta.default_branch) stats.push("默认分支: " + meta.default_branch);
-  const license = meta.license as { spdx_id?: string } | null | undefined;
-  if (license?.spdx_id && license.spdx_id !== "NOASSERTION") stats.push("license: " + license.spdx_id);
-  if (stats.length > 0) lines.push("", stats.join(" · "));
-  return lines.join("\n");
-}
-
 async function executeFetchUrl(args: Record<string, unknown>, ctx?: ToolContext): Promise<string> {
   const url = String(args.url || "").trim();
   if (!/^https?:\/\//i.test(url)) {
     return "[错误] url 必须以 http:// 或 https:// 开头";
+  }
+  // 上游域名在入口拒绝（缓存之前）：本客户端已切断上游，agent 不该再替它取内容。
+  if (isUpstreamUrl(url)) {
+    return "[错误] 该地址属于已切断的上游站点（GitHub / Gitee / 官方站），客户端不再访问。";
   }
   const asMarkdown = args.format === "markdown" || args.format === undefined;
   console.log(LOG_PREFIX, "fetch_url:", url, "format=" + (asMarkdown ? "markdown" : "raw"));
@@ -215,21 +116,6 @@ async function executeFetchUrl(args: Record<string, unknown>, ctx?: ToolContext)
   if (hit) {
     const fetchedAt = new Date(hit.at).toLocaleString("zh-CN", { hour12: false });
     return "[缓存] 摄取于 " + fetchedAt + "，30 分钟内直接复用\n\n" + hit.value;
-  }
-
-  // GitHub 仓库主页特化：官方 API 直取 README + 元信息。
-  // format=raw 表示用户明确要原始 HTML，不做特化
-  if (asMarkdown) {
-    const ghRepo = matchGithubRepoUrl(url);
-    if (ghRepo) {
-      console.log(LOG_PREFIX, "fetch_url: GitHub 仓库主页，走官方 API:", url);
-      const summary = await fetchGithubRepoSummary(ghRepo, url, ctx);
-      if (summary !== null) {
-        fetchCache.set(cacheKey, summary);
-        return summary;
-      }
-      console.log(LOG_PREFIX, "fetch_url: GitHub API 不可用，回退普通抓取:", url);
-    }
   }
 
   const ac = new AbortController();
@@ -274,17 +160,17 @@ export const fetchUrlTool: ToolDefinition = {
   name: "读取网页",
   description:
     "下载指定 URL 的网页内容并返回正文。HTML 会先做正文提取（剥掉导航/页头/页脚/侧栏，" +
-    "优先取 article/main 正文区），再转成结构化 markdown（保留标题/列表/代码块/表格），便于阅读。\n" +
-    "GitHub 仓库主页（github.com/所有者/仓库）会走官方 API，直接返回仓库元信息 + README 原文。\n\n" +
+    "优先取 article/main 正文区），再转成结构化 markdown（保留标题/列表/代码块/表格），便于阅读。\n\n" +
     "何时用：\n" +
     "- 用户给了明确的网址（https://...），想看内容\n" +
     "- 用户说'看看这个链接''读一下这个网页'\n" +
-    "- 需要读 GitHub README、MCP 安装文档、API 文档等具体页面\n" +
+    "- 需要读 MCP 安装文档、API 文档等具体页面\n" +
     "- web_search 之后拿到链接，想看具体内容\n\n" +
     "不要用于：\n" +
     "- 用户只给关键词没给网址 → 用 web_search\n" +
     "- 用户问'今天有什么新闻' → 用 web_search\n" +
-    "- 本地文件路径 → 用 Read\n\n" +
+    "- 本地文件路径 → 用 Read\n" +
+    "- GitHub / Gitee / 官方站等上游域名 → 客户端已切断上游，会直接拒绝\n\n" +
     "结果超过长度预算会被剪枝（保留开头结尾、省略中段），observation 里会附 tool-result:// 引用；" +
     "需要被剪掉的中段内容时，用 read_tool_result 读取，支持 offset/length 分段或 query 关键词定位。\n\n" +
     "参数：url (必填，完整 http(s) 地址)，format (可选 markdown|raw，默认 markdown)。",

@@ -62,7 +62,7 @@ const RULES: Rule[] = [
       {
         file: "features/chat/components/svg-sanitize.test.ts",
         reason:
-          "Fixtures of the stripFontImports regression test: the domain must appear in the input to prove the sanitizer deletes it.",
+          "Fixtures of the stripStyleImports regression test: the domain must appear in the input to prove the sanitizer deletes it.",
       },
       {
         file: "features/chat/components/svg-card-block.test.ts",
@@ -140,11 +140,25 @@ const RULES: Rule[] = [
     // 反向判据：这条 pattern 命中是**要求**，不是禁止。
     // 只认「调用形状」（名字后面跟括号），不认裸标识：本文件的 import 与
     // `ReturnType<typeof ...>` 类型标注里也有这个名字，裸标识锁会把「装配被删」读成绿。
-    pattern: /installEgressWatchdog\s*\(/,
-    positiveControls: ["installEgressWatchdog("],
+    pattern: /installEgressWatchdog(?:Everywhere)?\s*\(/,
+    positiveControls: ["installEgressWatchdog(", "installEgressWatchdogEverywhere("],
     exceptions: [],
     required: true,
     requiredIn: ["src/main/index.ts"],
+  },
+  {
+    clause: "A7 运行时出口闸门在场",
+    // A6 管「尺子装没装」，这条管「闸门还在不在」：三个能让客户端主动访问上游的入口
+    // （内置浏览器、fetch_url、download_file）必须各自保留一次调用形状。
+    pattern: /parseBrowserNavigation\s*\(|isUpstreamUrl\s*\(/,
+    positiveControls: ["parseBrowserNavigation(targetUrl)", "isUpstreamUrl(url)"],
+    exceptions: [],
+    required: true,
+    requiredIn: [
+      "src/main/browser/browser-panel-controller.ts",
+      "src/main/orchestrator/tools/builtin-tools/fetch-url-tool.ts",
+      "src/main/orchestrator/tools/builtin-tools/download-file-tool.ts",
+    ],
   },
 ];
 

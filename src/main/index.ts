@@ -10,7 +10,7 @@
 import { app } from "electron";
 import { createApplication } from "./application/application";
 import { createDefaultApplicationDependencies } from "./application/default-dependencies";
-import { installEgressWatchdog } from "./egress/egress-watchdog";
+import { installEgressWatchdogEverywhere } from "./egress/egress-watchdog";
 import { armEgressProbe, readEgressProbeArg } from "./egress/egress-probe";
 import { registerPluginPanelScheme } from "./plugin-panel-protocol";
 import { installGlobalNavigationGuard } from "./windows/external-link";
@@ -42,7 +42,7 @@ application.prepareBeforeReady();
  * 运行时出口看门狗（P4 Task 6）：A 期唯一的「真窗尺」。
  * 静态锁只能证明标识面干净，间接路径（库内写死的地址、运行时拼出来的 host）要在这里记。
  */
-let egressWatchdog: ReturnType<typeof installEgressWatchdog> | null = null;
+let egressWatchdog: ReturnType<typeof installEgressWatchdogEverywhere> | null = null;
 
 /** 非探针档也要看得见：把新登记的外部请求逐条 warn 出来，10s 一次，不阻塞退出。 */
 function watchEgressInBackground(): void {
@@ -73,7 +73,10 @@ if (application.isPrimaryProcess()) {
         armEgressProbe(egressProbeMs, app.getPath("userData"));
         return application.start();
       }
-      egressWatchdog = installEgressWatchdog();
+      // defaultSession + 运行期新建的每个 partition 都进射程：
+      // 内置浏览器（persist:cyrene-right-browser）与考试页（cyrene-learn-exam）各用一个 session，
+      // 只挂 defaultSession 会把这两处的真实外呼读成 0 笔。
+      egressWatchdog = installEgressWatchdogEverywhere();
       watchEgressInBackground();
       return application.start();
     })

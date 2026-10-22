@@ -25,7 +25,7 @@ vi.mock("node:fs", async (importOriginal) => ({
   writeFileSync: h.writeFileSync,
 }));
 vi.mock("./egress-watchdog", () => ({
-  installEgressWatchdog: () => ({ entries: h.entries, dispose: vi.fn() }),
+  installEgressWatchdogEverywhere: () => ({ entries: h.entries, sessionCount: () => 3, dispose: vi.fn() }),
 }));
 
 import { armEgressProbe } from "./egress-probe";
@@ -65,8 +65,13 @@ describe("探针档落盘", () => {
     expect(h.mkdirSync).toHaveBeenCalledWith("D:/cyrene-p0-probe", { recursive: true });
     const [file, body] = h.writeFileSync.mock.calls[0] as [string, string];
     expect(file.replace(/\\/g, "/")).toBe("D:/cyrene-p0-probe/egress-probe.json");
-    expect(JSON.parse(body)).toMatchObject({ external: [], version: "0.0.0-test" });
-    expect(lines.join("\n")).toContain("[egress-probe] external=0");
+    expect(JSON.parse(body)).toMatchObject({
+      external: [],
+      version: "0.0.0-test",
+      scope: { webRequestSessions: 3 },
+    });
+    expect(JSON.parse(body).scope.excludes).toMatch(/fetch\(\)/);
+    expect(lines.join("\n")).toContain("[egress-probe] external=0 sessions=3");
     expect(h.exit).toHaveBeenCalledWith(0);
   });
 
@@ -107,7 +112,7 @@ describe("探针档落盘", () => {
   it("探针档也要照常启动应用，否则 external=0 量的是空转进程", () => {
     const source = readFileSync(resolve(process.cwd(), "src/main/index.ts"), "utf8");
     const start = source.indexOf("readEgressProbeArg()");
-    const end = source.indexOf("egressWatchdog = installEgressWatchdog()");
+    const end = source.indexOf("egressWatchdog = installEgressWatchdogEverywhere()");
     expect(start, "组合根里找不到探针分支").toBeGreaterThan(-1);
     expect(end, "组合根里找不到常规装尺那行").toBeGreaterThan(start);
     const probeBranch = source.slice(start, end);

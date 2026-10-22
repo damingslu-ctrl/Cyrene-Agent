@@ -11,7 +11,7 @@
 import { app } from "electron";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { installEgressWatchdog } from "./egress-watchdog";
+import { installEgressWatchdogEverywhere } from "./egress-watchdog";
 
 /** argv 形状沿用 `--tuck-probe`/`--voice-probe` 的既有先例：`--egress-probe=<空闲毫秒>`。 */
 export function readEgressProbeArg(argv: string[] = process.argv): number | null {
@@ -30,19 +30,24 @@ export function readEgressProbeArg(argv: string[] = process.argv): number | null
  * 主进程 → `showErrorBox` 弹模态框 → 探针既不退出也不落盘，验收只能上手杀进程。
  */
 export function armEgressProbe(idleMs: number, outDir: string): () => void {
-  const watchdog = installEgressWatchdog();
+  // 覆盖所有 partition（含启动后新建的）：只挂 defaultSession 的尺子读不到浏览器面板与考试页。
+  const watchdog = installEgressWatchdogEverywhere();
   const timer = setTimeout(() => {
     const external = watchdog.entries();
     const file = path.join(outDir, "egress-probe.json");
+    const scope = {
+      webRequestSessions: watchdog.sessionCount(),
+      excludes: "主进程 fetch()/node http（undici）不经过 webRequest，本尺子看不见",
+    };
     try {
       fs.mkdirSync(outDir, { recursive: true });
-      fs.writeFileSync(file, JSON.stringify({ external, pid: process.pid, version: app.getVersion() }, null, 2), "utf8");
+      fs.writeFileSync(file, JSON.stringify({ external, pid: process.pid, version: app.getVersion(), scope }, null, 2), "utf8");
     } catch (error) {
       console.log(`[egress-probe] write failed: ${error instanceof Error ? error.message : String(error)}`);
       app.exit(1);
       return;
     }
-    console.log(`[egress-probe] external=${external.length} -> ${file}`);
+    console.log(`[egress-probe] external=${external.length} sessions=${scope.webRequestSessions} -> ${file}`);
     app.exit(external.length === 0 ? 0 : 1);
   }, idleMs);
   return () => {

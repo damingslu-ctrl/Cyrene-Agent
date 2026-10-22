@@ -434,6 +434,7 @@
     "errors": {
       "invalidUrl": "URL が無効です。完全な HTTP または HTTPS アドレスを入力してください。",
       "unsupportedProtocol": "このプロトコルには対応していません。HTTP と HTTPS のみ開けます。",
+      "blockedUpstream": "このアドレスは遮断された上流サイトのため、ここでは開けません。",
       "unavailable": "ブラウザーを利用できません。もう一度お試しください。",
       "loadFailed": "ページを読み込めませんでした。URL またはネットワークを確認してください。",
       "rendererCrashed": "ページプロセスが終了しました。再読み込みできます。"

@@ -1,7 +1,7 @@
 /**
  * MermaidBlock —— 聊天气泡内的 Mermaid 图渲染。
  *
- * 链路：mermaid 源码 → 熔断检查 → beautiful-mermaid 同步渲染 → 剥字体外呼 → DOMPurify 消毒 → 注入。
+ * 链路：mermaid 源码 → 熔断检查 → beautiful-mermaid 同步渲染 → 剥样式外呼 → DOMPurify 消毒 → 注入。
  * 任一环节失败都降级为源码块 + 提示，不白屏不闪烁。
  * 流式期间（streaming=true）只显示占位，流完再正式渲染——半截源码必然语法报错，不值得边流边试。
  */
@@ -10,7 +10,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "../../../i18n";
 import { renderMermaidSVG } from "beautiful-mermaid";
 import { MERMAID_THEME } from "../../../../../shared/palette-from-cat";
-import { isOverSourceLimit, sanitizeSvg, stripFontImports } from "./svg-sanitize";
+import { isOverSourceLimit, sanitizeSvg } from "./svg-sanitize";
 import { SvgPreviewModal } from "./SvgPreviewModal";
 
 type MermaidResult =
@@ -23,7 +23,7 @@ export function renderMermaidSafe(code: string): MermaidResult {
   if (isOverSourceLimit(code)) return { kind: "fuse" };
   try {
     const raw = renderMermaidSVG(code, MERMAID_THEME);
-    const svg = sanitizeSvg(stripFontImports(raw));
+    const svg = sanitizeSvg(raw);
     if (!svg) return { kind: "error" };
     return { kind: "svg", svg };
   } catch {
@@ -50,7 +50,7 @@ export function MermaidBlock({ code, streaming }: { code: string; streaming?: bo
           title={t("messageList.diagramZoomHint")}
           // 点击放大查看：气泡内 max-width 压缩会让大图看不清
           onClick={() => setZoomed(true)}
-          // 内容已经过 stripFontImports + DOMPurify 消毒
+          // 内容已经过剥样式外呼 + DOMPurify 消毒
           dangerouslySetInnerHTML={{ __html: result.svg }}
         />
         <SvgPreviewModal svg={result.svg} open={zoomed} onClose={() => setZoomed(false)} />

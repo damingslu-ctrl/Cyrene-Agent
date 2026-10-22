@@ -418,6 +418,7 @@
     "errors": {
       "invalidUrl": "Invalid URL. Enter a complete HTTP or HTTPS address.",
       "unsupportedProtocol": "This protocol is not supported. Only HTTP and HTTPS pages can be opened.",
+      "blockedUpstream": "This address belongs to a blocked upstream site and cannot be opened here.",
       "unavailable": "The browser is unavailable. Please try again.",
       "loadFailed": "The page failed to load. Check the URL or network and try again.",
       "rendererCrashed": "The page process exited. You can reload the page."

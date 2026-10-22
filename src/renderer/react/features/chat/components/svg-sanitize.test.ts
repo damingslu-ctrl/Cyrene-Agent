@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { isOverSourceLimit, sanitizeSvg, stripFontImports, SVG_SOURCE_LIMIT } from "./svg-sanitize";
+import { isOverSourceLimit, sanitizeSvg, stripStyleImports, SVG_SOURCE_LIMIT } from "./svg-sanitize";
 
 describe("sanitizeSvg", () => {
   it("剥掉 <script> 注入", () => {
@@ -43,7 +43,7 @@ describe("sanitizeSvg", () => {
   });
 });
 
-describe("stripFontImports", () => {
+describe("stripStyleImports", () => {
   it("剥掉 Google Fonts @import，保留其余样式", () => {
     const svg = [
       "<svg xmlns=\"http://www.w3.org/2000/svg\">",
@@ -55,10 +55,48 @@ describe("stripFontImports", () => {
       "<text>x</text>",
       "</svg>",
     ].join("\n");
-    const out = stripFontImports(svg);
+    const out = stripStyleImports(svg);
     expect(out).not.toContain("fonts.googleapis.com");
     expect(out).toContain("font-family");
     expect(out).toContain("<text>x</text>");
+  });
+
+  it("任意宿主、任意写法的 @import 都剥掉（url/引号/裸 url/媒体查询尾巴）", () => {
+    const svg = [
+      "<svg xmlns=\"http://www.w3.org/2000/svg\"><style>",
+      "@import url(https://evil.example/x.css);",
+      "@import url( 'https://evil.example/2.css' ) screen and (min-width: 100px);",
+      "@import \"https://evil.example/3.css\";",
+      "@import 'https://evil.example/4.css';",
+      ".a { fill: red; }",
+      "</style></svg>",
+    ].join("\n");
+    const out = stripStyleImports(svg);
+    expect(out).not.toContain("evil.example");
+    expect(out).not.toMatch(/@import/i);
+    expect(out).toContain(".a { fill: red; }");
+  });
+
+  it("不误伤 @media / @keyframes 等其余 @ 规则", () => {
+    const svg = [
+      "<svg xmlns=\"http://www.w3.org/2000/svg\"><style>",
+      "@media (max-width: 600px) { text { font-size: 12px; } }",
+      "@keyframes pulse { from { opacity: 0.5; } to { opacity: 1; } }",
+      "</style></svg>",
+    ].join("\n");
+    const out = stripStyleImports(svg);
+    expect(out).toContain("@media");
+    expect(out).toContain("@keyframes");
+  });
+});
+
+describe("sanitizeSvg 的出口闭合", () => {
+  it("消毒后的结果里不留任何 @import（DOMPurify 不负责 CSS 外呼）", () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><style>@import url(https://evil.example/x.css); .a { fill: red; }</style><rect width="10" height="10"/></svg>';
+    const out = sanitizeSvg(svg);
+    expect(out).not.toMatch(/@import/i);
+    expect(out).not.toContain("evil.example");
+    expect(out).toContain("rect");
   });
 });
 

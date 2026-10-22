@@ -105,6 +105,6 @@ export function normalizeBrowserElementSelection(value: unknown): BrowserElement
 
 export type BrowserPanelResult =
   | { ok: true }
-  | { ok: false; error: "invalid_url" | "unsupported_protocol" | "unavailable" };
+  | { ok: false; error: "invalid_url" | "unsupported_protocol" | "blocked_upstream_host" | "unavailable" };
 
 export const EMPTY_BROWSER_PANEL_STATE: BrowserPanelState = { activeTabId: "", tabs: [] };

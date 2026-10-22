@@ -93,6 +93,47 @@ describe("出口尺的登记面", () => {
       expect(f.handlers.get(name), `${name} 没被注销，退出后还会留一个空转监听`).toBeNull();
     }
   });
+
+  it("attach 第二个 session 后，两个 partition 的外呼都进同一张表", () => {
+    const main = fakeSession();
+    const browserPartition = fakeSession();
+    const watchdog = installEgressWatchdog(main.session, 0);
+    watchdog.attach(browserPartition.session);
+
+    main.handlers.get("onSendHeaders")?.({ url: "https://example.com/main.css", method: "GET", resourceType: "Stylesheet" });
+    browserPartition.handlers.get("onSendHeaders")?.({ url: "https://cdn.example.org/app.js", method: "GET", resourceType: "Script" });
+
+    expect(watchdog.sessionCount()).toBe(2);
+    expect(watchdog.entries().map((entry) => entry.url)).toEqual([
+      "https://example.com/main.css",
+      "https://cdn.example.org/app.js",
+    ]);
+  });
+
+  it("同一 session 重复 attach 不会重复登记通道", () => {
+    const f = fakeSession();
+    const watchdog = installEgressWatchdog(f.session);
+    const before = f.registered.length;
+    watchdog.attach(f.session);
+    expect(f.registered.length).toBe(before);
+    expect(watchdog.sessionCount()).toBe(1);
+  });
+
+  it("dispose 会注销每一个 attach 过的 session", () => {
+    const first = fakeSession();
+    const second = fakeSession();
+    const watchdog = installEgressWatchdog(first.session);
+    watchdog.attach(second.session);
+    expect(watchdog.sessionCount(), "第二个 session 没进记账面，下面的注销断言会变成空转").toBe(2);
+    expect(second.registered.length, "第二个 session 一个 channel 都没登记").toBeGreaterThan(0);
+    watchdog.dispose();
+    for (const target of [first, second]) {
+      for (const name of target.registered) {
+        expect(target.handlers.get(name), `${name} 在某个 session 上没被注销`).toBeNull();
+      }
+    }
+    expect(watchdog.sessionCount()).toBe(0);
+  });
 });
 
 describe("出口分类", () => {

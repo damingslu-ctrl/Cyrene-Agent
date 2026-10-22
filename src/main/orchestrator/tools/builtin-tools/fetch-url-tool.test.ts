@@ -1,8 +1,13 @@
-// fetch_url 工具行为测试：正文提取 + GitHub 仓库主页特化。
+// fetch_url 工具行为测试：正文提取 + 上游域名闸门。
 // 全部用 stub 的 fetch 桩，不发真实网络请求。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { UPSTREAM_HOSTS } from "../../../../shared/upstream-hosts";
 import { clearFetchUrlCache, fetchUrlTool } from "./fetch-url-tool";
+
+/** 官方站域名从黑名单表派生：A4 静态锁不允许源码里出现该字面量（表本身有豁免）。 */
+const OFFICIAL_HOST = UPSTREAM_HOSTS.find((host) => host.endsWith(".online"));
+if (!OFFICIAL_HOST) throw new Error("upstream host table is missing the official site");
 
 /** 构造 fetch Response 形状的桩（工具只用到 ok/status/statusText/headers/arrayBuffer/json） */
 function makeResp(opts: {
@@ -35,126 +40,44 @@ beforeEach(() => {
   clearFetchUrlCache();
 });
 
-describe("GitHub 仓库主页特化", () => {
-  it("github.com/{owner}/{repo} 走官方 API：元信息 + README，不抓页面 HTML", async () => {
-    const calls: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => {
-      const url = String(input);
-      calls.push(url);
-      if (url.endsWith("/readme")) {
-        return makeResp({ body: "# 项目标题\n\nREADME 正文内容。" });
-      }
-      if (url.startsWith("https://api.github.com/")) {
-        return makeResp({
-          json: {
-            description: "一个测试仓库",
-            stargazers_count: 123,
-            forks_count: 45,
-            language: "TypeScript",
-            default_branch: "master",
-            license: { spdx_id: "MIT" },
-          },
-        });
-      }
-      return makeResp({ contentType: "text/html", body: "<html><body>页面 HTML</body></html>" });
-    }));
+describe("上游域名闸门", () => {
+  it.each([
+    "https://github.com/foo/bar",
+    "https://www.github.com/foo/bar",
+    "https://api.github.com/repos/foo/bar",
+    "https://gist.github.com/foo/bar",
+    "https://raw.githubusercontent.com/foo/bar/main/README.md",
+    "https://gitee.com/foo/bar",
+    `https://${OFFICIAL_HOST}/`,
+  ])("%s 被拒绝且一次网络请求都不发", async (url) => {
+    const fetchMock = vi.fn(async () => makeResp({ contentType: "text/plain", body: "不应被取到" }));
+    vi.stubGlobal("fetch", fetchMock);
 
-    const out = await fetchUrlTool.execute({ url: "https://github.com/foo/bar" });
+    const out = await fetchUrlTool.execute({ url });
 
-    // 只应有两次 API 调用，没有对 github.com 页面本身的抓取
-    expect(calls).toEqual([
-      "https://api.github.com/repos/foo/bar",
-      "https://api.github.com/repos/foo/bar/readme",
-    ]);
-    expect(out).toContain("来源: GitHub API（仓库元信息 + README 原文）");
-    expect(out).toContain("# foo/bar");
-    expect(out).toContain("> 一个测试仓库");
-    expect(out).toContain("stars: 123");
-    expect(out).toContain("license: MIT");
-    expect(out).toContain("README 正文内容");
-    expect(out).not.toContain("页面 HTML");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(out).toContain("上游");
+    expect(out).not.toContain("不应被取到");
   });
 
-  it(".git 后缀和结尾斜杠也能识别为仓库主页", async () => {
-    const calls: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => {
-      const url = String(input);
-      calls.push(url);
-      return url.endsWith("/readme")
-        ? makeResp({ body: "README" })
-        : makeResp({ json: { description: "" } });
-    }));
-
-    await fetchUrlTool.execute({ url: "https://github.com/foo/bar.git/" });
-    expect(calls).toContain("https://api.github.com/repos/foo/bar/readme");
-  });
-
-  it("README 接口失败时回退普通网页抓取", async () => {
-    const calls: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => {
-      const url = String(input);
-      calls.push(url);
-      if (url.startsWith("https://api.github.com/")) {
-        return makeResp({ ok: false, status: 404, statusText: "Not Found" });
-      }
-      return makeResp({
-        contentType: "text/html",
-        body: `<html><body><article><p>这是回退后从页面正文提取到的内容，为了超过最小文字量阈值这里需要足够长的文本，重复一次：这是回退后从页面正文提取到的内容，为了超过最小文字量阈值这里需要足够长的文本。</p></article></body></html>`,
-      });
-    }));
-
-    const out = await fetchUrlTool.execute({ url: "https://github.com/foo/bar" });
-
-    // 第三次调用是对原地址的普通抓取
-    expect(calls[2]).toBe("https://github.com/foo/bar");
-    expect(out).not.toContain("来源: GitHub API");
-    expect(out).toContain("回退后从页面正文提取到的内容");
-  });
-
-  it("元信息接口失败但 README 成功时，仍输出 README", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => {
-      const url = String(input);
-      if (url.endsWith("/readme")) return makeResp({ body: "纯 README 内容" });
-      return makeResp({ ok: false, status: 403, statusText: "Forbidden" });
-    }));
-
-    const out = await fetchUrlTool.execute({ url: "https://github.com/foo/bar" });
-    expect(out).toContain("纯 README 内容");
-  });
-
-  it("topics 等保留路径不特化，按普通网页抓取", async () => {
-    const calls: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => {
-      calls.push(String(input));
-      return makeResp({ contentType: "text/html", body: "<html><body><div>topic 页面</div></body></html>" });
-    }));
-
-    await fetchUrlTool.execute({ url: "https://github.com/topics/react" });
-    expect(calls).toEqual(["https://github.com/topics/react"]);
-  });
-
-  it("仓库子路径（如 /tree/main）不特化，按普通网页抓取", async () => {
-    const calls: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => {
-      calls.push(String(input));
-      return makeResp({ contentType: "text/html", body: "<html><body><div>tree 页面</div></body></html>" });
-    }));
-
-    await fetchUrlTool.execute({ url: "https://github.com/foo/bar/tree/main/src" });
-    expect(calls).toEqual(["https://github.com/foo/bar/tree/main/src"]);
-  });
-
-  it("format=raw 时不特化，返回原始 HTML", async () => {
-    const calls: string[] = [];
-    const rawHtml = "<html><body><article>原始 HTML</article></body></html>";
-    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => {
-      calls.push(String(input));
-      return makeResp({ contentType: "text/html", body: rawHtml });
-    }));
+  it("format=raw 也过同一道闸门", async () => {
+    const fetchMock = vi.fn(async () => makeResp({ contentType: "text/html", body: "raw" }));
+    vi.stubGlobal("fetch", fetchMock);
 
     const out = await fetchUrlTool.execute({ url: "https://github.com/foo/bar", format: "raw" });
-    expect(calls).toEqual(["https://github.com/foo/bar"]);
-    expect(out).toContain(rawHtml);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(out).toContain("上游");
+  });
+
+  it("正对照：长得像上游但不是子域的站点仍可抓取", async () => {
+    const fetchMock = vi.fn(async () => makeResp({ contentType: "text/plain", body: "正常站点正文" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await fetchUrlTool.execute({ url: "https://evilgithub.com/page" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(out).toContain("正常站点正文");
   });
 });
 

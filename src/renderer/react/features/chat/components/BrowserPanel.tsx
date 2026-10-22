@@ -121,9 +121,11 @@ export function BrowserPanel({ active }: { active: boolean }) {
     if (!result?.ok) {
       setCommandError(result?.error === "unsupported_protocol"
         ? t("browserPanel.errors.unsupportedProtocol")
-        : result?.error === "invalid_url"
-          ? t("browserPanel.errors.invalidUrl")
-          : t("browserPanel.errors.unavailable"));
+        : result?.error === "blocked_upstream_host"
+          ? t("browserPanel.errors.blockedUpstream")
+          : result?.error === "invalid_url"
+            ? t("browserPanel.errors.invalidUrl")
+            : t("browserPanel.errors.unavailable"));
     }
   }
 
