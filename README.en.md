@@ -1,60 +1,94 @@
-<div align="center">
+<p align="center">
+  <img src="./docs/image/preview.png" alt="Mochi" width="800">
+</p>
 
-<img src="./docs/image/preview.png" alt="Mochi" width="800">
+<h1 align="center">Mochi（麻糬）</h1>
 
-# Mochi
+<p align="center">
+  <strong>English</strong> | <a href="./README.md">中文</a>
+</p>
 
-**English** | [中文](./README.md)
+**Mochi is a cat that lives on your Windows desktop — and a desktop Agent that does the work for you.**
 
-</div>
-
-
-
-**Mochi is a Windows desktop AI companion: a cat that lives on your desktop, and an agent that can do work for you.**
-
-> A desktop Live2D conversational Agent built with Electron and TypeScript.  
-> Centered around Cyrene's character design and powered by the self-developed CyreneHarness engine and DMAE memory engine,  
-> it brings character-driven conversation, personalized memory, voice interaction, tool use, and multi-platform access into a single desktop Agent,  
-> supporting four conversation modes: Chat, Work, Code, and Learn.
+> A desktop AI companion written in Electron + TypeScript. A pixel cat lives in a corner of your desktop,
+> and four conversation modes — chat, work, code, learn — share one client. Twelve cats, each with its own
+> coat and personality; the assistant you pick is called Mochi. The interface palette is derived from the
+> cat's own colors — the cat and the software are one set of colors.
+>
+> **Built locally, no online update checks.** Once installed it is yours; upgrades are your call.
 
 ---
 
 ## ✨ At a Glance
 
-- 🌸 **Playful Desktop Companion** — A persistent Live2D character with expressions, actions, status, mood, speech bubbles, intelligent stickers, and multiple interface themes
-- 💬 **Casual Conversation (Chat)** — Focused on character-driven interaction, with responses shaped by conversation history, user style, and long-term memory; no tools are exposed
-- 🛠️ **Assisted Work (Work)** — General-purpose task session that chains together web search, file processing, document generation, and lifestyle tools
-- 💻 **Code Collaboration (Code)** — Binds a trusted code directory, provides LSP semantic queries plus restricted read/write/exec commands; safety is enforced by unified permission approval
-- 📚 **Learning Companion (Learn)** — Binds an Obsidian Vault, accompanies users in understanding materials, organizing notes, generating exercises, and tracking progress
-- 🧠 **Personalized Memory** — L0 / L1 / L2 layered memory combined with the DMAE Worldbook and entry lifecycle management for long-term interaction continuity
-- 🔊 **Voice Interaction** — Integrated TTS, ASR, and voice calls so Cyrene can listen and respond
-- 🧰 **Rich Tool Ecosystem** — Web search, file processing, document generation, everyday services, music, and MCP extensions
-- 🔌 **Multi-Provider Model Support** — Tiered Structured Output and Function Calling compatibility profiles for different model providers
-- 🧩 **Plugin System** — Local plugin packages extend AI tools, chat channels, custom windows, and voice input, with an npm SDK and development guide
-- 📱 **Multi-Platform Access** — Desktop, Feishu/Lark, WeChat iLink, and QQ through NapCat/OneBot 11, sharing character capabilities and conversation experience
-- 🌙 **Proactive Chat** — Starts conversations according to time, status, and user preferences, with targeted multi-channel delivery
+- 🐱 **A pixel cat that lives on your desktop** — an 82×108 cat window, pixel-accurate hit testing, click-through, right-click menu, drag, edge hiding, and a do-not-disturb crescent
+- 🐾 **Twelve cats** — 年糕 / 豆花 / 汤圆 / 布丁 / 抹茶 / 可可 / 芝麻 / 栗子 / 海苔 / 棉花 / 鱼丸 / 奶盖; five coat colors × twelve poses
+- 💬 **Casual Conversation (Chat)** — chat only, no tools; answers shaped by conversation history, user style, and long-term memory
+- 🛠️ **Assisted Work (Work)** — web search, an in-app browser, file handling, document generation, and everyday services chained freely
+- 💻 **Code Collaboration (Code)** — bind a trusted directory; LSP semantic queries plus restricted read/write/exec, all gated by unified permission approval
+- 📚 **Learning Companion (Learn)** — bind an Obsidian Vault; work through materials, organize notes, generate exercises, maintain progress
+- 🧠 **Personalized Memory** — L0 / L1 / L2 layered memory + DMAE Worldbook + entry lifecycle management
+- 🔊 **Voice Interaction** — multi-engine TTS, ASR, and full voice calls
+- 🧰 **Tool Ecosystem** — search, files, documents, everyday services, music, and MCP extensions
+- 🧩 **Plugin System** — local plugin packages extend tools, channels, and windows; SDK and dev guide ship in-repo
+- 📱 **Multi-Platform Access** — Feishu, WeChat iLink, QQ (NapCat / OneBot 11), all sharing the same cat's memory and tone
+- 🌙 **Proactive Chat** — speaks up on its own by time, state, and preference, with targeted multi-channel delivery
 
 ---
 
-## ⚙️ CyreneHarness Core Engine
+## 🐱 The Desktop Cat
 
-> `Work / Code / Learn` and any session mode that requires tool invocation runs on top of **CyreneHarness**.  
+- **Pixel art, not a sprite sheet** — the cat is composited part by part by an in-house drawing-command model (`src/renderer/pet/`); five coats (cream / grey / ink / blue / pink) × twelve poses combine freely. Every framing rule for coat and pose is pinned by unit tests.
+- **82×108 baseline, right-edge anchored** — the cat window stretches to its content width and the cat always hugs the right edge, so it never shifts on resize.
+- **Pixel-accurate hit testing** — a hit counts only where the cat actually painted ink; transparent pixels never catch clicks, so clicking empty space does nothing.
+- **Right-click menu** — right-click the cat for: open settings, do-not-disturb for half an hour, hide in the screen edge, quit.
+- **Edge hiding** — drag to a screen edge and the cat tucks into the gap, leaving one ear and a sliver of seam; the tucked position is remembered, so the cat is still there next time, with one "I'm here" hint.
+- **Do not disturb** — half an hour of quiet from the right-click menu; it wakes itself when the time is up and tells you everything it held back.
+- **It speaks when it crashes** — after an unexpected exit, the next launch tells you how it died last time instead of vanishing silently.
+
+---
+
+## 🎨 Themes
+
+There are two interface themes, and the palette is derived directly from the cat's coat colors (`src/shared/palette-from-cat.ts`), so switching cat or theme never splits the two apart.
+
+**☀️ Pearl White (pearl-white)**
+
+<table>
+  <tr>
+    <td><img src="./docs/image/light1.png" alt="Pearl white theme UI 1" width="400"></td>
+    <td><img src="./docs/image/light2.png" alt="Pearl white theme UI 2" width="400"></td>
+  </tr>
+</table>
+
+**🌙 Classic Dark (charcoal-pink)**
+
+<table>
+  <tr>
+    <td><img src="./docs/image/dark1.png" alt="Classic dark theme UI 1" width="400"></td>
+    <td><img src="./docs/image/dark2.png" alt="Classic dark theme UI 2" width="400"></td>
+  </tr>
+</table>
+
+---
+
+## ⚙️ The Agent Core Engine
+
+> Session modes that need tool calls — `Work / Code / Learn` — all run on top of **the Harness**.
 > Source: [`src/main/orchestrator/harness/cyrene-harness.ts`](./src/main/orchestrator/harness/cyrene-harness.ts)
 
-CyreneHarness is the core Agent Loop of Cyrene Agent. It chains **model decisions, tool execution, side-effect accounting, and state recovery** into a continuous loop that is interruptible, recoverable, and replayable.
+The Harness is this client's core Agent Loop. It chains **model decisions, tool execution, side-effect accounting, and state recovery** into a continuous loop that can be interrupted, resumed, and replayed.
 
 <details>
 <summary><b>Design and implementation details</b> (click to expand)</summary>
 
-> Session transcripts are carried by the **CTA (Canonical Transcript Architecture)**: the canonical journal is the single source of truth,
-> and the model context, UI projections, and channel messages are all derived from the transcript; compaction summaries are persisted as checkpoints,
-> hot logs are archived to `segments/`, supporting cross-process crash recovery and edit / regenerate backtracking.
+> Session transcripts are carried by the **CTA (Canonical Transcript Architecture)**: the canonical journal is the single source of truth, and the model context, UI projections, and channel messages are all derived from the transcript; compaction summaries are persisted as checkpoints, hot logs are archived to `segments/`, supporting cross-process crash recovery and edit / regenerate backtracking.
 > Source: `src/main/orchestrator/conversation-*.ts` (store / journal-service / compactor / projection, etc.)
 
 **Key design points:**
 
 - **Continuous while + Function Calling loop** — Each round calls the LLM, dispatches the returned `toolCalls`, and lets the model end the turn when it returns no tool calls.
-- **assistantMessage must be written back** — Every assistant message is pushed into `messages` unconditionally after each LLM response. Skipping this step breaks the loop on the next round.
+- **The assistant message must be written back** — Every assistant message is pushed into `messages` unconditionally after each LLM response. Skipping this step breaks the loop on the next round.
 - **Exclusive Ask path** — `ask_user` / `confirm_uncertain_effect` are user-waiting built-in tools that monopolize the round: other co-round tools return `not_executed`, and the progress buffer is discarded before continuing.
 - **Four-state outcome with uncertainEffect interception** — Tool results fall into `success / failure / unknown / not_executed`. When `unknown` is paired with `sideEffect === non_idempotent`, the side effect is recorded into `state.uncertainEffects` and `halted = true` blocks further automatic replays of the same dangerous call within the round.
 - **Failure retry** — Failed tools decide whether to retry based on `classifyToolResultError` + `resolveSideEffect`; the `sleepWithJitter` backoff is interruptible via `AbortSignal`.
@@ -80,9 +114,9 @@ CyreneHarness is the core Agent Loop of Cyrene Agent. It chains **model decision
 
 **Main flow:**
 
-![CyreneHarness main loop](./docs/image/harness.png)
-
-*(① Init → ② Main loop → ③ LLM → ④ Tool dispatch → ⑤ State ledger → ⑥ Terminal settlement)*
+```
+① Init → ② Main loop → ③ LLM → ④ Tool dispatch → ⑤ State ledger → ⑥ Terminal settlement
+```
 
 </details>
 
@@ -98,18 +132,18 @@ CyreneHarness is the core Agent Loop of Cyrene Agent. It chains **model decision
 
 > Feishu, WeChat iLink, `nut-js` keyboard/mouse automation, and the native screenshot feature depend on the Windows environment.
 >
-> If you install a packaged release directly, you do not need to install Rust or Visual Studio Build Tools.
+> If you install a packaged `Mochi-Setup-<version>.exe`, you do not need to install Rust or Visual Studio Build Tools.
 
-### 1. Clone and Install Dependencies
+### 1. Clone and install dependencies
 
 ```bash
-# Run from the root of your own checkout (use your fork / local path)
+# Run from the root of your own checkout (use your local path)
 pnpm install --frozen-lockfile
 ```
 
-The first installation downloads Electron, Pixi.js, Live2D, and related dependencies. The time required depends on your network connection.
+The first installation downloads Electron and its dependencies; the time required depends on your network connection.
 
-### 2. Build and Start
+### 2. Build and start
 
 When running from source for the first time, you need to build the Rust native screenshot helper:
 
@@ -129,57 +163,326 @@ Development mode:
 
 ```bash
 pnpm run build:screenshot-helper
-pnpm run dev
+pnpm dev
 ```
 
-Building a distributable Windows version (automatically builds both the Electron app and the Rust screenshot helper):
+Building a distributable Windows version (automatically builds the Electron app and the Rust screenshot helper):
 
 ```bash
 pnpm run package:win:dir
 ```
 
-### 3. Install BGE-M3 (Recommended)
+### 3. Install BGE-M3 (recommended)
 
-Cyrene can chat normally without running a local large language model. However, installing the **BGE-M3 Embedding model** is recommended (used for semantic sticker matching, Worldbook semantic retrieval, and RAG retrieval):
+Mochi can chat normally without running a local large language model. However, installing the **BGE-M3 Embedding model** is recommended (used for semantic sticker matching, Worldbook semantic retrieval, and RAG retrieval):
 
-The BGE-M3 model files live in this repository's `models/` directory (offline; no online download).
+The BGE-M3 model files live in this repository's `models/Xenova/bge-m3/` directory (offline; no online download).
+Only placeholder files are tracked in Git — the model weights are never committed.
 
 > [!IMPORTANT]
 >
-> Not installing BGE-M3 does not affect basic chat. Features that depend on Embedding will be disabled or degraded automatically.
+> Not installing BGE-M3 does not affect basic chat. Features that depend on Embedding (semantic sticker matching, semantic Worldbook retrieval, RAG retrieval) will be disabled or degraded automatically.
 
-### 4. Command-line Entry (Optional)
+### 4. Command-line entry (optional)
 
-The project ships a `cyrene` command-line entry point. After running `pnpm run build:cli && pnpm link --global`, it can be used from any directory, providing subcommands such as `version` and `run`; see `cyrene --help` for details.
+The project ships a `mochi` command-line entry point. After running `pnpm run build:cli && pnpm link --global`, it can be used from any directory, providing subcommands such as `version` and `run`; see `mochi --help` for details.
 
-> `pnpm run build` already includes `build:cli`, but `pnpm link --global` is still required. The production `cyrene desktop` entry will arrive in 1.x.
+> `pnpm run build` already includes `build:cli`, but `pnpm link --global` is still required. The production `mochi desktop` entry will arrive in 1.x.
 
 ---
 
 ## 🔑 Configure API Keys
 
-After starting the application, **click the system tray icon → Open Settings**, then complete the basic configuration:
+After starting the application, **click the system tray icon → open settings**, then complete the basic configuration:
 
-1. **🔑 Model Settings**: Select an LLM provider preset and enter the API Key, Base URL, and model name.  
-   This configuration is required for Cyrene to chat and run the Agent.
+1. **🔑 Model settings**: Select an LLM provider preset and enter the API Key, Base URL, and model name.
+   This configuration is required for Mochi to chat and run the Agent.
 
-2. **🎙️ TTS Settings** (optional): Select Mossland, MiniMax, MiMo, GPT-SoVITS, or a custom cloud-based speech synthesis service.
+2. **🎙️ TTS settings** (optional): Select Mossland, MiniMax, MiMo, GPT-SoVITS, or a custom cloud-based speech synthesis service.
 
-3. **🎧 ASR Settings** (optional): To use voice calls, configure Alibaba Cloud real-time ASR credentials, the API key shared with Mossland TTS, or a MiniMax ASR API key.
+3. **🎧 ASR settings** (optional): To use voice calls, configure Alibaba Cloud real-time ASR credentials, the API key shared with Mossland TTS, or a MiniMax ASR API key.
 
-4. **📱 External Channels** (optional): Connect Feishu or WeChat iLink to chat with Cyrene from your phone.
+4. **📱 External channels** (optional): Connect Feishu or WeChat iLink to chat with Mochi from your phone.
 
 5. **🎵 Music** (optional): Configure NetEase Cloud Music OpenAPI credentials to enable music tools; the player is bundled, no NetEase desktop client required.
 
-Configuration is stored in the application's `<userData>/` directory. Most changes do not require a restart.
+Configuration is stored in the application's `<userData>/` directory (`%APPDATA%\Mochi`). Most changes do not require a restart.
+
+---
+
+## ✨ Features
+
+### Core Features
+
+#### 💬 Casual Conversation (Chat)
+
+- **Independent chat flow** — Chat mode focuses on conversation and does not expose, invoke, or execute any tool.
+- **Character-aware responses** — Combines the assistant cat you picked, recent conversations, social context, user style, and personalized memory to generate replies.
+- **Multiple conversation histories** — Conversations are stored independently and support automatic titles, sorting, and renaming.
+- **Channel-specific chat style** — Desktop chat, mobile channels, and voice calls can use different expression styles.
+- **Segmented replies** — Choose between "segment all / segment Chat only / disabled," allowing long replies to be split into semantic chat bubbles.
+
+The session modes below are consumers of the Harness:
+
+#### 🛠️ Assisted Work (Work)
+
+<img src="./docs/image/work.png" alt="Work mode preview" width="800">
+
+- **Driven by the Harness** — Each message enters the while loop of [the Harness](./src/main/orchestrator/harness/cyrene-harness.ts): every round calls the LLM → writes back the assistant message → dispatches tools → writes back tool results → checks uncertain effects → continues or ends. Pre-processors (CITA context understanding) run before the Harness entry; inside the loop, each round carries a compact execution persona ([`prompts/cyrene_harness.md`](./prompts/cyrene_harness.md)) that only governs expression style and never leaks into tool arguments — on conflict, "task correctness > information clarity > the cat's tone"; the full persona layer (Soul) generates the reply text after the Harness exits.
+- **Tool chaining** — Web search, web reading, file read/write, document generation, and everyday services can be combined on demand; the model picks the next tool itself, with no pre-scripted flow.
+- **In-app browser control** — Mochi can open URLs inside the app, read page elements, and click, type plain text, scroll, or take screenshots to check. The browser page always shows in the right-hand panel so you can watch the result; control persists across messages in the same conversation, and Mochi explicitly exits when the task is done. Page content is treated as web data only — passwords, verification codes, and payment details are entered by you.
+
+#### 💻 Code Collaboration (Code)
+
+<img src="./docs/image/code.png" alt="Code mode preview" width="800">
+
+- **Code tooling layered on top of Work** — Reuses the [Harness](./src/main/orchestrator/harness/cyrene-harness.ts) main loop and additionally registers a code-specific toolset (read/write/edit, command execution, LSP queries); before execution, permission approval (`checkPermission`) filters unsafe calls, and the Execution Policy decides whether a second confirmation is required.
+- **Bind a trusted working directory** — All reads, writes, command execution, and LSP queries must stay inside the directory you bound beforehand; the model cannot specify or switch the working directory, and out-of-bounds access (including `..` and symlink escapes) is rejected outright.
+- **Code semantic queries (LSP)** — Code mode can query definitions, references, hover, symbols, and diagnostics inside the bound working directory; it does not modify files.
+- **Change history and one-click restore** — Every write is snapshotted first (`src/main/orchestrator/review/`); when the run finishes you can read the diff file by file in the review panel and restore the workspace to its state before that run. Plan approval lives separately in `src/main/orchestrator/plan-mode.ts`.
+- **External services are yours to manage** — Mochi ships only an LSP client. It does not bundle, download, upgrade, or silently install language servers; install the ones you need yourself.
+- **Safety boundary** — Language server processes start with `stdio: "pipe"`, `shell: false`, and `cwd` pinned to the bound working directory; the model cannot specify the command, the server ID, or the working directory.
+
+<details>
+<summary><b>LSP-supported languages and custom configuration</b> (click to expand)</summary>
+
+**Built-in languages** — TypeScript / JavaScript / JSON, Python, Go, Rust, C / C++, Java, C#, PHP, Ruby, Kotlin, Lua, Vue, YAML (13 in total, see `src/main/lsp/server-catalog.ts`).
+
+**Startup order** — First by whether the command is an absolute path, otherwise look in the workspace `node_modules/.bin`, and finally fall back to walking the system PATH directory by directory (Windows also appends `.exe` / `.cmd` extensions per `PATHEXT`).
+
+**Installation and troubleshooting** — Common servers include `typescript-language-server`, `pyright-langserver`, `gopls`, `rust-analyzer`, `clangd`, `jdtls`, `OmniSharp`, `intelephense`, `ruby-lsp`, `kotlin-language-server`, `lua-language-server`, `vue-language-server`, `yaml-language-server`; on Windows use `where pyright-langserver` to check whether a server can be discovered.
+
+**Custom server commands** — Configure `lspServerOverrides` in `general-settings.json` in the application data directory. It only overrides the `command` / `args` / `extensions` / `initializationOptions` of builtin servers, and never accepts a launch command passed in by the model. For example:
+
+```json
+{
+  "lspServerOverrides": [
+    {
+      "id": "python-pyright",
+      "command": "basedpyright-langserver",
+      "args": ["--stdio"]
+    }
+  ]
+}
+```
+
+**Process reuse and release** — LSP processes with the same serverId are reused within the same workspace to avoid repeated cold starts; they are all released when the app exits.
+
+</details>
+
+#### 📚 Learning Companion (Learn)
+
+<img src="./docs/image/learn.png" alt="Learn mode preview" width="800">
+
+- **Obsidian Vault workspace** — Bind a Vault as your learning workspace, with a `materials/`, `notes/`, `exercises/`, `templates/`, and `learn/progress.md` directory layout; see the [Learn mode guide](docs/user-guide/learn-mode.md).
+- **RAG and personalized memory** — Materials are indexed through the [RAG document knowledge base](#-rag-document-knowledge-base) and then participate in retrieval; progress and preferences flow into L2 long-term memory, keeping you continuous across sessions.
+- **Understanding, together** — Asks questions, breaks things down, draws analogies, and discusses — rather than doing the learning for you.
+- **Notes and exercises** — Organize concepts together inside the Vault, generate exercises, record reviews, and maintain a progress overview automatically.
+- **Respects your pace** — Explains differently when you don't get it, moves on when you do, and never scolds you for a wrong answer.
+
+#### 📝 Rich Text and Code Rendering
+
+- **Markdown rendering** — Supports headings, lists, quotes, tables, links, code blocks, and other common Markdown content.
+- **Code highlighting** — Syntax highlighting and copy support for many common programming languages.
+- **Math formulas** — Supports inline and block formula rendering.
+- **Stream-compatible** — Output stays stable while generating and is rendered as complete rich text once the message finishes.
+
+#### 🎵 Music Companion
+
+- **Built-in player** — A bundled desktop music player with playlist tag switching, local caching, and playlist management.
+- **NetEase Cloud Music source** — Talks to the NetEase OpenAPI through the in-house `NeteaseOpenapiProvider`, providing song / artist / album search, daily recommendations, your playlists, and favorites.
+- **Built-in mpv playback** — `MpvController` drives the bundled mpv process for load, play, pause, seek, volume, and stop — no external client needed.
+- **Multi-tool chaining** — In `Work / Learn` modes it combines with other tools (web search, files, documents) to run continuous flows such as "search a song → add to a playlist → play".
+- **Lazy start, graceful degradation** — The music backend opens its network session only on the first real music operation, so idle time costs nothing; a missing mpv does not affect chat or other core features.
+
+#### 🧠 Personalized Memory
+
+- **L0 / L1 / L2 layered memory** — Separately manages the core user profile, recent state, and long-term history.
+- **Evidence chains** — Memories keep their source and context, reducing unfounded profile inference.
+- **Conflict detection and resolution** — Recalls, scores, and semantically compares old memories with new information, distinguishing context shifts, evolving preferences, and direct contradictions.
+- **In-house DMAE Worldbook** — Manages character knowledge and long-term interaction through trigger words, priority, intrinsic value, chained triggers, and Active / Dormant / Archived states.
+- **Relationship and style accumulation** — Long-term interaction gradually forms your preferences, communication habits, and relational context.
+
+#### 🔊 Voice Interaction
+
+- **Multiple TTS engines** — Mossland, MiniMax, MiMo, GPT-SoVITS, and custom cloud speech services.
+- **ASR** — Alibaba Cloud real-time speech recognition, plus full audio transcription after each turn from Mossland and MiniMax.
+- **Complete voice calls** — Continuous voice conversation through the `LISTENING → THINKING → SPEAKING` state flow.
+- **VAD silence detection** — Automatically decides when you have finished speaking and triggers the reply.
+
+#### 🧰 Tool Ecosystem
+
+The built-in and extended tools mainly cover these categories:
+
+- **Documents and office** — Generate Word, Excel, PDF, and Markdown documents.
+- **Web** — Web search, page reading, content extraction, and information organization.
+- **File handling** — Read, write, browse local files, and recognize image content.
+- **Everyday services** — Weather, maps, translation, exchange rates, bookkeeping, and trip planning.
+- **Music** — Search songs, get recommendations, and drive the local music client.
+- **Task collaboration** — Task lists, user choice cards, task delegation, and subtasks.
+- **MCP extensions** — Bring in extra external tools and services through the Model Context Protocol.
+
+<details>
+<summary><b>🧩 Advanced features</b> (click to expand)</summary>
+
+#### 📚 RAG Document Knowledge Base
+
+- Import `txt`, `md`, `pdf`, `docx`, `xlsx`, `pptx`, `csv`, `json`, and other formats.
+- Hybrid retrieval combining vector search, BM25, and a Reranker.
+- Supports local Embedding and OpenAI-compatible cloud Embedding.
+- Retrieval results keep source information so you can trace back to the original document.
+- Supports entity-relation data and custom tokenization dictionaries.
+
+#### 🔌 MCP (Model Context Protocol)
+
+- Supports `stdio`, SSE, and HTTP transports.
+- Manage and enable/disable MCP servers from the settings page.
+- MCP tools flow into the same tool registry, permission approval, and Execution Policy.
+- The real-world stability of third-party MCP servers depends on their own implementations.
+
+#### 📱 External Channels
+
+- **Feishu Lark** — Via the official SDK and a WebSocket long connection, with no public server or port forwarding needed; see the [Feishu guide](docs/user-guide/feishu.md).
+- **WeChat iLink** — Supports long-polling message reception, text sending, and some media handling.
+- **QQ / NapCat** — Via OneBot 11 reverse WebSocket, supporting allowlisted private chats, group @-mentions, replies, and multimedia messages; see the [NapCat guide](docs/user-guide/napcat-onebot.md).
+- **One persona across channels** — Desktop, Feishu, WeChat, and QQ share the same cat's character and memory.
+- **Per-channel style** — Mobile chat and desktop chat can use different expression styles.
+
+#### ✨ Skill System
+
+- Supports builtin skills and your own custom skills.
+- A skill with the same name in the user directory can override the builtin version wholesale.
+- Supports `invoke_skill`, reference reading, and Slash Commands.
+- Includes path guards, repeat-read limits, and large-text truncation.
+
+#### 🧩 Plugin System
+
+- **Local plugin packages** — A folder (`manifest.json` + a JS entry file) is a plugin, managed in one place in settings; ZIP import is supported, with installation going through staging-isolated validation + atomic replacement + automatic rollback on failure, and built-in protection against path traversal and zip bombs.
+- **Open capabilities** — Plugins can register AI tools, open their own windows, call the host LLM, join new chat channels, listen for lifecycle events, inject per-round dynamic context, and request host services such as private storage, secure secrets, read-only session paging, their own scheduled tasks, and a voice-input lease.
+- **Trust boundary** — Newly discovered user plugins are always disabled and must be enabled by hand in settings; a plugin's scheduled tasks only take effect after you review the configuration; voice input uses an exclusive lease so two input sources never fight.
+- **Developer toolchain** — The SDK source ships in this repository ([`packages/plugin-sdk`](./packages/plugin-sdk)), with all public types, manifest validation, and Mock Context test utilities; it depends on `ajv` at runtime only. A [plugin development guide](docs/plugins/plugin-dev-guide.md) and the `cyrene-plugin-dev` Skill let you build without reading the host source.
+- **Official examples** — The repository's [`examples/`](./examples) directory provides five ready-made starting points: weather query, long-term memory, scheduled automation, system status, and a local ASR contract.
+- **Sharing plugins** — This version has no remote registry: zip the plugin folder and send it to someone else, who imports it under Settings → Plugins → Add.
+
+#### 🌙 Proactive Chat
+
+- **State awareness** — Judges whether to start a conversation from the time, your activity state, the conversation state, and the character's mood.
+- **Non-intrusive policy** — Late at night, while you are already chatting, or after several unanswered messages, proactive messages are reduced or stopped.
+- **Multi-channel delivery** — Desktop, WeChat, or Feishu can be chosen as the target.
+- **Channel failure protection** — If the chosen mobile channel is unavailable the message is cancelled rather than silently redirected to desktop.
+
+</details>
+
+---
+
+<details>
+<summary><b>🔧 Developer features</b> (click to expand)</summary>
+
+#### 🧪 Unit tests
+
+- Vitest 5 covers asr / tts / channels / chats / memory / orchestrator / plugins / rag / skills and other core modules.
+- `pnpm test` runs once / `pnpm run test:watch` runs in watch mode.
+- Plugin development: `pnpm run check:plugin-sdk` validates SDK packaging, `pnpm run test:plugin-examples` end-to-end verifies the official examples.
+
+#### 🎬 Scenario simulation
+
+- `pnpm run sim` for the default scenario, `sim:coffee` / `sim:mix` / `sim:rescue` for single-scenario debugging; output goes to `sim-result/`.
+- `pnpm run sim:sweep --rewardGain=3,5,7,10` runs a Worldbook scoring parameter sweep.
+
+#### 🖼️ Screenshot and acceptance scripts
+
+- `scripts/verify/p4-cdp-capture.mjs` — drives the real app over CDP through welcome → terms → main window and takes screenshots.
+- `scripts/verify/p4-visual-oracle.mjs` — reads screenshot PNGs and derives theme visual criteria from robust quantities (brightness / hue / coverage).
+- `scripts/verify/p4-readme-shots.mjs` — generates the README images (pearl white / classic dark / four modes).
+- `node scripts/build/cat-sprites.mjs --check` — checks the 198 cat sprite images against the manifest.
+
+</details>
+
+---
+
+## 🧱 Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Runtime | Node.js 24 LTS + Electron 44 |
+| Language | TypeScript 5 |
+| Build | Vite 8 + esbuild (main process / preload / CLI each bundled) |
+| UI rendering | HTML / CSS + React 19 + Tailwind CSS 4 + Ant Design X / Mantine + Chart.js |
+| Desktop cat | In-house pixel-cat drawing-command model (`src/renderer/pet/`) + Canvas 2D, five coats × twelve poses |
+| Theme palette | Derived from the cat's coat (`src/shared/palette-from-cat.ts`) → pearl-white / charcoal-pink token sets |
+| Agent core | [Harness](./src/main/orchestrator/harness/cyrene-harness.ts) main loop + CTA session transcript + Structured Output / Native Function Calling |
+| Agent event protocol | AG-UI (`@ag-ui/core`, `@ag-ui/client`) — `RUN_STARTED / STEP_* / TEXT_MESSAGE_* / TOOL_CALL_* / RUN_FINISHED` events decouple the renderer |
+| Tools and sandbox | In-house tool scheduling + side-effect accounting + retry policy + permission approval; Windows command sandbox `@anthropic-ai/sandbox-runtime` |
+| Code collaboration | In-house `LspManager` + `vscode-jsonrpc` (LSP client), `@ast-grep/napi` (structured code search), `simple-git` (git integration) |
+| Tool extensions | `@modelcontextprotocol/sdk` (stdio / SSE / HTTP transports) |
+| Plugin system | [`packages/plugin-sdk`](./packages/plugin-sdk) (public types + manifest schema validation + Mock Context test utilities) |
+| Memory and retrieval | Embedding (`@xenova/transformers`) + BM25 + in-house Cross-Encoder Reranker + DMAE V5.1 (keyword-hit recall + activation decay + reversible tri-state) + `@node-rs/jieba` |
+| Browser and desktop automation | Playwright + `@nut-tree-fork/nut-js` |
+| Rich text rendering | Streamdown + Shiki + KaTeX (Markdown / code highlighting / formulas) |
+| Voice and media | Multi-engine TTS / ASR + `silk-wasm` |
+| Native screenshot helper | Rust + DXGI Desktop Duplication / Direct2D + WIC PNG + NDJSON IPC |
+| Documents and mail | ExcelJS, docx, PDFKit, Nodemailer |
+| Testing | Vitest 5 |
+
+---
+
+## 📦 Project Structure
+
+```
+models/                # Local AI models (you place them; only placeholders are tracked)
+└── Xenova/bge-m3/     # Embedding model (sticker semantics + scene recognition, ~570MB)
+
+src/
+├── cli/               # Command-line entry (the mochi command)
+├── main/              # Electron main process
+│   ├── orchestrator/  # Agent core: Harness main loop + CTA session transcript + tool scheduling + permission approval
+│   │   ├── harness/   # Harness (while loop + compaction + retry + uncertainty)
+│   │   ├── tools/     # Tool registry and builtin tools (incl. Code mode tools, ast-grep search)
+│   │   ├── vendors/   # Multi-model vendor adaptation (tiered Structured Output + Function Calling)
+│   │   ├── sandbox/   # Windows command execution sandbox
+│   │   ├── review/    # Change history (pre-write snapshot + per-run diff + one-click restore)
+│   │   └── structured-output/  # Unified Structured Output pipeline
+│   ├── channels/      # External channel adapters (Feishu / WeChat iLink / QQ OneBot 11)
+│   ├── memory/        # L0/L1/L2 memory engine + DMAE Worldbook + entity-relation graph
+│   ├── rag/           # Retrieval-augmented generation + Worldbook injection
+│   ├── lsp/           # LSP client (manager / client / server-catalog)
+│   ├── code-git/      # Code mode git service (status / commit / branch / push)
+│   ├── learn/         # Learn mode (Obsidian Vault binding + progress overview)
+│   ├── tasks/         # Task panel (task execution / delegation / subagent runtime)
+│   ├── music/         # Music companion (playback / recommendations / session)
+│   ├── moments/       # Moments / social feed
+│   ├── permission/    # Permission approval (checkPermission / risk levels)
+│   ├── plugin-host/   # Plugin host services
+│   ├── proactive/     # Proactive conversations (model / policy / routing)
+│   ├── skills/        # Skill system (builtin + user-defined)
+│   ├── asr/ tts/ call/ # Speech recognition / synthesis / calls
+│   ├── cita/          # CITA context understanding and suggestion engine
+│   ├── relationship/ social-context/  # User relationship profile / social context
+│   ├── scheduler/     # Scheduled tasks (reminders / agenda)
+│   ├── egress/        # Egress watchdog (blocks upstream domains at runtime) + static identifier lock
+│   ├── verge/         # Desktop pet shell (right-click menu / do-not-disturb / edge hiding / state store)
+│   └── ...            # prompts / protocols / services / settings / startup / windows, etc.
+├── plugins/           # Plugin system core (manifest validation / loader / lifecycle)
+├── preload/           # Electron preload bridge
+├── renderer/          # Vite renderer (React 19 component library + pixel-cat rendering + window entries)
+│   └── pet/           # The pixel cat (drawing commands / coats / poses / hit testing)
+└── shared/            # Code shared by main and renderer (brand / palette / cat roster)
+
+examples/              # Plugin development examples (weather-tool / long-term-memory / ...)
+packages/plugin-sdk/   # Plugin SDK source
+scripts/               # Build / packaging / acceptance scripts (including CDP capture and pixel rulers under verify/)
+```
+
+> Static asset sources live in `src/renderer/public/` (audio / avatars / stickers / icons).
+> Brand truth lives in `src/shared/brand.ts` and palette truth in `src/shared/palette-from-cat.ts` — renaming and recoloring happen in exactly one place.
 
 ---
 
 ## ❓ FAQ
 
-### Does Cyrene Support Local LLMs and Other Third-Party Model Platforms?
+### Does Mochi support local LLMs and other third-party model platforms?
 
-Cyrene only provides basic generic compatibility and fault-tolerance handling for local models, custom endpoints, and third-party model platforms that are not listed in the compatibility matrix.
+For local models, custom endpoints, and third-party platforms that are not in the compatibility catalog, this project only provides basic generic compatibility and fault-tolerance handling.
 
 Because these endpoints have not been tested through the complete Work workflow:
 
@@ -188,21 +491,19 @@ Because these endpoints have not been tested through the complete Work workflow:
 - Completion of the full Agent toolchain is not guaranteed
 - Configuration guidance, compatibility troubleshooting, and error diagnosis are currently not provided
 
-Unknown models, local models, and custom endpoints use the generic **Tier D** profile by default. Users must verify actual compatibility themselves.
+Unlisted models, local models, and custom endpoints use the generic **Tier D** profile by default. Users must verify actual compatibility themselves.
 
 The current model names, capability coverage, and verification status are maintained in the [model compatibility catalog](./docs/references/adapted-models.en.md). The catalog is the source of truth and may change as models and contributor evidence are updated.
 
-Models not listed in the catalog, local models, and custom endpoints may still work through generic compatibility handling, but full compatibility is not guaranteed. See the [model adaptation guide](./docs/contributing/model-adaptation.en.md) to contribute a model update.
-
 > BGE-M3 is a local Embedding enhancement model used by the project. It is not a local large language model for chat.
 
-### Are API Keys Secure?
+### Are API Keys secure?
 
 > [!WARNING]
 >
 > The current version is not recommended for use on shared computers or in other untrusted environments.
 
-Credentials for the LLM, separate vision model, ASR, TTS, and other third-party services are stored in the application's `<userData>/` directory:
+Credentials for the LLM, separate vision model, ASR, TTS, and other third-party services are stored in the application's `<userData>/` directory (`%APPDATA%\Mochi`):
 
 - `<userData>/model-settings.json`: LLM and vision model configuration (plaintext)
 - `<userData>/app-settings.json`: ASR, TTS, maps, search, email, and other configuration (plaintext)
@@ -233,9 +534,9 @@ To clear credentials and application configuration, delete the following files a
 <userData>/music/netease/account.enc
 ```
 
-### Can It Run on macOS or Linux?
+### Can it run on macOS or Linux?
 
-Cyrene currently targets and is primarily tested on **Windows 10 / 11**.
+Mochi currently targets and is primarily tested on **Windows 10 / 11**.
 
 | Platform | Status | Description |
 |---|:---:|---|
@@ -245,370 +546,53 @@ Cyrene currently targets and is primarily tested on **Windows 10 / 11**.
 
 The `game-bot` module uses the native `nut.js` dependency and has only been tested end to end on Windows.
 
-When reporting a macOS or Linux compatibility problem, include the runtime environment, error logs, and reproduction steps in the GitHub Issue.
+When reporting a macOS or Linux compatibility problem, include the runtime environment, error logs, and reproduction steps.
 
-### What Should I Do About OOM or Excessive Memory Usage?
+### What should I do about OOM or excessive memory usage?
 
 Try the following steps in order:
 
-1. **Disable the Reranker**  
-   Settings → Cyrene Settings → RAG / Document Import → set Reranker mode to `none`.
+1. **Disable the Reranker**
+   Settings → Settings → RAG / Document Import → set Reranker mode to `none`.
 
-2. **Disable MCP Services You Are Not Using**  
+2. **Disable MCP services you are not using**
    Browser automation services such as Playwright may start additional Chromium processes.
 
-3. **Reduce Large RAG Documents**  
+3. **Reduce large RAG documents**
    Remove knowledge-base files that are not currently needed to reduce indexing and retrieval overhead.
 
-4. **Close Unused Windows and Background Tasks**  
+4. **Close unused windows and background tasks**
    Long-running tool tasks, voice services, and multiple conversations may continue consuming resources.
 
-5. **Restart the Application**  
+5. **Restart the application**
    This releases memory occupied by models, indexes, browser subprocesses, and long-running tasks.
 
 The Embedding index uses a background Worker, batching, and caching to reduce peak memory usage during document import.
 
-If OOM errors continue, use the Chrome DevTools Memory Profiler in development mode to capture a Heap Snapshot, then include the reproduction steps and relevant logs in the Issue.
+If OOM errors continue, use the Chrome DevTools Memory Profiler in development mode to capture a Heap Snapshot, then include the reproduction steps and relevant logs.
 
----
+### How do I upgrade?
 
-## ✨ Features
+This build **never checks for updates online** and never pulls an update from any remote. There is exactly one way to upgrade: rebuild locally yourself, or install a new release.
 
-### Core Features
-
-#### 🌸 Desktop Companion
-
-- **Live2D Desktop Character** — Rendered with `pixi-live2d-display` and Cubism Core, with always-on-top display, mouse interaction, natural idle animations, and lip sync.
-- **Expression and Action Linking** — Conversation content can trigger expressions, actions, status, mood, and desktop speech bubbles, extending feedback beyond text.
-- **Intelligent Stickers** — Includes a built-in sticker panel and semantic matching that can automatically select stickers appropriate to the current context.
-- **Multi-Window Interaction** — The companion, chat, settings, tasks, call, and sticker-management windows are independent while sharing unified runtime state.
-- **Customizable Appearance** — Supports interface themes, chat styles, and font selection.
-
-#### 🎨 Theme Appearance
-
-Cyrene ships with light and dark interface themes covering the main windows:
-
-**🌙 Dark Theme**
-
-<table>
-  <tr>
-    <td><img src="./docs/image/dark1.png" alt="Dark theme UI 1" width="400"></td>
-    <td><img src="./docs/image/dark2.png" alt="Dark theme UI 2" width="400"></td>
-  </tr>
-</table>
-
-**☀️ Light Theme**
-
-<table>
-  <tr>
-    <td><img src="./docs/image/light1.png" alt="Light theme UI 1" width="400"></td>
-    <td><img src="./docs/image/light2.png" alt="Light theme UI 2" width="400"></td>
-  </tr>
-</table>
-
-#### 💬 Casual Conversation (Chat)
-
-- **Independent Character-Chat Flow** — Chat mode focuses on character-driven interaction and does not expose, invoke, or execute tools.
-- **Character-Aware Responses** — Combines Cyrene's character design, recent conversation, social context, user style, and personalized memory.
-- **Multiple Conversation Histories** — Conversations are stored independently and support automatic titles, sorting, and renaming.
-- **Channel-Specific Chat Style** — Desktop chat, mobile channels, and voice calls can use different expression styles.
-- **Segmented Replies** — Choose between "segment all / segment Chat only / disabled," allowing long replies to be split into semantic chat bubbles.
-
-The session modes below are consumers of the CyreneHarness core engine:
-
-#### 🛠️ Assisted Work (Work)
-
-<img src="./docs/image/work.png" alt="Work mode preview" width="800">
-
-- **Driven by CyreneHarness** — Each message enters the while loop in [CyreneHarness](./src/main/orchestrator/harness/cyrene-harness.ts): every round calls the LLM → writes back the assistant message → dispatches tools → writes back tool results → checks uncertain effects → continues or ends. Pre-processors (CITA context understanding) run before the Harness entry; inside the loop, each round carries a compact execution persona ([`prompts/cyrene_harness.md`](./prompts/cyrene_harness.md)) that only governs expression style and never leaks into tool arguments — on conflict, "task correctness > clarity > Cyrene's style"; the full Soul persona layer generates the reply text after the Harness exit.
-- **Free tool chaining** — Web search, webpage reading, file R/W, document generation, and lifestyle tools can be combined on demand; the model picks the next tool without pre-orchestrated flows.
-- **Persona and workflow coexist** — Cyrene's character-driven reply is preserved alongside tool calls.
-
-#### 💻 Code Collaboration (Code)
-
-<img src="./docs/image/code.png" alt="Code mode preview" width="800">
-
-> [!WARNING]
->
-> Code mode **does not yet include a built-in review / diff preview**. Once the Agent finishes editing a file, the change is written to disk immediately. It is recommended to open the bound directory in your preferred IDE or diff tool (VS Code, Cursor, JetBrains, SourceGit, etc.) so you can inspect and roll back any change at any time.
->
-> Initializing Git is the safest fallback: after `git init && git add -A`, any change can be inspected with `git diff` and reverted with `git checkout -- .`
-
-- **Code-specific tools on top of Work** — Reuses the [CyreneHarness](./src/main/orchestrator/harness/cyrene-harness.ts) main loop and registers extra code-focused tools (read/write/edit, command execution, LSP queries, etc.); permission approval (checkPermission) filters unsafe calls before tool execution, and Execution Policy decides whether to require a second user confirmation.
-- **Trusted workspace binding** — All read/write, command execution, and LSP queries must stay inside the user-bound directory; the model cannot pick or change the workspace, and out-of-scope access (including `..` and symlink escapes) is rejected outright.
-- **Semantic code queries (LSP)** — Code mode can query definitions, references, hover details, symbols, and diagnostics inside the bound workspace without modifying files.
-- **User-managed servers** — Cyrene provides an LSP client only. It never bundles, downloads, upgrades, or silently installs language servers; install the services you need yourself, or explicitly ask Cyrene to assist through existing permission-controlled tools.
-- **Security boundary** — Language server processes are spawned with `stdio: "pipe"`, `shell: false`, and `cwd` forced to the bound workspace. The model cannot specify a command, server ID, or workspace root.
-
-<details>
-<summary><b>LSP languages and custom configuration</b> (click to expand)</summary>
-
-**Built-in languages** — TypeScript / JavaScript / JSON, Python, Go, Rust, C / C++, Java, C#, PHP, Ruby, Kotlin, Lua, Vue, and YAML (13 in total, see `src/main/lsp/server-catalog.ts`).
-
-**Startup order** — Commands that are absolute paths are picked first, otherwise the workspace `node_modules/.bin` is searched, finally the system PATH is walked entry by entry (Windows also appends `.exe` / `.cmd` and other `PATHEXT` extensions).
-
-**Install and troubleshoot** — Common servers include `typescript-language-server`, `pyright-langserver`, `gopls`, `rust-analyzer`, `clangd`, `jdtls`, `OmniSharp`, `intelephense`, `ruby-lsp`, `kotlin-language-server`, `lua-language-server`, `vue-language-server`, `yaml-language-server`. Use `where pyright-langserver` on Windows or `which pyright-langserver` on macOS/Linux to check discoverability.
-
-**Custom server command** — Configure `lspServerOverrides` in `general-settings.json` under the application data directory to override a built-in service's `command` / `args` / `extensions` / `initializationOptions`; the model cannot supply a launch command in chat. For example:
-
-```json
-{
-  "lspServerOverrides": [
-    {
-      "id": "python-pyright",
-      "command": "basedpyright-langserver",
-      "args": ["--stdio"]
-    }
-  ]
-}
-```
-
-**Process reuse and release** — A given `serverId`'s LSP process is reused within the same workspace to avoid repeated cold starts; all processes are released when the app exits.
-
-</details>
-
-#### 📚 Learning Companion (Learn)
-
-<img src="./docs/image/learn.png" alt="Learn mode preview" width="800">
-
-- **Obsidian Vault Workspace** — Binds a Vault as the learning workspace, using the `materials/`, `notes/`, `exercises/`, `templates/`, and `learn/progress.md` structure. See the [Learn mode guide](docs/user-guide/learn-mode.md).
-- **Built on RAG and personalized memory** — Learning materials are indexed through the [RAG knowledge base](#-rag-document-knowledge-base) for retrieval, while progress and preferences flow into the L2 long-term memory to stay continuous across sessions.
-- **Accompanied Understanding** — Helps users understand materials through questions, breakdowns, analogies, and discussion rather than doing the learning for them.
-- **Notes and Exercises** — Organizes concepts, generates exercises, and records reviews inside the Vault, automatically maintaining a learning-progress overview.
-- **Respects the User's Pace** — Re-explains when the user is stuck, advances when the user is ready, and never scolds the user for wrong answers.
-
-#### 📝 Rich Text and Code Rendering
-
-- **Markdown Rendering** — Supports headings, lists, blockquotes, tables, links, code blocks, and other common Markdown elements.
-- **Syntax Highlighting** — Supports syntax highlighting and copy actions for multiple common programming languages.
-- **Mathematical Formulas** — Supports inline and block-level formula rendering.
-- **Streaming Compatibility** — Keeps output stable during generation and renders complete rich text after a message finishes.
-
-#### 🎵 Music Companion
-
-<img src="./docs/image/music.png" alt="Cyrene Music player" width="800">
-
-- **Cyrene Music Window** — A dedicated built-in "Cyrene Music" player supporting playlist tabs, local caching, and playlist management.
-- **NetEase Cloud Music Source** — Powered by the self-developed `NeteaseOpenapiProvider` calling the NetEase OpenAPI for song / artist / album search, daily recommendations, playlists, and favorites.
-- **Bundled mpv Playback** — Controlled by `MpvController` driving the bundled mpv process for load, play, pause, seek, volume, and stop, without launching any external client.
-- **Tool Chaining** — In `Work / Learn` modes, music tools can combine with others (web search, files, documents) to complete flows like "search → add to playlist → play".
-- **Lazy Start with Graceful Degradation** — The music backend only establishes a network session on the first real music operation; a missing mpv never affects chat or other core features.
-
-#### 🧠 Personalized Memory
-
-- **L0 / L1 / L2 Layered Memory** — Separately manages core user profiles, recent state, and long-term experiences.
-- **Memory Evidence Chain** — Memory entries retain their source and context to reduce unsupported profile inference.
-- **Conflict Detection and Resolution** — Retrieves, scores, and semantically evaluates old and new memories to distinguish contextual differences, preference evolution, and direct conflict.
-- **Self-Developed DMAE Worldbook** — Manages character knowledge and long-term interaction content through triggers, priority, intrinsic value, linked activation, and Active / Dormant / Archived states.
-- **Relationship and Style Continuity** — Gradually develops user preferences, communication habits, and relationship context through long-term interaction.
-
-#### 🔊 Voice Interaction
-
-- **Multiple TTS Engines** — Supports Mossland, MiniMax, MiMo, GPT-SoVITS, and custom cloud-based speech services.
-- **ASR** — Supports Alibaba Cloud real-time speech recognition and Mossland or MiniMax full-turn audio transcription after each utterance.
-- **Complete Voice Calls** — Continuous voice interaction through the `LISTENING → THINKING → SPEAKING` state flow.
-- **VAD Silence Detection** — Automatically detects when the user has stopped speaking and triggers a response.
-
-#### 🧰 Tool Ecosystem
-
-Cyrene includes many built-in and extensible tools, primarily covering the following categories:
-
-- **Documents and Office Work** — Generate Word, Excel, PDF, and Markdown documents.
-- **Web Capabilities** — Web search, webpage reading, content extraction, and information organization.
-- **File Processing** — Read, write, and browse local files, as well as interpret images.
-- **Everyday Services** — Weather, maps, translation, currency conversion, bookkeeping, trip planning, and more.
-- **Music** — Search for songs, retrieve recommendations, and play through the bundled player.
-- **Task Collaboration** — Task lists, user-choice cards, task delegation, and subtask handling.
-- **MCP Extensions** — Connect additional external tools and services through the Model Context Protocol.
-
-<details>
-<summary><b>🧩 Advanced Features</b> (click to expand)</summary>
-
-#### 📚 RAG Document Knowledge Base
-
-- Supports importing `txt`, `md`, `pdf`, `docx`, `xlsx`, `pptx`, `csv`, and `json`.
-- Supports hybrid retrieval with vector search, BM25, and a Reranker.
-- Supports both local Embedding and OpenAI-compatible cloud Embedding.
-- Retrieval results retain source information for traceability.
-- Supports entity relationship information and custom tokenization dictionaries.
-
-#### 🔌 MCP (Model Context Protocol)
-
-- Supports `stdio`, SSE, and HTTP transports.
-- Supports managing and enabling/disabling MCP Servers from Settings.
-- MCP tools are integrated into Cyrene's tool registry, permission approval, and Execution Policy.
-- Actual stability of third-party MCP Servers depends on their own implementations.
-
-#### 📱 External Channels
-
-- **Feishu / Lark** — Connects through the official SDK and WebSocket long connection without requiring a public server or tunneling. See the [Feishu guide](docs/user-guide/feishu.md).
-- **WeChat iLink** — Supports long-poll message receiving, text sending, and partial media processing.
-- **QQ / NapCat** — Connects through a OneBot 11 reverse WebSocket with private/group allowlists, replies, mentions, and media. See the [NapCat guide](docs/user-guide/napcat-onebot.md).
-- **Unified Character Across Channels** — Desktop, Feishu, WeChat, and QQ share the same character design and memory capabilities.
-- **Channel-Specific Style** — Mobile and desktop chat can use different expression styles.
-
-#### ✨ Skill System
-
-- Supports built-in Skills and user-defined Skills.
-- A user Skill with the same name can fully override the built-in version.
-- Supports `invoke_skill`, reference reading, and Slash Commands.
-- Includes path protection, repeated-read restrictions, and large-text truncation.
-
-#### 🧩 Plugin System
-
-- **Local plugin packages** — A folder (`manifest.json` + a JS entry file) is a plugin, managed from Settings; supports ZIP import with staging-isolated validation, atomic replacement, and automatic rollback on failure, plus path-traversal and zip-bomb protection.
-- **Open capabilities** — Plugins can register AI tools, open their own windows, call the host LLM, connect new chat channels, listen to lifecycle events, and inject per-round dynamic context, and may request host services such as private storage, secure secrets, read-only conversation paging, scheduled tasks, and voice-input leases.
-- **Trust boundary** — User plugins are disabled on first discovery and must be enabled manually in Settings; plugin-created scheduled tasks only take effect after the user confirms their configuration; voice input uses an exclusive lease to avoid conflicting input sources.
-- **Developer toolchain** — The npm package [`@playa0v0/cyrene-plugin-sdk`](https://www.npmjs.com/package/@playa0v0/cyrene-plugin-sdk) provides all public types, Manifest validation, and Mock Context testing tools, with `ajv` as the only runtime dependency; paired with the [Plugin Development Guide](docs/plugins/plugin-dev-guide.md) and the `cyrene-plugin-dev` Skill, development is possible without reading host source code.
-- **Official examples** — The [`examples/`](./examples) directory provides five examples — weather query, long-term memory, scheduled automation, system status, and local ASR contract — all usable as starting points.
-- **Plugin sharing** — This version has no remote registry: zip the plugin folder and send it directly; the other side imports it from Settings → Plugins → Add.
-
-#### 🌙 Proactive Chat
-
-- **Status Awareness** — Evaluates time, user activity, conversation state, and character mood before initiating a conversation.
-- **Do-Not-Disturb Policy** — Reduces or stops proactive messages late at night, while the user is already chatting, or after repeated unanswered messages.
-- **Multi-Channel Delivery** — Desktop, WeChat, or Feishu can be selected as the destination.
-- **Channel Failure Protection** — If the selected mobile channel is unavailable, delivery is canceled rather than silently redirected to desktop.
-
-</details>
-
----
-
-<details>
-<summary><b>🔧 Development Features</b> (click to expand)</summary>
-
-#### 🧪 Unit Tests
-
-- Vitest 5 covers core modules including ASR, TTS, channels, chats, memory, orchestrator, plugins, RAG, and Skills.
-- Use `pnpm test` for a one-time run or `pnpm run test:watch` for watch mode.
-- Plugin development: `pnpm run check:plugin-sdk` validates SDK packaging, and `pnpm run test:plugin-examples` verifies the official examples end to end.
-
-#### 🎬 Scenario Simulation
-
-- Use `pnpm run sim` for the default scenario, or `sim:coffee`, `sim:mix`, and `sim:rescue` for individual scenario debugging; output is written to `sim-result/`.
-- Run `pnpm run sim:sweep --rewardGain=3,5,7,10` to sweep Worldbook scoring parameters.
-
-</details>
-
----
-
-## 🧱 Technology Stack
-
-| Layer | Technologies |
-|---|---|
-| Runtime | Node.js 24 LTS + Electron 44 |
-| Language | TypeScript 6.0 |
-| Build Tool | Vite 8 |
-| UI Rendering | HTML / CSS + React 19 + Tailwind CSS 4 + Pixi.js 7 + Ant Design X / Mantine + Chart.js |
-| Live2D | `pixi-live2d-display` 0.5.0-beta + Cubism Core |
-| Agent Core | [CyreneHarness](./src/main/orchestrator/harness/cyrene-harness.ts) main loop + CTA session transcripts + Structured Output / Native Function Calling |
-| Agent Event Protocol | AG-UI (`@ag-ui/core`, `@ag-ui/client`) — decoupled from the renderer through `RUN_STARTED / STEP_* / TEXT_MESSAGE_* / TOOL_CALL_* / RUN_FINISHED` and other events |
-| Tools and Sandbox | Self-developed tool dispatching + side-effect accounting + retry policy + permission approval; Windows command sandbox `@anthropic-ai/sandbox-runtime` |
-| Code Collaboration | Self-developed `LspManager` + `vscode-jsonrpc` (LSP client), `@ast-grep/napi` (structural code search), `simple-git` (git integration) |
-| Tool Extensions | `@modelcontextprotocol/sdk` (stdio / SSE / HTTP transports) |
-| Plugin System | [`@playa0v0/cyrene-plugin-sdk`](https://www.npmjs.com/package/@playa0v0/cyrene-plugin-sdk) (public types + Manifest schema validation + Mock Context testing tools) |
-| Memory and Retrieval | Embedding (`@xenova/transformers`) + BM25 + self-developed Cross-Encoder Reranker + DMAE V5.1 (keyword-hit recall + activation decay + reversible three-state lifecycle) + `@node-rs/jieba` |
-| Browser and Desktop Automation | Playwright + `@nut-tree-fork/nut-js` |
-| Rich Text Rendering | Streamdown + Shiki + KaTeX (Markdown / code highlighting / math) |
-| Voice and Media | Multiple TTS / ASR engines + `silk-wasm` |
-| Native Screenshot Helper | Rust + DXGI Desktop Duplication / Direct2D + WIC PNG + NDJSON IPC |
-| Documents and Email | ExcelJS, docx, PDFKit, Nodemailer |
-| Testing | Vitest 5 |
-
----
-
-## 📦 Project Structure
-
-```text
-models/                # Local AI models placed by the user; see MODEL_LICENSE.md
-└── Xenova/bge-m3/     # Embedding model for sticker semantics and scene detection (~570 MB)
-
-src/
-├── cli/               # Command-line entry (`cyrene` command)
-├── main/              # Electron main process
-│   ├── orchestrator/  # Agent core: CyreneHarness main loop + CTA transcripts + tool dispatch + permission approval
-│   │   ├── harness/   # CyreneHarness (while loop + compaction + retry + uncertainty)
-│   │   ├── tools/     # Tool registry and built-in tools (incl. Code mode tools, ast-grep search)
-│   │   ├── vendors/   # Multi-provider model adapters (tiered Structured Output + Function Calling)
-│   │   ├── sandbox/   # Windows command-execution sandbox
-│   │   ├── review/    # Plan review / approval
-│   │   └── structured-output/  # Unified Structured Output pipeline
-│   ├── channels/      # External channel adapters (Feishu / WeChat iLink / QQ OneBot 11)
-│   ├── memory/        # L0/L1/L2 memory engine + DMAE Worldbook + entity relationship graph
-│   ├── rag/           # Retrieval-augmented generation + Worldbook injection
-│   ├── lsp/           # LSP client (manager / client / server-catalog)
-│   ├── code-git/      # Git service for Code mode (status / commit / branch / push)
-│   ├── learn/         # Learn mode (Obsidian Vault binding + progress overview)
-│   ├── tasks/         # Task panel (task execution / delegation / sub-Agent runtime)
-│   ├── music/         # Music companion (playback / recommendations / sessions)
-│   ├── moments/       # Moments / social feed
-│   ├── news/          # Announcement messages
-│   ├── permission/    # Permission approval (checkPermission / risk levels)
-│   ├── plugin-host/   # Plugin host services
-│   ├── proactive/     # Proactive chat (model / policy / routing)
-│   ├── skills/        # Skill system (built-in + user-defined)
-│   ├── asr/ tts/ call/ # Speech recognition / synthesis / calls
-│   ├── cita/          # CITA context-understanding and recommendation engine
-│   ├── relationship/ social-context/  # User relationship profile / social context
-│   ├── scheduler/     # Scheduled tasks (reminders / calendar)
-│   ├── updater/       # Application auto-update
-│   └── ...            # prompts / protocols / services / settings / startup / windows, etc.
-├── plugins/           # Plugin system core (manifest validation / loader / lifecycle)
-├── preload/           # Electron Preload bridge
-├── renderer/          # Vite renderer (React 19 component library + Live2D rendering + window entries)
-└── shared/            # Code shared between the main and renderer processes
-
-examples/              # Plugin development examples (weather-tool / long-term-memory / system-status / ...)
-packages/plugin-sdk/   # Source of @playa0v0/cyrene-plugin-sdk
-```
-
-> Static source assets are located in `src/renderer/public/` (audio / avatars / Cubism Core / stickers, etc.).  
-> The Live2D model is covered by [MODEL_LICENSE.md](./MODEL_LICENSE.md).
-
----
-
-## ⚠️ Disclaimer
-
-This project is an **unofficial fan-made work** and has **no affiliation with, endorsement by, or sponsorship from HoYoverse / miHoYo**.
-
-_Honkai: Star Rail_, Cyrene, and all related artwork, lore, trademarks, and intellectual property belong to **HoYoverse / miHoYo**.
-
-**License scope:**
-
-- The **source code** is licensed under the [MIT License](./LICENSE), which applies only to the source code in this repository.
-- **Character IP, the Live2D model, and artwork assets** are not covered by the MIT License. They are governed separately by [MODEL_LICENSE.md](./MODEL_LICENSE.md) and HoYoverse's fan-creation guidelines.
-- Derivative works that include Cyrene IP, the Live2D model, or related artwork from this project **must not be used commercially**, including sale, paid communities, advertising monetization, or bundled resale.
+The only things that need to change are the code and assets in this repository; no automatic upgrade channel will decide for you when to switch.
 
 ---
 
 ## 📄 License
 
-The **source code** in this repository is licensed under the [MIT License](./LICENSE), Copyright (c) 2026 Playa.
+The **source code** in this repository follows the [MIT License](./LICENSE), Copyright (c) 2026 Playa.
 
-The MIT License applies only to the source code in this repository. It does not apply to the character, Live2D model, or artwork assets.
+Third-party dependency licenses and attributions are listed in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) and the `LICENSES/` directory.
 
-Character IP, the Cyrene Live2D model (`models/cyrene/`), and artwork assets are governed by their respective permissions:
-
-- **Live2D Model** — See [MODEL_LICENSE.md](./MODEL_LICENSE.md). The model creator, [@是依七哒](https://space.bilibili.com/457683484), has authorized its use, modification, and redistribution.
-- **Character IP / Artwork** — Belongs to **HoYoverse / miHoYo**.
+The desktop cat's pixel art, interface palette, and interface copy are original content of this repository and ship under the MIT license.
 
 ---
 
 ## 🙏 Acknowledgements
 
-- **Cyrene Character**: © HoYoverse / miHoYo
-- **Live2D Model**: Created by [@是依七哒](https://space.bilibili.com/457683484) — see [MODEL_LICENSE.md](./MODEL_LICENSE.md)
-- **Live2D Cubism SDK**: © Live2D Cubism
-- **Contributors**: See [docs/CONTRIBUTORS.md](./docs/CONTRIBUTORS.md)
-
-Special thanks to the original model creator for generously authorizing this project to use, modify, and redistribute the work.
+- **The original author and contributors** — This project grew out of the MIT-licensed open-source project started by Playa and completed by many contributors; the contributor list lives in [docs/CONTRIBUTORS.md](./docs/CONTRIBUTORS.md).
+- **Git for Windows / MinGit** — The Windows release ships MinGit as a fallback when system Git is missing.
+- **mpv** — The playback core of the built-in music player.
 
 ---
-
-## 💌 Contact
-
-GitHub Issues and pull requests are welcome. Please keep discussions respectful and relevant to the project.
-
----
-
-⭐ If you like this project, consider giving it a Star. It helps more Cyrene fans discover it.
