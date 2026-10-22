@@ -599,8 +599,8 @@ describe("function-calling round presentation", () => {
         invocationId: "child-run-1",
         taskId: "task-1",
         description: "检查取消链路",
-        nickname: "风堇",
-        assetFileName: "风堇.png",
+        nickname: "年糕",
+        assetFileName: "年糕.png",
         status: "running",
         roundId: "round-task",
       }],
@@ -609,7 +609,7 @@ describe("function-calling round presentation", () => {
     }));
 
     expect(html).toContain("昔涟委托了");
-    expect(html).toContain("风堇");
+    expect(html).toContain("年糕");
     expect(html).toContain("检查取消链路");
   });
 });

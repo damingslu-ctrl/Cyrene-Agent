@@ -374,19 +374,19 @@
     }
   },
   "characterNames": {
-    "昔涟": "Cyrene",
-    "阿格莱雅": "Aglaea",
-    "缇宝": "Tribbie",
-    "万敌": "Mydei",
-    "遐蝶": "Castorice",
-    "那刻夏": "Anaxa",
-    "风堇": "Hyacine",
-    "赛飞儿": "Cipher",
-    "白厄": "Phainon",
-    "海瑟音": "Hysilens",
-    "刻律德菈": "Cerydra",
-    "长夜月": "Evernight",
-    "丹恒": "Dan Heng"
+    "麻糬": "Mochi",
+    "年糕": "Niangao",
+    "豆花": "Douhua",
+    "汤圆": "Tangyuan",
+    "布丁": "Buding",
+    "抹茶": "Mocha",
+    "可可": "Keke",
+    "芝麻": "Zhima",
+    "栗子": "Lizi",
+    "海苔": "Haitai",
+    "棉花": "Mianhua",
+    "鱼丸": "Yuwan",
+    "奶盖": "Naigai"
   },
   "rightInspector": {
     "panelAria": "Inspector panel",

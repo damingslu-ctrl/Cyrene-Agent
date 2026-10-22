@@ -2,7 +2,7 @@
 //
 // - 与 src/main/social-context/（对话关系背景，SocialAtom）完全无关，勿混淆；
 // - 持久化为 userData/moments.json + userData/moments-media/<postId>/（JSON + schemaVersion）；
-// - author 为开放 string：除 user / cyrene 外，其余值表示入驻朋友圈的角色（如 "万敌"），
+// - author 为开放 string：除 user / cyrene 外，其余值表示入驻朋友圈的角色（如 "奶盖"），
 //   合法性由主进程角色注册表判定，类型层不做穷尽。
 
 export type MomentAuthor = "user" | "cyrene" | (string & {});

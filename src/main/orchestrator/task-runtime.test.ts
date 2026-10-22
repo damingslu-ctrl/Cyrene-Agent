@@ -68,7 +68,7 @@ describe("TaskRuntime", () => {
       description: "检查取消链路",
       prompt: "检查取消传播并报告证据。",
       subagentType: "general",
-      companionId: "风堇",
+      companionId: "年糕",
     });
 
     expect(result).toEqual({ taskId: "task-1", status: "completed", text: "检查完成。" });
@@ -119,7 +119,7 @@ describe("TaskRuntime", () => {
       description: "检查落库",
       prompt: "检查增量落库并报告证据。",
       subagentType: "general",
-      companionId: "风堇",
+      companionId: "年糕",
     });
     expect(result.status).toBe("completed");
 
@@ -163,8 +163,8 @@ describe("TaskRuntime", () => {
     });
     const execute = createTaskExecutor({ parent: { ...parent, transcriptRoot: dbRoot }, store, runHarness });
 
-    await execute({ description: "首轮", prompt: "第一轮提示", subagentType: "general", companionId: "风堇" });
-    await execute({ taskId: "task-hist", prompt: "第二轮提示", subagentType: "general", companionId: "风堇" });
+    await execute({ description: "首轮", prompt: "第一轮提示", subagentType: "general", companionId: "年糕" });
+    await execute({ taskId: "task-hist", prompt: "第二轮提示", subagentType: "general", companionId: "年糕" });
 
     const secondCallInput = runHarness.mock.calls[1]![0] as { messages: Array<{ role: string; content: string; toolCalls?: unknown[] }> };
     expect(secondCallInput.messages).toEqual([
@@ -193,7 +193,7 @@ describe("TaskRuntime", () => {
       description: "检查文件",
       prompt: "检查文件。",
       subagentType: "general",
-      companionId: "风堇",
+      companionId: "年糕",
     });
 
     expect(runHarness).toHaveBeenCalledWith(expect.objectContaining({
@@ -218,7 +218,7 @@ describe("TaskRuntime", () => {
       description: "继续已有任务",
       prompt: "继续。",
       subagentType: "general",
-      companionId: "风堇",
+      companionId: "年糕",
       taskId: foreign.id,
     })).rejects.toThrow("TASK_PARENT_MISMATCH");
   });
@@ -251,7 +251,7 @@ describe("TaskRuntime", () => {
       description: "继续检查取消链路",
       prompt: "继续。",
       subagentType: "general",
-      companionId: "风堇",
+      companionId: "年糕",
       taskId: task.id,
     });
 
@@ -281,7 +281,7 @@ describe("TaskRuntime", () => {
       description: "检查取消链路",
       prompt: "检查取消传播并报告证据。",
       subagentType: "general",
-      companionId: "风堇",
+      companionId: "年糕",
     });
 
     expect((await store.get(result.taskId))?.todoItems).toEqual([
@@ -299,15 +299,15 @@ describe("TaskRuntime", () => {
     }));
     const execute = createTaskExecutor({ parent, store, runHarness, characterPool, onLifecycle: (event) => lifecycle.push(event) });
 
-    await execute({ description: "检查取消链路", prompt: "这是不能出现在父事件里的私密指令", subagentType: "general", companionId: "风堇" });
-    const next = characterPool.acquire("conversation-1", "风堇");
+    await execute({ description: "检查取消链路", prompt: "这是不能出现在父事件里的私密指令", subagentType: "general", companionId: "年糕" });
+    const next = characterPool.acquire("conversation-1", "年糕");
 
     expect(lifecycle).toEqual([
-      { invocationId: "child-run-1", taskId: "task-1", description: "检查取消链路", nickname: "风堇", assetFileName: "风堇.png", status: "running" },
-      { invocationId: "child-run-1", taskId: "task-1", description: "检查取消链路", nickname: "风堇", assetFileName: "风堇.png", status: "completed" },
+      { invocationId: "child-run-1", taskId: "task-1", description: "检查取消链路", nickname: "年糕", assetFileName: "年糕.png", status: "running" },
+      { invocationId: "child-run-1", taskId: "task-1", description: "检查取消链路", nickname: "年糕", assetFileName: "年糕.png", status: "completed" },
     ]);
     expect(JSON.stringify(lifecycle)).not.toContain("私密指令");
-    expect(next.nickname).toBe("风堇");
+    expect(next.nickname).toBe("年糕");
   });
 
   it.each([
@@ -322,9 +322,9 @@ describe("TaskRuntime", () => {
       runHarness: vi.fn(async () => ({ finalAnswer: "", finalState: { todoItems: [], uncertainEffects: [] }, terminated: true, rounds: 1, terminal })),
     });
 
-    await execute({ description: "检查异常结算", prompt: "执行", subagentType: "general", companionId: "风堇" });
+    await execute({ description: "检查异常结算", prompt: "执行", subagentType: "general", companionId: "年糕" });
 
     expect(lifecycle.at(-1)?.status).toBe(expected);
-    expect(characterPool.acquire("conversation-1", "风堇").nickname).toBe("风堇");
+    expect(characterPool.acquire("conversation-1", "年糕").nickname).toBe("年糕");
   });
 });

@@ -431,10 +431,10 @@ describe("AgentRunController", () => {
       api.emit(RUN_STARTED_EVENT);
       await flush();
       api.emit({ type: "CUSTOM", name: "cyrene.task", runId: "run-1", value: {
-        invocationId: "inv-1", taskId: "task-1", description: "整理资料", nickname: "风堇", assetFileName: "风堇.png", status: "running",
+        invocationId: "inv-1", taskId: "task-1", description: "整理资料", nickname: "年糕", assetFileName: "年糕.png", status: "running",
       } });
       api.emit({ type: "CUSTOM", name: "cyrene.task", runId: "run-1", value: {
-        invocationId: "inv-1", taskId: "task-1", description: "整理资料", nickname: "风堇", assetFileName: "风堇.png", status: "completed",
+        invocationId: "inv-1", taskId: "task-1", description: "整理资料", nickname: "年糕", assetFileName: "年糕.png", status: "completed",
       } });
       await flush();
       api.emit({ type: "RUN_FINISHED", runId: "run-1", result: { status: "success" } });

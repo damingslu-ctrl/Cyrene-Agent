@@ -71,7 +71,7 @@ function makeComment(overrides: Partial<MomentComment> = {}): MomentComment {
 function makeReaction(overrides: Partial<MomentReaction> = {}): MomentReaction {
   return {
     postId: "moment_p1",
-    actor: "万敌",
+    actor: "奶盖",
     type: "like",
     createdAt: ts("2026-09-06T10:00:00"),
     ...overrides,
@@ -79,9 +79,9 @@ function makeReaction(overrides: Partial<MomentReaction> = {}): MomentReaction {
 }
 
 const BASE_PERSONA: CharacterPersona = {
-  nickname: "万敌",
-  assetFileName: "万敌.png",
-  personaText: "# 万敌角色卡\n\n话极少，不用语气词。",
+  nickname: "奶盖",
+  assetFileName: "奶盖.png",
+  personaText: "# 奶盖角色卡\n\n话极少，不用语气词。",
   headerText: "你正在刷朋友圈，看到了这条动态。你有权沉默。",
   activityWeight: 0.12,
   commentDice: 0.06,
@@ -156,7 +156,7 @@ describe("parsePersonaFrontmatter", () => {
 describe("loadCharacterPersonas", () => {
   it("注册表 = 立绘池 ∩ 人设文件；档位按 frontmatter 映射，缺 md 的角色跳过", () => {
     const root = writePersonasDir({
-      "万敌.md": "---\ncomment: 低\nlike: 低\n---\n# 万敌卡",
+      "奶盖.md": "---\ncomment: 低\nlike: 低\n---\n# 奶盖卡",
       "_header.md": "# 说明\n\n## 注入头\n\n刷朋友圈场景规则。\n\n## 其他段落\n\n不该注入。",
     });
     const logs: Array<[string, unknown]> = [];
@@ -165,14 +165,14 @@ describe("loadCharacterPersonas", () => {
       log: (event, detail) => logs.push([event, detail]),
     });
 
-    expect(registry.has("万敌")).toBe(true);
-    expect(registry.has("风堇")).toBe(false);
-    const wandi = registry.get("万敌")!;
+    expect(registry.has("奶盖")).toBe(true);
+    expect(registry.has("年糕")).toBe(false);
+    const wandi = registry.get("奶盖")!;
     // 点赞/评论都低 → 活跃度推得低
     expect(wandi.activityWeight).toBe(0.12);
     expect(wandi.commentDice).toBe(0.06);
     expect(wandi.likeDice).toBe(0.12);
-    expect(wandi.personaText).toBe("# 万敌卡");
+    expect(wandi.personaText).toBe("# 奶盖卡");
     // 注入头只取 "## 注入头" 段落，后续二级标题截断
     expect(wandi.headerText).toBe("刷朋友圈场景规则。");
     expect(logs.some(([event]) => event === "character_persona_missing")).toBe(true);
@@ -189,9 +189,9 @@ describe("loadCharacterPersonas", () => {
     ];
     for (const [word, activity, comment, like] of cases) {
       const root = writePersonasDir({
-        "风堇.md": `---\nactivity: ${word}\ncomment: ${word}\nlike: ${word}\n---\n# 卡`,
+        "年糕.md": `---\nactivity: ${word}\ncomment: ${word}\nlike: ${word}\n---\n# 卡`,
       });
-      const persona = loadCharacterPersonas({ promptDirectories: [root] }).get("风堇")!;
+      const persona = loadCharacterPersonas({ promptDirectories: [root] }).get("年糕")!;
       expect(persona.activityWeight).toBe(activity);
       expect(persona.commentDice).toBe(comment);
       expect(persona.likeDice).toBe(like);
@@ -200,47 +200,47 @@ describe("loadCharacterPersonas", () => {
 
   it("presence 未写为 0 不参与专骰；写了映射到固定概率", () => {
     const root = writePersonasDir({
-      "风堇.md": "---\ncomment: 高\nlike: 高\npresence: 高\n---\n# 卡",
-      "万敌.md": "---\ncomment: 低\nlike: 低\n---\n# 卡",
+      "年糕.md": "---\ncomment: 高\nlike: 高\npresence: 高\n---\n# 卡",
+      "奶盖.md": "---\ncomment: 低\nlike: 低\n---\n# 卡",
     });
     const registry = loadCharacterPersonas({ promptDirectories: [root] });
-    expect(registry.get("风堇")!.presenceDice).toBe(0.8);
-    expect(registry.get("万敌")!.presenceDice).toBe(0);
+    expect(registry.get("年糕")!.presenceDice).toBe(0.8);
+    expect(registry.get("奶盖")!.presenceDice).toBe(0);
   });
 
   it("activity 未写时取点赞与评论的较高档", () => {
     const root = writePersonasDir({
-      "海瑟音.md": "---\ncomment: 中\nlike: 高\n---\n# 卡",
-      "万敌.md": "---\ncomment: 低\nlike: 低\n---\n# 卡",
+      "海苔.md": "---\ncomment: 中\nlike: 高\n---\n# 卡",
+      "奶盖.md": "---\ncomment: 低\nlike: 低\n---\n# 卡",
     });
     const registry = loadCharacterPersonas({ promptDirectories: [root] });
-    expect(registry.get("海瑟音")!.activityWeight).toBe(0.75);
-    expect(registry.get("万敌")!.activityWeight).toBe(0.12);
+    expect(registry.get("海苔")!.activityWeight).toBe(0.75);
+    expect(registry.get("奶盖")!.activityWeight).toBe(0.12);
   });
 
   it("activity 写错回退中并记日志；comment/like 写错同样回退中", () => {
     const root = writePersonasDir({
-      "那刻夏.md": "---\nactivity: 超高\ncomment: 超高\nlike: 低\n---\n# 卡",
+      "棉花.md": "---\nactivity: 超高\ncomment: 超高\nlike: 低\n---\n# 卡",
     });
     const logs: Array<[string, unknown]> = [];
     const persona = loadCharacterPersonas({
       promptDirectories: [root],
       log: (event, detail) => logs.push([event, detail]),
-    }).get("那刻夏")!;
+    }).get("棉花")!;
     expect(persona.activityWeight).toBe(0.35);
     expect(persona.commentDice).toBe(0.22);
     expect(persona.likeDice).toBe(0.12);
     expect(logs).toContainEqual([
       "character_persona_level_fallback",
-      { nickname: "那刻夏", keys: ["activity", "comment"] },
+      { nickname: "棉花", keys: ["activity", "comment"] },
     ]);
   });
 
   it("frontmatter 缺失时三参数全部回退中，正文不影响解析", () => {
     const root = writePersonasDir({
-      "风堇.md": "# 风堇卡\n\n【行为倾向】\n- 点赞：高——几乎来者不拒\n- 评论：中高，热情",
+      "年糕.md": "# 年糕卡\n\n【行为倾向】\n- 点赞：高——几乎来者不拒\n- 评论：中高，热情",
     });
-    const persona = loadCharacterPersonas({ promptDirectories: [root] }).get("风堇")!;
+    const persona = loadCharacterPersonas({ promptDirectories: [root] }).get("年糕")!;
     expect(persona.activityWeight).toBe(0.35);
     expect(persona.commentDice).toBe(0.22);
     expect(persona.likeDice).toBe(0.4);
@@ -249,7 +249,7 @@ describe("loadCharacterPersonas", () => {
 
   it("目录里立绘池之外的角色卡记跳过日志，不入注册表", () => {
     const root = writePersonasDir({
-      "万敌.md": "---\ncomment: 低\nlike: 低\n---\n# 卡",
+      "奶盖.md": "---\ncomment: 低\nlike: 低\n---\n# 卡",
       "昔涟.md": "---\ncomment: 高\nlike: 高\n---\n# 行为卡",
       "_header.md": "## 注入头\n\n规则",
     });
@@ -263,8 +263,8 @@ describe("loadCharacterPersonas", () => {
   });
 
   it("没有 _header.md 时 headerText 为空串，角色仍可注册", () => {
-    const root = writePersonasDir({ "万敌.md": "---\nlike: 低\n---\n# 卡" });
-    const persona = loadCharacterPersonas({ promptDirectories: [root] }).get("万敌")!;
+    const root = writePersonasDir({ "奶盖.md": "---\nlike: 低\n---\n# 卡" });
+    const persona = loadCharacterPersonas({ promptDirectories: [root] }).get("奶盖")!;
     expect(persona.headerText).toBe("");
   });
 });
@@ -279,7 +279,7 @@ describe("formatCharacterTimeline", () => {
           kind: "comment",
           post: makePost({ title: "今晚的炖菜", text: "自己炖的汤", createdAt: ts("2026-09-04T21:03:00") }),
           comment: makeComment({
-            author: "万敌",
+            author: "奶盖",
             content: "火候不错。",
             createdAt: ts("2026-09-04T21:10:00"),
           }),
@@ -358,9 +358,9 @@ describe("buildCharacterPostEvalMessages", () => {
     });
     expect(messages[0].role).toBe("system");
     const system = messages[0].content as string;
-    expect(system.indexOf("你是万敌。")).toBe(0);
+    expect(system.indexOf("你是奶盖。")).toBe(0);
     const headerAt = system.indexOf("你正在刷朋友圈");
-    const cardAt = system.indexOf("# 万敌角色卡");
+    const cardAt = system.indexOf("# 奶盖角色卡");
     const worldbookAt = system.indexOf("冥河设定块");
     expect(headerAt).toBeGreaterThan(0);
     expect(cardAt).toBeGreaterThan(headerAt);
@@ -442,7 +442,7 @@ describe("buildCharacterPostEvalMessages", () => {
 
   it("角色评论用本名展示，回复目标带标注", () => {
     const comments = [
-      makeComment({ id: "c1", author: "万敌", content: "保持。", createdAt: ts("2026-09-06T09:00:00") }),
+      makeComment({ id: "c1", author: "奶盖", content: "保持。", createdAt: ts("2026-09-06T09:00:00") }),
       makeComment({ id: "c2", author: "user", content: "下周再战", replyTo: "c1", createdAt: ts("2026-09-06T09:05:00") }),
     ];
     const messages = buildCharacterPostEvalMessages({
@@ -452,8 +452,8 @@ describe("buildCharacterPostEvalMessages", () => {
       localNow,
     });
     const user = messages[1].content as string;
-    expect(user).toContain("[09:00] 万敌：保持。");
-    expect(user).toContain("[09:05] 用户（回复万敌）：下周再战");
+    expect(user).toContain("[09:00] 奶盖：保持。");
+    expect(user).toContain("[09:05] 用户（回复奶盖）：下周再战");
   });
 });
 
@@ -461,10 +461,10 @@ describe("buildCharacterReplyEvalMessages", () => {
   const localNow = new Date("2026-09-06T14:30:00");
 
   function buildChain() {
-    // 万敌顶层评论 → 用户回复 → 万敌回复 → 用户再回复（触发评论）
-    const c1 = makeComment({ id: "c1", author: "万敌", content: "保持。", createdAt: ts("2026-09-06T09:00:00") });
+    // 奶盖顶层评论 → 用户回复 → 奶盖回复 → 用户再回复（触发评论）
+    const c1 = makeComment({ id: "c1", author: "奶盖", content: "保持。", createdAt: ts("2026-09-06T09:00:00") });
     const c2 = makeComment({ id: "c2", author: "user", content: "你也跑吗", replyTo: "c1", createdAt: ts("2026-09-06T09:05:00") });
-    const c3 = makeComment({ id: "c3", author: "万敌", content: "每天。", replyTo: "c2", createdAt: ts("2026-09-06T09:10:00") });
+    const c3 = makeComment({ id: "c3", author: "奶盖", content: "每天。", replyTo: "c2", createdAt: ts("2026-09-06T09:10:00") });
     const c4 = makeComment({ id: "c4", author: "user", content: "厉害", replyTo: "c3", createdAt: ts("2026-09-06T09:15:00") });
     return { c1, c2, c3, c4 };
   }
@@ -490,7 +490,7 @@ describe("buildCharacterReplyEvalMessages", () => {
   it("评论区注入当前链全量 + 最近 6 条其他评论", () => {
     const { c1, c2, c3, c4 } = buildChain();
     const others = Array.from({ length: 8 }, (_, i) =>
-      makeComment({ id: `o${i}`, author: "风堇", content: `其他${i}`, createdAt: ts("2026-09-06T10:00:00") + i * 60000 }),
+      makeComment({ id: `o${i}`, author: "年糕", content: `其他${i}`, createdAt: ts("2026-09-06T10:00:00") + i * 60000 }),
     );
     const messages = buildCharacterReplyEvalMessages({
       persona: BASE_PERSONA,

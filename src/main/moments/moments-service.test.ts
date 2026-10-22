@@ -113,11 +113,11 @@ function makeTurnInput(overrides: Partial<MomentsTurnInput> = {}): MomentsTurnIn
   };
 }
 
-/** 构造角色人设：缺省万敌的中活跃参数，骰子概率留足脚本化空间 */
+/** 构造角色人设：缺省奶盖的中活跃参数，骰子概率留足脚本化空间 */
 function makePersona(overrides: Partial<CharacterPersona> = {}): CharacterPersona {
   return {
-    nickname: "万敌",
-    assetFileName: "万敌.png",
+    nickname: "奶盖",
+    assetFileName: "奶盖.png",
     personaText: "测试人设",
     headerText: "",
     activityWeight: 0.3,
@@ -634,33 +634,33 @@ describe("moments service 角色抽签与双骰分流", () => {
     const h = createHarness({
       cyreneMomentsReactionsEnabled: false,
       random: scriptedRandom([
-        0.4,        // 风堇专骰（presence 0.5）：命中 → 直接刷到
+        0.4,        // 年糕专骰（presence 0.5）：命中 → 直接刷到
         0.4,        // 抽签第一掷：2 位角色刷到（名额不受专骰影响）
-        0.4, 0.4,   // 加权抽取：长夜月、万敌（风堇已排除出抽签池）
-        0.01,       // 风堇：评论骰命中 → 走模型表态
-        0.5, 0.5,   // 风堇延迟：20~60 分钟桶取中值 40 分钟
-        0.5, 0.05,  // 长夜月：评论骰未中、点赞骰命中 → 随机点赞
-        0.5, 0.5,   // 长夜月延迟
-        0.5, 0.5,   // 万敌：双骰都未中 → 刷到但划走
+        0.4, 0.4,   // 加权抽取：汤圆、奶盖（年糕已排除出抽签池）
+        0.01,       // 年糕：评论骰命中 → 走模型表态
+        0.5, 0.5,   // 年糕延迟：20~60 分钟桶取中值 40 分钟
+        0.5, 0.05,  // 汤圆：评论骰未中、点赞骰命中 → 随机点赞
+        0.5, 0.5,   // 汤圆延迟
+        0.5, 0.5,   // 奶盖：双骰都未中 → 刷到但划走
       ]),
       loadPersonas: () => new Map([
-        ["万敌", makePersona()],
-        ["长夜月", makePersona({ nickname: "长夜月", assetFileName: "长夜月.png", activityWeight: 0.7 })],
-        ["风堇", makePersona({ nickname: "风堇", assetFileName: "风堇.png", commentDice: 0.5, presenceDice: 0.5 })],
+        ["奶盖", makePersona()],
+        ["汤圆", makePersona({ nickname: "汤圆", assetFileName: "汤圆.png", activityWeight: 0.7 })],
+        ["年糕", makePersona({ nickname: "年糕", assetFileName: "年糕.png", commentDice: 0.5, presenceDice: 0.5 })],
       ]),
     });
 
     await h.service.createUserPost({ text: "第一条动态" });
 
-    // 专骰命中的风堇排最前；抽签照常抽出 2 人（名额未被挤占），万敌划走后剩两条任务
+    // 专骰命中的年糕排最前；抽签照常抽出 2 人（名额未被挤占），奶盖划走后剩两条任务
     const tasks = readQueueTasks(h.queueFile);
     expect(tasks).toHaveLength(2);
-    expect(tasks[0]).toMatchObject({ kind: "post_eval", actor: "风堇", postId: "moment_post1" });
-    expect(tasks[1]).toMatchObject({ kind: "auto_like", actor: "长夜月", postId: "moment_post1" });
+    expect(tasks[0]).toMatchObject({ kind: "post_eval", actor: "年糕", postId: "moment_post1" });
+    expect(tasks[1]).toMatchObject({ kind: "auto_like", actor: "汤圆", postId: "moment_post1" });
   });
 
   it("特别关注只对用户动态生效：昔涟发动态不掷专骰", async () => {
-    // 风堇 presence 拉满（必中）做反向验证：若昔涟动态错误地掷了专骰，
+    // 年糕 presence 拉满（必中）做反向验证：若昔涟动态错误地掷了专骰，
     // 她必然出现在任务里；正确行为下她只能靠普通抽签，冷场掷值下无人入队
     const h = createHarness({
       cyreneMomentsPostingEnabled: true,
@@ -670,8 +670,8 @@ describe("moments service 角色抽签与双骰分流", () => {
         0.05,       // 抽签第一掷：冷场（0 人刷到）
       ]),
       loadPersonas: () => new Map([
-        ["万敌", makePersona()],
-        ["风堇", makePersona({ nickname: "风堇", assetFileName: "风堇.png", presenceDice: 1.0 })],
+        ["奶盖", makePersona()],
+        ["年糕", makePersona({ nickname: "年糕", assetFileName: "年糕.png", presenceDice: 1.0 })],
       ]),
     });
 
@@ -679,7 +679,7 @@ describe("moments service 角色抽签与双骰分流", () => {
     await flush();
     expect(h.fake.state.cyrenePosts).toHaveLength(1);
 
-    // 昔涟动态下专骰不掷：冷场即无人，风堇不因 presence 拥有特权
+    // 昔涟动态下专骰不掷：冷场即无人，年糕不因 presence 拥有特权
     expect(readQueueTasks(h.queueFile)).toEqual([]);
   });
 
@@ -690,15 +690,15 @@ describe("moments service 角色抽签与双骰分流", () => {
       modelResponse: '{"action":"like"}',
       random: scriptedRandom([
         0.4,        // 抽签第一掷：2 位角色刷到
-        0.4, 0.4,   // 加权抽取：先长夜月（权重 0.7）后万敌（权重 0.3）
-        0.5, 0.05,  // 长夜月：评论骰未中、点赞骰命中 → 随机点赞
-        0.5, 0.5,   // 长夜月延迟：20~60 分钟桶取中值 40 分钟
-        0.01,       // 万敌：评论骰命中 → 走模型表态
-        0.5, 0.5,   // 万敌延迟：同为 40 分钟
+        0.4, 0.4,   // 加权抽取：先汤圆（权重 0.7）后奶盖（权重 0.3）
+        0.5, 0.05,  // 汤圆：评论骰未中、点赞骰命中 → 随机点赞
+        0.5, 0.5,   // 汤圆延迟：20~60 分钟桶取中值 40 分钟
+        0.01,       // 奶盖：评论骰命中 → 走模型表态
+        0.5, 0.5,   // 奶盖延迟：同为 40 分钟
       ]),
       loadPersonas: () => new Map([
-        ["万敌", makePersona()],
-        ["长夜月", makePersona({ nickname: "长夜月", assetFileName: "长夜月.png", activityWeight: 0.7 })],
+        ["奶盖", makePersona()],
+        ["汤圆", makePersona({ nickname: "汤圆", assetFileName: "汤圆.png", activityWeight: 0.7 })],
       ]),
     });
 
@@ -707,8 +707,8 @@ describe("moments service 角色抽签与双骰分流", () => {
 
     const tasks = readQueueTasks(h.queueFile);
     expect(tasks).toHaveLength(2);
-    expect(tasks[0]).toMatchObject({ kind: "auto_like", actor: "长夜月", postId: "moment_post1" });
-    expect(tasks[1]).toMatchObject({ kind: "post_eval", actor: "万敌", postId: "moment_post1" });
+    expect(tasks[0]).toMatchObject({ kind: "auto_like", actor: "汤圆", postId: "moment_post1" });
+    expect(tasks[1]).toMatchObject({ kind: "post_eval", actor: "奶盖", postId: "moment_post1" });
     // 掷骰与延迟在入队瞬间一次定型
     expect(tasks[0].dueAt - h.clock.now).toBe(40 * 60_000);
     expect(tasks[1].dueAt - h.clock.now).toBe(40 * 60_000);
@@ -719,8 +719,8 @@ describe("moments service 角色抽签与双骰分流", () => {
     // 只有模型表态任务调模型：随机点赞零模型成本
     expect(h.runModel).toHaveBeenCalledTimes(1);
     expect(h.fake.state.characterLikes).toEqual([
-      { nickname: "长夜月", postId: "moment_post1" },
-      { nickname: "万敌", postId: "moment_post1" },
+      { nickname: "汤圆", postId: "moment_post1" },
+      { nickname: "奶盖", postId: "moment_post1" },
     ]);
     expect(h.fake.state.characterComments).toEqual([]);
     expect(readQueueTasks(h.queueFile)).toEqual([]);
@@ -731,12 +731,12 @@ describe("moments service 角色抽签与双骰分流", () => {
       cyreneMomentsReactionsEnabled: false,
       modelResponse: '{"action":"bogus"}',
       random: scriptedRandom([
-        0.4,       // 2 位刷到（池中只有万敌，抽满即止）
-        0.5,       // 抽中万敌
+        0.4,       // 2 位刷到（池中只有奶盖，抽满即止）
+        0.5,       // 抽中奶盖
         0.01,      // 评论骰命中 → 走模型表态
         0.5, 0.5,  // 表态延迟 40 分钟
       ]),
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
     await h.service.createUserPost({ text: "x" });
 
@@ -761,7 +761,7 @@ describe("moments service 角色抽签与双骰分流", () => {
         0.4, 0.5, 0.5, 0.05,        // 第二帖：评论骰未中、点赞骰命中 → 入队
         0.5, 0.5,                    // 点赞延迟 40 分钟
       ]),
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
 
     await h.service.createUserPost({ text: "第一帖" });
@@ -769,21 +769,21 @@ describe("moments service 角色抽签与双骰分流", () => {
 
     await h.service.createUserPost({ text: "第二帖" });
     const [task] = readQueueTasks(h.queueFile);
-    expect(task).toMatchObject({ kind: "auto_like", actor: "万敌", postId: "moment_post2" });
+    expect(task).toMatchObject({ kind: "auto_like", actor: "奶盖", postId: "moment_post2" });
 
     h.clock.now += 40 * 60_000;
     await h.service.drainReactionQueue();
 
     // 点赞不花 token：模型未配置也不影响随手点赞落库
     expect(h.runModel).not.toHaveBeenCalled();
-    expect(h.fake.state.characterLikes).toEqual([{ nickname: "万敌", postId: "moment_post2" }]);
+    expect(h.fake.state.characterLikes).toEqual([{ nickname: "奶盖", postId: "moment_post2" }]);
     expect(readQueueTasks(h.queueFile)).toEqual([]);
   });
 
   it("总开关关闭时角色抽签整体静默", async () => {
     const h = createHarness({
       momentsEnabled: false,
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
     await h.service.createUserPost({ text: "x" });
     expect(readQueueTasks(h.queueFile)).toEqual([]);
@@ -791,14 +791,14 @@ describe("moments service 角色抽签与双骰分流", () => {
 
   it("执行时角色已从人设注册表移除：任务作废且不调模型", async () => {
     // 人设 md 随时可改：注册表每次现读，角色被移除后旧任务自然失效
-    const personas = new Map([["万敌", makePersona()]]);
+    const personas = new Map([["奶盖", makePersona()]]);
     const h = createHarness({
       cyreneMomentsReactionsEnabled: false,
       random: scriptedRandom([0.4, 0.5, 0.01, 0.5, 0.5]),
       loadPersonas: () => personas,
     });
     await h.service.createUserPost({ text: "x" });
-    personas.delete("万敌");
+    personas.delete("奶盖");
 
     h.clock.now += 40 * 60_000;
     await h.service.drainReactionQueue();
@@ -818,12 +818,12 @@ describe("moments service 角色抽签与双骰分流", () => {
       cyreneMomentsPostingEnabled: true,
       modelResponse: '{"shouldPost":true,"text":"夜深了，随手记一笔"}',
       random: scriptedRandom([
-        0.4, 0.5,       // 抽签：2 位刷到（池中只有万敌）
+        0.4, 0.5,       // 抽签：2 位刷到（池中只有奶盖）
         0.5, 0.05,      // 评论骰未中、点赞骰命中 → 随机点赞
         0.5, 0.5,       // 常规延迟 40 分钟（将被深夜窗口整体替换）
         0.8,            // 深夜窗口：次日 8:00 + 96 分钟
       ]),
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
 
     // 昔涟深夜发帖成功，角色同样刷到她的动态
@@ -832,7 +832,7 @@ describe("moments service 角色抽签与双骰分流", () => {
     expect(h.fake.state.cyrenePosts).toHaveLength(1);
 
     const [task] = readQueueTasks(h.queueFile);
-    expect(task).toMatchObject({ kind: "auto_like", actor: "万敌" });
+    expect(task).toMatchObject({ kind: "auto_like", actor: "奶盖" });
     // 深夜窗口直接替换常规延迟（不叠加）：统一落到次日早晨的随机时刻
     expect(task.dueAt).toBe(new Date(2026, 8, 4, 8, 0, 0).getTime() + 96 * 60_000);
   });
@@ -849,11 +849,11 @@ describe("moments service 昔涟×角色互动闭环与回复链", () => {
         '{"action":"reply","comment":"嘿嘿"}',
       ],
       random: scriptedRandom([
-        0.4, 0.5, 0.01, 0.5, 0.5,  // 万敌刷到并命中评论骰，表态延迟 40 分钟
+        0.4, 0.5, 0.01, 0.5, 0.5,  // 奶盖刷到并命中评论骰，表态延迟 40 分钟
         0.5, 0.5,                   // 昔演回复延迟（离线分桶）：14 分钟
-        0.5, 0.2,                   // 万敌回复延迟：20 分钟
+        0.5, 0.2,                   // 奶盖回复延迟：20 分钟
       ]),
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
 
     // 昔涟发帖（任务内联执行）；finishedAt 早于现在 11 分钟 → 昔涟按离线长尾节奏回应
@@ -861,13 +861,13 @@ describe("moments service 昔涟×角色互动闭环与回复链", () => {
     await flush();
     expect(h.fake.state.cyrenePosts).toHaveLength(1);
     const [postEval] = readQueueTasks(h.queueFile);
-    expect(postEval).toMatchObject({ kind: "post_eval", actor: "万敌", postId: "moment_cy1" });
+    expect(postEval).toMatchObject({ kind: "post_eval", actor: "奶盖", postId: "moment_cy1" });
 
-    // ① 万敌表态落库为顶级评论 → 昔涟的动态下有人说话，昔涟回应任务入队
+    // ① 奶盖表态落库为顶级评论 → 昔涟的动态下有人说话，昔涟回应任务入队
     h.clock.now += 40 * 60_000;
     await h.service.drainReactionQueue();
     expect(h.fake.state.characterComments).toEqual([
-      { nickname: "万敌", postId: "moment_cy1", content: "好耶", replyTo: undefined },
+      { nickname: "奶盖", postId: "moment_cy1", content: "好耶", replyTo: undefined },
     ]);
     const [cyreneReplyTask] = readQueueTasks(h.queueFile);
     expect(cyreneReplyTask).toMatchObject({
@@ -877,7 +877,7 @@ describe("moments service 昔涟×角色互动闭环与回复链", () => {
       triggerCommentId: "comment_c1",
     });
 
-    // ② 昔演回复万敌 → 被回复的角色可能回话，万敌的回复任务入队
+    // ② 昔演回复奶盖 → 被回复的角色可能回话，奶盖的回复任务入队
     h.clock.now += 45 * 60_000;
     await h.service.drainReactionQueue();
     expect(h.fake.state.cyreneComments).toEqual([
@@ -886,36 +886,36 @@ describe("moments service 昔涟×角色互动闭环与回复链", () => {
     const [characterReplyTask] = readQueueTasks(h.queueFile);
     expect(characterReplyTask).toMatchObject({
       kind: "reply_eval",
-      actor: "万敌",
+      actor: "奶盖",
       postId: "moment_cy1",
       triggerCommentId: "comment_c2",
     });
 
-    // ③ 万敌再回：落点深度已达上限，不再给昔涟入队，链自然收束
+    // ③ 奶盖再回：落点深度已达上限，不再给昔涟入队，链自然收束
     h.clock.now += 20 * 60_000;
     await h.service.drainReactionQueue();
     expect(h.fake.state.characterComments).toHaveLength(2);
     expect(h.fake.state.characterComments[1]).toEqual({
-      nickname: "万敌",
+      nickname: "奶盖",
       postId: "moment_cy1",
       content: "嘿嘿",
       replyTo: "comment_c2",
     });
     expect(readQueueTasks(h.queueFile)).toEqual([]);
-    // 发帖生成 + 万敌表态 + 昔演回应 + 万敌再回，恰好四次模型调用
+    // 发帖生成 + 奶盖表态 + 昔演回应 + 奶盖再回，恰好四次模型调用
     expect(h.runModel).toHaveBeenCalledTimes(4);
   });
 
   it("用户插话开启新链：深度耗尽的评论区里用户回复谁，谁就可能回应", async () => {
     const h = createHarness({
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
     // 昔涟动态下预置一条 AI 自主接龙到深度上限的评论链
     h.fake.state.posts.push(makePost({ id: "moment_cy1", author: "cyrene", text: "昔涟的动态" }));
     h.fake.state.comments.push(
-      makeComment({ id: "comment_c1", postId: "moment_cy1", author: "万敌", content: "好耶" }),
+      makeComment({ id: "comment_c1", postId: "moment_cy1", author: "奶盖", content: "好耶" }),
       makeComment({ id: "comment_c2", postId: "moment_cy1", author: "cyrene", replyTo: "comment_c1" }),
-      makeComment({ id: "comment_c3", postId: "moment_cy1", author: "万敌", replyTo: "comment_c2" }),
+      makeComment({ id: "comment_c3", postId: "moment_cy1", author: "奶盖", replyTo: "comment_c2" }),
     );
 
     const result = await h.service.createUserComment({
@@ -925,7 +925,7 @@ describe("moments service 昔涟×角色互动闭环与回复链", () => {
     });
     expect(result.applied).toBe(true);
 
-    // 用户评论是链的锚点：昔涟与被回复的万敌都以深度 1 重新起算，双双入队
+    // 用户评论是链的锚点：昔涟与被回复的奶盖都以深度 1 重新起算，双双入队
     const tasks = readQueueTasks(h.queueFile);
     expect(tasks).toHaveLength(2);
     expect(tasks[0]).toMatchObject({
@@ -936,7 +936,7 @@ describe("moments service 昔涟×角色互动闭环与回复链", () => {
     });
     expect(tasks[1]).toMatchObject({
       kind: "reply_eval",
-      actor: "万敌",
+      actor: "奶盖",
       postId: "moment_cy1",
       triggerCommentId: "comment_c4",
     });
@@ -950,10 +950,10 @@ describe("moments service 昔涟×角色互动闭环与回复链", () => {
         '{"action":"comment","comment":"好耶"}',
       ],
       random: scriptedRandom([
-        0.4, 0.5, 0.01, 0.5, 0.5,  // 万敌刷到并命中评论骰，表态延迟 40 分钟
+        0.4, 0.5, 0.01, 0.5, 0.5,  // 奶盖刷到并命中评论骰，表态延迟 40 分钟
         0.5, 0.5,                   // 重放续接的昔演回应延迟（离线分桶）：14 分钟
       ]),
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
     h.service.scheduleTurn(makeTurnInput({ finishedAt: h.clock.now - 11 * 60_000 }));
     await flush();
@@ -965,17 +965,17 @@ describe("moments service 昔涟×角色互动闭环与回复链", () => {
     expect(h.runModel).toHaveBeenCalledTimes(2);
     expect(h.fake.state.characterComments).toEqual([]);
     const [retryTask] = readQueueTasks(h.queueFile);
-    expect(retryTask).toMatchObject({ kind: "post_eval", actor: "万敌" });
+    expect(retryTask).toMatchObject({ kind: "post_eval", actor: "奶盖" });
     expect(h.log).toHaveBeenCalledWith(
       "reaction_apply_failed",
-      expect.objectContaining({ actor: "万敌" }),
+      expect.objectContaining({ actor: "奶盖" }),
     );
 
     // 重放：决策缓存直接执行，不再调模型；评论落库后续接昔涟回应任务
     await h.service.drainReactionQueue();
     expect(h.runModel).toHaveBeenCalledTimes(2);
     expect(h.fake.state.characterComments).toEqual([
-      { nickname: "万敌", postId: "moment_cy1", content: "好耶", replyTo: undefined },
+      { nickname: "奶盖", postId: "moment_cy1", content: "好耶", replyTo: undefined },
     ]);
     const [followUp] = readQueueTasks(h.queueFile);
     expect(followUp).toMatchObject({
@@ -991,7 +991,7 @@ describe("moments service 角色开关与模型调用预算", () => {
   it("角色互动开关关闭：用户发帖不触发角色抽签，昔涟反应不受影响", async () => {
     const h = createHarness({
       momentsCharacterReactionsEnabled: false,
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
 
     await h.service.createUserPost({ text: "第一条动态" });
@@ -1007,7 +1007,7 @@ describe("moments service 角色开关与模型调用预算", () => {
       cyreneMomentsReactionsEnabled: false,
       modelResponse: '{"action":"comment","comment":"好耶"}',
       random: scriptedRandom([0.4, 0.5, 0.01, 0.5, 0.5]),
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
     await h.service.createUserPost({ text: "第一条动态" });
     expect(readQueueTasks(h.queueFile)).toHaveLength(1);
@@ -1031,7 +1031,7 @@ describe("moments service 角色开关与模型调用预算", () => {
       cyreneMomentsReactionsEnabled: false,
       modelResponse: '{"action":"comment","comment":"好耶"}',
       random: scriptedRandom([0.4, 0.5, 0.01, 0.5, 0.5]),
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
     await h.service.createUserPost({ text: "第一条动态" });
     h.clock.now += 40 * 60_000;
@@ -1049,15 +1049,15 @@ describe("moments service 角色开关与模型调用预算", () => {
       cyreneMomentsReactionsEnabled: false,
       random: scriptedRandom([
         0.4,        // 抽签：2 位角色刷到
-        0.4, 0.4,   // 加权抽取：先长夜月（权重 0.7）后万敌（权重 0.3）
-        0.5, 0.05,  // 长夜月：点赞骰命中 → 随机点赞
-        0.5, 0.5,   // 长夜月延迟 40 分钟
-        0.01,       // 万敌：评论骰命中 → 走模型表态
-        0.5, 0.5,   // 万敌延迟 40 分钟
+        0.4, 0.4,   // 加权抽取：先汤圆（权重 0.7）后奶盖（权重 0.3）
+        0.5, 0.05,  // 汤圆：点赞骰命中 → 随机点赞
+        0.5, 0.5,   // 汤圆延迟 40 分钟
+        0.01,       // 奶盖：评论骰命中 → 走模型表态
+        0.5, 0.5,   // 奶盖延迟 40 分钟
       ]),
       loadPersonas: () => new Map([
-        ["万敌", makePersona()],
-        ["长夜月", makePersona({ nickname: "长夜月", assetFileName: "长夜月.png", activityWeight: 0.7 })],
+        ["奶盖", makePersona()],
+        ["汤圆", makePersona({ nickname: "汤圆", assetFileName: "汤圆.png", activityWeight: 0.7 })],
       ]),
     });
     await h.service.createUserPost({ text: "第一条动态" });
@@ -1072,7 +1072,7 @@ describe("moments service 角色开关与模型调用预算", () => {
     await h.service.drainReactionQueue();
 
     expect(h.runModel).not.toHaveBeenCalled();
-    expect(h.fake.state.characterLikes).toEqual([{ nickname: "长夜月", postId: "moment_post1" }]);
+    expect(h.fake.state.characterLikes).toEqual([{ nickname: "汤圆", postId: "moment_post1" }]);
     expect(h.fake.state.characterComments).toEqual([]);
     expect(readQueueTasks(h.queueFile)).toEqual([]);
     expect(h.log).toHaveBeenCalledWith(
@@ -1200,14 +1200,14 @@ describe("moments service 聊天工具通道", () => {
       cyreneMomentsPostingEnabled: true,
       random: scriptedRandom([
         0.4,        // 抽签第一掷：2 人刷到
-        0.4, 0.4,   // 加权抽取：先长夜月（权重 0.7）后万敌
-        0.01,       // 长夜月：评论骰命中 → 走模型表态
-        0.5, 0.5,   // 长夜月延迟 40 分钟
-        0.5, 0.5,   // 万敌：双骰未中 → 划走
+        0.4, 0.4,   // 加权抽取：先汤圆（权重 0.7）后奶盖
+        0.01,       // 汤圆：评论骰命中 → 走模型表态
+        0.5, 0.5,   // 汤圆延迟 40 分钟
+        0.5, 0.5,   // 奶盖：双骰未中 → 划走
       ]),
       loadPersonas: () => new Map([
-        ["万敌", makePersona()],
-        ["长夜月", makePersona({ nickname: "长夜月", assetFileName: "长夜月.png", activityWeight: 0.7 })],
+        ["奶盖", makePersona()],
+        ["汤圆", makePersona({ nickname: "汤圆", assetFileName: "汤圆.png", activityWeight: 0.7 })],
       ]),
     });
 
@@ -1216,14 +1216,14 @@ describe("moments service 聊天工具通道", () => {
     // 即时落库：不排昔涟自己的反应任务，模型一次都没调
     expect(h.fake.state.cyrenePosts).toEqual([{ text: "今天和主人聊得超开心", source: undefined }]);
     expect(h.runModel).not.toHaveBeenCalled();
-    // 但角色抽签照常：长夜月的表态任务已入队等延迟
+    // 但角色抽签照常：汤圆的表态任务已入队等延迟
     expect(readQueueTasks(h.queueFile)).toEqual([
-      expect.objectContaining({ kind: "post_eval", actor: "长夜月", postId: expect.any(String) }),
+      expect.objectContaining({ kind: "post_eval", actor: "汤圆", postId: expect.any(String) }),
     ]);
   });
 
   it("昔涟发动态被闸门拒绝时原样返回原因，角色不入队", async () => {
-    const h = createHarness({ loadPersonas: () => new Map([["万敌", makePersona()]]) });
+    const h = createHarness({ loadPersonas: () => new Map([["奶盖", makePersona()]]) });
     h.fake.state.rejectNextCyrenePost = true;
 
     const result = await h.service.cyreneCreatePostFromTool({ text: "发不出去的动态" });
@@ -1259,29 +1259,29 @@ describe("moments service @ 点名直达", () => {
       ],
       random: scriptedRandom([
         0.5, 0.5,   // 昔涟秒回延迟：第一桶（60%，5~15 秒）取中值 10 秒
-        0.5, 0.5,   // 万敌秒回延迟：同为 10 秒
-        0.05,       // 抽签第一掷：冷场（长夜月未被点名，走抽签未刷到）
+        0.5, 0.5,   // 奶盖秒回延迟：同为 10 秒
+        0.05,       // 抽签第一掷：冷场（汤圆未被点名，走抽签未刷到）
       ]),
       loadPersonas: () => new Map([
-        ["万敌", makePersona()],
-        ["长夜月", makePersona({ nickname: "长夜月", assetFileName: "长夜月.png", activityWeight: 0.7 })],
+        ["奶盖", makePersona()],
+        ["汤圆", makePersona({ nickname: "汤圆", assetFileName: "汤圆.png", activityWeight: 0.7 })],
       ]),
     });
 
     // 路人甲不在白名单：service 提交前丢弃，落库 mentions 只剩合法名单
     const result = await h.service.createUserPost({
-      text: "@昔涟 @万敌 周末出来玩吗",
-      mentions: ["cyrene", "万敌", "路人甲"],
+      text: "@昔涟 @奶盖 周末出来玩吗",
+      mentions: ["cyrene", "奶盖", "路人甲"],
     });
     expect(result.applied).toBe(true);
-    expect(result.value.mentions).toEqual(["cyrene", "万敌"]);
-    expect(h.fake.state.posts[0].mentions).toEqual(["cyrene", "万敌"]);
+    expect(result.value.mentions).toEqual(["cyrene", "奶盖"]);
+    expect(h.fake.state.posts[0].mentions).toEqual(["cyrene", "奶盖"]);
 
-    // 两个秒回任务：无普通延迟、无抽签任务；长夜月冷场没进来
+    // 两个秒回任务：无普通延迟、无抽签任务；汤圆冷场没进来
     const tasks = readQueueTasks(h.queueFile);
     expect(tasks).toHaveLength(2);
     expect(tasks[0]).toMatchObject({ kind: "post_eval", actor: "cyrene", postId: "moment_post1", mentioned: true });
-    expect(tasks[1]).toMatchObject({ kind: "post_eval", actor: "万敌", postId: "moment_post1", mentioned: true });
+    expect(tasks[1]).toMatchObject({ kind: "post_eval", actor: "奶盖", postId: "moment_post1", mentioned: true });
     expect(tasks[0].dueAt - h.clock.now).toBe(10_000);
     expect(tasks[1].dueAt - h.clock.now).toBe(10_000);
 
@@ -1294,11 +1294,11 @@ describe("moments service @ 点名直达", () => {
     expect(h.runModel.mock.calls[1][0][1].content).toContain("@ 了你");
     expect(h.fake.state.cyreneComments).toEqual([{ postId: "moment_post1", content: "来啦来啦", replyTo: undefined }]);
     expect(h.fake.state.characterComments).toEqual([
-      { nickname: "万敌", postId: "moment_post1", content: "算我一个", replyTo: undefined },
+      { nickname: "奶盖", postId: "moment_post1", content: "算我一个", replyTo: undefined },
     ]);
     // 必赞：点名任务的决策恒含点赞，两侧点赞通道都落库
     expect(h.fake.state.cyreneLikes).toEqual(["moment_post1"]);
-    expect(h.fake.state.characterLikes).toEqual([{ nickname: "万敌", postId: "moment_post1" }]);
+    expect(h.fake.state.characterLikes).toEqual([{ nickname: "奶盖", postId: "moment_post1" }]);
     expect(readQueueTasks(h.queueFile)).toEqual([]);
   });
 
@@ -1308,7 +1308,7 @@ describe("moments service @ 点名直达", () => {
         0.5, 0.5,   // 昔涟普通表态延迟（离线分桶）
         0.05,       // 角色抽签冷场
       ]),
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
 
     await h.service.createUserPost({ text: "@路人甲 你好", mentions: ["路人甲"] });
@@ -1326,7 +1326,7 @@ describe("moments service @ 点名直达", () => {
         0.5, 0.5,   // 昔涟自动表态延迟：10~25 分钟桶取值 17.5 分钟
         0.05,       // 角色抽签冷场
       ]),
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
 
     await h.service.createUserPost({ text: "第一条动态" });
@@ -1354,7 +1354,7 @@ describe("moments service @ 点名直达", () => {
         0.5, 0.5,   // 昔涟秒回延迟 10 秒
         0.05,       // 角色抽签冷场
       ]),
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
 
     await h.service.createUserPost({ text: "@昔涟 在吗", mentions: ["cyrene"] });
@@ -1393,17 +1393,17 @@ describe("moments service @ 点名直达", () => {
       random: scriptedRandom([
         0.5, 0.5,   // 点名秒回延迟 10 秒
       ]),
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
 
     // 预先把当日角色配额打满（冷清档 40 次）
     h.policy.current.characterModelCalls = { date: localDateKey(h.clock.now), count: 40 };
 
-    await h.service.createUserPost({ text: "@万敌 还在吗", mentions: ["万敌"] });
+    await h.service.createUserPost({ text: "@奶盖 还在吗", mentions: ["奶盖"] });
     const tasks = readQueueTasks(h.queueFile);
-    // 两个任务：万敌点名直达 + 昔涟普通表态（未 @ 昔涟，她走自然链路）
+    // 两个任务：奶盖点名直达 + 昔涟普通表态（未 @ 昔涟，她走自然链路）
     expect(tasks).toHaveLength(2);
-    const mentionTask = tasks.find((task) => task.actor === "万敌");
+    const mentionTask = tasks.find((task) => task.actor === "奶盖");
     const cyreneTask = tasks.find((task) => task.actor === "cyrene");
     expect(mentionTask).toMatchObject({ kind: "post_eval", mentioned: true, postId: "moment_post1" });
     expect(cyreneTask).toMatchObject({ kind: "post_eval", postId: "moment_post1" });
@@ -1412,11 +1412,11 @@ describe("moments service @ 点名直达", () => {
     h.clock.now += 60 * 60_000;
     await h.service.drainReactionQueue();
 
-    // 配额满格也没拦住点名任务：万敌的模型调用与落库照常完成
+    // 配额满格也没拦住点名任务：奶盖的模型调用与落库照常完成
     expect(h.fake.state.characterComments).toEqual([
-      { nickname: "万敌", postId: "moment_post1", content: "还轮得到我", replyTo: undefined },
+      { nickname: "奶盖", postId: "moment_post1", content: "还轮得到我", replyTo: undefined },
     ]);
-    expect(h.fake.state.characterLikes).toEqual([{ nickname: "万敌", postId: "moment_post1" }]);
+    expect(h.fake.state.characterLikes).toEqual([{ nickname: "奶盖", postId: "moment_post1" }]);
     // 豁免同时不记账：点名回应不占自然配额，当日计数保持 40
     expect(h.policy.current.characterModelCalls).toEqual({
       date: localDateKey(h.clock.now),
@@ -1428,23 +1428,23 @@ describe("moments service @ 点名直达", () => {
     const h = createHarness({
       random: scriptedRandom([
         0.5, 0.5,   // 昔涟普通表态延迟（未被 @，走自然链路）
-        0.5, 0.5,   // 万敌点名秒回延迟 10 秒
-        0.5, 0.5,   // 遐蝶点名秒回延迟 10 秒
+        0.5, 0.5,   // 奶盖点名秒回延迟 10 秒
+        0.5, 0.5,   // 布丁点名秒回延迟 10 秒
         0.05,       // 角色抽签（池子已被点名者清空，无人可抽）
       ]),
       loadPersonas: () => new Map([
-        ["万敌", makePersona()],
-        ["遐蝶", makePersona({ nickname: "遐蝶", assetFileName: "遐蝶.png" })],
+        ["奶盖", makePersona()],
+        ["布丁", makePersona({ nickname: "布丁", assetFileName: "布丁.png" })],
       ]),
     });
 
-    await h.service.createUserPost({ text: "@万敌 @遐蝶 中午吃啥", mentions: ["万敌", "遐蝶"] });
+    await h.service.createUserPost({ text: "@奶盖 @布丁 中午吃啥", mentions: ["奶盖", "布丁"] });
     const tasks = readQueueTasks(h.queueFile);
 
     // 三个任务：两位被点名者各自直达 + 昔涟普通表态；
     // 用户主动点名的人数不受抽签档位限制，@ 了几个就回应几个
     expect(tasks).toHaveLength(3);
-    for (const nickname of ["万敌", "遐蝶"]) {
+    for (const nickname of ["奶盖", "布丁"]) {
       const task = tasks.find((candidate) => candidate.actor === nickname);
       expect(task).toMatchObject({ kind: "post_eval", mentioned: true, postId: "moment_post1" });
       expect(task?.dueAt).toBe(h.clock.now + 10_000);
@@ -1461,13 +1461,13 @@ describe("moments service @ 点名直达", () => {
         0.05,       // 第一条：冷清档抽签 → 0 人冷场
         0.5, 0.5,   // 第二条：昔涟表态延迟
         0.05,       // 第二条：热闹档抽签 → 1 人（同一个抽签值，冷清档下是 0）
-        0.5,        // 加权抽人 → 遐蝶
+        0.5,        // 加权抽人 → 布丁
         0.05,       // 评论骰命中 → 走模型表态
         0.5, 0.5,   // 角色表态延迟
       ]),
       loadPersonas: () => new Map([
-        ["万敌", makePersona()],
-        ["遐蝶", makePersona({ nickname: "遐蝶", assetFileName: "遐蝶.png" })],
+        ["奶盖", makePersona()],
+        ["布丁", makePersona({ nickname: "布丁", assetFileName: "布丁.png" })],
       ]),
     });
 
@@ -1489,7 +1489,7 @@ describe("moments service @ 点名直达", () => {
     expect(firstPostTask?.dueAt).toBe(cyreneDueAtBefore);
 
     // 第二条立即用热闹档：同一抽签值下抽中 1 位角色入队
-    const characterTask = after.find((task) => task.actor === "遐蝶");
+    const characterTask = after.find((task) => task.actor === "布丁");
     expect(characterTask).toMatchObject({ kind: "post_eval", postId: "moment_post2" });
   });
 
@@ -1501,7 +1501,7 @@ describe("moments service @ 点名直达", () => {
         0.5, 0.5,   // 昔涟秒回延迟 10 秒
         0.05,       // 角色抽签冷场
       ]),
-      loadPersonas: () => new Map([["万敌", makePersona()]]),
+      loadPersonas: () => new Map([["奶盖", makePersona()]]),
     });
 
     await h.service.createUserPost({ text: "@昔涟 出发了吗", mentions: ["cyrene"] });
@@ -1633,13 +1633,13 @@ describe("moments worldbook 注入与图片读取", () => {
   describe("buildMomentsWorldbookContext", () => {
     it("常驻条目全量 + 关键词命中条目按序合并", () => {
       mocks.getPermanentWorldbookEntries.mockReturnValue(["【常驻设定】全局背景"]);
-      mocks.getKeywordMatchedWorldbookEntries.mockReturnValue(["【风堇】黄金裔"]);
+      mocks.getKeywordMatchedWorldbookEntries.mockReturnValue(["【年糕】猫伴"]);
 
-      const result = buildMomentsWorldbookContext("提到风堇的文本");
+      const result = buildMomentsWorldbookContext("提到年糕的文本");
       expect(result).toContain("[相关设定]");
       expect(result).toContain("【常驻设定】全局背景");
-      expect(result).toContain("【风堇】黄金裔");
-      expect(mocks.getKeywordMatchedWorldbookEntries).toHaveBeenCalledWith("提到风堇的文本");
+      expect(result).toContain("【年糕】猫伴");
+      expect(mocks.getKeywordMatchedWorldbookEntries).toHaveBeenCalledWith("提到年糕的文本");
     });
     it("两边都无内容时返回空串（不注入）", () => {
       expect(buildMomentsWorldbookContext("无关文本")).toBe("");
@@ -1719,7 +1719,7 @@ describe("moments worldbook 注入与图片读取", () => {
     });
   });
   it("注入链路：反应调用携带 worldbook 与图片进 prompt", async () => {
-    mocks.getKeywordMatchedWorldbookEntries.mockReturnValue(["【风堇】黄金裔"]);
+    mocks.getKeywordMatchedWorldbookEntries.mockReturnValue(["【年糕】猫伴"]);
     mocks.validateCaptionImagePath.mockReturnValue({
       ok: true,
       filePath: "/moments-media/moment_p1/1.jpg",
@@ -1731,7 +1731,7 @@ describe("moments worldbook 注入与图片读取", () => {
       modelResponse: '{"like":false,"comment":{"shouldComment":false}}',
     });
     const result = await h.service.createUserPost({
-      text: "见到风堇了",
+      text: "见到年糕了",
       media: [{ id: "m1", type: "image", origin: "user_attachment", ref: "1.jpg" }],
     });
 
@@ -1741,8 +1741,8 @@ describe("moments worldbook 注入与图片读取", () => {
     await h.service.drainReactionQueue();
 
     const messages = h.runModel.mock.calls[0][0] as Array<{ role: string; content?: unknown }>;
-    expect(mocks.getKeywordMatchedWorldbookEntries).toHaveBeenCalledWith("见到风堇了");
-    expect(messages[0].content).toContain("【风堇】黄金裔");
+    expect(mocks.getKeywordMatchedWorldbookEntries).toHaveBeenCalledWith("见到年糕了");
+    expect(messages[0].content).toContain("【年糕】猫伴");
     const blocks = messages[1].content as Array<{ type: string; image_url?: { url: string } }>;
     expect(Array.isArray(blocks)).toBe(true);
     expect(blocks.some((block) => block.type === "image_url" && block.image_url?.url === "data:image/jpeg;base64,QUJD")).toBe(true);

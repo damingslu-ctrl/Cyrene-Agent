@@ -96,21 +96,21 @@ describe("deriveMomentNotices", () => {
       comments: [
         // 用户自己的评论：不通知
         { id: "c1", author: "user", createdAt: NOW - 40_000 },
-        // 万敌的顶级评论：comment 通知
-        { id: "c2", author: "万敌", createdAt: NOW - 30_000 },
+        // 奶盖的顶级评论：comment 通知
+        { id: "c2", author: "奶盖", createdAt: NOW - 30_000 },
         // 昔回复用户的评论：reply 通知
         { id: "c3", author: "cyrene", replyTo: "c1", createdAt: NOW - 20_000 },
       ],
-      likes: [{ actor: "长夜月", createdAt: NOW - 10_000 }],
+      likes: [{ actor: "汤圆", createdAt: NOW - 10_000 }],
     });
 
     const notices = deriveMomentNotices([item]);
-    // 最新互动排最前：点赞（-10s）> 昔回复（-20s）> 万敌评论（-30s）
+    // 最新互动排最前：点赞（-10s）> 昔回复（-20s）> 奶盖评论（-30s）
     expect(notices.map((notice) => notice.kind)).toEqual(["like", "reply", "comment"]);
-    expect(notices[0]).toMatchObject({ actor: "长夜月", postId: "p1" });
+    expect(notices[0]).toMatchObject({ actor: "汤圆", postId: "p1" });
     expect(notices[1]).toMatchObject({ actor: "cyrene", postId: "p1", commentId: "c3" });
     expect(notices[1].excerpt).toContain("c3 内容");
-    expect(notices[2]).toMatchObject({ actor: "万敌", postId: "p1", commentId: "c2" });
+    expect(notices[2]).toMatchObject({ actor: "奶盖", postId: "p1", commentId: "c2" });
   });
 
   it("角色动态下别人回复用户的评论也算通知（发帖人是谁不重要，回复目标是用户才通知）", () => {
@@ -119,16 +119,16 @@ describe("deriveMomentNotices", () => {
       postId: "p1",
       comments: [
         { id: "c1", author: "user", createdAt: NOW - 40_000 },
-        { id: "c2", author: "万敌", replyTo: "c1", createdAt: NOW - 30_000 },
-        { id: "c3", author: "长夜月", createdAt: NOW - 20_000 },
+        { id: "c2", author: "奶盖", replyTo: "c1", createdAt: NOW - 30_000 },
+        { id: "c3", author: "汤圆", createdAt: NOW - 20_000 },
       ],
-      likes: [{ actor: "万敌", createdAt: NOW - 10_000 }],
+      likes: [{ actor: "奶盖", createdAt: NOW - 10_000 }],
     });
 
     const notices = deriveMomentNotices([item]);
     // 昔涟动态下只有"回复用户评论"与用户相关：点赞、角色顶层评论都是 NPC 间后台互动
     expect(notices).toHaveLength(1);
-    expect(notices[0]).toMatchObject({ kind: "reply", actor: "万敌", commentId: "c2", postId: "p1" });
+    expect(notices[0]).toMatchObject({ kind: "reply", actor: "奶盖", commentId: "c2", postId: "p1" });
   });
 
   it("用户自己的点赞和评论、角色回复角色、悬空回复目标都不产生通知", () => {
@@ -139,11 +139,11 @@ describe("deriveMomentNotices", () => {
         // 用户自己的顶级评论：不通知
         { id: "c1", author: "user", createdAt: NOW - 50_000 },
         // 角色回复用户的评论：通知
-        { id: "c2", author: "万敌", replyTo: "c1", createdAt: NOW - 40_000 },
+        { id: "c2", author: "奶盖", replyTo: "c1", createdAt: NOW - 40_000 },
         // 角色回复角色：不通知
-        { id: "c3", author: "长夜月", replyTo: "c2", createdAt: NOW - 30_000 },
+        { id: "c3", author: "汤圆", replyTo: "c2", createdAt: NOW - 30_000 },
         // 回复目标不存在（目标评论被删后遗留）：不通知
-        { id: "c4", author: "万敌", replyTo: "ghost", createdAt: NOW - 20_000 },
+        { id: "c4", author: "奶盖", replyTo: "ghost", createdAt: NOW - 20_000 },
       ],
       likes: [
         // 自己赞自己：不通知
@@ -153,13 +153,13 @@ describe("deriveMomentNotices", () => {
 
     const notices = deriveMomentNotices([item]);
     expect(notices).toHaveLength(1);
-    expect(notices[0]).toMatchObject({ kind: "reply", actor: "万敌", commentId: "c2" });
+    expect(notices[0]).toMatchObject({ kind: "reply", actor: "奶盖", commentId: "c2" });
   });
 
   it("多条动态合并派生并按时间倒序排列", () => {
     const items = [
-      makeFeedItem({ author: "user", postId: "p1", likes: [{ actor: "万敌", createdAt: NOW - 1000 }] }),
-      makeFeedItem({ author: "user", postId: "p2", likes: [{ actor: "长夜月", createdAt: NOW - 2000 }] }),
+      makeFeedItem({ author: "user", postId: "p1", likes: [{ actor: "奶盖", createdAt: NOW - 1000 }] }),
+      makeFeedItem({ author: "user", postId: "p2", likes: [{ actor: "汤圆", createdAt: NOW - 2000 }] }),
     ];
 
     const notices = deriveMomentNotices(items);
@@ -173,8 +173,8 @@ describe("countUnreadMomentNotices", () => {
       author: "user",
       postId: "p1",
       likes: [
-        { actor: "万敌", createdAt: 1000 },
-        { actor: "长夜月", createdAt: 2000 },
+        { actor: "奶盖", createdAt: 1000 },
+        { actor: "汤圆", createdAt: 2000 },
       ],
     }),
   ]);

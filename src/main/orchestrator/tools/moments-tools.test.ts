@@ -89,8 +89,8 @@ describe("moments_view 看朋友圈", () => {
       makeFeedItem(),
       makeFeedItem({
         post: { id: "moment_cy1", author: "cyrene", text: "a".repeat(100), media: [{ id: "m1", type: "image", origin: "character_asset", ref: "x.png" }], createdAt: Date.now() - 2 * 60 * 60_000 },
-        comments: [{ id: "comment_c1", postId: "moment_cy1", author: "万敌", content: "路过", createdAt: Date.now() }],
-        likes: [{ postId: "moment_cy1", actor: "万敌", type: "like", createdAt: Date.now() }],
+        comments: [{ id: "comment_c1", postId: "moment_cy1", author: "奶盖", content: "路过", createdAt: Date.now() }],
+        likes: [{ postId: "moment_cy1", actor: "奶盖", type: "like", createdAt: Date.now() }],
       }),
     ]);
 
@@ -104,7 +104,7 @@ describe("moments_view 看朋友圈", () => {
     expect(output).toContain("2 小时前");
     expect(output).toContain("…"); // 长文截断
     expect(output).toContain("1 张图");
-    expect(output).toContain("万敌：路过");
+    expect(output).toContain("奶盖：路过");
     expect(output).toContain("1 个赞");
   });
 });

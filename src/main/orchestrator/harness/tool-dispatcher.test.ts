@@ -253,7 +253,7 @@ describe("dispatchToolCall truthful execution", () => {
     const store: ToolOutputStore = { put, read: vi.fn(), find: vi.fn(), deleteConversation: vi.fn() };
 
     const result = await dispatchToolCall({ id: "task-call", name: "task", arguments: JSON.stringify({
-      description: "检查子任务", prompt: "给出完整报告", subagent_type: "general", companion_id: "风堇",
+      description: "检查子任务", prompt: "给出完整报告", subagent_type: "general", companion_id: "年糕",
     }) }, {
       state: state(), tools: [], toolOutputStore: store,
       toolContext: { userQuery: "", conversationId: "conversation-1", runId: "run-1" },
