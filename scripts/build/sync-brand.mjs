@@ -68,6 +68,33 @@ export function buildBrandFields(brand) {
   };
 }
 
+/**
+ * 窗口标题也是身份字段：改产品名时标题必须跟着走，不能留成第二套真相。
+ *
+ * 只列**用户可见的窗口**——dev 预览页（react-perf / user-menu-preview /
+ * plan-approval-preview / ui-preview）不在册，它们是开发用的本地页面。
+ *
+ * 修的正是「麻糬 · 聊天（React）」这类开发残余：兄弟窗口（语音通话 / 音乐 / 提醒）
+ * 都没有后缀，只有一个窗口挂着「（React）」——那是上游重构期留下的脚手架标记，
+ * 用户在任务栏里能直接看见。
+ */
+export function buildWindowTitles(brand) {
+  const zh = brand.productNameZh;
+  return [
+    { file: path.join("src", "renderer", "index.html"), title: brand.productName },
+    { file: path.join("src", "renderer", "react", "index.html"), title: `${zh} · 聊天` },
+    { file: path.join("src", "renderer", "call-react", "index.html"), title: `${zh} · 语音通话` },
+    { file: path.join("src", "renderer", "music", "index.html"), title: `${zh} · 音乐` },
+    { file: path.join("src", "renderer", "toast", "index.html"), title: `${zh} · 提醒` },
+  ];
+}
+
+function applyTitle(source, title) {
+  const re = /<title>[\s\S]*?<\/title>/;
+  if (!re.test(source)) throw new Error(`窗口 html 里找不到 <title>：${title}`);
+  return source.replace(re, `<title>${title}</title>`);
+}
+
 function applyYml(source, pairs) {
   let text = source;
   for (const [pattern, replacement] of pairs) {
@@ -109,6 +136,16 @@ if (isDirectRun) {
   const drift = [];
   if (ymlFile.source !== ymlNext) drift.push("electron-builder.yml");
   if (pkgFile.source !== pkgNext) drift.push("package.json");
+
+  const titleFiles = buildWindowTitles(brand).map(({ file, title }) => {
+    const abs = path.join(projectRoot, file);
+    const current = readText(abs);
+    const next = withEol(applyTitle(toLf(current.source), title), current.eol);
+    return { file, abs, current: current.source, next };
+  });
+  const titleDrift = titleFiles.filter((entry) => entry.current !== entry.next);
+  for (const entry of titleDrift) drift.push(entry.file);
+
   if (check) {
     if (drift.length) {
       console.error(`[brand] 生成物与 src/shared/brand.ts 不一致：${drift.join(", ")}。跑 node scripts/build/sync-brand.mjs`);
@@ -119,6 +156,7 @@ if (isDirectRun) {
   } else {
     writeFileSync(ymlPath, ymlNext, "utf8");
     writeFileSync(pkgPath, pkgNext, "utf8");
+    for (const entry of titleDrift) writeFileSync(entry.abs, entry.next, "utf8");
     console.log(`[brand] 已写入 ${drift.length ? drift.join(", ") : "（无变化）"}`);
   }
 }
