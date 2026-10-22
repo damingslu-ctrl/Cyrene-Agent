@@ -70,9 +70,9 @@ export const installMcpServerTool: ToolDefinition = {
     "把一个 MCP server 加到麻糬的工具盘里：写入配置 → 启动 → 发现工具。\n\n" +
     "何时用：\n" +
     "- 用户明确要装某个 MCP server（'帮我装 xxx mcp'）\n" +
-    "- 用户给了 MCP 的 GitHub 仓库或配置\n\n" +
-    "推荐流程：先用 fetch_url 读 README，找到 mcpServers 配置块" +
-    "（command/args/env），再用本工具一次性安装。\n\n" +
+    "- 用户给了 MCP 的安装说明或配置\n\n" +
+    "推荐流程：拿到 mcpServers 配置块（command/args/env）后，用本工具一次性安装。" +
+    "上游站点的 README 已不可访问，配置以用户提供或本地文档为准。\n\n" +
     "不要用于：\n" +
     "- 日常工具调用（已注册的工具直接用）\n" +
     "- 系统软件安装（那是 run_shell 的活）\n\n" +
