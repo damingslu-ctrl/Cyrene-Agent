@@ -99,4 +99,18 @@ describe("探针档落盘", () => {
     expect(source).toMatch(/armEgressProbe\(\s*egressProbeMs,\s*app\.getPath\("userData"\)\s*\)/);
     expect(source).not.toMatch(/armEgressProbe\([^)]*dirname/);
   });
+
+  /**
+   * Task 31 第一层跑出来的假绿：探针档 `arm` 完就 `return`，应用根本没启动——
+   * 一个不建窗、不加载渲染进程的进程当然 0 条外部请求。尺子必须量真东西。
+   */
+  it("探针档也要照常启动应用，否则 external=0 量的是空转进程", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/main/index.ts"), "utf8");
+    const start = source.indexOf("readEgressProbeArg()");
+    const end = source.indexOf("egressWatchdog = installEgressWatchdog()");
+    expect(start, "组合根里找不到探针分支").toBeGreaterThan(-1);
+    expect(end, "组合根里找不到常规装尺那行").toBeGreaterThan(start);
+    const probeBranch = source.slice(start, end);
+    expect(probeBranch, "探针分支排完尺就 return，应用没启动 → 表永远是空的").toMatch(/application\.start\(\)/);
+  });
 });

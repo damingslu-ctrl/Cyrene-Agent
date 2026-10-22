@@ -2,8 +2,9 @@
  * `--egress-probe[=<空闲毫秒>]` 探针档（P4 Task 6）。
  *
  * argv 形状沿用 `--tuck-probe` / `--voice-probe` 的既有先例：参数可选，缺省 20s。
- * 探针不进入 shell → core 编排（不调 `registerCoreIpc`），因此不会有任何
- * key-gated 的模型供应商请求混进表——表里剩下的才是「没人要求也会发」的外部流量。
+ * 探针不改变编排：组合根照常 `application.start()`，因此窗口、渲染进程、verge 三段都会真跑一遍
+ * ——尺子量的就是这个软件默认启动后会发出去的东西。验收跑的是全新 userData（没配模型 key），
+ * 所以 key-gated 的供应商请求本来就不该出现；真出现了就是要抓的东西，不是噪音。
  * 产物落在 userData 里。验收档必然带 `--user-data-dir=D:/...`，那本来就是一次性目录；
  * 反过来把它放到 userData 的父目录，在 Windows 上会退化成卷根（`D:\`），写不进去。
  */

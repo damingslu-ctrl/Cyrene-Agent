@@ -63,13 +63,15 @@ if (application.isPrimaryProcess()) {
       // ready 之后、窗口起来之前装：此时 defaultSession 已可用，首窗请求也会被记到。
       const egressProbeMs = readEgressProbeArg();
       if (egressProbeMs !== null) {
-        // 探针档短路：不进入 shell → core 编排，registerCoreIpc 不会跑，
-        // 模型供应商的 key-gated 请求不会混进表里。
-        // 产物就落在 userData 里：Task 31 的验收判据钉的就是 `<user-data-dir>/egress-probe.json`，
-        // 而且 `--user-data-dir` 本身就指定了一次性目录。曾经写成它的父目录，
-        // 在 Windows 上父目录就是卷根，`mkdir 'D:\'` 直接 EPERM。
+        // 探针档只替换「装尺 + 到点落盘退出」这一层，编排照走。这里曾经直接 `return`，
+        // 于是进程不建窗、不加载渲染，表永远是空的——那种 `external=0` 量的是一个空转进程，
+        // 不是这个软件（Task 31 第一层的假绿）。
+        // 验收跑的是全新 userData（没配模型 key），key-gated 的供应商请求本来就不会出现；
+        // 万一真出现了，那正是这次改造要抓的东西，不能当噪音排掉。
+        // 也不能再往下装第二把尺：Electron 每个 channel 只留最后一个监听，
+        // 常规装尺会把探针那把的表挤成空的。
         armEgressProbe(egressProbeMs, app.getPath("userData"));
-        return;
+        return application.start();
       }
       egressWatchdog = installEgressWatchdog();
       watchEgressInBackground();
