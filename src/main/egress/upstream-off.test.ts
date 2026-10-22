@@ -160,6 +160,19 @@ const RULES: Rule[] = [
       "src/main/orchestrator/tools/builtin-tools/download-file-tool.ts",
     ],
   },
+  {
+    clause: "A8 重定向逐跳过上游闸门",
+    // 入口闸门只看得见第一跳：非上游短链可以 302 到上游，`redirect: "follow"` 会直接跟过去。
+    // 两把联网工具必须走逐跳校验的 helper，不许退回 follow。
+    pattern: /fetchWithoutUpstreamRedirects\s*\(/,
+    positiveControls: ["fetchWithoutUpstreamRedirects(url, {"],
+    exceptions: [],
+    required: true,
+    requiredIn: [
+      "src/main/orchestrator/tools/builtin-tools/fetch-url-tool.ts",
+      "src/main/orchestrator/tools/builtin-tools/download-file-tool.ts",
+    ],
+  },
 ];
 
 /** 例外表的 `file` 一律用 `/` 分隔书写，跟 `path.sep` 无关（Windows 上是 `\`）。 */

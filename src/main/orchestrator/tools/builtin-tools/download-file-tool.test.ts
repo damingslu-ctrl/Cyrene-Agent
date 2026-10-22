@@ -12,6 +12,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** 构造 3xx + Location 的桩（逐跳闸门只用到 status / headers / body.cancel）。 */
+function makeRedirect(location: string): Response {
+  return {
+    ok: false,
+    status: 302,
+    statusText: "Found",
+    headers: {
+      get: (name: string) => (name.toLowerCase() === "location" ? location : null),
+    },
+    body: { cancel: async () => undefined },
+  } as unknown as Response;
+}
+
 describe("download_file 上游域名闸门", () => {
   it.each([
     "https://github.com/foo/bar/releases/download/v1/cat.png",
@@ -45,5 +58,20 @@ describe("download_file 上游域名闸门", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(out).toContain("响应无内容");
+  });
+
+  it("非上游短链 302 到上游：拒绝发生在跟跳之前，不落盘", async () => {
+    const fetchMock = vi.fn(async () =>
+      makeRedirect("https://raw.githubusercontent.com/foo/bar/main/cat.png"),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await downloadFileTool.execute(
+      { url: "https://short.example/cat", filename: "cat.png" },
+      { userQuery: "test", resolvedWorkspaceRoot: "D:\\cyrene-p4-accept\\dl-test" },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(out).toContain("跳转到了已切断的上游站点");
   });
 });

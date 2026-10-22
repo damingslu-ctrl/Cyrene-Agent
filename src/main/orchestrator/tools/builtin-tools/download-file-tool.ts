@@ -17,6 +17,10 @@ import * as fs from "fs";
 import * as path from "path";
 import { BRAND } from "../../../../shared/brand";
 import { isUpstreamUrl } from "../../../../shared/upstream-hosts";
+import {
+  UpstreamRedirectBlockedError,
+  fetchWithoutUpstreamRedirects,
+} from "../../../egress/safe-fetch";
 import type { ToolDefinition } from "../registry/tool-registry";
 import type { ToolContext } from "../registry/tool-context";
 
@@ -133,13 +137,12 @@ async function executeDownloadFile(args: Record<string, unknown>, ctx?: ToolCont
   const idleTimer = setTimeout(() => ac.abort(), DOWNLOAD_IDLE_TIMEOUT_MS);
   const combinedSignal = ctx?.signal ? AbortSignal.any([ctx.signal, ac.signal]) : ac.signal;
   try {
-    const resp = await fetch(url, {
+    const resp = await fetchWithoutUpstreamRedirects(url, {
       signal: combinedSignal,
       headers: {
         "User-Agent": `Mozilla/5.0 (${BRAND.productName}) Chrome/120 Safari/537.36`,
         Accept: "*/*",
       },
-      redirect: "follow",
     });
     if (!resp.ok) {
       return "[错误] HTTP " + resp.status + " " + resp.statusText;
@@ -189,6 +192,9 @@ async function executeDownloadFile(args: Record<string, unknown>, ctx?: ToolCont
     console.log(LOG_PREFIX, "已下载:", finalPath, `(${total} bytes)`);
     return `[download_file] 已保存：${finalPath}（${sizeText}）`;
   } catch (err) {
+    if (err instanceof UpstreamRedirectBlockedError) {
+      return "[错误] 该地址跳转到了已切断的上游站点（GitHub / Gitee / 官方站），客户端不再访问。";
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return "[错误] 下载失败: " + msg;
   } finally {

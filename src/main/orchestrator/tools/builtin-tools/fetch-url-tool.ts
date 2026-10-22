@@ -11,6 +11,10 @@
 import TurndownService from "turndown";
 import { BRAND } from "../../../../shared/brand";
 import { isUpstreamUrl } from "../../../../shared/upstream-hosts";
+import {
+  UpstreamRedirectBlockedError,
+  fetchWithoutUpstreamRedirects,
+} from "../../../egress/safe-fetch";
 import type { ToolDefinition } from "../registry/tool-registry";
 import type { ToolContext } from "../registry/tool-context";
 import { TtlResultCache } from "./ttl-result-cache";
@@ -123,13 +127,12 @@ async function executeFetchUrl(args: Record<string, unknown>, ctx?: ToolContext)
   // 组合父 signal 和超时 signal
   const combinedSignal = ctx?.signal ? AbortSignal.any([ctx.signal, ac.signal]) : ac.signal;
   try {
-    const resp = await fetch(url, {
+    const resp = await fetchWithoutUpstreamRedirects(url, {
       signal: combinedSignal,
       headers: {
         "User-Agent": `Mozilla/5.0 (${BRAND.productName}) Chrome/120 Safari/537.36`,
         Accept: "text/html,text/markdown,text/plain,*/*;q=0.8",
       },
-      redirect: "follow",
     });
     if (!resp.ok) {
       return "[错误] HTTP " + resp.status + " " + resp.statusText;
@@ -148,6 +151,9 @@ async function executeFetchUrl(args: Record<string, unknown>, ctx?: ToolContext)
     fetchCache.set(cacheKey, result);
     return result;
   } catch (err) {
+    if (err instanceof UpstreamRedirectBlockedError) {
+      return "[错误] 该地址跳转到了已切断的上游站点（GitHub / Gitee / 官方站），客户端不再访问。";
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return "[错误] fetch 失败: " + msg;
   } finally {

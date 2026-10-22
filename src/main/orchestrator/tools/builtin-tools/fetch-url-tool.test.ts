@@ -31,6 +31,19 @@ function makeResp(opts: {
   } as unknown as Response;
 }
 
+/** 构造 3xx + Location 的桩（逐跳闸门只用到 status / headers / body.cancel）。 */
+function makeRedirect(location: string): Response {
+  return {
+    ok: false,
+    status: 302,
+    statusText: "Found",
+    headers: {
+      get: (name: string) => (name.toLowerCase() === "location" ? location : null),
+    },
+    body: { cancel: async () => undefined },
+  } as unknown as Response;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -78,6 +91,30 @@ describe("上游域名闸门", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(out).toContain("正常站点正文");
+  });
+
+  it("非上游短链 302 到上游：只请求短链一次，不跟到上游", async () => {
+    const fetchMock = vi.fn(async () => makeRedirect("https://github.com/foo/bar"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await fetchUrlTool.execute({ url: "https://short.example/x" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(out).toContain("跳转到了已切断的上游站点");
+    expect(out).not.toContain("HTTP 302");
+  });
+
+  it("正对照：非上游重定向照常跟到最终页面", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(makeRedirect("https://example.com/final"))
+      .mockResolvedValueOnce(makeResp({ contentType: "text/plain", body: "重定向后的正文" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await fetchUrlTool.execute({ url: "https://short.example/x" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(out).toContain("重定向后的正文");
   });
 });
 
