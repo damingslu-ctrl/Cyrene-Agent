@@ -3,8 +3,8 @@ import { CONSOLE_PREFIX } from "../shared/brand";
 import { PixelPetRenderer } from "./pet/renderer";
 import { ClickThroughController } from "./pet/click-through";
 
-const canvas = document.getElementById("live2d-canvas") as HTMLCanvasElement;
-if (!canvas) throw new Error("Canvas #live2d-canvas not found");
+const canvas = document.getElementById("pet-canvas") as HTMLCanvasElement;
+if (!canvas) throw new Error("Canvas #pet-canvas not found");
 
 if (!window.cyrene) {
   (window as unknown as { cyrene: unknown }).cyrene = {
