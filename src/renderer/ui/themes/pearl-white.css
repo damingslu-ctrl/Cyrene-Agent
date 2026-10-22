@@ -1240,12 +1240,12 @@
 /* ===== Markdown render variables (light theme overrides) ===== */
 [data-ui-theme="pearl-white"] {
   --md-code-bg: #f8f8f9;
-  --md-code-border:       var(--rb-pink-200);
+  --md-code-border:       var(--rb-border-soft);
   --md-inline-code-bg: #f3f4f4;
   --md-inline-code-text: #2b2f3a;
   --md-quote-border:      var(--rb-pink-400);
   --md-quote-bg: #f7fafe;
-  --md-table-border:      var(--rb-pink-200);
+  --md-table-border:      var(--rb-border-soft);
   --md-link-color:        var(--rb-pink-600);
   --md-link-hover:        var(--rb-pink-700);
   --md-copy-text:         var(--rb-text-muted);
@@ -1256,14 +1256,14 @@
   /* 渲染层统一反馈 Token（pearl-white 覆盖：珍珠白表面、微粉边框） */
   --rb-feedback-radius: 18px;
   --rb-feedback-surface: #2b2f3a;
-  --rb-feedback-fg: var(--rb-text-strong);
-  --rb-feedback-muted: var(--rb-text-muted);
+  --rb-feedback-fg: #f7f4ec;
+  --rb-feedback-muted: #868a96;
   --rb-feedback-border: rgba(138, 180, 255, 0.28);
   --rb-feedback-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
   --rb-feedback-details-bg: rgba(232, 230, 223, 0.06);
   --rb-feedback-danger: #f27d92;
   --rb-feedback-success: #7fd6a2;
   --rb-feedback-warning: #f0c4b4;
-  --rb-feedback-info: var(--rb-pink-500);
+  --rb-feedback-info: #8ab4ff;
   --rb-feedback-motion: 180ms;
 }

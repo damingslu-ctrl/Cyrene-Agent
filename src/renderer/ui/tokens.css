@@ -66,13 +66,13 @@
   --rb-border-default: var(--rb-border-soft);
   --rb-border-subtle: var(--rb-border-faint);
   --rb-border-elevated: var(--rb-border-strong);
-  --rb-border-focus: var(--rb-pink-400);
+  --rb-border-focus: #5b8def;
   --rb-accent: var(--rb-pink-500);
   --rb-accent-hover: var(--rb-pink-600);
   --rb-danger: #dd6a7f;
   --rb-success: #4fb477;
   --rb-warning: #d97757;
-  --rb-info: var(--rb-cyan-400);
+  --rb-info: #5b8def;
 
   /* ===== Gradient ===== */
   --rb-grad-pink: linear-gradient(135deg, #5b8def 0%, #4a7fe0 100%);
@@ -138,10 +138,10 @@
   --rb-shadow-card: 0 4px 16px rgba(43, 47, 58, 0.1), 0 1px 2px rgba(43, 47, 58, 0.06);
   --rb-shadow-elevated: 0 12px 40px rgba(43, 47, 58, 0.14), 0 0 0 1px rgba(91, 141, 239, 0.1);
   --rb-shadow-pink: 0 8px 32px rgba(91, 141, 239, 0.22);
-  --rb-shadow-workspace: var(--rb-shadow-card);
-  --rb-shadow-bubble-neutral: var(--rb-shadow-elevated);
-  --rb-shadow-bubble-accent: var(--rb-shadow-pink);
-  --rb-shadow-control-hover: var(--rb-shadow-elevated);
+  --rb-shadow-workspace: inset 0 2px 8px rgba(43, 47, 58, 0.04), inset 0 0 2px rgba(43, 47, 58, 0.03);
+  --rb-shadow-bubble-neutral: 2px 2px 3px rgba(43, 47, 58, 0.06), 3px 5px 16px rgba(43, 47, 58, 0.06);
+  --rb-shadow-bubble-accent: 2px 2px 4px rgba(91, 141, 239, 0.12), 3px 7px 16px rgba(91, 141, 239, 0.16);
+  --rb-shadow-control-hover: 2px 2px 5px rgba(43, 47, 58, 0.08), 3px 8px 18px rgba(43, 47, 58, 0.06);
   --rb-shadow-control-focus: 0 0 0 3px color-mix(in srgb, var(--rb-accent) 20%, transparent), var(--rb-shadow-elevated);
 
   /* Task-card semantic tokens; theme files resolve these against their own palette. */

@@ -35,6 +35,14 @@ const TARGETS = [
 const CHECK = process.argv.includes("--check");
 const COLOR_LITERAL = /#[0-9a-fA-F]{3,8}\b|rgba?\(/;
 
+/**
+ * 纯间接层：`var(--x)` 或 `var(--x, <fallback>)`。
+ *
+ * 只认**整串就是** var() 的形态。字体栈（`600 80px/1.10 var(--rb-font-sans)`）与
+ * `color-mix()` 都不是「一个令牌的别名」，它们是复合值，不该被拍平成一个色。
+ */
+const PURE_VAR = /^var\(\s*(--[a-z0-9-]+)\s*(?:,\s*([\s\S]*?)\s*)?\)$/;
+
 async function loadDerivation() {
   // esbuild 是 vite 的依赖，能在 Node 里直接把那个 TS 模块打成 ESM 再 import；
   // 产物落 node_modules/.cache（在 D: 上，且已被 gitignore），不写系统 TEMP。
@@ -77,12 +85,29 @@ const DECL = /^(\s*)(--(?:rb|md)-[a-z0-9-]+)(\s*):\s*([^;]*);([\s\S]*)$/;
  * `@import` 行不以 `{` 结尾，天然不是开启行；`@media` / `@keyframes` 这类 at-rule 开启行
  * 不分类、沿用外层档（四份文件里两者命中均为 0 条）。分类不到的选择器里出现**在派生表里的**声明就抛错 ——
  * 跟下面的 missing 卫兵同一套哲学：宁可红着退出，不许默默按某一档写。
+ *
+ * **主题级 = 选择器整串相等**（R-C15-2）。这不是抄派生锁，是它的因果：派生锁按层叠算「活值」，
+ * 只认整串相等的主题级选择器；生成器若按「包含主题前缀」判档，就会拿表里的值去拍平 scoped 覆盖，
+ * 于是**屏幕上是 A、审计认的是 B**，正是这把锁要抓的东西。
+ * 实测反例只有一处：`charcoal-pink.css:130` 的 `[data-ui-theme="charcoal-pink"] .cy-command-terminal`
+ * 故意把 `--rb-surface-elevated` 压平成 `var(--rb-surface-page)`（终端面板不要浮起面）。
+ * 拍平它会把终端背景从 `#101420` 改成 `#1c202b`——那是改产品，不是改派生物。
+ * 所以 scoped 块**一个字都不动**：表管的是「主题级声明」，局部工艺归局部工艺。
  */
 const BLOCK_SCHEMES = [
-  { re: /\[\s*data-ui-theme\s*=\s*["']?pearl-white["']?\s*\]/, scheme: "light" },
-  { re: /\[\s*data-ui-theme\s*=\s*["']?charcoal-pink["']?\s*\]/, scheme: "dark" },
-  { re: /(^|[\s,])::?root(?![\w-])/, scheme: "dark" }, // 默认段跟 charcoal 同档：见上面注释的层叠推导
+  { re: /^\[\s*data-ui-theme\s*=\s*["']?pearl-white["']?\s*\]$/, scheme: "light" },
+  { re: /^\[\s*data-ui-theme\s*=\s*["']?charcoal-pink["']?\s*\]$/, scheme: "dark" },
+  { re: /^:root$/, scheme: "dark" }, // 默认段跟 charcoal 同档：见上面注释的层叠推导
 ];
+
+/**
+ * 带主题前缀、但整串**不是**主题级选择器 → scoped 局部覆盖，不归表管。
+ *
+ * `data-ui-theme-pending` 那种**没有等号**的（`html[data-ui-theme-pending] .sticker-shell`）
+ * 不算 scoped：它是「还没定档」的过渡态，不属于任何一档，所以它若开始住在表令牌，
+ * 按下面「分类不到就抛错」处理，不许默默按某一档写。
+ */
+const SCOPED = /data-ui-theme\s*=|:root/;
 
 /** 块注释的两个界定符拼在这里，免得注释正文里出现字面量把它们提前闭合/误导读者。 */
 const OPEN = "/*";
@@ -90,11 +115,21 @@ const CLOSE = "*/";
 const BRACE = "{";
 const TRAILING_WS = /\s+$/; // \s 含 \r：CRLF 文件的行尾空白一次去干净
 
-/** @returns "light" | "dark" | "inherit"（at-rule，沿用外层档） | null（未分类，命中即抛） */
-function classifyBlock(selector) {
-  if (selector.startsWith("@")) return "inherit";
-  for (const { re, scheme } of BLOCK_SCHEMES) if (re.test(selector)) return scheme;
-  return null;
+/**
+ * @param selector 块开启行 `{` 之前的文本
+ * @param uniformScheme 一档一文件时传该文件的档；theme.css 这类按选择器分档的传 undefined
+ * @returns {{ kind: "theme" | "inherit" | "scoped" | "other", scheme: string | null }}
+ *   theme   = 主题级声明，归表管；scheme 是它该用的那一档
+ *   inherit = at-rule（@media/@keyframes），沿用外层档
+ *   scoped  = 带主题前缀的局部覆盖，不归表管，一个字都不动
+ *   other   = 分类不到的选择器；若它住了表里的令牌，rewrite() 会抛错
+ */
+function classifyBlock(selector, uniformScheme) {
+  if (selector.startsWith("@")) return { kind: "inherit", scheme: null };
+  const hit = BLOCK_SCHEMES.find(({ re }) => re.test(selector));
+  if (hit) return { kind: "theme", scheme: uniformScheme ?? hit.scheme };
+  if (SCOPED.test(selector)) return { kind: "scoped", scheme: null };
+  return { kind: "other", scheme: null };
 }
 
 /**
@@ -133,12 +168,16 @@ function withoutComments(line, inComment) {
  * 两个、都是单行选择器，所以今天不受影响；而 theme.css 里最后一段判不出档的开启行
  * （如 :24 的 `html[data-ui-theme-pending] .sticker-shell`）一旦开始住在表令牌，走的是上面的抛错，
  * 不是静默换档 —— 要支持那种写法就把上一行的累积补在这里，别补默认档。
+ *
+ * `uniformScheme` 传了就走「一档一文件」：主题级块一律用那一档（tokens.css 的 `:root`
+ * 是浅色默认层，不能按 BLOCK_SCHEMES 里 `:root→dark` 判）；传 undefined 就按选择器分档。
  */
-function schemesBySelector(source) {
+function resolveBlocks(source, uniformScheme) {
   const lines = source.split("\n");
   const schemes = new Array(lines.length);
   let inComment = false;
   let scheme = null;
+  let kind = null; // 当前块归不归表管：theme / inherit / scoped / other
   let block = { selector: null, line: 0 }; // 第一个开启行之前：顶层，档位为 null，命中派生令牌即抛
   for (let i = 0; i < lines.length; i++) {
     const scanned = withoutComments(lines[i], inComment);
@@ -146,19 +185,15 @@ function schemesBySelector(source) {
     const text = scanned.code.replace(TRAILING_WS, "");
     if (text.endsWith(BRACE)) {
       const selector = text.slice(0, -1).trim();
-      const kind = classifyBlock(selector);
+      const classified = classifyBlock(selector, uniformScheme);
       block = { selector, line: i + 1 };
-      if (kind !== "inherit") scheme = kind;
+      kind = classified.kind;
+      // at-rule 沿用外层档，其余按判档结果（scoped/other 的 scheme 是 null，交给 rewrite 决定跳过还是抛错）
+      if (kind !== "inherit") scheme = classified.scheme;
     }
-    schemes[i] = { scheme, block };
+    schemes[i] = { scheme, kind, block };
   }
   return schemes;
-}
-
-/** 一档一文件的三份：每行都用文件那一档，与改动前逐字同行为。 */
-function uniformSchemes(source, scheme) {
-  const block = { selector: null, line: 0 };
-  return source.split("\n").map(() => ({ scheme, block }));
 }
 
 /**
@@ -173,6 +208,7 @@ function rewrite(source, maps, schemes, names, file) {
   const seen = new Set();
   const lines = source.split("\n");
   const blocks = new Map(); // 开启行号 -> 该块统计，只为把日志写清楚，不参与判档
+  const details = []; // 逐条改动明细（行号/令牌/旧值/新值），只为把日志写清楚，不参与判档
   let rewritten = 0;
   const statOf = (block, scheme) => {
     let stat = blocks.get(block.line);
@@ -188,14 +224,24 @@ function rewrite(source, maps, schemes, names, file) {
     const [, indent, name, colon, value, tail] = m;
     if (!names.has(name)) return line; // 不在派生表：一字不动（也不必判档）
     seen.add(name);
-    const { scheme, block } = schemes[i];
-    if (!scheme) {
+    const { scheme, kind, block } = schemes[i];
+    if (kind === "scoped") {
+      // scoped 局部覆盖：不归表管，一个字都不动（R-C15-2，见 BLOCK_SCHEMES 上方注释）
+      return line;
+    }
+    if (kind === "other" || kind === null) {
       throw new Error(
         `${file}:${i + 1} 令牌 ${name} 的档位判不出来：它住在` +
           (block.selector === null
             ? "任何块之外（第一个块开启行之前）"
             : `未分类的选择器块 ${block.selector} 里（开启行 :${block.line}）`) +
           `。要新增一档请写进 BLOCK_SCHEMES 显式分类，不许默默套用某一档。`,
+      );
+    }
+    if (!scheme) {
+      throw new Error(
+        `${file}:${i + 1} 令牌 ${name} 所在的块没有档位（at-rule 不在任何主题块里）：` +
+          `${block.selector}（开启行 :${block.line}）。`,
       );
     }
     const map = maps[scheme];
@@ -206,10 +252,25 @@ function rewrite(source, maps, schemes, names, file) {
     }
     const stat = statOf(block, scheme);
     stat.decls += 1;
-    if (!COLOR_LITERAL.test(value)) return line; // var()/color-mix() 的间接层是故意的，不拍平
+    if (!COLOR_LITERAL.test(value)) {
+      // 间接层：只有「它指向的令牌与本令牌在这一档派生到同一个值」时才合法——
+      // 那才是角色别名（`--md-copy-border: var(--rb-border-soft)`），拍平会丢掉
+      // 「改一处跟三处」。指向异值就是一句谎：CSS 说这行是 A 的别名，表说它是 B，
+      // 屏幕上活的是 A、审计认的是 B —— 那正是派生锁要抓的东西，所以拍平成表里的值。
+      const indirect = PURE_VAR.exec(value.trim());
+      if (!indirect) return line; // color-mix() / 字体栈：复合值，不在射程内
+      const target = map[indirect[1]];
+      if (target === undefined) return line; // 引用的令牌不在这一档的表里（跨档或非色）：不动
+      if (target === map[name]) return line; // 同值：合法的角色别名，保持间接层
+      rewritten += 1;
+      stat.rewritten += 1;
+      details.push({ line: i + 1, name, from: value.trim(), to: map[name], kind: "间接层指向异值" });
+      return `${indent}${name}${colon}: ${map[name]};${tail}`;
+    }
     if (value.trim() === map[name]) return line;
     rewritten += 1;
     stat.rewritten += 1;
+    details.push({ line: i + 1, name, from: value.trim(), to: map[name], kind: "字面量" });
     return `${indent}${name}${colon}: ${map[name]};${tail}`;
   });
   // 常驻警报：派生表里的令牌声明**不许跨行折行**。按行回写是这套设计的前提——
@@ -219,7 +280,7 @@ function rewrite(source, maps, schemes, names, file) {
   if (missing.length) {
     throw new Error(`${file}: 这些令牌在该文件里出现却没被回写（值形态异常）：${missing.join(", ")}`);
   }
-  return { text: out.join("\n"), rewritten, blocks: [...blocks.values()] };
+  return { text: out.join("\n"), rewritten, blocks: [...blocks.values()], details };
 }
 
 const { TOKENS_BY_SCHEME } = await loadDerivation();
@@ -233,21 +294,24 @@ for (const target of TARGETS) {
     ? [...new Set(BLOCK_SCHEMES.map(({ scheme }) => scheme))]
     : [target.scheme];
   const names = new Set(inScope.flatMap((scheme) => Object.keys(TOKENS_BY_SCHEME[scheme])));
-  const schemes = target.bySelector
-    ? schemesBySelector(before)
-    : uniformSchemes(before, target.scheme);
-  const { text, rewritten, blocks } = rewrite(before, TOKENS_BY_SCHEME, schemes, names, file);
+  const schemes = resolveBlocks(before, target.bySelector ? undefined : target.scheme);
+  const { text, rewritten, blocks, details } = rewrite(before, TOKENS_BY_SCHEME, schemes, names, file);
   const scope = target.bySelector
     ? `按选择器分档 ${blocks.map((b) => `:${b.line} ${b.selector}→${b.scheme} 改 ${b.rewritten}/${b.decls}`).join(" | ")}`
-    : `scheme=${target.scheme}`;
+    : `scheme=${target.scheme}${blocks.length ? ` ${blocks.map((b) => `:${b.line} ${b.selector} 改 ${b.rewritten}/${b.decls}`).join(" | ")}` : ""}`;
+  const detailText = details
+    .map((d) => `    :${d.line} ${d.name} [${d.kind}] ${d.from} → ${d.to}`)
+    .join("\n");
   if (CHECK) {
     if (rewritten) {
       failed = true;
       console.error(`漂移：${file} 有 ${rewritten} 条值不等于派生结果（${scope}；跑 npm run palette:apply）`);
+      if (detailText) console.error(detailText);
     }
     continue;
   }
   if (rewritten) writeFileSync(path, text, "utf8");
   console.log(`${file}: 回写 ${rewritten} 条（${scope}）`);
+  if (detailText) console.log(detailText);
 }
 process.exit(failed ? 1 : 0);
