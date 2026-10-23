@@ -6,7 +6,7 @@
  * 静态锁（upstream-off.test.ts 的 A6）只负责「看门狗没有被摘掉」。
  */
 import { describe, expect, it } from "vitest";
-import { classifyRequest, installEgressWatchdog } from "./egress-watchdog";
+import { bindSessionCreated, classifyRequest, installEgressWatchdog } from "./egress-watchdog";
 
 type WatchdogTarget = NonNullable<Parameters<typeof installEgressWatchdog>[0]>;
 type Listener = (details: { url: string; method: string; resourceType: string }) => unknown;
@@ -117,6 +117,39 @@ describe("出口尺的登记面", () => {
     watchdog.attach(f.session);
     expect(f.registered.length).toBe(before);
     expect(watchdog.sessionCount()).toBe(1);
+  });
+
+  it("session-created 绑定：新 partition 自动进射程，解绑后不再接", () => {
+    const first = fakeSession();
+    const later = fakeSession();
+    const watchdog = installEgressWatchdog(first.session);
+    type CreatedListener = (created: WatchdogTarget) => void;
+    let listener: CreatedListener | null = null;
+    const emitter = {
+      on: (event: string, fn: CreatedListener) => {
+        expect(event).toBe("session-created");
+        listener = fn;
+      },
+      removeListener: (event: string, fn: CreatedListener) => {
+        expect(event).toBe("session-created");
+        if (listener === fn) listener = null;
+      },
+    };
+
+    const unbind = bindSessionCreated(emitter, watchdog);
+    const bound = listener as CreatedListener | null;
+    if (!bound) throw new Error("没有登记 session-created —— 新 partition 会被漏掉");
+    bound(later.session);
+    expect(watchdog.sessionCount()).toBe(2);
+    later.handlers.get("onSendHeaders")?.({
+      url: "https://example.com/late.css",
+      method: "GET",
+      resourceType: "Stylesheet",
+    });
+    expect(watchdog.entries().map((entry) => entry.url)).toEqual(["https://example.com/late.css"]);
+
+    unbind();
+    expect(listener).toBeNull();
   });
 
   it("dispose 会注销每一个 attach 过的 session", () => {

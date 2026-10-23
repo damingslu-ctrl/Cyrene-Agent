@@ -138,10 +138,12 @@ const RULES: Rule[] = [
   {
     clause: "A6 看门狗在场",
     // 反向判据：这条 pattern 命中是**要求**，不是禁止。
+    // 必须点名 `Everywhere`：旧式 `/installEgressWatchdog(?:Everywhere)?\(/`
+    // 会把退回「只挂 defaultSession」的回归读成绿（B-2 又是原样）。
     // 只认「调用形状」（名字后面跟括号），不认裸标识：本文件的 import 与
     // `ReturnType<typeof ...>` 类型标注里也有这个名字，裸标识锁会把「装配被删」读成绿。
-    pattern: /installEgressWatchdog(?:Everywhere)?\s*\(/,
-    positiveControls: ["installEgressWatchdog(", "installEgressWatchdogEverywhere("],
+    pattern: /installEgressWatchdogEverywhere\s*\(/,
+    positiveControls: ["installEgressWatchdogEverywhere("],
     exceptions: [],
     required: true,
     requiredIn: ["src/main/index.ts"],

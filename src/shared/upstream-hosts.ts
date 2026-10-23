@@ -16,7 +16,9 @@ export const UPSTREAM_HOSTS = [
 
 /** 主机名是否命中上游域名（整域或子域；大小写不敏感）。 */
 export function isUpstreamHost(hostname: string): boolean {
-  const host = hostname.toLowerCase();
+  // 绝对域名可以带尾点（`github.com.` 与 `github.com` 在 DNS 上等价），
+  // URL 解析不会替我们去掉；不归一化的话 `https://github.com./x` 会整条绕过闸门。
+  const host = hostname.toLowerCase().replace(/\.+$/, "");
   return (UPSTREAM_HOSTS as readonly string[]).some(
     (banned) => host === banned || host.endsWith(`.${banned}`),
   );

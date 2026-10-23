@@ -17,6 +17,7 @@ import * as crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { EventEmitter } from "node:events";
+import { fetchWithoutUpstreamRedirects } from "../egress/safe-fetch";
 import type { MusicTrack } from "./types";
 
 export interface CachedTrackRecord {
@@ -191,7 +192,7 @@ export class CacheDownloader extends EventEmitter {
     const finalPath = path.join(this.cacheDir, fileName);
     console.log("[music-cache] download start:", { trackId: id, name: track.name, urlLen: playUrl.length });
     try {
-      const res = await fetch(playUrl);
+      const res = await fetchWithoutUpstreamRedirects(playUrl);
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       const expected = Number(res.headers.get("content-length")) || 0;
       await fsp.mkdir(this.cacheDir, { recursive: true });

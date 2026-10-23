@@ -9,6 +9,14 @@ function redirect(status: number, location: string): Response {
   return new Response(null, { status, headers: { location } });
 }
 
+/** 带可观测 body.cancel 的重定向响应（原生 Response(null) 没有 body）。 */
+function redirectWithBody(status: number, location: string | null): { response: Response; cancel: ReturnType<typeof vi.fn> } {
+  const cancel = vi.fn().mockResolvedValue(undefined);
+  const headers = new Headers();
+  if (location) headers.set("location", location);
+  return { response: { status, headers, body: { cancel } } as unknown as Response, cancel };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -32,6 +40,9 @@ describe("重定向逐跳过上游闸门", () => {
     "https://gitee.com/foo/bar",
     `https://${OFFICIAL_HOST}/`,
     "https://GITHUB.com/foo/bar",
+    "https://github.com./foo/bar",
+    "https://raw.githubusercontent.com./foo/bar",
+    `https://${OFFICIAL_HOST}./`,
   ])("302 到上游 %s：抛 UpstreamRedirectBlockedError，且不对该地址发请求", async (target) => {
     const fetchMock = vi
       .fn()
@@ -60,9 +71,72 @@ describe("重定向逐跳过上游闸门", () => {
     ]);
   });
 
-  it("重定向到非 http(s) 协议直接拒绝", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(redirect(302, "ftp://example.com/x")));
+  it("重定向到非 http(s) 协议直接拒绝，并取消该跳响应体", async () => {
+    const { response, cancel } = redirectWithBody(302, "ftp://example.com/x");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response));
     await expect(fetchWithoutUpstreamRedirects("https://example.com/a")).rejects.toThrow(/协议/);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("入口本身就是上游：一个请求都不发", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchWithoutUpstreamRedirects("https://github.com./x")).rejects.toBeInstanceOf(
+      UpstreamRedirectBlockedError,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("命中上游时先取消这一跳的响应体再抛", async () => {
+    const { response, cancel } = redirectWithBody(302, "https://gitee.com./x");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response));
+    await expect(fetchWithoutUpstreamRedirects("https://short.example/x")).rejects.toBeInstanceOf(
+      UpstreamRedirectBlockedError,
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("3xx 没有 Location：取消响应体后原样返回，交给调用方按非 ok 处理", async () => {
+    const { response, cancel } = redirectWithBody(302, null);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response));
+    const resp = await fetchWithoutUpstreamRedirects("https://example.com/a");
+    expect(resp.status).toBe(302);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([301, 302, 303])("%i + POST：下一跳改成 GET、丢掉 body 与实体头", async (status) => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(redirect(status, "/next"))
+      .mockResolvedValueOnce(new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await fetchWithoutUpstreamRedirects("https://example.com/post", {
+      method: "POST",
+      body: "payload",
+      headers: { "content-type": "text/plain", "content-length": "7", "x-keep": "1" },
+    });
+    const next = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(next.method).toBe("GET");
+    expect(next.body).toBeUndefined();
+    const headers = new Headers(next.headers);
+    expect(headers.get("content-type")).toBeNull();
+    expect(headers.get("content-length")).toBeNull();
+    expect(headers.get("x-keep")).toBe("1");
+  });
+
+  it.each([307, 308])("%i + POST：保留原方法与 body", async (status) => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(redirect(status, "/next"))
+      .mockResolvedValueOnce(new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await fetchWithoutUpstreamRedirects("https://example.com/post", {
+      method: "POST",
+      body: "payload",
+    });
+    const next = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(next.method).toBe("POST");
+    expect(next.body).toBe("payload");
   });
 
   it("超过跳数上限就停，不许无限跟", async () => {

@@ -122,17 +122,32 @@ export function installEgressWatchdog(
   return watchdog;
 }
 
+/** `app.on("session-created")` 的最小面：单测用假 emitter 证明事件名与解绑都对。 */
+export interface SessionCreatedEmitter {
+  on(event: "session-created", listener: (created: Session) => void): unknown;
+  removeListener(event: "session-created", listener: (created: Session) => void): unknown;
+}
+
+/** 把运行期新建的 partition 接进记账面；返回解绑函数。 */
+export function bindSessionCreated(
+  emitter: SessionCreatedEmitter,
+  watchdog: EgressWatchdog,
+): () => void {
+  const listener = (created: Session) => watchdog.attach(created);
+  emitter.on("session-created", listener);
+  return () => emitter.removeListener("session-created", listener);
+}
+
 /** defaultSession + 运行期新建的每个 partition（浏览器面板、考试页都在这一类里）。 */
 export function installEgressWatchdogEverywhere(startedAt: number = Date.now()): EgressWatchdog {
   const watchdog = installEgressWatchdog(session.defaultSession, startedAt);
-  const onCreated = (created: Session) => watchdog.attach(created);
-  app.on("session-created", onCreated);
+  const unbind = bindSessionCreated(app, watchdog);
   return {
     entries: () => watchdog.entries(),
     attach: (target: Session) => watchdog.attach(target),
     sessionCount: () => watchdog.sessionCount(),
     dispose: () => {
-      app.removeListener("session-created", onCreated);
+      unbind();
       watchdog.dispose();
     },
   };

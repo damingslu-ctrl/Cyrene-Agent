@@ -77,6 +77,21 @@ describe("stripStyleImports", () => {
     expect(out).toContain(".a { fill: red; }");
   });
 
+  it("注释与 CSS 转义拆开的 @import 也剥掉", () => {
+    const svg = [
+      '<svg xmlns="http://www.w3.org/2000/svg"><style>',
+      "@import/**/url(https://github.com/x.css);",
+      "@im\\70 ort url(https://gitee.com/x.css);",
+      ".a { fill: red; }",
+      "</style></svg>",
+    ].join("\n");
+    const out = stripStyleImports(svg);
+    expect(out).not.toMatch(/@import/i);
+    expect(out).not.toContain("github.com");
+    expect(out).not.toContain("gitee.com");
+    expect(out).toContain(".a { fill: red; }");
+  });
+
   it("不误伤 @media / @keyframes 等其余 @ 规则", () => {
     const svg = [
       "<svg xmlns=\"http://www.w3.org/2000/svg\"><style>",
@@ -97,6 +112,43 @@ describe("sanitizeSvg 的出口闭合", () => {
     expect(out).not.toMatch(/@import/i);
     expect(out).not.toContain("evil.example");
     expect(out).toContain("rect");
+  });
+
+  it("剥掉 @font-face / background / cursor 里的上游 url()，保留 # 与 data:", () => {
+    const svg = [
+      '<svg xmlns="http://www.w3.org/2000/svg"><style>',
+      '@font-face { src: url("https://github.com./f.woff2"); }',
+      ".a { background-image: url(https://raw.githubusercontent.com/a.png); cursor: url('https://gitee.com/c.cur'), auto; }",
+      ".b { fill: url(#ok); background: url(data:image/png;base64,AAAA); }",
+      "</style><rect class=\"a\"/></svg>",
+    ].join("\n");
+    const out = sanitizeSvg(svg);
+    expect(out).not.toMatch(/github\.com|raw\.githubusercontent\.com|gitee\.com/);
+    expect(out).toContain("url(#ok)");
+    expect(out).toContain("data:image/png");
+  });
+
+  it("style 属性与表现属性里的上游 url() 也清掉（# 片段保留）", () => {
+    const svg = [
+      '<svg xmlns="http://www.w3.org/2000/svg">',
+      '<rect style="fill:url(https://github.com/p.svg#g)" fill="url(https://gitee.com/p.svg#g)" width="10"/>',
+      '<rect fill="url(#ok)" width="10"/>',
+      "</svg>",
+    ].join("\n");
+    const out = sanitizeSvg(svg);
+    expect(out).not.toContain("github.com");
+    expect(out).not.toContain("gitee.com");
+    expect(out).toContain("url(#ok)");
+  });
+
+  it("非上游外链不强杀（本期只封上游站点）", () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><style>.a { background-image: url(https://example.com/a.png); }</style><rect class="a"/></svg>';
+    expect(sanitizeSvg(svg)).toContain("example.com");
+  });
+
+  it("不碰正文里的 /* */ 文本", () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>/* 不是注释 */</text></svg>';
+    expect(sanitizeSvg(svg)).toContain("/* 不是注释 */");
   });
 });
 
