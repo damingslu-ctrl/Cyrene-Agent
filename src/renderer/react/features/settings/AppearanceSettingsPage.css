@@ -301,6 +301,7 @@
 .cy-settings-music-modal__section label { color: var(--rb-text-primary); font: var(--rb-text-small-em); }
 .cy-settings-music-modal__section .ant-input,
 .cy-settings-music-modal__section .ant-input-affix-wrapper { border-color: var(--rb-border-default); background: var(--rb-surface-elevated); }
+.cy-settings-music-modal__developer { justify-self: start; height: auto; padding: 0; font: var(--rb-text-small); }
 .cy-settings-music-modal__section textarea { resize: vertical; }
 .cy-settings-music-modal__actions { display: flex; justify-content: flex-end; }
 .cy-settings-music-modal__connection { display: flex; align-items: center; gap: 10px; min-height: 36px; color: var(--rb-text-primary); font: var(--rb-text-small); }

@@ -23,11 +23,15 @@ function musicApi(): MusicSettingsApi | undefined {
 }
 
 type BusyAction = "" | "save" | "login" | "cancel" | "logout" | "player";
+type ConfigState = "unknown" | "missing" | "present";
+
+const NETEASE_DEVELOPER_URL = "https://music.163.com/st/developer";
 
 export function MusicSettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
   const [appId, setAppId] = useState("");
   const [privateKey, setPrivateKey] = useState("");
+  const [configState, setConfigState] = useState<ConfigState>("unknown");
   const [status, setStatus] = useState<MusicStatusSnapshot | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [loading, setLoading] = useState(false);
@@ -79,6 +83,7 @@ export function MusicSettingsModal({ open, onClose }: { open: boolean; onClose: 
     setFeedback(null);
     setQrDataUrl("");
     setPrivateKey("");
+    setConfigState("unknown");
     const api = musicApi();
     if (!api) {
       setLoading(false);
@@ -88,7 +93,12 @@ export function MusicSettingsModal({ open, onClose }: { open: boolean; onClose: 
     void Promise.allSettled([api.getOpenapiConfig(), api.getStatus()]).then(([configResult, statusResult]) => {
       if (!active.current) return;
       if (configResult.status === "fulfilled" && configResult.value.ok) {
-        setAppId(configResult.value.data?.appId ?? "");
+        const config = configResult.value.data;
+        setAppId(config?.appId ?? "");
+        setConfigState(config?.appId ? "present" : "missing");
+        if (!config?.appId) {
+          setFeedback({ type: "info", text: t("settingsPage.tools.neteaseModal.credentialsMissing") });
+        }
       } else {
         setFeedback({ type: "error", text: t("settingsPage.tools.neteaseModal.loadFailed") });
       }
@@ -129,6 +139,7 @@ export function MusicSettingsModal({ open, onClose }: { open: boolean; onClose: 
       const result = await api.saveOpenapiConfig({ appId: appId.trim(), privateKey: privateKey.trim() });
       if (!result.ok) throw new Error(result.errorCode);
       setPrivateKey("");
+      setConfigState("present");
       setFeedback({ type: "success", text: t("settingsPage.tools.neteaseModal.saved") });
       await refreshStatus();
     } catch {
@@ -141,6 +152,10 @@ export function MusicSettingsModal({ open, onClose }: { open: boolean; onClose: 
   async function beginLogin() {
     const api = musicApi();
     if (!api) return;
+    if (configState === "missing") {
+      setFeedback({ type: "error", text: t("settingsPage.tools.neteaseModal.credentialsMissing") });
+      return;
+    }
     setBusy("login");
     setFeedback({ type: "info", text: t("settingsPage.tools.neteaseModal.creatingQr") });
     try {
@@ -160,8 +175,16 @@ export function MusicSettingsModal({ open, onClose }: { open: boolean; onClose: 
           startPolling(result.data.pollIntervalMs);
         }
       }
-    } catch {
-      if (active.current) setFeedback({ type: "error", text: t("settingsPage.tools.neteaseModal.loginFailed") });
+    } catch (cause) {
+      if (active.current) {
+        const code = cause instanceof Error ? cause.message : "";
+        setFeedback({
+          type: "error",
+          text: t(code === "E_BACKEND_NOT_READY"
+            ? "settingsPage.tools.neteaseModal.credentialsInvalid"
+            : "settingsPage.tools.neteaseModal.loginFailed"),
+        });
+      }
     } finally {
       setBusy("");
     }
@@ -182,6 +205,15 @@ export function MusicSettingsModal({ open, onClose }: { open: boolean; onClose: 
       setFeedback({ type: "error", text: t("settingsPage.tools.neteaseModal.actionFailed") });
     } finally {
       setBusy("");
+    }
+  }
+
+  async function openDeveloperPlatform() {
+    try {
+      const result = await window.system?.openExternal(NETEASE_DEVELOPER_URL);
+      if (!result?.ok) setFeedback({ type: "error", text: t("settingsPage.tools.neteaseModal.openPlatformFailed") });
+    } catch {
+      setFeedback({ type: "error", text: t("settingsPage.tools.neteaseModal.openPlatformFailed") });
     }
   }
 
@@ -219,6 +251,7 @@ export function MusicSettingsModal({ open, onClose }: { open: boolean; onClose: 
       <section className="cy-settings-music-modal__section">
         <h3>{t("settingsPage.tools.neteaseModal.openapiTitle")}</h3>
         <p>{t("settingsPage.tools.neteaseModal.openapiHint")}</p>
+        <Button type="link" size="small" className="cy-settings-music-modal__developer" onClick={() => void openDeveloperPlatform()}>{t("settingsPage.tools.neteaseModal.getCredentials")}</Button>
         <label htmlFor="cy-music-app-id">{t("settingsPage.tools.neteaseModal.appId")}</label>
         <SettingsInput id="cy-music-app-id" value={appId} onChange={(event) => setAppId(event.target.value)} autoComplete="off" />
         <label htmlFor="cy-music-private-key">{t("settingsPage.tools.neteaseModal.privateKey")}</label>

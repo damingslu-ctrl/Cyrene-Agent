@@ -17,6 +17,7 @@ export interface MusicStatusSnapshot {
 export type NeteaseViewState =
   | "backend_starting"
   | "backend_error"
+  | "backend_unconfigured"
   | "signed_out"
   | "creating_qr"
   | "waiting_scan"
@@ -28,7 +29,10 @@ export type NeteaseViewState =
 
 export function deriveNeteaseViewState(snapshot: MusicStatusSnapshot): NeteaseViewState {
   if (snapshot.backend === "starting") return "backend_starting";
-  if (snapshot.backend === "failed" || snapshot.backend === "incompatible") return "backend_error";
+  // "incompatible" isn't an outage: no OpenAPI credentials were loaded, so the
+  // user needs to configure them before sign-in can even start.
+  if (snapshot.backend === "incompatible") return "backend_unconfigured";
+  if (snapshot.backend === "failed") return "backend_error";
   // account 还没初始化完成（restoreSession 异步在进行）→ 显示"正在读取状态"
   if (snapshot.account === "unknown") return "backend_starting";
   if (

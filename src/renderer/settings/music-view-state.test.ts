@@ -38,12 +38,12 @@ describe("deriveNeteaseViewState", () => {
     ).toBe("backend_error");
   });
 
-  it("(incompatible, _, _) -> backend_error", () => {
+  it("(incompatible, _, _) -> backend_unconfigured (missing/invalid OpenAPI credentials)", () => {
     expect(
       deriveNeteaseViewState(
         snap({ backend: "incompatible", account: "signed_out", flow: "idle" }),
       ),
-    ).toBe("backend_error");
+    ).toBe("backend_unconfigured");
   });
 
   it("(ready, signed_out, _, idle) -> signed_out", () => {
