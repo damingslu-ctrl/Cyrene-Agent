@@ -144,6 +144,7 @@ interface SettingsWindowApi {
     manualReasoning?: import("../shared/manual-reasoning").ManualReasoningConfig;
   }) => Promise<Record<string, unknown>>;
   testVision: (config: { baseUrl: string; apiKey: string; model: string }) => Promise<{ ok: boolean; latency?: number; sample?: string; error?: string }>;
+  checkAmapKey: (key?: string) => Promise<{ ok: boolean; latency?: number; sample?: string; error?: string }>;
   getTimeoutSettings: () => Promise<import("../shared/timeout-types").TimeoutSettings>;
   saveTimeoutSettings: (config: Partial<import("../shared/timeout-types").TimeoutSettings>) => Promise<import("../shared/timeout-types").TimeoutSettings>;
 }

@@ -103,6 +103,8 @@ export function ToolSettingsPanel({ musicSettingsNavigation = 0 }: { musicSettin
   const [confirmSeconds, setConfirmSeconds] = useState(5);
   const [musicCount, setMusicCount] = useState<number | null>(null);
   const [musicStatus, setMusicStatus] = useState("");
+  const [amapTesting, setAmapTesting] = useState(false);
+  const [amapKeyStatus, setAmapKeyStatus] = useState("");
 
   useEffect(() => {
     if (musicSettingsNavigation > 0) setMusicSettingsOpen(true);
@@ -207,6 +209,28 @@ export function ToolSettingsPanel({ musicSettingsNavigation = 0 }: { musicSettin
     }
   }
 
+  // 测的是输入框里当前这一串，而不是上次保存的旧 Key：改完没保存就点「测试」，
+  // 结果必须对应眼前看到的 Key。
+  async function testAmapKey() {
+    if (!window.settings?.checkAmapKey) return;
+    const key = values.amapKey.trim();
+    if (!key) { setAmapKeyStatus(t("settingsPage.tools.amapKeyRequired")); return; }
+    setAmapTesting(true);
+    setAmapKeyStatus(t("settingsPage.tools.amapKeyTesting"));
+    try {
+      const result = await window.settings.checkAmapKey(key);
+      setAmapKeyStatus(result.ok
+        ? (result.sample
+          ? t("settingsPage.tools.amapKeyTestOk", { latency: result.latency ?? 0, sample: result.sample })
+          : t("settingsPage.tools.amapKeyTestOkNoSample", { latency: result.latency ?? 0 }))
+        : t("settingsPage.tools.amapKeyTestFailed", { error: result.error ?? t("settingsPage.modelSettings.unknownError") }));
+    } catch (error) {
+      setAmapKeyStatus(t("settingsPage.tools.amapKeyTestFailed", { error: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      setAmapTesting(false);
+    }
+  }
+
   const activeSearch = values.searchEngine === "off" ? lastSearchEngine : values.searchEngine;
   // keyField=null 的档位（bing 走公开结果页、不带凭据）不渲染输入框而是一句说明：
   // 摆一个空 key 框，用户会以为还得先去申请一个密钥才能用。
@@ -225,7 +249,7 @@ export function ToolSettingsPanel({ musicSettingsNavigation = 0 }: { musicSettin
           <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.weather")}</strong><span>{t("settingsPage.tools.weatherDescription")}</span></div><SettingsSwitch ariaLabel={t("settingsPage.tools.weather")} checked={values.weatherEnabled} disabled={saving} onChange={(checked) => void setBoolean("weatherEnabled", checked)} /></div>
           <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.weatherSource")}</strong></div><SettingsSelect className="cy-settings-tools__select" ariaLabel={t("settingsPage.tools.weatherSource")} value={values.weatherSource} disabled={saving} options={[{ value: "open-meteo", label: t("settingsPage.tools.openMeteo") }, { value: "amap", label: t("settingsPage.tools.amapWeather") }]} onChange={(weatherSource) => void savePatch({ weatherSource })} /></div>
           <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.travel")}</strong><span>{t("settingsPage.tools.travelDescription")}</span></div><SettingsSwitch ariaLabel={t("settingsPage.tools.travel")} checked={values.travelEnabled} disabled={saving} onChange={(checked) => void setBoolean("travelEnabled", checked)} /></div>
-          {(values.weatherSource === "amap" || values.travelEnabled) && <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.amapKey")}</strong><span>{t("settingsPage.tools.amapKeyDescription")}</span></div><div className="cy-settings-row__control cy-settings-tools__field"><SettingsPasswordInput showLabel={t("settingsPage.asr.showSecret")} hideLabel={t("settingsPage.asr.hideSecret")} value={values.amapKey} onChange={(event) => setValues((current) => ({ ...current, amapKey: event.target.value }))} /><Button disabled={saving} onClick={() => void savePatch({ amapKey: values.amapKey })}>{t("settingsPage.tools.save")}</Button></div></div>}
+          {(values.weatherSource === "amap" || values.travelEnabled) && <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.amapKey")}</strong><span>{amapKeyStatus || t("settingsPage.tools.amapKeyDescription")}</span></div><div className="cy-settings-row__control cy-settings-tools__field"><SettingsPasswordInput showLabel={t("settingsPage.asr.showSecret")} hideLabel={t("settingsPage.asr.hideSecret")} value={values.amapKey} onChange={(event) => { setValues((current) => ({ ...current, amapKey: event.target.value })); setAmapKeyStatus(""); }} /><Button disabled={saving} onClick={() => void savePatch({ amapKey: values.amapKey })}>{t("settingsPage.tools.save")}</Button><Button loading={amapTesting} disabled={saving} onClick={() => void testAmapKey()}>{t("settingsPage.tools.amapKeyTest")}</Button></div></div>}
         </Card>
       </section>
 

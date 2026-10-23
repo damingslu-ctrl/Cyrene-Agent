@@ -4,7 +4,7 @@ import { IPC } from "../../shared/ipc-channels";
 import type { WindowManager } from "../windows/window-manager";
 import { setGetCurrentAppIconPath } from "../windows/window-state";
 import { updateLocaleContext } from "../locale-context";
-import { validateSearchApiKey } from "../orchestrator/search-backend-filter";
+import { validateApiKey } from "../../shared/api-key";
 import { addMcpServer, listMcpServers, removeMcpServer } from "../orchestrator/mcp-manager";
 import { getAppIconPath } from "../app-icon";
 import { syncBuiltInToolToggles } from "../orchestrator/tools/registry/tool-registration";
@@ -78,7 +78,7 @@ export async function syncVolcanoSearchMcp(settings: GeneralSettings): Promise<{
   const minimaxExists = listMcpServers().some((s) => s.id === MINIMAX_SEARCH_MCP_ID);
 
   if (minimaxEnable) {
-    const keyValidation = validateSearchApiKey(settings.searchMinimaxKey, "MiniMax API Key");
+    const keyValidation = validateApiKey(settings.searchMinimaxKey, "MiniMax API Key");
     console.log(`${CONSOLE_PREFIX} MiniMax Key 校验: length=${keyValidation.diagnostics.length} trimmed=${keyValidation.diagnostics.trimmed} nonAscii=${keyValidation.diagnostics.hasNonAscii} controlChars=${keyValidation.diagnostics.hasControlChars}`);
     if (!keyValidation.valid) {
       console.error(`${CONSOLE_PREFIX} MiniMax Key 校验失败: ${keyValidation.error}`);

@@ -375,6 +375,7 @@ export interface SettingsApi {
   testConnection?: (config: { provider: string; baseUrl: string; model: string; apiKey: string; explicitTransport?: ApiTransport; reasoning?: ReasoningPreference; manualReasoning?: import("../../../shared/manual-reasoning").ManualReasoningConfig }) => Promise<{ ok: boolean; latency: number; sample?: string; error?: string }>;
   previewReasoning?: (config: { provider: string; baseUrl: string; model: string; apiKey: string; explicitTransport?: ApiTransport; reasoning?: ReasoningPreference; manualReasoning?: import("../../../shared/manual-reasoning").ManualReasoningConfig }) => Promise<Record<string, unknown>>;
   testVision?: (config: { baseUrl: string; apiKey: string; model: string }) => Promise<{ ok: boolean; latency: number; sample?: string; error?: string }>;
+  checkAmapKey?: (key?: string) => Promise<{ ok: boolean; latency: number; sample?: string; error?: string }>;
   // main → settings：要求切到指定标签（窗口已打开时由 main 发这个事件）
   onSwitchSection?: (callback: (section: string) => void) => (() => void) | void;
   channelsGetConfig: () => Promise<any>;

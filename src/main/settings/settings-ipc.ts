@@ -36,6 +36,7 @@ import type { syncPlaywrightMcp, syncFilesystemMcp } from "../sync-mcp-builtin";
 import { broadcastChatsChanged } from "../chats/chats-ipc";
 import { normalizeMemoryMode, type MemoryMode } from "../memory/memory-mode";
 import { getEffectiveUiTheme, watchSystemUiTheme } from "../system-ui-theme";
+import { checkAmapKey } from "../amap/key-check";
 
 export interface SettingsIpcDependencies {
   get windowManager(): WindowManager | null;
@@ -283,6 +284,16 @@ export function registerSettingsIpc(deps: SettingsIpcDependencies): void {
       }
     },
   );
+
+  /**
+   * 高德 Key 自检。探测与话术都在 ../amap/key-check，这里只做参数归一。
+   * 探测用渲染端传来的当前输入值：用户刚改完还没保存就点「测试」，测的必须是框里那一串，
+   * 而不是上一次落盘的旧 Key。没传值时回落到已保存的 Key（IPC 边界的兜底）。
+   */
+  ipc.handle(IPC.SETTINGS_CHECK_AMAP_KEY, async (_event, key?: unknown) => {
+    const candidate = typeof key === "string" ? key : getGeneralSettings().amapKey;
+    return checkAmapKey(candidate);
+  });
 
   ipc.handle(IPC.EMBEDDING_SET_MODEL, async (_event, modelKey: string) => {
     console.log(CONSOLE_PREFIX + " embedding model switch requested:", modelKey);

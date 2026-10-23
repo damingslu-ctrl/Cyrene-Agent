@@ -16,6 +16,7 @@ import { registerSearchTextTool } from "../search-text-tools";
 import { registerAstGrepTools } from "../ast-grep-tools";
 import { toolRegistry } from "./tool-registry";
 import { registerTravelTools } from "../travel-tools";
+import { registerAmapPlaceTools } from "../amap-place-tools";
 import { registerZCodeFileTools } from "../zcode-file-tools";
 import type { LspManager } from "../../../lsp/manager";
 import { registerLspTool } from "../lsp-tool";
@@ -24,6 +25,10 @@ import "../built-in-tools";
 export function syncBuiltInToolToggles(settings: GeneralSettings): void {
   toolRegistry.setEnabled("weather", settings.weatherEnabled);
   toolRegistry.setEnabled("plan_trip", settings.travelEnabled);
+  // POI/逆地理与 plan_trip 是同一条高德链路的三段，共用一个开关：
+  // 分开会出现「能查路线却搜不到地点」这种用户无法解释的中间态。
+  toolRegistry.setEnabled("poi_search", settings.travelEnabled);
+  toolRegistry.setEnabled("reverse_geocode", settings.travelEnabled);
 }
 
 export function registerAllTools(deps: { lspManager: LspManager; gmailService?: GmailService }): void {
@@ -52,6 +57,7 @@ export function registerAllTools(deps: { lspManager: LspManager; gmailService?: 
   registerMomentsTools();
 
   registerTravelTools();
+  registerAmapPlaceTools();
   registerEmailTools();
   if (deps.gmailService) registerGmailTools(deps.gmailService);
 

@@ -168,11 +168,13 @@ const RULES: Rule[] = [
     // 三把联网工具（读网页、下文件、联网搜索）必须走逐跳校验的 helper，不许退回 follow。
     // 搜索工具现在会跟着搜索引擎的重定向（实测 www.bing.com → cn.bing.com），
     // 跟跳转这件事本身就把「第一跳不是上游」的假设打穿了。
+    // 高德那一层是第四个出口：它替天气/出行/POI 四把工具发请求，退回裸 fetch 等于一次退三步。
     pattern: /fetchWithoutUpstreamRedirects\s*\(/,
     positiveControls: ["fetchWithoutUpstreamRedirects(url, {"],
     exceptions: [],
     required: true,
     requiredIn: [
+      "src/main/amap/client.ts",
       "src/main/orchestrator/tools/builtin-tools/fetch-url-tool.ts",
       "src/main/orchestrator/tools/builtin-tools/download-file-tool.ts",
       "src/main/orchestrator/tools/builtin-tools/web-search-tool.ts",

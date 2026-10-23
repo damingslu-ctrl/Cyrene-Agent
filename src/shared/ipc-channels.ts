@@ -130,6 +130,7 @@ export const IPC = {
   SETTINGS_TEST_CONNECTION: "settings:test-connection",
   SETTINGS_PREVIEW_REASONING: "settings:preview-reasoning",
   SETTINGS_TEST_VISION: "settings:test-vision",
+  SETTINGS_CHECK_AMAP_KEY: "settings:check-amap-key",
   SETTINGS_GET_GENERAL: "settings:get-general",
   SETTINGS_SAVE_GENERAL: "settings:save-general",
   SETTINGS_GET_TIMEOUT_SETTINGS: "settings:get-timeout-settings",
