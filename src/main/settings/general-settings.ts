@@ -10,6 +10,7 @@ import type {
   SegmentedOutputMode,
 } from "../../shared/preferences";
 import type { CustomStyleConfig, StyleId } from "../../shared/style-sampling";
+import type { SearchEngineId } from "../../shared/search-engines";
 import type { ToolModeOverrides } from "../orchestrator/tools/registry/tool-registry";
 import type { SkillModeOverrides } from "../skills/types";
 import type { LspServerOverride } from "../lsp/types";
@@ -134,12 +135,16 @@ export interface GeneralSettings {
   playwrightMcpEnabled: boolean;
   /** 📁 文件系统 MCP（官方 server-filesystem，允许目录为下载文件夹）是否启用。默认 false。 */
   filesystemMcpEnabled: boolean;
-  // 联网搜索：选哪个搜索源 + 对应 key
-  searchEngine: "off" | "bocha" | "tavily" | "minimax" | "anySearch";
+  // 联网搜索：选哪个搜索源 + 对应 key（档位与字段名的单一事实源在 shared/search-engines.ts）
+  searchEngine: SearchEngineId;
   searchBochaKey: string;
   searchTavilyKey: string;
   searchMinimaxKey: string;
   searchAnySearchKey: string;
+  /** 百度千帆「联网搜索」API Key（https://console.bce.baidu.com/qianfan 创建，Bearer 用） */
+  searchBaiduKey: string;
+  /** DeepSeek 搜索 API Key（https://platform.deepseek.com/api_keys） */
+  searchDeepseekKey: string;
   /** ✉️邮件发送插件是否启用 */
   emailEnabled: boolean;
   /** SMTP 主机，如 smtp.qq.com */

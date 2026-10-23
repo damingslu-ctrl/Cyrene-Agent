@@ -7,6 +7,7 @@ import {
   MINIMAX_SEARCH_TOOL_PREFIX,
   type SearchBackend,
 } from "./search-backend-filter";
+import { SEARCH_ENGINES, type SearchEngineProvider } from "../../shared/search-engines";
 
 // ── API Key 校验 ──────────────────────────
 
@@ -97,6 +98,10 @@ describe("shouldExposeSearchTool", () => {
     expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, "tavily")).toBe(true);
   });
 
+  it("exposes built-in web_search for anySearch backend", () => {
+    expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, "anySearch")).toBe(true);
+  });
+
   it("hides built-in web_search for minimax backend", () => {
     expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, "minimax")).toBe(false);
   });
@@ -125,6 +130,30 @@ describe("shouldExposeSearchTool", () => {
     expect(shouldExposeSearchTool("weather", "off")).toBe(true);
     expect(shouldExposeSearchTool("music_search", "minimax")).toBe(true);
     expect(shouldExposeSearchTool("file_create", "bocha")).toBe(true);
+  });
+
+  // 注册表驱动的穷尽覆盖：逐条硬写用例时，新增一档不会自动出现在这里，
+  // 而「忘改判定」的表现恰好是 web_search 静默消失——所以判定的覆盖面必须来自注册表。
+  it("内置 web_search 的暴露判定与注册表 builtIn 逐档一致", () => {
+    const providers = Object.keys(SEARCH_ENGINES) as SearchEngineProvider[];
+    expect(providers.length).toBeGreaterThan(0); // 空遍历会读成 PASS，先钉住有东西可测
+    for (const id of providers) {
+      expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, id), `档位 ${id}`).toBe(SEARCH_ENGINES[id].builtIn);
+    }
+    expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, "off")).toBe(false);
+  });
+
+  it("MiniMax MCP 工具只在 minimax 档暴露", () => {
+    for (const id of Object.keys(SEARCH_ENGINES) as SearchEngineProvider[]) {
+      expect(shouldExposeSearchTool("minimax-web-search-web_search", id), `档位 ${id}`).toBe(id === "minimax");
+    }
+  });
+
+  it("新增的免密钥/需密钥档都能把内置工具递给模型", () => {
+    // 这三档是本次加的；判定退回旧的 OR 列表时，这里三行全红。
+    expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, "bing")).toBe(true);
+    expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, "baidu")).toBe(true);
+    expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, "deepseek")).toBe(true);
   });
 });
 

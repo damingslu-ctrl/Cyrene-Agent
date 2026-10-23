@@ -165,7 +165,9 @@ const RULES: Rule[] = [
   {
     clause: "A8 重定向逐跳过上游闸门",
     // 入口闸门只看得见第一跳：非上游短链可以 302 到上游，`redirect: "follow"` 会直接跟过去。
-    // 两把联网工具必须走逐跳校验的 helper，不许退回 follow。
+    // 三把联网工具（读网页、下文件、联网搜索）必须走逐跳校验的 helper，不许退回 follow。
+    // 搜索工具现在会跟着搜索引擎的重定向（实测 www.bing.com → cn.bing.com），
+    // 跟跳转这件事本身就把「第一跳不是上游」的假设打穿了。
     pattern: /fetchWithoutUpstreamRedirects\s*\(/,
     positiveControls: ["fetchWithoutUpstreamRedirects(url, {"],
     exceptions: [],
@@ -173,6 +175,7 @@ const RULES: Rule[] = [
     requiredIn: [
       "src/main/orchestrator/tools/builtin-tools/fetch-url-tool.ts",
       "src/main/orchestrator/tools/builtin-tools/download-file-tool.ts",
+      "src/main/orchestrator/tools/builtin-tools/web-search-tool.ts",
     ],
   },
 ];

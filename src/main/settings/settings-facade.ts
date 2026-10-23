@@ -8,6 +8,7 @@ import {
   normalizeStyleId,
 } from "../../shared/style-sampling";
 import { normalizeUiThemeChoice } from "../../shared/ui-theme";
+import { isSearchEngineId } from "../../shared/search-engines";
 import { MAX_PARALLEL_TOOL_CALLS } from "../../shared/task-session";
 import { normalizeUiIcon } from "../../shared/ui-icon";
 import { normalizeUiLanguage } from "../../shared/ui-language";
@@ -103,6 +104,8 @@ const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   searchTavilyKey: "",
   searchMinimaxKey: "",
   searchAnySearchKey: "",
+  searchBaiduKey: "",
+  searchDeepseekKey: "",
   emailEnabled: false,
   emailSmtpHost: "",
   emailSmtpPort: 465,
@@ -282,13 +285,13 @@ export function normalizeGeneralSettings(
     travelEnabled: Boolean(input?.travelEnabled),
     playwrightMcpEnabled: Boolean(input?.playwrightMcpEnabled),
     filesystemMcpEnabled: Boolean(input?.filesystemMcpEnabled),
-    searchEngine: ["off", "bocha", "tavily", "minimax", "anySearch"].includes(String(input?.searchEngine))
-      ? (input!.searchEngine as "off" | "bocha" | "tavily" | "minimax" | "anySearch")
-      : "off",
+    searchEngine: isSearchEngineId(input?.searchEngine) ? input.searchEngine : "off",
     searchBochaKey: typeof input?.searchBochaKey === "string" ? input.searchBochaKey : "",
     searchTavilyKey: typeof input?.searchTavilyKey === "string" ? input.searchTavilyKey : "",
     searchMinimaxKey: typeof input?.searchMinimaxKey === "string" ? input.searchMinimaxKey : "",
     searchAnySearchKey: typeof input?.searchAnySearchKey === "string" ? input.searchAnySearchKey : "",
+    searchBaiduKey: typeof input?.searchBaiduKey === "string" ? input.searchBaiduKey : "",
+    searchDeepseekKey: typeof input?.searchDeepseekKey === "string" ? input.searchDeepseekKey : "",
     emailEnabled: Boolean(input?.emailEnabled),
     emailSmtpHost: typeof input?.emailSmtpHost === "string" ? input.emailSmtpHost : "",
     emailSmtpPort: clampPort(input?.emailSmtpPort, DEFAULT_GENERAL_SETTINGS.emailSmtpPort),

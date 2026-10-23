@@ -77,13 +77,21 @@ export function bootstrapConfigGetters(ctx: BootstrapConfigContext): void {
     }
   });
 
-  // 注入搜索配置获取器
-  setSearchConfig(
-    () => loadGeneralSettings().searchEngine,
-    () => loadGeneralSettings().searchBochaKey,
-    () => loadGeneralSettings().searchTavilyKey,
-    () => loadGeneralSettings().searchAnySearchKey,
-  );
+  // 注入搜索配置获取器（档位与 key 字段名的单一事实源在 shared/search-engines.ts）
+  setSearchConfig(() => {
+    const s = loadGeneralSettings();
+    return {
+      engine: s.searchEngine,
+      keys: {
+        searchBochaKey: s.searchBochaKey,
+        searchTavilyKey: s.searchTavilyKey,
+        searchMinimaxKey: s.searchMinimaxKey,
+        searchAnySearchKey: s.searchAnySearchKey,
+        searchBaiduKey: s.searchBaiduKey,
+        searchDeepseekKey: s.searchDeepseekKey,
+      },
+    };
+  });
 
   // 注入出行工具 amapKey 获取器（复用 GeneralSettings 中的 amapKey）
   setTravelConfig(() => loadGeneralSettings().amapKey, () => loadGeneralSettings().travelEnabled);

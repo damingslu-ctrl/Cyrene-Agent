@@ -4,6 +4,7 @@
  * 每轮根据当前搜索后端设置，决定暴露哪些搜索工具给模型。
  * 搜索后端互斥：同一时间只暴露一个搜索后端的工具。
  */
+import { usesBuiltinSearchTool, type SearchEngineId } from "../../shared/search-engines";
 
 // ── API Key 校验 ──────────────────────────
 
@@ -43,7 +44,8 @@ export function validateSearchApiKey(rawKey: string, label: string): KeyValidati
 export const BUILTIN_SEARCH_TOOL_ID = "web_search";
 export const MINIMAX_SEARCH_TOOL_PREFIX = "minimax-web-search-";
 
-export type SearchBackend = "off" | "bocha" | "tavily" | "minimax" | "anySearch";
+/** 搜索后端档位。联合类型本身住在 shared 注册表里，这里只做别名，不再抄第二份。 */
+export type SearchBackend = SearchEngineId;
 
 /**
  * 判断一个工具是否应该根据当前搜索后端设置被暴露。
@@ -54,7 +56,7 @@ export function shouldExposeSearchTool(
   activeBackend: SearchBackend,
 ): boolean {
   if (toolId === BUILTIN_SEARCH_TOOL_ID) {
-    return activeBackend === "bocha" || activeBackend === "tavily" || activeBackend === "anySearch";
+    return usesBuiltinSearchTool(activeBackend);
   }
   if (toolId.startsWith(MINIMAX_SEARCH_TOOL_PREFIX)) {
     return activeBackend === "minimax";
