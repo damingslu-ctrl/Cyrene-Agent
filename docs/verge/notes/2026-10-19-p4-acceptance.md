@@ -7,7 +7,7 @@
   另有 3 笔文档提交（`7cd91857` / `1c09c6be` / `bf6830a8`）；
   `ef0db71c..3469cfda` 共 **11 个提交**，其中复审射程是前 10 个，
   第 11 个 `3469cfda` 是复审后的修复。
-  `master..HEAD` 截至 `3469cfda` 为 **109** 个提交；本节落库后总数为 **110**
+  `master..HEAD` 截至 `3469cfda` 为 **109** 个提交；本节落库后总数为 **110**；10-23 发布包补记后为 **111**
   （`git rev-list --count master..HEAD` 可复验）。
   修复轮结束时 `git status --short` 为空。
 - 机器：Windows 11 / Git Bash / Node v24.18.0 / Electron 44.4.3，账号**不在** Administrators 组。
@@ -132,6 +132,16 @@ min / p50 / max 三项与台账**逐位相同**。差异只在总量那一行的
 （`cyrene-screenshot.exe`、mpv、MinGit）自己打 `file source doesn't exist` 并跳过，
 所以仓内原配置就能出包；但**发布包必须先跑 `cargo` + `prepare:mingit` + `prepare:mpv` 再 `package:win`**。
 
+**2026-10-23 已补出发布包**：先 `cargo` 重建截图辅助（2,337,688 B）、`prepare:mingit`
+（2.55.0.3）、`prepare:mpv`（20261021；原钉的 20260813 已被上游删除，`vendor/mpv-manifest.json`
+随之更新），再 `electron-builder --win nsis`。产物 `release/Mochi-Setup-1.3.3.exe` **289,699,205 B**，
+md5 `6b982707c388c9dd76b9238ca38087db`；`verify:installer --expect-version 1.3.3` 通过
+（mpv v0.41.0-1227-ge471496c5 / MinGit 2.55.0.windows.3 / 截图辅助齐全，`latest.yml` 不存在）。
+asar 字节串命中 `UpstreamRedirectBlockedError` / `fetchWithoutUpstreamRedirects` /
+`installEgressWatchdogEverywhere`，证明包内是终审后的代码。
+**本包没有重做 GUI 装机四眼**：身份与卸载结论仍以上表 10-22 那次为准，运行时差异由终验
+597 files / 5766 passed 覆盖；下次装机复验应把「exe 标题」一并复测（见 §4 末尾的时间点说明）。
+
 **第三眼读数的时间点**：该次验收跑在 Task 32 修掉窗口标题**之前**，所以 `packaged-identity3.json` 里
 的窗口标题仍是 `麻糬 · 聊天（React）`。Task 32 已把这处开发残余去掉（提交 `05f73b27`），
 并给标题加了会红的锁（`brand-consistency.test.ts`），**本记录不把它当成「已验收通过」**——
@@ -179,7 +189,8 @@ min / p50 / max 三项与台账**逐位相同**。差异只在总量那一行的
 - **`vendor/cyrene-skills/`（仓库侧构建源）保留原名**，只把**装机后**的目录改成
   `resources/mochi-skills/`（用户可见名，见提交 `f65cc73d`）。仓库纪律要求内部名不乱动，
   而装机目录是用户能在资源管理器里看见的，两者不是一回事。
-- **测试安装包缺三项随包二进制**（见 §4 末尾），不是发布产物。
+- **10-22 的测试安装包缺三项随包二进制**；10-23 的发布包已按 §4 补齐（截图辅助 / mpv 20261021 /
+  MinGit 2.55.0.3），这一条只剩历史意义。
 
 ### 5.3 已知缺陷与尺子的盲区（不影响结论，但下期要处理）
 
