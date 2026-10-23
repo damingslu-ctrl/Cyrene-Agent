@@ -109,7 +109,7 @@ export function createApplication(deps: ApplicationDependencies): Application {
 
       const message = error instanceof Error ? `${error.message}\n\n${error.stack ?? ""}` : String(error);
       try {
-        deps.dialog.showErrorBox("Cyrene 启动失败", message);
+        deps.dialog.showErrorBox("Mochi 启动失败", message);
       } catch (dialogError) {
         deps.logFatal(dialogError);
       }

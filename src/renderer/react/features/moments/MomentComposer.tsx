@@ -60,7 +60,7 @@ export function MomentComposer({ submitting, onPublish }: MomentComposerProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // 点名名单（昔涟 + 全部角色）与 @ 选择框状态
+  // 点名名单（麻糬 + 全部角色）与 @ 选择框状态
   const [mentionNames, setMentionNames] = useState<string[]>([]);
   const [picker, setPicker] = useState<MentionPickerState | null>(null);
 
@@ -70,7 +70,7 @@ export function MomentComposer({ submitting, onPublish }: MomentComposerProps) {
     });
   }, []);
 
-  // 选择框候选：过滤词为空显示全部，否则按前缀匹配；昔涟排最前
+  // 选择框候选：过滤词为空显示全部，否则按前缀匹配；麻糬排最前
   const candidates = useMemo(() => {
     if (!picker) return [];
     const query = picker.query;
@@ -245,7 +245,7 @@ export function MomentComposer({ submitting, onPublish }: MomentComposerProps) {
             candidates.map((name, index) => {
               const isCyrene = name === "cyrene";
               const display = isCyrene ? t("moments.mention.cyreneOptionLabel") : translateCharacterName(name, t);
-              // 头像池覆盖到昔涟，@ 选择框里她也带头像——和别人外观一致
+              // 头像池覆盖到麻糬，@ 选择框里她也带头像——和别人外观一致
               const avatar = isCyrene ? cyreneAvatarUrl : getCharacterAvatar(name);
               return (
                 <button

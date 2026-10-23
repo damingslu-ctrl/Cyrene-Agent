@@ -246,55 +246,55 @@ describe("moments store", () => {
   }
 
   it("角色点赞：幂等成功语义，重复提交与崩溃重跑都返回 liked", async () => {
-    const store = await freshStoreWithCharacters(["万敌", "风堇"]);
+    const store = await freshStoreWithCharacters(["奶盖", "年糕"]);
     const post = await store.createUserPost({ text: "跑步打卡" });
     if (!post.applied) throw new Error("create failed");
 
-    expect(await store.createCharacterLike("万敌", post.value.id)).toMatchObject({ applied: true, value: { liked: true } });
+    expect(await store.createCharacterLike("奶盖", post.value.id)).toMatchObject({ applied: true, value: { liked: true } });
     // 同一角色重复点赞：目标态已达成，幂等成功而非拒绝
-    expect(await store.createCharacterLike("万敌", post.value.id)).toMatchObject({ applied: true, value: { liked: true } });
+    expect(await store.createCharacterLike("奶盖", post.value.id)).toMatchObject({ applied: true, value: { liked: true } });
 
     const item = store.getFeedItem(post.value.id);
     expect(item?.likes).toHaveLength(1);
-    expect(item?.likes[0].actor).toBe("万敌");
+    expect(item?.likes[0].actor).toBe("奶盖");
 
     // 未注册角色与不存在的动态都被拒绝
     expect(await store.createCharacterLike("路人甲", post.value.id)).toMatchObject({ applied: false, reason: "invalid_input" });
-    expect(await store.createCharacterLike("万敌", "moment_missing")).toMatchObject({ applied: false, reason: "post_not_found" });
+    expect(await store.createCharacterLike("奶盖", "moment_missing")).toMatchObject({ applied: false, reason: "post_not_found" });
   });
 
   it("角色评论：内容校验与 replyTo 校验沿用既有规则", async () => {
-    const store = await freshStoreWithCharacters(["万敌"]);
+    const store = await freshStoreWithCharacters(["奶盖"]);
     const postA = await store.createUserPost({ text: "A" });
     const postB = await store.createUserPost({ text: "B" });
     if (!postA.applied || !postB.applied) throw new Error("create failed");
 
-    expect(await store.createCharacterComment("万敌", { postId: postA.value.id, content: "   " }))
+    expect(await store.createCharacterComment("奶盖", { postId: postA.value.id, content: "   " }))
       .toMatchObject({ status: "rejected", reason: "invalid_input" });
-    expect(await store.createCharacterComment("万敌", { postId: postA.value.id, content: "x".repeat(501) }))
+    expect(await store.createCharacterComment("奶盖", { postId: postA.value.id, content: "x".repeat(501) }))
       .toMatchObject({ status: "rejected", reason: "invalid_input" });
     expect(await store.createCharacterComment("路人甲", { postId: postA.value.id, content: "冒名" }))
       .toMatchObject({ status: "rejected", reason: "invalid_input" });
-    expect(await store.createCharacterComment("万敌", { postId: "moment_missing", content: "无的放矢" }))
+    expect(await store.createCharacterComment("奶盖", { postId: "moment_missing", content: "无的放矢" }))
       .toMatchObject({ status: "rejected", reason: "post_not_found" });
 
-    const commentOnB = await store.createCharacterComment("万敌", { postId: postB.value.id, content: "保持。" });
+    const commentOnB = await store.createCharacterComment("奶盖", { postId: postB.value.id, content: "保持。" });
     expect(commentOnB.status).toBe("created");
     if (commentOnB.status !== "created") return;
-    expect(commentOnB.comment.author).toBe("万敌");
+    expect(commentOnB.comment.author).toBe("奶盖");
 
     // 跨动态 replyTo 拒绝（同一个已注册角色，回错动态）
     expect(
-      await store.createCharacterComment("万敌", { postId: postA.value.id, content: "回错地方", replyTo: commentOnB.comment.id }),
+      await store.createCharacterComment("奶盖", { postId: postA.value.id, content: "回错地方", replyTo: commentOnB.comment.id }),
     ).toMatchObject({ status: "rejected", reason: "reply_to_not_found" });
   });
 
   it("角色评论 sourceTaskId 幂等：重跑返回 already_applied 与既有评论", async () => {
-    const store = await freshStoreWithCharacters(["万敌"]);
+    const store = await freshStoreWithCharacters(["奶盖"]);
     const post = await store.createUserPost({ text: "训练记录" });
     if (!post.applied) throw new Error("create failed");
 
-    const first = await store.createCharacterComment("万敌", {
+    const first = await store.createCharacterComment("奶盖", {
       postId: post.value.id,
       content: "练得不错。",
       sourceTaskId: "task_1",
@@ -302,7 +302,7 @@ describe("moments store", () => {
     expect(first.status).toBe("created");
 
     // 崩溃重跑：同一任务再次提交，不产生第二条评论
-    const retry = await store.createCharacterComment("万敌", {
+    const retry = await store.createCharacterComment("奶盖", {
       postId: post.value.id,
       content: "练得不错。（重跑输出）",
       sourceTaskId: "task_1",
@@ -313,7 +313,7 @@ describe("moments store", () => {
     expect(retry.comment.content).toBe("练得不错。");
 
     // 不同任务不受影响
-    const second = await store.createCharacterComment("万敌", {
+    const second = await store.createCharacterComment("奶盖", {
       postId: post.value.id,
       content: "另外一句",
       sourceTaskId: "task_2",
@@ -343,13 +343,13 @@ describe("moments store", () => {
   });
 
   it("角色行为开关：关闭时角色点赞评论被拒，昔涟与用户不受影响", async () => {
-    const store = await freshStoreWithCharacters(["万敌"]);
+    const store = await freshStoreWithCharacters(["奶盖"]);
     const post = await store.createUserPost({ text: "开关" });
     if (!post.applied) throw new Error("create failed");
 
     store.setCharacterBehaviorGate(() => false);
-    expect(await store.createCharacterLike("万敌", post.value.id)).toMatchObject({ applied: false, reason: "moments_disabled" });
-    expect(await store.createCharacterComment("万敌", { postId: post.value.id, content: "说不出" }))
+    expect(await store.createCharacterLike("奶盖", post.value.id)).toMatchObject({ applied: false, reason: "moments_disabled" });
+    expect(await store.createCharacterComment("奶盖", { postId: post.value.id, content: "说不出" }))
       .toMatchObject({ status: "rejected", reason: "moments_disabled" });
 
     // 昔涟与用户通道走各自门控，照常可用
@@ -358,13 +358,13 @@ describe("moments store", () => {
   });
 
   it("角色 timeline：评论带回复、点赞限量、按时间正序、评论优先不被点赞洪水冲掉", async () => {
-    const store = await freshStoreWithCharacters(["万敌"]);
+    const store = await freshStoreWithCharacters(["奶盖"]);
     const postA = await store.createUserPost({ text: "炖菜" });
     const postB = await store.createUserPost({ text: "十公里" });
     if (!postA.applied || !postB.applied) throw new Error("create failed");
 
-    // 万敌评论 A，用户回复他
-    const commentA = await store.createCharacterComment("万敌", { postId: postA.value.id, content: "火候不错。" });
+    // 奶盖评论 A，用户回复他
+    const commentA = await store.createCharacterComment("奶盖", { postId: postA.value.id, content: "火候不错。" });
     if (commentA.status !== "created") throw new Error("comment failed");
     await store.createComment(
       { postId: postA.value.id, content: "下周再战", replyTo: commentA.comment.id },
@@ -375,13 +375,13 @@ describe("moments store", () => {
     for (let index = 0; index < 8; index += 1) {
       const post = await store.createUserPost({ text: `点赞目标 ${index}` });
       if (!post.applied) throw new Error("create failed");
-      await store.createCharacterLike("万敌", post.value.id);
+      await store.createCharacterLike("奶盖", post.value.id);
     }
 
-    // 万敌评论 B
-    await store.createCharacterComment("万敌", { postId: postB.value.id, content: "保持。" });
+    // 奶盖评论 B
+    await store.createCharacterComment("奶盖", { postId: postB.value.id, content: "保持。" });
 
-    const timeline = store.getCharacterTimeline("万敌");
+    const timeline = store.getCharacterTimeline("奶盖");
     const commentEntries = timeline.entries.filter((entry) => entry.kind === "comment");
     const likeEntries = timeline.entries.filter((entry) => entry.kind === "like");
 
@@ -405,7 +405,7 @@ describe("moments store", () => {
     expect(store.getCharacterTimeline("路人甲").entries).toHaveLength(0);
 
     // 槽位限制可自定义
-    const limited = store.getCharacterTimeline("万敌", { commentLimit: 1, likeLimit: 1 });
+    const limited = store.getCharacterTimeline("奶盖", { commentLimit: 1, likeLimit: 1 });
     expect(limited.entries).toHaveLength(2);
   });
 
@@ -415,7 +415,7 @@ describe("moments store", () => {
       schemaVersion: 2,
       posts: [{ id: "moment_legacy_1", author: "user", text: "旧动态", media: [], createdAt: 1_000 }],
       comments: [
-        { id: "comment_legacy_1", postId: "moment_legacy_1", author: "万敌", content: "带任务 id 的评论", createdAt: 1_100, sourceTaskId: "task_v2" },
+        { id: "comment_legacy_1", postId: "moment_legacy_1", author: "奶盖", content: "带任务 id 的评论", createdAt: 1_100, sourceTaskId: "task_v2" },
         { id: "comment_legacy_2", postId: "moment_legacy_1", author: "user", content: "无任务 id 的旧评论", createdAt: 1_200 },
       ],
       reactions: [{ postId: "moment_legacy_1", actor: "user", type: "like", createdAt: 1_300 }],
@@ -430,10 +430,10 @@ describe("moments store", () => {
     expect(item?.likes).toHaveLength(1);
 
     // 反应任务幂等：sourceTaskId 随导入保留，同一任务重跑识别为已产出
-    store.setCharacterAuthorRegistry(new Set(["万敌"]));
+    store.setCharacterAuthorRegistry(new Set(["奶盖"]));
     const idempotent = await store.createComment(
       { postId: "moment_legacy_1", content: "带任务 id 的评论" },
-      "万敌",
+      "奶盖",
       { sourceTaskId: "task_v2" },
     );
     expect(idempotent).toMatchObject({ applied: true });

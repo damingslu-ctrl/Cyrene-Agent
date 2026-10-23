@@ -1,2 +1,3 @@
-/* UI uses the native system sans stack; JetBrains Mono is reserved for code accents. */
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap");
+/* UI 用系统字体栈；等宽字族交给 tokens.css 的 --rb-font-mono 候选列表挑本机已有的。
+   这里曾经 @import 过 Google Fonts 的 JetBrains Mono——那是默认启动就会发的一条外网请求，
+   个人化后不引外部资源，宁可退化到系统 mono（Consolas/Cascadia Mono）。 */

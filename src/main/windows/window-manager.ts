@@ -1,6 +1,6 @@
 import { app, BrowserWindow, screen, type NativeImage } from "electron";
 import { IPC } from "../../shared/ipc-channels";
-import { createPetWindow, PET_WINDOW_BASE_HEIGHT, PET_WINDOW_BASE_WIDTH, type PetWindowSettingsSlice } from "../startup/create-pet-window";
+import { createPetWindow, normalizePetZoom, PET_WINDOW_BASE_HEIGHT, PET_WINDOW_BASE_WIDTH, type PetWindowSettingsSlice } from "../startup/create-pet-window";
 import {
   createCallWindow,
   createReactChatWindowShell,
@@ -16,6 +16,9 @@ import { createMusicPlayerWindow } from "./create-music-player-window";
 import { broadcastToAllWindows } from "./broadcast";
 import { PetWindowMoveController } from "../pet-window-movement";
 import { CURRENT_DISCLAIMER_VERSION } from "../../shared/disclaimer";
+import { shouldApplyBounds, type PetBounds, type PetResizePayload } from "./pet-bounds";
+import { clampBoundsToWorkArea } from "../../shared/pet-geometry";
+import { formatGeomProbe } from "../verge/geom-probe";
 
 const PET_WINDOW_RESOURCE_RELEASE_DELAY_MS = 30_000;
 
@@ -24,6 +27,11 @@ export interface WindowManagerOptions {
   isDev: boolean;
   loadPetWindowSettingsSlice: () => PetWindowSettingsSlice;
   persistPetWindowPosition: (position: { x: number; y: number }) => void;
+  /**
+   * 宠物窗右键菜单挂载（Task 11）：由组合根把 verge 模块的菜单/免打扰装配好后注入。
+   * window-manager 不 import verge（依赖窄向），窗壳只负责在每次建窗时喊一声。
+   */
+  attachPetContextMenu?: (win: BrowserWindow) => void;
 }
 
 export interface WindowManager {
@@ -52,6 +60,9 @@ export interface WindowManager {
   movePetWindowRelative(dx: number, dy: number): void;
   movePetWindowTo(x: number, y: number): void;
   applyPetWindowZoom(zoom: number): void;
+  setPetWindowBounds(payload: PetResizePayload): void;
+  /** 组合根拉几何基线用（Task 12 VERGE_GET_PET_GEOMETRY）：无窗返回 null。 */
+  getPetWindowBounds(): PetBounds | null;
   capturePetWindowFrame(): Promise<string | null>;
   capturePetWindow(): Promise<Electron.NativeImage | null>;
   getCursorScreenPosition(): { x: number; y: number };
@@ -66,6 +77,19 @@ export interface WindowManager {
   dispose(): void;
 }
 
+/**
+ * 紧挨着 setSize 之前放开尺寸上下限。
+ *
+ * Windows 上 `resizable: false` 的窗每落一次尺寸，Chromium 就把 min/max 重新锁成该尺寸，
+ * 于是「放大能成、缩小必被夹回」——面板 248×482 收不回 82×108，且是静默失效。
+ * 四档尖峰实测（docs/verge/spikes/p1-window.md）：创建时放开一次没用，只有紧挨着
+ * setSize 之前放开才有效。
+ */
+function unlockWindowSize(win: BrowserWindow): void {
+  win.setMinimumSize(1, 1);
+  win.setMaximumSize(100000, 100000);
+}
+
 export function createWindowManager(options: WindowManagerOptions): WindowManager {
   let petWindow: BrowserWindow | null = null;
   let onboardingWindow: BrowserWindow | null = null;
@@ -75,6 +99,36 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
   const readyHandlers: Array<(win: BrowserWindow) => void> = [];
   const closedHandlers: Array<() => void> = [];
   const movedHandlers: Array<(position: { x: number; y: number }) => void> = [];
+  let petWindowDragging = false;
+  let lastGeomProbeAt = Number.NEGATIVE_INFINITY;
+  // 渲染端的 PET_RESIZE 载荷宽高恒是**基址**（renderer.ts 把 zoom 折进 ctx.setTransform，
+  // 不动载荷），主端是物理尺寸的唯一权威：落位前要乘回 zoom。不乘的话，applyPetWindowZoom
+  // 刚把窗长到 123×162，渲染端下一帧（约 16ms 后）就把它缩回 82×108——屏幕层⑤实测到的
+  // 「petZoom 静默失效」正是这条。native 没有缩放档，这是 fork 侧两条通道的对账。
+  let petWindowZoom = 1;
+
+  // native main.rs:4171-4184 的每帧 workArea 夹取搬到事件驱动：显示器拓扑/工作区
+  // 一变（拔副屏、改缩放、换任务栏高度）就把窗夹回当前屏，猫不许丢在已消失的坐标上。
+  // 偏离 native 一处并记录在案：native 只改内存 pet_pos，这里额外落盘——我们的保存点
+  // 活在 state 文件里，若不跟着夹，重启后猫会再次出现在坏坐标上。
+  const onDisplayMetricsChanged = (): void => {
+    const win = getUsablePetWindow();
+    if (!win) return;
+    const bounds = win.getBounds();
+    const { workArea } = screen.getDisplayMatching(bounds);
+    const clamped = clampBoundsToWorkArea(bounds, workArea);
+    // shouldApplyBounds 返回的 delta 对象恒真（勘误：判 .move，不判对象）——
+    // 已在位的一字不动，也不许多发一次 persist。
+    if (!shouldApplyBounds(bounds, clamped).move) return;
+    win.setBounds(clamped, false);
+    options.persistPetWindowPosition({ x: clamped.x, y: clamped.y });
+    // 渲染端不是位置权威，但它得知道位置被主端改了：推新几何，让它重建 catOrigin。
+    win.webContents.send(IPC.VERGE_PET_GEOMETRY, {
+      bounds: win.getBounds(),
+      workArea,
+    });
+  };
+  screen.on("display-metrics-changed", onDisplayMetricsChanged);
 
   const petWindowMoveController = new PetWindowMoveController(
     () => petWindow,
@@ -169,6 +223,9 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
       const wasCurrentPetWindow = petWindow === window;
       if (wasCurrentPetWindow) petWindow = null;
       if (!wasCurrentPetWindow) return;
+      // 拖拽中的窗口被销毁（渲染进程崩、退出、换屏重建）时没人再发 setDragging(false)，
+      // 位置门会永远关着、PET_RESIZE 退化成只发尺寸。关门时把闸门本身复位。
+      petWindowDragging = false;
       for (const handler of closedHandlers) {
         try { handler(); } catch (err) { console.error("[WindowManager] closed handler failed:", err); }
       }
@@ -206,7 +263,14 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
         { showOnReady: shouldShowOnReady },
       );
       setPetWindow(win, shouldShowOnReady);
+      // 右键菜单（Task 11）：每次建窗都重挂一次——窗口销毁时 webContents 上的监听
+      // 随窗口一起没了，不应有跨窗口残留（挂载本身查 win.isDestroyed，不重复注册也无害）。
+      options.attachPetContextMenu?.(win);
       const settings = options.loadPetWindowSettingsSlice();
+      // 建窗时 createPetWindow 已按 petZoom 定过物理尺寸，这里的换算基线必须同步 seeding，
+      // 否则首帧 PET_RESIZE 会按 zoom=1 把窗缩回基址（core-bootstrap 要到建窗之后才调
+      // applyPetWindowZoom，中间渲染端完全可能先发来请求）。
+      petWindowZoom = normalizePetZoom(settings.petZoom);
       const alwaysOnTop = settings.petAlwaysOnTop ?? true;
       win.setAlwaysOnTop(alwaysOnTop, alwaysOnTop ? "screen-saver" : "normal");
       return win;
@@ -310,6 +374,7 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
       win.setIgnoreMouseEvents(!interactive, { forward: true });
     },
     setPetWindowDragging(isDragging: boolean): void {
+      petWindowDragging = isDragging;
       const win = getUsablePetWindow();
       if (!win) return;
       if (!isDragging) petWindowMoveController.finishDragging();
@@ -328,12 +393,97 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
     applyPetWindowZoom(zoom: number): void {
       const win = getUsablePetWindow();
       if (!win) return;
-      const width = Math.round(PET_WINDOW_BASE_WIDTH * zoom);
-      const height = Math.round(PET_WINDOW_BASE_HEIGHT * zoom);
+      // 窗口尺寸的两个 setSize 来源之一（另一个见 setPetWindowBounds）：zoom 按
+      // 基址等比放大，PET_RESIZE 发的是基址档、由这里同一系数换算成物理尺寸。
+      petWindowZoom = normalizePetZoom(zoom);
+      const width = Math.round(PET_WINDOW_BASE_WIDTH * petWindowZoom);
+      const height = Math.round(PET_WINDOW_BASE_HEIGHT * petWindowZoom);
+      // 长窗之后位置要重新夹：贴右边缘的猫从 82 长到 123，物理矩形会探出工作区
+      // 41px，而这条通道没有下一帧 PET_RESIZE 替它兜底。用已证的 setSize +
+      // setPosition 两条指令，不换成 setBounds（spike 只验过前者在 resizable:false
+      // 下能挣脱尺寸锁）。
+      const { workArea } = screen.getDisplayMatching(win.getBounds());
+      const clamped = clampBoundsToWorkArea({ ...win.getBounds(), width, height }, workArea);
+      unlockWindowSize(win);
       win.setSize(width, height);
+      const applied = win.getBounds();
+      const clampedMoved = Math.hypot(clamped.x - applied.x, clamped.y - applied.y) > 0.5;
+      if (clampedMoved) win.setPosition(clamped.x, clamped.y, false);
       if (!win.isDestroyed()) {
         win.webContents.send(IPC.PET_ZOOM, zoom);
+        // 渲染端反推的 catOrigin 要跟着新落位走，否则它下一次请求会把窗拽回屏外。
+        if (clampedMoved) {
+          win.webContents.send(IPC.VERGE_PET_GEOMETRY, { bounds: win.getBounds(), workArea });
+        }
       }
+    },
+    setPetWindowBounds(payload: PetResizePayload): void {
+      const win = getUsablePetWindow();
+      if (!win) return;
+      const physical: PetBounds = {
+        x: payload.x,
+        y: payload.y,
+        width: Math.round(payload.width * petWindowZoom),
+        height: Math.round(payload.height * petWindowZoom),
+      };
+      // 渲染端的 workArea 夹取是按基址算的（computePetLayout 拿 PET_W/OPEN_W），
+      // zoom>1 时物理矩形要多探出 (zoom−1)×宽 才贴得上同一条边。这里按 native
+      // main.rs:4171-4184 的口径用**实际尺寸**再夹一次；zoom=1 时物理＝基址，
+      // 这条夹取恒等，P1 已验的落位一字不动。
+      const { workArea } = screen.getDisplayMatching(win.getBounds());
+      const clamped = clampBoundsToWorkArea(physical, workArea);
+      const clampedMoved = Math.hypot(clamped.x - physical.x, clamped.y - physical.y) > 0.5;
+      // 去重读实时 getBounds()：窗口可能被用户拖拽或换屏/DPI 改动过，
+      // 缓存"请求值"会和实际落位脱节。
+      const delta = shouldApplyBounds(win.getBounds(), clamped);
+      // 位置的权威是 PetWindowMoveController（它落盘保存点），本通道只是渲染端
+      // 按几何请求跟随。拖拽期间关掉位置门，否则 controller 的 pendingPosition
+      // 会在请求之后 flush，把猫拽回旧位（橡皮筋）。尺寸门照常开。
+      const applyMove = delta.move && !petWindowDragging;
+      // native 的两条门分开发两条指令（main.rs:4308-4315），先尺寸后位置。
+      if (delta.size) {
+        unlockWindowSize(win);
+        win.setSize(clamped.width, clamped.height);
+      }
+      if (applyMove) win.setPosition(clamped.x, clamped.y, false);
+      // 夹取真的挪了窗就得把落位回推：渲染端的位置权威是它自己反推的 catOrigin，
+      // 不告诉它，下一帧照样请求原坐标，两条门每帧重开（60fps 的空转 setPosition）。
+      if (clampedMoved && applyMove && !win.isDestroyed()) {
+        win.webContents.send(IPC.VERGE_PET_GEOMETRY, { bounds: win.getBounds(), workArea });
+      }
+      if (!delta.size && !applyMove) return;
+      if (process.env.VERGE_GEOM_PROBE) {
+        // native 每 0.5s 一行（main.rs:4389）：这里同样节流，否则 60fps 下 stderr
+        // 自己会盖掉它要测的东西。形状差异要记住：native 在绘制 pass 里**无条件**按
+        // 0.5s 打，我们只在「真发出一条指令」时打——落位稳定后 GEOM 就不再有行，
+        // 所以屏幕尺取多帧证据必须持续重发请求，不能靠静置（spikes 待验证项 4）。
+        const t = performance.now() / 1000;
+        if (t - lastGeomProbeAt > 0.5) {
+          lastGeomProbeAt = t;
+          const actual = win.getBounds();
+          console.error(formatGeomProbe({
+            t,
+            applied: applyMove ? clamped : null,
+            actual,
+            // Task 12 载荷已扩：这四列是渲染端随 bounds 同帧发来的模型取证量，
+            // 不再打 `-`（旧载荷缺列时仍打 `-`——没有证据就承认没有证据）。
+            // 单位对账：pos/size 两列是**物理**（乘过 zoom、夹过 workArea），
+            // pin/center/peek/e 是渲染端的**基址**模型量。zoom≠1 时拿 pin 对 pos
+            // 要自己乘 zoom，读屏幕尺的人必须知道这一点。
+            pin: payload.pinInWin ?? null,
+            center: payload.center ?? null,
+            peekDx: payload.peekDx ?? null,
+            e: payload.e ?? null,
+            dpr: screen.getDisplayMatching(actual).scaleFactor,
+          }));
+        }
+      }
+    },
+    getPetWindowBounds(): PetBounds | null {
+      const win = getUsablePetWindow();
+      if (!win) return null;
+      const { x, y, width, height } = win.getBounds();
+      return { x, y, width, height };
     },
     async capturePetWindowFrame(): Promise<string | null> {
       const image = await this.capturePetWindow();
@@ -383,6 +533,7 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
     dispose(): void {
       cancelPetWindowResourceRelease();
       petWindowMoveController.dispose();
+      screen.off("display-metrics-changed", onDisplayMetricsChanged);
     },
   };
 }

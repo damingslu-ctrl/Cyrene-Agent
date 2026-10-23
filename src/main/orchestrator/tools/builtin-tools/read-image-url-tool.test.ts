@@ -79,4 +79,12 @@ describe("read_image_url 结果缓存", () => {
     expect(second).toContain("星空");
     expect(second.startsWith("[缓存]")).toBe(false);
   });
+
+  it("上游 URL 在缓存与视觉模型之前拒绝（含尾点写法）", async () => {
+    for (const url of ["https://github.com/a.png", "https://raw.githubusercontent.com./a/b.png"]) {
+      const result = await readImageUrlTool.execute({ url }, ctxWith("看看"));
+      expect(result).toContain("已切断的上游站点");
+    }
+    expect(captionImageMock).not.toHaveBeenCalled();
+  });
 });

@@ -12,7 +12,7 @@ interface CharacterStatusPillProps extends Omit<ComponentPropsWithRef<"button">,
 }
 
 /**
- * 昔涟头像触发器：头像 + 右下角在线点，点击/悬停由外层的角色信息浮层接管。
+ * 麻糬头像触发器：头像 + 右下角在线点，点击/悬停由外层的角色信息浮层接管。
  * 额外 props（含 Popover 注入的展开态与事件）全部透传到 button 上。
  */
 export function CharacterStatusPill({ avatarPath, name, online, className, ...rest }: CharacterStatusPillProps) {

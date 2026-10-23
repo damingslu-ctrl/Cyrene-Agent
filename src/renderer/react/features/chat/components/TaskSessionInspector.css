@@ -45,10 +45,10 @@
 .cy-task-session-inspector__context.is-open { color: #54a56d; }
 .cy-task-session-inspector__context.is-closed { color: var(--rb-text-tertiary, #a09aa1); }
 
-.cy-task-session-inspector__status.is-running { color: var(--rb-accent, #ff5b8a); }
+.cy-task-session-inspector__status.is-running { color: var(--rb-accent); }
 .cy-task-session-inspector__status.is-completed { color: #54a56d; }
 .cy-task-session-inspector__status.is-failed,
-.cy-task-session-inspector__status.is-cancelled { color: #d06969; }
+.cy-task-session-inspector__status.is-cancelled { color: var(--rb-danger); }
 
 .cy-task-session-inspector__message {
   padding: 18px;

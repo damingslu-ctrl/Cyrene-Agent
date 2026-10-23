@@ -1,9 +1,5 @@
-appId: com.cyrene.live2d
-productName: Cyrene
-publish:
-  provider: github
-  owner: Playa-Cyrene
-  repo: Cyrene-Agent
+appId: dev.damin.mochi
+productName: Mochi
 directories:
   output: release
 asar: true
@@ -61,9 +57,9 @@ extraResources:
     to: components
   # 第三方 skills 快照归档：首启解压到 userData/skills（见 src/main/skills/snapshot-install.ts）
   - from: vendor/cyrene-skills
-    to: cyrene-skills
+    to: mochi-skills
 win:
-  icon: assets/tray-icon.ico
+  icon: assets/mochi-icon.png
   # 保留应用支持的英文、简体中文和繁体中文界面语言。
   electronLanguages:
     - en-US
@@ -72,14 +68,12 @@ win:
   target:
     - nsis
 nsis:
-  artifactName: Cyrene-Setup-${version}.${ext}
+  artifactName: Mochi-Setup-${version}.${ext}
   oneClick: false
   differentialPackage: true
   allowToChangeInstallationDirectory: true
   # Shortcut creation is controlled by the assisted install page below.
   createDesktopShortcut: false
   createStartMenuShortcut: true
-  menuCategory: Cyrene
+  menuCategory: Mochi
   include: build/installer/installer.nsh
-  installerSidebar: build/installer/installer-sidebar.bmp
-  uninstallerSidebar: build/installer/installer-sidebar.bmp

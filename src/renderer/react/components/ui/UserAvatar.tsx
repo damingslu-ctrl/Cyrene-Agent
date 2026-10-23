@@ -1,18 +1,14 @@
 import { useEffect, useState } from "react";
-import { Bug, Check, ChevronRight, Globe, Languages, Megaphone, Package, Palette, UserRound } from "lucide-react";
+import { Check, ChevronRight, Languages, Package, Palette, UserRound } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import packageJson from "../../../../../package.json";
 import { normalizeUiThemeChoice, type UiThemeChoice } from "../../../../shared/ui-theme";
 import { applyUiThemeChoice } from "../../../ui/theme";
-import { useAppUpdate } from "../../hooks/useAppUpdate";
-import { useNewsFeed } from "../../hooks/useNewsFeed";
 import { useUserAvatar } from "../../hooks/useUserAvatar";
 import { useUserNickname } from "../../hooks/useUserNickname";
 import { setUiLocale, useTranslation } from "../../i18n";
 import { normalizeUiLanguage, type UiLanguage } from "../../../../shared/ui-language";
-import { resolveAppUpdateView, resolveVersionTitleKey, WEBSITE_URL } from "../../features/settings/app-update-view";
-import { IssueReportDialog } from "./IssueReportDialog";
-import { NewsDialog } from "./NewsDialog";
+import { resolveVersionTitleKey } from "../../features/settings/app-update-view";
 import { UserProfileDialog } from "./UserProfileDialog";
 import "./UserAvatar.css";
 
@@ -25,23 +21,23 @@ export function UserAvatar({ label }: UserAvatarProps) {
   const avatarUrl = useUserAvatar();
   const nickname = useUserNickname();
   const [profileOpen, setProfileOpen] = useState(false);
-  const [reportOpen, setReportOpen] = useState(false);
-  const [newsOpen, setNewsOpen] = useState(false);
-  // 弹窗里要标出哪几条是新的，而 markRead 会立刻清掉未读，所以打开时先快照一份
-  const [newsUnreadSnapshot, setNewsUnreadSnapshot] = useState<string[]>([]);
   const [theme, setTheme] = useState<UiThemeChoice>(() => normalizeUiThemeChoice(document.documentElement.dataset.uiTheme));
   const displayLabel = (label ?? nickname) || "User";
   const language = normalizeUiLanguage(locale);
-  // 公告仓库只有中/英两份文件，日文界面降级看英文；仓库补上日文公告后删掉这行回退
-  const news = useNewsFeed(language === "ja-JP" ? "en" : language);
   const languageLabel = (value: UiLanguage) =>
     value === "zh-CN" ? t("settingsPage.general.chinese") : value === "ja-JP" ? t("settingsPage.general.japanese") : "English";
-  // 更新红点与版本行共用同一状态源；有待处理的更新（发现/下载中/已下载）就亮
-  const updateState = useAppUpdate();
-  const updateView = resolveAppUpdateView(updateState);
-  const version = updateState.currentVersion || packageJson.version;
+  // 版本行读本机构建信息（原来的 app-update:get-state）；拿不到就退回打包内的版本号
+  const [version, setVersion] = useState(packageJson.version);
   // 版本称号（如 1.3.0 的"正式版"）随版本走，普通版本查不到就不显示
   const versionTitleKey = resolveVersionTitleKey(version);
+
+  useEffect(() => {
+    let active = true;
+    void window.verge?.getAppInfo().then((info) => {
+      if (active && info?.version) setVersion(info.version);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -95,15 +91,6 @@ export function UserAvatar({ label }: UserAvatarProps) {
               {avatarUrl
                 ? <img src={avatarUrl} alt={t("ui.userAlt")} draggable={false} />
                 : <span>U</span>}
-              {news.unreadCount > 0 && (
-                <span className="cy-user-avatar-dot" aria-hidden="true">
-                  {news.unreadCount > 1 ? news.unreadCount : ""}
-                </span>
-              )}
-              {/* 更新提示点放左上角，避开右上角的公告未读点 */}
-              {updateView.badge && (
-                <span className="cy-user-avatar-dot cy-user-avatar-dot--update" aria-hidden="true" />
-              )}
             </span>
             <span className="cy-user-avatar-label">{displayLabel}</span>
           </button>
@@ -178,11 +165,7 @@ export function UserAvatar({ label }: UserAvatarProps) {
               </DropdownMenu.Portal>
             </DropdownMenu.Sub>
             <DropdownMenu.Separator className="cy-user-menu__separator" />
-            <DropdownMenu.Item className="cy-user-menu__item" onSelect={() => setReportOpen(true)}>
-              <Bug size={16} aria-hidden="true" />
-              <span>{t("ui.reportIssue.menuEntry")}</span>
-            </DropdownMenu.Item>
-            {/* 版本行：点开跳到设置页"常规"的软件更新处 */}
+            {/* 版本行：点开跳到设置页"常规"的版本信息处 */}
             <DropdownMenu.Item
               className="cy-user-menu__item"
               onSelect={() => void window.settings?.openSection?.("general")}
@@ -193,45 +176,11 @@ export function UserAvatar({ label }: UserAvatarProps) {
                 v{version}
                 {versionTitleKey && ` · ${t(versionTitleKey)}`}
               </span>
-              {updateView.badge && <span className="cy-user-menu__dot" aria-hidden="true" />}
-            </DropdownMenu.Item>
-            {/* 官网入口：默认浏览器打开 */}
-            <DropdownMenu.Item
-              className="cy-user-menu__item"
-              onSelect={() => void window.system?.openExternal(WEBSITE_URL)}
-            >
-              <Globe size={16} aria-hidden="true" />
-              <span>{t("ui.website.menuEntry")}</span>
-            </DropdownMenu.Item>
-            <DropdownMenu.Item
-              className="cy-user-menu__item"
-              onSelect={() => {
-                setNewsUnreadSnapshot(news.unreadIds);
-                setNewsOpen(true);
-                news.markRead();
-              }}
-            >
-              <Megaphone size={16} aria-hidden="true" />
-              <span>{t("ui.news.menuEntry")}</span>
-              {news.unreadCount > 0 && (
-                <span className="cy-user-menu__dot" aria-hidden="true">
-                  {news.unreadCount}
-                </span>
-              )}
             </DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
       <UserProfileDialog open={profileOpen} onOpenChange={setProfileOpen} avatarUrl={avatarUrl} />
-      <IssueReportDialog open={reportOpen} onOpenChange={setReportOpen} />
-      <NewsDialog
-        open={newsOpen}
-        onOpenChange={setNewsOpen}
-        items={news.items}
-        unreadIds={newsUnreadSnapshot}
-        loading={news.loading}
-        failed={news.failed}
-      />
     </>
   );
 }

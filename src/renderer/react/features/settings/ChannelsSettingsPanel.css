@@ -63,7 +63,7 @@
 }
 
 .cy-channels-provider:hover {
-  border-color: color-mix(in srgb, var(--rb-accent) 42%, var(--rb-border));
+  border-color: color-mix(in srgb, var(--rb-accent) 42%, var(--rb-border-default));
   background: var(--rb-surface-hover);
 }
 
@@ -88,7 +88,7 @@
 .cy-channels-provider__copy small { overflow: hidden; color: var(--rb-text-secondary); font: var(--rb-text-micro); text-overflow: ellipsis; white-space: nowrap; }
 .cy-channels-status.ant-tag { margin: 0; border: 0; border-radius: 999px; background: var(--rb-surface-hover); color: var(--rb-text-secondary); font: var(--rb-text-micro); }
 .cy-channels-status--running.ant-tag { background: color-mix(in srgb, #22a06b 12%, var(--rb-surface-elevated)); color: #168654; }
-.cy-channels-status--error.ant-tag { background: color-mix(in srgb, #e5484d 12%, var(--rb-surface-elevated)); color: #c9353c; }
+.cy-channels-status--error.ant-tag { background: color-mix(in srgb, var(--rb-danger) 12%, var(--rb-surface-elevated)); color: var(--rb-danger); }
 
 .cy-channels-number { width: 104px; }
 .cy-channels-global-select { width: min(280px, 100%); flex: 0 1 280px; }
@@ -124,7 +124,7 @@
 .cy-channels-token .cy-control-password { min-width: 0; flex: 1; }
 .cy-channels-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .cy-channels-feedback { margin-top: 2px; }
-.cy-channels-qr { display: flex; align-items: center; gap: 16px; padding: 14px; border: 1px solid var(--rb-border); border-radius: 12px; background: var(--rb-surface-elevated); }
+.cy-channels-qr { display: flex; align-items: center; gap: 16px; padding: 14px; border: 1px solid var(--rb-border-default); border-radius: 12px; background: var(--rb-surface-elevated); }
 .cy-channels-qr img { width: 180px; height: 180px; object-fit: contain; }
 
 @media (max-width: 760px) {

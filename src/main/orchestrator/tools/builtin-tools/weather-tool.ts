@@ -14,6 +14,7 @@ import type { ToolDefinition } from "../registry/tool-registry";
 import { getDateLocale, getWeatherLanguage } from "../../../locale-context";
 import { currentUserTimezone } from "./timezone";
 import { TtlResultCache } from "./ttl-result-cache";
+import { amapGet, amapList, amapText, type AmapResult } from "../../../amap/client";
 
 // ── 工具 4：weather（天气查询）─────────────────────────────
 // 查指定城市的实时天气。城市参数可选——没传就读用户信息的默认城市。
@@ -204,26 +205,29 @@ function omWindDir(deg: number): string {
 
 interface AmapDistrict { adcode: string; name: string; level: string }
 
+interface DistrictPayload { districts?: unknown }
+
+interface WeatherPayload { lives?: unknown }
+
+interface AmapLife {
+  province: string; city: string; weather: string; temperature: string;
+  winddirection: string; windpower: string; humidity: string; reporttime: string;
+}
+
 /** 高德行政区查询：城市名 → adcode。结果缓存 24 小时。 */
-async function amapResolveAdcode(city: string, key: string): Promise<AmapDistrict | null> {
+async function amapResolveAdcode(city: string, key: string): Promise<AmapResult<AmapDistrict>> {
   const hit = amapDistrictCache.get(city);
-  if (hit) return hit.value;
-  const url = `https://restapi.amap.com/v3/config/district?keywords=${encodeURIComponent(city)}&subdistrict=0&key=${key}`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), WEATHER_TIMEOUT_MS);
-  try {
-    const resp = await fetch(url, { signal: ctrl.signal });
-    if (!resp.ok) return null;
-    const data = await resp.json() as { status?: string; districts?: AmapDistrict[] };
-    if (data.status !== "1" || !data.districts || data.districts.length === 0) return null;
-    // 只有解析成功才写缓存；null 可能是网络失败也可能是真找不到，都不缓存
-    amapDistrictCache.set(city, data.districts[0]);
-    return data.districts[0];
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
+  if (hit) return { ok: true, data: hit.value };
+  const result = await amapGet<DistrictPayload>("/v3/config/district", { keywords: city, subdistrict: 0 }, key);
+  if (!result.ok) return result;
+  const districts = amapList<AmapDistrict>(result.data.districts);
+  if (districts.length === 0) {
+    // 高德这里回的是 status=1 + 空列表：请求没错，是城市名对不上，措辞要分清。
+    return { ok: false, kind: "params", infocode: null, error: `高德查不到「${city}」这个行政区` };
   }
+  // 只有解析成功才写缓存；失败可能是网络问题也可能是真找不到，都不缓存
+  amapDistrictCache.set(city, districts[0]);
+  return { ok: true, data: districts[0] };
 }
 
 /** 高德实时天气查询。结果缓存 30 分钟。 */
@@ -240,47 +244,36 @@ async function amapFetchWeather(city: string, key: string): Promise<string> {
   }
 
   const district = await amapResolveAdcode(city, key);
-  if (!district) {
-    return `[错误] 找不到城市"${city}"，请确认城市名（支持中文，如"无锡"）。`;
+  if (!district.ok) {
+    return `[错误] 找不到城市"${city}"：${district.error}。请确认城市名（支持中文，如"无锡"）。`;
   }
 
   // 请求实况天气
-  const baseUrl = `https://restapi.amap.com/v3/weather/weatherInfo?city=${district.adcode}&key=${key}&extensions=base`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), WEATHER_TIMEOUT_MS);
-  try {
-    const baseResp = await fetch(baseUrl, { signal: ctrl.signal });
-    if (!baseResp.ok) return `[错误] 天气查询失败：HTTP ${baseResp.status}`;
-    const baseData = await baseResp.json() as { status?: string; lives?: Array<{
-      province: string; city: string; weather: string; temperature: string;
-      winddirection: string; windpower: string; humidity: string; reporttime: string;
-    }> };
-    if (baseData.status !== "1" || !baseData.lives || baseData.lives.length === 0) {
-      return `[错误] 天气查询失败：高德返回 status=${baseData.status ?? "?"}`;
-    }
-    const w = baseData.lives[0];
+  const result = await amapGet<WeatherPayload>(
+    "/v3/weather/weatherInfo",
+    { city: district.data.adcode, extensions: "base" },
+    key,
+  );
+  if (!result.ok) return `[错误] 天气查询失败：${result.error}`;
+  const lives = amapList<AmapLife>(result.data.lives);
+  if (lives.length === 0) return "[错误] 天气查询失败：高德没有返回该城市的实况";
+  const w = lives[0];
 
-    const weatherData = {
-      city: w.city,
-      region: w.province,
-      weather: w.weather,
-      temperature: Number(w.temperature),
-      humidity: Number(w.humidity),
-      windDirection: w.winddirection,
-      windSpeed: `${w.windpower}级`,
-      source: "高德天气",
-      updateTime: w.reporttime.slice(11, 16) || new Date().toLocaleString(getDateLocale(), { hour: "2-digit", minute: "2-digit" }),
-    };
+  const weatherData = {
+    city: w.city,
+    region: w.province,
+    weather: w.weather,
+    temperature: Number(w.temperature),
+    humidity: Number(w.humidity),
+    windDirection: w.winddirection,
+    windSpeed: `${w.windpower}级`,
+    source: "高德天气",
+    updateTime: amapText(w.reporttime).slice(11, 16) || new Date().toLocaleString(getDateLocale(), { hour: "2-digit", minute: "2-digit" }),
+  };
 
-    weatherCache.set(cacheKey, { data: weatherData });
+  weatherCache.set(cacheKey, { data: weatherData });
 
-    return JSON.stringify(weatherData);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return "[错误] 天气查询失败：" + msg;
-  } finally {
-    clearTimeout(timer);
-  }
+  return JSON.stringify(weatherData);
 }
 
 async function executeWeather(args: Record<string, unknown>): Promise<string> {

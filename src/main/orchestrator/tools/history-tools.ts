@@ -1,4 +1,4 @@
-// 历史对话召回工具 —— 让昔涟能"回忆"滚出上下文窗口的对话。
+// 历史对话召回工具 —— 让麻糬能"回忆"滚出上下文窗口的对话。
 //
 // 设计（见 docs/history-and-skill-architecture.md）：
 // - 不切分、不压缩、不启发式。全部历史无损存入向量库，模型主动召回。
@@ -93,7 +93,7 @@ export function registerRecallHistoryTool(): void {
 
       const lines = sorted.map(h => {
         const date = new Date(h.createdAt).toLocaleString(getDateLocale(), { timeZone: currentUserTimezone() });
-        const role = h.metadata?.role === "user" ? "用户" : "昔涟";
+        const role = h.metadata?.role === "user" ? "用户" : "麻糬";
         // 截断过长内容，避免吃太多 token
         const text = h.text.length > 300 ? h.text.slice(0, 300) + "..." : h.text;
         return `[${date}] ${role}：${text}`;

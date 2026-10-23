@@ -20,6 +20,7 @@ import type { CustomStyleConfig } from "../../../shared/style-sampling";
 import type { BuiltinProviderId } from "../../../shared/vendor-registry";
 import type { CustomEndpointMode } from "../custom-endpoint-state";
 import type { TimeoutSettings } from "../../../shared/timeout-types";
+import type { MagpieSyncResult } from "../../../shared/magpie";
 
 /**
  * 预设与厂商注册表的静态关联键：真实厂商用注册表推导的 BuiltinProviderId
@@ -27,7 +28,7 @@ import type { TimeoutSettings } from "../../../shared/timeout-types";
  * import type 纯类型引入，零运行时开销。过渡态：用户已保存配置的存储键
  * 仍是 displayName（providerName），本类型只用于 presets 静态数据关联。
  */
-export type ModelPresetProviderId = BuiltinProviderId | "custom-cloud" | "custom-local";
+export type ModelPresetProviderId = BuiltinProviderId | "magpie" | "custom-cloud" | "custom-local";
 
 export interface ProviderProfile {
   baseUrl: string;
@@ -76,6 +77,10 @@ export interface ModelSettings {
   };
   /** Embedding 维度（可选，仅 cloud 模式）。留空 = 自动探测。 */
   embeddingDimensions?: number;
+  /** 本机检索模型档位（`bgeBaseZh` / `bgem3`）。脏值由主进程回落到默认档。 */
+  embeddingModel?: string;
+  /** 重排档：`standard` 用 bge-reranker-base，`none` 不重排。 */
+  rerankerMode?: "standard" | "none";
   multimodal: boolean;
   thinkingOverride?: -1 | 0 | 1;
   /** 禁用 max_tokens 注入。仅对自定义端点生效（与主进程 model-settings.ts 对齐）。 */
@@ -253,6 +258,31 @@ export interface McpServerConfigView {
   headers?: Record<string, string>;
 }
 
+/** 本机检索模型的一行清单（体积/维度/是否已装/落位目录），来自主进程注册表。 */
+export interface LocalModelInstallView {
+  modelKey: string;
+  label: string;
+  dims: number;
+  /** 项目侧相对目录，例如 `Xenova/bge-base-zh-v1.5`。 */
+  dirName: string;
+  bytesTotal: number;
+  files: number;
+  installed: boolean;
+  targetDir: string | null;
+}
+
+/** 下载进度事件。`phase` 为 done/cancelled/error 时 `file` 是 null。 */
+export interface ModelInstallProgressView {
+  modelKey: string;
+  phase: "downloading" | "progress" | "done" | "cancelled" | "error";
+  file: string | null;
+  /** 1-based。 */
+  fileIndex: number;
+  fileCount: number;
+  bytesTotal: number;
+  bytesDone: number;
+}
+
 export interface SettingsApi {
   minimize: () => void;
   close: () => void;
@@ -264,6 +294,7 @@ export interface SettingsApi {
     imageGeneration?: { enabled: boolean; model: string }; modelOptions?: Record<string, { contextWindowTokens?: number; multimodal?: boolean }>; models?: string[] }) => Promise<{ added: boolean; profiles: unknown[]; defaultModelProfileId?: string }>;
   deleteModelProfile?: (id: string) => Promise<unknown>;
   setDefaultModelProfile?: (id: string) => Promise<unknown>;
+  syncMagpieModels?: () => Promise<MagpieSyncResult>;
   getGeneral: () => Promise<GeneralSettings>;
   saveGeneral: (config: Partial<GeneralSettings>) => Promise<GeneralSettings>;
   openCustomStylePrompt?: () => Promise<{ ok: boolean; filePath?: string; error?: string }>;
@@ -284,6 +315,21 @@ export interface SettingsApi {
   stickerPickFile?: () => Promise<string | null>;
   stickerAdd?: (payload: { sourcePath: string; id: string; description: string; phrases: string[] }) => Promise<unknown>;
   embeddingSetModel?: (model: string) => Promise<{ ok: boolean; clearedEntries?: number; error?: string }>;
+  /** 本机检索模型清单：注册表驱动，含安装状态、体积与当前生效档。 */
+  getModelInstallList?: () => Promise<{
+    models: LocalModelInstallView[];
+    currentModelKey: string;
+    installing: boolean;
+  }>;
+  modelInstallRun?: (modelKey: string) => Promise<{
+    ok: boolean;
+    modelKey: string;
+    modelDir?: string;
+    alreadyInstalled?: boolean;
+    error?: string;
+  }>;
+  modelInstallCancel?: () => Promise<boolean>;
+  onModelInstallProgress?: (callback: (progress: ModelInstallProgressView) => void) => () => void;
   rerankerSetMode?: (mode: string) => Promise<boolean>;
   setToolEnabled?: (id: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
   getToolEnabled?: () => Promise<Record<string, boolean>>;
@@ -331,6 +377,7 @@ export interface SettingsApi {
   testConnection?: (config: { provider: string; baseUrl: string; model: string; apiKey: string; explicitTransport?: ApiTransport; reasoning?: ReasoningPreference; manualReasoning?: import("../../../shared/manual-reasoning").ManualReasoningConfig }) => Promise<{ ok: boolean; latency: number; sample?: string; error?: string }>;
   previewReasoning?: (config: { provider: string; baseUrl: string; model: string; apiKey: string; explicitTransport?: ApiTransport; reasoning?: ReasoningPreference; manualReasoning?: import("../../../shared/manual-reasoning").ManualReasoningConfig }) => Promise<Record<string, unknown>>;
   testVision?: (config: { baseUrl: string; apiKey: string; model: string }) => Promise<{ ok: boolean; latency: number; sample?: string; error?: string }>;
+  checkAmapKey?: (key?: string) => Promise<{ ok: boolean; latency: number; sample?: string; error?: string }>;
   // main → settings：要求切到指定标签（窗口已打开时由 main 发这个事件）
   onSwitchSection?: (callback: (section: string) => void) => (() => void) | void;
   channelsGetConfig: () => Promise<any>;

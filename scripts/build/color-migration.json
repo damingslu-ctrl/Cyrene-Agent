@@ -1,0 +1,547 @@
+{
+  "#ff5b8a": {
+    "token": "--rb-accent"
+  },
+  "#e75d87": {
+    "token": "--rb-accent"
+  },
+  "#ff9fbd": {
+    "token": "--rb-pink-100"
+  },
+  "rgba(255, 91, 138, 0.08)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 8%, transparent)"
+  },
+  "#d06969": {
+    "token": "--rb-danger"
+  },
+  "rgb(255 91 138 / 10%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 10%, transparent)"
+  },
+  "#c9a7f5": {
+    "token": "--rb-pink-100"
+  },
+  "#ff8ccc": {
+    "token": "--rb-accent"
+  },
+  "#ec4899": {
+    "token": "--rb-accent"
+  },
+  "#d4384d": {
+    "token": "--rb-danger"
+  },
+  "#82071e": {
+    "token": "--rb-danger"
+  },
+  "#d94f61": {
+    "token": "--rb-danger"
+  },
+  "#c9342d": {
+    "token": "--rb-danger"
+  },
+  "#29262d": {
+    "token": "--rb-text-primary"
+  },
+  "rgba(236, 72, 153, 0.22)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 22%, transparent)"
+  },
+  "#ef4444": {
+    "token": "--rb-danger"
+  },
+  "rgb(192 122 162 / 24%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 24%, transparent)"
+  },
+  "rgba(236, 72, 153, 0.4)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 40%, transparent)"
+  },
+  "rgba(255, 91, 138, 0.24)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 24%, transparent)"
+  },
+  "#e5484d": {
+    "token": "--rb-danger"
+  },
+  "#5f27cd": {
+    "token": "--rb-accent"
+  },
+  "#ff3b5c": {
+    "token": "--rb-accent"
+  },
+  "rgba(255, 91, 138, 0.16)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 16%, transparent)"
+  },
+  "rgba(76, 55, 98, 0.22)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-700) 22%, transparent)"
+  },
+  "rgb(120 100 110 / 20%)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-700) 20%, transparent)"
+  },
+  "#b42345": {
+    "token": "--rb-danger"
+  },
+  "#b7688e": {
+    "token": "--rb-accent"
+  },
+  "#8f3657": {
+    "token": "--rb-accent"
+  },
+  "rgb(238 170 191 / 22%)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-100) 22%, transparent)"
+  },
+  "rgb(46 38 41 / 7%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgb(255 91 138 / 8%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 8%, transparent)"
+  },
+  "rgba(255, 91, 138, 0.1)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 10%, transparent)"
+  },
+  "rgba(255, 91, 138, 0.22)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 22%, transparent)"
+  },
+  "rgba(255, 69, 58, 0.08)": {
+    "expr": "color-mix(in srgb, var(--rb-danger) 8%, transparent)"
+  },
+  "rgb(255 91 138 / 0%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 0%, transparent)"
+  },
+  "rgb(255 91 138 / 12%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 12%, transparent)"
+  },
+  "rgb(255 91 138 / 15%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 15%, transparent)"
+  },
+  "#f6a8c0": {
+    "token": "--rb-pink-100"
+  },
+  "rgb(255 91 138 / 32%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 32%, transparent)"
+  },
+  "rgb(201 167 245 / 22%)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-100) 22%, transparent)"
+  },
+  "rgb(192 122 162 / 30%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 30%, transparent)"
+  },
+  "#e994b0": {
+    "token": "--rb-pink-100"
+  },
+  "#ad91d8": {
+    "token": "--rb-pink-100"
+  },
+  "#d6a9ed": {
+    "token": "--rb-pink-100"
+  },
+  "rgb(255 91 138 / 7%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 7%, transparent)"
+  },
+  "#a855f7": {
+    "token": "--rb-accent"
+  },
+  "rgba(236, 72, 153, 0.35)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 35%, transparent)"
+  },
+  "#ff6ec7": {
+    "token": "--rb-accent"
+  },
+  "rgba(236, 72, 153, 0.32)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 32%, transparent)"
+  },
+  "rgba(255, 110, 199, 0.18)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 18%, transparent)"
+  },
+  "rgba(38, 28, 60, 0.96)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgba(22, 18, 40, 0.94)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgba(255, 182, 220, 0.18)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-100) 18%, transparent)"
+  },
+  "rgba(255, 110, 199, 0.85)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 85%, transparent)"
+  },
+  "rgba(168, 85, 247, 0.80)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 80%, transparent)"
+  },
+  "rgba(255, 130, 210, 0.92)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 92%, transparent)"
+  },
+  "rgba(180, 100, 255, 0.88)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 88%, transparent)"
+  },
+  "rgba(236, 72, 153, 0.28)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 28%, transparent)"
+  },
+  "rgba(255, 110, 199, 0.20)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 20%, transparent)"
+  },
+  "rgba(43, 30, 68, 0.94)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-700) 94%, transparent)"
+  },
+  "rgba(22, 18, 38, 0.92)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgb(255 91 138 / 16%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 16%, transparent)"
+  },
+  "#4c3762": {
+    "token": "--rb-pink-700"
+  },
+  "rgba(76, 55, 98, 0.18)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-700) 18%, transparent)"
+  },
+  "#c9353c": {
+    "token": "--rb-danger"
+  },
+  "#c0395d": {
+    "token": "--rb-accent"
+  },
+  "rgba(212, 56, 77, 0.06)": {
+    "expr": "color-mix(in srgb, var(--rb-danger) 6%, transparent)"
+  },
+  "rgba(255, 91, 138, 0.06)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 6%, transparent)"
+  },
+  "#dc3545": {
+    "token": "--rb-danger"
+  },
+  "#a32937": {
+    "token": "--rb-danger"
+  },
+  "rgba(255, 91, 138, 0.32)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 32%, transparent)"
+  },
+  "rgba(255, 91, 138, 0.38)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 38%, transparent)"
+  },
+  "rgb(43 33 54 / 8%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgb(236 72 153 / 46%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 46%, transparent)"
+  },
+  "rgb(180 42 70 / 82%)": {
+    "expr": "color-mix(in srgb, var(--rb-danger) 82%, transparent)"
+  },
+  "rgb(25 15 20 / 7%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgb(18 15 19 / 76%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "#a5527d": {
+    "token": "--rb-accent"
+  },
+  "rgb(200 116 155 / 55%)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-100) 55%, transparent)"
+  },
+  "#a84f7a": {
+    "token": "--rb-accent"
+  },
+  "rgb(209 144 173 / 42%)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-100) 42%, transparent)"
+  },
+  "rgb(209 144 173 / 45%)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-100) 45%, transparent)"
+  },
+  "rgb(209 144 173 / 38%)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-100) 38%, transparent)"
+  },
+  "#80516c": {
+    "token": "--rb-pink-700"
+  },
+  "#b15b8a": {
+    "token": "--rb-accent"
+  },
+  "#e8a0b4": {
+    "token": "--rb-pink-100"
+  },
+  "rgba(232, 160, 180, 0.25)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-100) 25%, transparent)"
+  },
+  "#33272d": {
+    "token": "--rb-text-primary"
+  },
+  "#bd6d8a": {
+    "token": "--rb-accent"
+  },
+  "#ffc0d2": {
+    "token": "--rb-pink-50"
+  },
+  "#d73a72": {
+    "token": "--rb-accent"
+  },
+  "rgb(224 142 171 / 44%)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-100) 44%, transparent)"
+  },
+  "#dc2626": {
+    "token": "--rb-danger"
+  },
+  "rgb(46 38 41 / 12%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "#ff4d4f": {
+    "token": "--rb-danger"
+  },
+  "#ff7875": {
+    "token": "--rb-danger"
+  },
+  "#cf3f58": {
+    "token": "--rb-danger"
+  },
+  "rgb(255 91 138)": {
+    "token": "--rb-accent"
+  },
+  "#f04b7c": {
+    "token": "--rb-accent"
+  },
+  "rgba(255, 69, 58, 0.1)": {
+    "expr": "color-mix(in srgb, var(--rb-danger) 10%, transparent)"
+  },
+  "rgba(255, 69, 58, 0.12)": {
+    "expr": "color-mix(in srgb, var(--rb-danger) 12%, transparent)"
+  },
+  "#171320": {
+    "token": "--rb-surface-elevated"
+  },
+  "#251421": {
+    "token": "--rb-surface-elevated"
+  },
+  "rgba(38, 20, 34, 0.25)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "#ffd1e4": {
+    "token": "--rb-pink-50"
+  },
+  "#ff82b1": {
+    "token": "--rb-accent"
+  },
+  "rgba(231, 194, 207, 0.56)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-50) 56%, transparent)"
+  },
+  "rgba(213, 125, 158, 0.12)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-100) 12%, transparent)"
+  },
+  "rgba(255, 159, 205, 0.68)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-100) 68%, transparent)"
+  },
+  "rgba(255, 111, 170, 0.32)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 32%, transparent)"
+  },
+  "rgba(255, 126, 188, 0.72)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 72%, transparent)"
+  },
+  "#d1445a": {
+    "token": "--rb-danger"
+  },
+  "rgb(44 31 38 / 5%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgb(255 91 138 / 35%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 35%, transparent)"
+  },
+  "#f1caca": {
+    "expr": "color-mix(in srgb, var(--rb-danger) 30%, var(--rb-surface-elevated))"
+  },
+  "#a34a4a": {
+    "token": "--rb-danger"
+  },
+  "#d4496c": {
+    "token": "--rb-accent"
+  },
+  "#c25454": {
+    "token": "--rb-danger"
+  },
+  "rgb(26 24 32 / 20%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgba(255, 91, 138, 0.2)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 20%, transparent)"
+  },
+  "rgba(255, 91, 138, 0.34)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 34%, transparent)"
+  },
+  "rgba(255, 91, 138, 0.4)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 40%, transparent)"
+  },
+  "rgba(255, 91, 138, 0)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 0%, transparent)"
+  },
+  "rgb(27 25 34 / 38%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgb(30 22 34 / 25%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgb(30 22 34 / 10%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgb(255 91 138 / 23%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 23%, transparent)"
+  },
+  "#e83d75": {
+    "token": "--rb-accent"
+  },
+  "rgb(255 91 138 / 28%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 28%, transparent)"
+  },
+  "rgba(255, 91, 138, 0.42)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 42%, transparent)"
+  },
+  "#c46a8a": {
+    "token": "--rb-accent"
+  },
+  "rgb(25 22 31 / 22%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgb(25 22 31 / 8%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "#c2415d": {
+    "token": "--rb-danger"
+  },
+  "rgb(25 22 31 / 16%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgb(25 22 31 / 7%)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "#ff5f57": {
+    "keep": true,
+    "reason": "操作系统窗口控件的语义色，改了等于谎称是 Mochi 的按钮"
+  },
+  "#e81123": {
+    "keep": true,
+    "reason": "操作系统窗口控件的语义色，改了等于谎称是 Mochi 的按钮"
+  },
+  "#f87171": {
+    "token": "--rb-danger"
+  },
+  "rgba(248, 113, 113, 0.12)": {
+    "expr": "color-mix(in srgb, var(--rb-danger) 12%, transparent)"
+  },
+  "rgba(214, 51, 108, 0.07)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 7%, transparent)"
+  },
+  "rgba(214, 51, 108, 0.25)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 25%, transparent)"
+  },
+  "rgba(214, 51, 108, 0.4)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 40%, transparent)"
+  },
+  "rgba(214, 51, 108, 0.08)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 8%, transparent)"
+  },
+  "rgba(240, 98, 146, 0.35)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 35%, transparent)"
+  },
+  "#e299ff": {
+    "token": "--rb-pink-100"
+  },
+  "#b499ff": {
+    "token": "--rb-pink-100"
+  },
+  "#e499ff": {
+    "token": "--rb-pink-100"
+  },
+  "#ff7198": {
+    "token": "--rb-accent"
+  },
+  "#ed4778": {
+    "token": "--rb-accent"
+  },
+  "rgb(237 71 120 / 24%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 24%, transparent)"
+  },
+  "rgb(237 71 120 / 32%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 32%, transparent)"
+  },
+  "rgb(192 122 162 / 32%)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 32%, transparent)"
+  },
+  "#ffb1cb": {
+    "token": "--rb-pink-100"
+  },
+  "#ffd6e4": {
+    "token": "--rb-pink-50"
+  },
+  "#f2c4d5": {
+    "token": "--rb-pink-50"
+  },
+  "rgba(232, 74, 120, 0.18)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 18%, transparent)"
+  },
+  "rgba(232, 74, 120, 0.34)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 34%, transparent)"
+  },
+  "rgba(255, 214, 228, 0.42)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-50) 42%, transparent)"
+  },
+  "rgba(255, 91, 138, 0.28)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 28%, transparent)"
+  },
+  "rgba(255, 91, 138, 0.25)": {
+    "expr": "color-mix(in srgb, var(--rb-accent) 25%, transparent)"
+  },
+  "rgba(38, 28, 46, 0.05)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgba(38, 28, 46, 0.14)": {
+    "keep": true,
+    "reason": "阴影墨色，紫/粉调是上游 tint 的副产品，非品牌身份；现有令牌里没有『阴影墨』，换 --rb-text-primary 或 --rb-surface-elevated 都会在深色档反相"
+  },
+  "rgba(116, 80, 96, 0.08)": {
+    "expr": "color-mix(in srgb, var(--rb-pink-700) 8%, transparent)"
+  },
+  "#b91c1c": {
+    "token": "--rb-danger"
+  },
+  "#e11d48": {
+    "token": "--rb-danger"
+  },
+  "#be123c": {
+    "token": "--rb-danger"
+  },
+  "rgba(248, 113, 113, 0.34)": {
+    "expr": "color-mix(in srgb, var(--rb-danger) 34%, transparent)"
+  },
+  "rgba(248, 113, 113, 0.32)": {
+    "expr": "color-mix(in srgb, var(--rb-danger) 32%, transparent)"
+  },
+  "#ff9bb8": {
+    "token": "--rb-pink-300"
+  },
+  "#24151b": {
+    "token": "--rb-text-primary"
+  },
+  "#3a232c": {
+    "token": "--rb-surface-elevated"
+  },
+  "#5a3040": {
+    "token": "--rb-pink-700"
+  },
+  "hsla(11, 83%, 72%, 1)": {
+    "keep": true,
+    "reason": "音乐加载器的装饰性暖辉光（与下一行的 h=175 青配对成互补色晕），落在一个已换 --rb-pink-100 的模糊底上；h=11 只是路过 red 窗口，不是品牌身份，换任何 --rb-* 都会把这对辉光改成单色"
+  }
+}

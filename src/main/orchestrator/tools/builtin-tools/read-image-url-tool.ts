@@ -12,6 +12,7 @@
 
 import type { ToolDefinition } from "../registry/tool-registry";
 import type { ToolContext } from "../registry/tool-context";
+import { isUpstreamUrl } from "../../../../shared/upstream-hosts";
 import { TtlResultCache } from "./ttl-result-cache";
 
 const LOG_PREFIX = "[BuiltinTools]";
@@ -42,6 +43,10 @@ async function executeReadImageUrl(
   const url = String(args.url || "").trim();
   if (!/^https?:\/\//i.test(url)) {
     return "[错误] url 必须以 http:// 或 https:// 开头";
+  }
+  // URL 由厂商服务器拉取，但发起方是这个客户端；上游地址在缓存与模型调用之前就拒绝。
+  if (isUpstreamUrl(url)) {
+    return "[错误] 该地址属于已切断的上游站点（GitHub / Gitee / 官方站），客户端不再访问。";
   }
 
   // 缓存命中：直接复用并标注生成时间（命中时连视觉模型配置都不用加载）

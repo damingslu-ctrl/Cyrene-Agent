@@ -1,3 +1,4 @@
+import { CONSOLE_PREFIX } from "../shared/brand";
 import * as path from "path";
 import * as fs from "fs";
 import { app } from "electron";
@@ -29,7 +30,7 @@ function loadTimeoutSettings(): TimeoutSettings {
     const raw = fs.readFileSync(filePath, "utf8");
     return normalizeTimeoutSettings(JSON.parse(raw) as Partial<TimeoutSettings>);
   } catch (err) {
-    console.error("[Cyrene] load settings failed:", err);
+    console.error(CONSOLE_PREFIX + " load settings failed:", err);
     return { ...DEFAULT_TIMEOUT_SETTINGS };
   }
 }

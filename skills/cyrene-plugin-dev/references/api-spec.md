@@ -8,7 +8,7 @@
   "id": "my-plugin",
   "name": "My Plugin",
   "version": "1.0.0",
-  "description": "An example Cyrene plugin",
+  "description": "An example Mochi plugin",
   "author": "Your Name",
   "entry": "index.cjs",
   "defaultEnabled": false,
@@ -266,7 +266,7 @@ const text = await ctx.deps.llm.generateText(
 
 # 语音输入租约（本地 ASR 插件契约）
 
-Cyrene 只提供受控的最终文本提交入口；模型、运行时、麦克风采集和窗口全部由插件自行维护：
+Mochi 只提供受控的最终文本提交入口；模型、运行时、麦克风采集和窗口全部由插件自行维护：
 
 ```js
 const lease = await ctx.deps.speechInput.acquire({ target: "active-chat" });
@@ -317,7 +317,7 @@ scan -> disabled（用户插件首次发现默认停用）
 ## 插件目录
 
 ```text
-userData/plugins/<plugin-id>/      # 用户插件（打包版 = %APPDATA%\Cyrene\plugins\）
+userData/plugins/<plugin-id>/      # 用户插件（打包版 = %APPDATA%\Mochi\plugins\）
 src/plugins/<plugin-id>/           # 内置插件（随应用构建）
 userData/plugin-data/<plugin-id>/  # 插件私有数据，卸载不删
 ```

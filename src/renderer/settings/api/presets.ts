@@ -8,6 +8,8 @@ import type { VendorPresetDefaults } from "../../../shared/vendor-registry/model
 import type { ModelPreset } from "../shared/types";
 import { CUSTOM_ENDPOINT_PROVIDERS } from "../custom-endpoint-state";
 
+// `iconUrl` 是上游遗留字段：界面画厂商标识走 `@lobehub/icons`，这里的路径没有消费者，
+// `public/icons/providers/` 也已不在仓内。字段留着是因为删它要改 `ModelPreset` 类型与一排引用它的测试。
 const PRESENTATION: Record<BuiltinProviderId, Pick<ModelPreset, "iconUrl" | "websiteUrl">> = {
   minimax: { iconUrl: "../icons/providers/minimax.svg", websiteUrl: "https://platform.minimaxi.com/" },
   deepseek: { iconUrl: "../icons/providers/deepseek.svg", websiteUrl: "https://platform.deepseek.com/" },
@@ -36,6 +38,15 @@ export const MODEL_PRESETS: ModelPreset[] = [
       ...(visionModels.length ? { visionModels: [...visionModels] } : {}),
     };
   }),
+{
+    providerName: "Magpie",
+    providerId: "magpie",
+    shortName: "Magpie",
+    baseUrl: "http://127.0.0.1:3425/v1",
+    transport: "openai",
+    mainModels: [],
+    iconUrl: "../icons/providers/custom-endpoint.svg",
+  },
 {
     providerName: CUSTOM_ENDPOINT_PROVIDERS.cloud,
     providerId: "custom-cloud",

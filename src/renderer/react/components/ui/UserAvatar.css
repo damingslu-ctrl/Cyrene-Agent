@@ -31,7 +31,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  filter: drop-shadow(0 2px 8px rgba(76, 55, 98, 0.22));
+  filter: drop-shadow(0 2px 8px color-mix(in srgb, var(--rb-pink-700) 22%, transparent));
 }
 
 /* 有未读公告时头像右上角的粉点；多于一条时直接显示条数 */
@@ -46,7 +46,7 @@
   justify-content: center;
   border: 1.5px solid var(--rb-surface-elevated, #fff);
   border-radius: 999px;
-  background: var(--rb-accent, #ff5b8a);
+  background: var(--rb-accent);
   color: #fff;
   font: 600 10px/1 var(--rb-font-sans, inherit);
 }
@@ -66,7 +66,7 @@
 }
 
 .cy-user-avatar-circle span {
-  color: #c46a8a;
+  color: var(--rb-accent);
   font-size: 14px;
   font-weight: 600;
 }
@@ -118,8 +118,8 @@
   place-items: center;
   overflow: hidden;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--rb-accent, #ff5b8a) 18%, var(--rb-surface-hover, #f4f1f3));
-  color: var(--rb-accent, #ff5b8a);
+  background: color-mix(in srgb, var(--rb-accent) 18%, var(--rb-surface-hover, #f4f1f3));
+  color: var(--rb-accent);
   font-weight: 600;
 }
 
@@ -189,7 +189,7 @@
   margin-left: auto;
   padding: 0 4px;
   border-radius: 999px;
-  background: var(--rb-accent, #ff5b8a);
+  background: var(--rb-accent);
   color: #fff;
   font: 600 10px/1 var(--rb-font-sans, inherit);
 }
@@ -222,7 +222,7 @@
   position: absolute;
   left: 10px;
   display: inline-flex;
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
 }
 
 @keyframes cy-user-menu-in {

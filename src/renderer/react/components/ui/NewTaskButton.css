@@ -33,7 +33,7 @@
 }
 
 .cy-side-action.is-active .cy-side-action-icon {
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
 }
 
 .cy-side-action-label {
@@ -56,6 +56,6 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #ff3b5c;
+  background: var(--rb-accent);
   pointer-events: none;
 }

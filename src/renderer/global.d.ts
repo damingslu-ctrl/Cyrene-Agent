@@ -1,7 +1,6 @@
 // Global type augmentations for renderer
 
 import type { ReviewSnapshot, ReviewRestoreOutcome } from "../shared/review-types";
-import type { AppUpdateApi } from "../shared/app-update";
 import type { PluginManagementApi, PluginPanelApi } from "../shared/plugin-management";
 import type { MomentsApi } from "../shared/moments-types";
 import type { WorkspaceListResult, WorkspaceReadResult } from "../shared/workspace-files-types";
@@ -119,6 +118,7 @@ interface SettingsWindowApi {
   }) => Promise<{ added: boolean; profiles: unknown[]; defaultModelProfileId?: string }>;
   deleteModelProfile: (id: string) => Promise<unknown>;
   setDefaultModelProfile: (id: string) => Promise<unknown>;
+  syncMagpieModels: () => Promise<{ available: boolean; changed: boolean; gatewayUrl?: string; importedModels: number; profileId?: string; error?: string }>;
   getConfig: () => Promise<{
     memoryMode?: "vector" | "summary" | "wiki" | "off";
     vision?: { baseUrl: string; apiKey: string; model: string };
@@ -146,6 +146,7 @@ interface SettingsWindowApi {
     manualReasoning?: import("../shared/manual-reasoning").ManualReasoningConfig;
   }) => Promise<Record<string, unknown>>;
   testVision: (config: { baseUrl: string; apiKey: string; model: string }) => Promise<{ ok: boolean; latency?: number; sample?: string; error?: string }>;
+  checkAmapKey: (key?: string) => Promise<{ ok: boolean; latency?: number; sample?: string; error?: string }>;
   getTimeoutSettings: () => Promise<import("../shared/timeout-types").TimeoutSettings>;
   saveTimeoutSettings: (config: Partial<import("../shared/timeout-types").TimeoutSettings>) => Promise<import("../shared/timeout-types").TimeoutSettings>;
 }
@@ -200,11 +201,9 @@ declare global {
       onChanged: (callback: () => void) => () => void;
     };
     system?: SystemApi;
-    news?: import("../shared/news-types").NewsApi;
     review?: ReviewApi;
     workspaceFiles?: WorkspaceFilesApi;
     openInApp?: OpenInAppApi;
-    appUpdate?: AppUpdateApi;
     plugins?: PluginManagementApi;
     pluginPanel?: PluginPanelApi;
     moments?: MomentsApi;

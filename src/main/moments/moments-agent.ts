@@ -137,7 +137,7 @@ export function formatNow(now: Date): string {
 }
 
 function authorLabel(author: MomentComment["author"]): string {
-  return author === "cyrene" ? "昔涟" : "用户";
+  return author === "cyrene" ? "麻糬" : "用户";
 }
 
 /**
@@ -213,7 +213,7 @@ export interface BuildReplyMessagesInput {
   comments: readonly MomentComment[];
   /** 触发本次回复的用户评论 id，其回复链必须完整保留 */
   replyTargetId: string;
-  /** 动态的触发摘录（仅昔涟由对话驱动的动态才有，供理解发帖语境） */
+  /** 动态的触发摘录（仅麻糬由对话驱动的动态才有，供理解发帖语境） */
   triggerExcerpt?: string;
   localNow: Date;
 }
@@ -270,7 +270,7 @@ export interface BuildPostGenerationMessagesInput {
   pluginContext?: string;
   /** 触发摘录：ring buffer 组装的会话原文 */
   summary: string;
-  /** 最近昔涟动态（供新颖性判断） */
+  /** 最近麻糬动态（供新颖性判断） */
   recentCyrenePosts: readonly MomentPost[];
   localNow: Date;
 }
@@ -479,7 +479,7 @@ export async function runMomentsModel(input: RunMomentsModelInput): Promise<Mome
 export interface MomentsAgentDeps {
   buildPersona: () => string;
   runModel: (messages: ChatMessage[]) => Promise<MomentsModelOutput>;
-  /** 提交昔涟动态（store 串行队列内含开关复核）；返回 applied 表示真的落库 */
+  /** 提交麻糬动态（store 串行队列内含开关复核）；返回 applied 表示真的落库 */
   commitPost: (input: { text: string; media: MomentMedia[]; source: MomentPostSource }) => Promise<{ applied: boolean }>;
   /** 后置配图匹配：wantImage 时按文案+摘录选官方素材；未命中返回 null（纯文字降级） */
   matchMedia: (query: string) => Promise<MomentMedia | null>;
@@ -502,10 +502,10 @@ export interface MomentsAgentDeps {
 }
 
 export interface MomentsAgent {
-  /** 昔涟对动态表态的决策：动态已删 → stale；模型失败 → retry；输出非法 → invalid。
-   *  mentioned：用户在这条动态里 @ 了昔涟——prompt 会感知点名，延迟也走秒回档。 */
+  /** 麻糬对动态表态的决策：动态已删 → stale；模型失败 → retry；输出非法 → invalid。
+   *  mentioned：用户在这条动态里 @ 了麻糬——prompt 会感知点名，延迟也走秒回档。 */
   decideUserPostReaction: (postId: string, mentioned?: boolean) => Promise<ReactionDecideOutcome>;
-  /** 昔涟被回复后的决策：post 已删 / 触发评论已删 → stale */
+  /** 麻糬被回复后的决策：post 已删 / 触发评论已删 → stale */
   decideCommentReply: (postId: string, replyTargetId: string) => Promise<ReactionDecideOutcome>;
   /** 主动发帖决策：返回是否真的发出了动态（供策略层记账）；发帖不走决策/落库分离——配图匹配本身就是决策的一部分。
    *  conversationId / channel 是触发发帖的会话归属（事件到达时冻结的快照），原样透传给插件提示词上下文。 */

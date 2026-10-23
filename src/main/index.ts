@@ -10,6 +10,8 @@
 import { app } from "electron";
 import { createApplication } from "./application/application";
 import { createDefaultApplicationDependencies } from "./application/default-dependencies";
+import { installEgressWatchdogEverywhere } from "./egress/egress-watchdog";
+import { armEgressProbe, readEgressProbeArg } from "./egress/egress-probe";
 import { registerPluginPanelScheme } from "./plugin-panel-protocol";
 import { installGlobalNavigationGuard } from "./windows/external-link";
 
@@ -36,8 +38,47 @@ const application = createApplication(createDefaultApplicationDependencies());
 application.installLifecycleHandlers();
 application.prepareBeforeReady();
 
+/**
+ * 运行时出口看门狗（P4 Task 6）：A 期唯一的「真窗尺」。
+ * 静态锁只能证明标识面干净，间接路径（库内写死的地址、运行时拼出来的 host）要在这里记。
+ */
+let egressWatchdog: ReturnType<typeof installEgressWatchdogEverywhere> | null = null;
+
+/** 非探针档也要看得见：把新登记的外部请求逐条 warn 出来，10s 一次，不阻塞退出。 */
+function watchEgressInBackground(): void {
+  let reported = 0;
+  const timer = setInterval(() => {
+    const entries = egressWatchdog?.entries() ?? [];
+    for (; reported < entries.length; reported += 1) {
+      const entry = entries[reported];
+      console.warn(`[egress] external ${entry.method} ${entry.resourceType} ${entry.url}`);
+    }
+  }, 10_000);
+  timer.unref();
+}
+
 if (application.isPrimaryProcess()) {
   void app.whenReady()
-    .then(() => application.start())
+    .then(() => {
+      // ready 之后、窗口起来之前装：此时 defaultSession 已可用，首窗请求也会被记到。
+      const egressProbeMs = readEgressProbeArg();
+      if (egressProbeMs !== null) {
+        // 探针档只替换「装尺 + 到点落盘退出」这一层，编排照走。这里曾经直接 `return`，
+        // 于是进程不建窗、不加载渲染，表永远是空的——那种 `external=0` 量的是一个空转进程，
+        // 不是这个软件（Task 31 第一层的假绿）。
+        // 验收跑的是全新 userData（没配模型 key），key-gated 的供应商请求本来就不会出现；
+        // 万一真出现了，那正是这次改造要抓的东西，不能当噪音排掉。
+        // 也不能再往下装第二把尺：Electron 每个 channel 只留最后一个监听，
+        // 常规装尺会把探针那把的表挤成空的。
+        armEgressProbe(egressProbeMs, app.getPath("userData"));
+        return application.start();
+      }
+      // defaultSession + 运行期新建的每个 partition 都进射程：
+      // 内置浏览器（persist:cyrene-right-browser）与考试页（cyrene-learn-exam）各用一个 session，
+      // 只挂 defaultSession 会把这两处的真实外呼读成 0 笔。
+      egressWatchdog = installEgressWatchdogEverywhere();
+      watchEgressInBackground();
+      return application.start();
+    })
     .catch((error) => application.handleFatalStartup(error));
 }

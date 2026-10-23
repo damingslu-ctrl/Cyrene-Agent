@@ -579,7 +579,7 @@ async function saveInboundWechatMedia(
   if (!item.media) throw new Error("缺少媒体下载参数");
   const data = await downloadWechatMedia(item.media);
   const ext = pickInboundExtension(item, data);
-  const inboxDir = path.join(app.getPath("desktop"), "Cyrene 收件箱");
+  const inboxDir = path.join(app.getPath("desktop"), "Mochi 收件箱");
   await fs.mkdir(inboxDir, { recursive: true });
   const filePath = path.join(inboxDir, buildStoredFileName("wechat", messageId, item.fileName || item.kind, ext));
   await fs.writeFile(filePath, data);

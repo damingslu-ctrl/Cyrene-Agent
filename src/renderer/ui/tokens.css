@@ -1,43 +1,47 @@
+/* 命名债（spec §1 M3）：--rb-pink-* / --rb-text-on-pink / --rb-grad-pink / --rb-glow-pink
+   这些名字里的 pink 是上游品牌时代留下的，值已由 src/shared/palette-from-cat.ts 派生成
+   猫蓝（ACCENT #5b8def）。改名要打爆上千处引用与 25-token 契约，本期明确不做；
+   读代码时把 pink 读成「强调色」即可。要改配色请改派生器，别改这里——改了会被派生锁打回。 */
 :root {
   /* ===== Surfaces (deep dark for tech feel) ===== */
-  --rb-bg-0: #08070f;
-  --rb-bg-1: #0f0d1f;
-  --rb-bg-2: #181432;
-  --rb-bg-3: #221c46;
-  --rb-bg-elevated: #2a2350;
+  --rb-bg-0: #eeeae0;
+  --rb-bg-1: #f9f7f1;
+  --rb-bg-2: #f2f6fe;
+  --rb-bg-3: #e7eefd;
+  --rb-bg-elevated: #ffffff;
 
   /* ===== Brand pink scale ===== */
-  --rb-pink-50:  #fef1f7;
-  --rb-pink-100: #fde0ed;
-  --rb-pink-200: #fbb6d4;
-  --rb-pink-300: #f88fbc;
-  --rb-pink-400: #f472b6;
-  --rb-pink-500: #ec4899;   /* primary brand */
-  --rb-pink-600: #db2777;
-  --rb-pink-700: #be185d;
-  --rb-pink-glow: #ff6ec7;
+  --rb-pink-50: #f5f8fe;
+  --rb-pink-100: #e5edfc;
+  --rb-pink-200: #cadafa;
+  --rb-pink-300: #abc5f7;
+  --rb-pink-400: #85aaf3;
+  --rb-pink-500: #5b8def;   /* primary brand */
+  --rb-pink-600: #4a7fe0;
+  --rb-pink-700: #446fbf;
+  --rb-pink-glow: #8ab4ff;
 
   /* ===== Accent purple (gradient endpoint) ===== */
-  --rb-violet-400: #b794f4;
-  --rb-violet-500: #9f7aea;
-  --rb-violet-600: #7c5fcc;
+  --rb-violet-400: #f27d92;
+  --rb-violet-500: #dd6a7f;
+  --rb-violet-600: #ba5e71;
 
   /* ===== Cyan (secondary tech accent) ===== */
-  --rb-cyan-400: #67e8f9;
-  --rb-cyan-500: #22d3ee;
+  --rb-cyan-400: #8ab4ff;
+  --rb-cyan-500: #5b8def;
 
   /* ===== Text ===== */
-  --rb-text-strong:  #fef7ff;
-  --rb-text-default: #ebe5f5;
-  --rb-text-muted:   #a094c1;
-  --rb-text-faint:   #6b6388;
+  --rb-text-strong: #2b2f3a;
+  --rb-text-default: #2b2f3a;
+  --rb-text-muted: #787d8a;
+  --rb-text-faint: #a1a5ae;
   --rb-text-on-pink: #ffffff;
 
   /* ===== Borders ===== */
-  --rb-border-faint:  rgba(236, 72, 153, 0.08);
-  --rb-border-soft:   rgba(236, 72, 153, 0.18);
-  --rb-border-strong: rgba(236, 72, 153, 0.40);
-  --rb-border-grid:   rgba(157, 127, 234, 0.12);
+  --rb-border-faint: #f3f1ec;
+  --rb-border-soft: #e8e4db;
+  --rb-border-strong: #d8d1c2;
+  --rb-border-grid: #f1f5fe;
 
   /* Semantic roles shared by shell and React components. */
   --rb-surface-page: var(--rb-bg-0);
@@ -47,14 +51,14 @@
   --rb-surface-active: var(--rb-bg-3);
   --rb-surface-soft: var(--rb-surface-hover);
   --rb-surface-secondary: var(--rb-surface-soft);
-  --rb-code-bg: #fafafa;
-  --rb-diff-bg: #fbfafb;
-  --rb-diff-add-bg: #e6ffec;
-  --rb-diff-add-text: #116329;
-  --rb-diff-remove-bg: #ffebe9;
-  --rb-diff-remove-text: #82071e;
-  --rb-diff-info-bg: #ddf4ff;
-  --rb-diff-info-text: #0550ae;
+  --rb-code-bg: #f8f8f9;
+  --rb-diff-bg: #fcfcfc;
+  --rb-diff-add-bg: #eaf6ef;
+  --rb-diff-add-text: #499f6d;
+  --rb-diff-remove-bg: #fbedf0;
+  --rb-diff-remove-text: #c16174;
+  --rb-diff-info-bg: #ecf2fd;
+  --rb-diff-info-text: #537ed3;
   --rb-text-primary: var(--rb-text-strong);
   --rb-text-secondary: var(--rb-text-muted);
   --rb-text-disabled: var(--rb-text-faint);
@@ -62,23 +66,23 @@
   --rb-border-default: var(--rb-border-soft);
   --rb-border-subtle: var(--rb-border-faint);
   --rb-border-elevated: var(--rb-border-strong);
-  --rb-border-focus: var(--rb-pink-400);
+  --rb-border-focus: #5b8def;
   --rb-accent: var(--rb-pink-500);
   --rb-accent-hover: var(--rb-pink-600);
-  --rb-danger: #fb7185;
-  --rb-success: #34d399;
-  --rb-warning: #fbbf24;
-  --rb-info: var(--rb-cyan-400);
+  --rb-danger: #dd6a7f;
+  --rb-success: #4fb477;
+  --rb-warning: #d97757;
+  --rb-info: #5b8def;
 
   /* ===== Gradient ===== */
-  --rb-grad-pink: linear-gradient(135deg, #ec4899 0%, #9f7aea 100%);
-  --rb-grad-pink-hot: linear-gradient(135deg, #ff6ec7 0%, #ec4899 50%, #9f7aea 100%);
-  --rb-grad-bg: radial-gradient(ellipse at top, #181432 0%, #08070f 60%);
+  --rb-grad-pink: linear-gradient(135deg, #5b8def 0%, #4a7fe0 100%);
+  --rb-grad-pink-hot: linear-gradient(135deg, #8ab4ff 0%, #5b8def 50%, #4a7fe0 100%);
+  --rb-grad-bg: radial-gradient(ellipse at top, #e7e9ec 0%, #f7f4ec 60%);
 
   /* ===== Glow (tech feel) ===== */
-  --rb-glow-pink: 0 0 20px rgba(236, 72, 153, 0.35);
-  --rb-glow-soft: 0 0 12px rgba(236, 72, 153, 0.18);
-  --rb-glow-violet: 0 0 24px rgba(157, 127, 234, 0.28);
+  --rb-glow-pink: 0 0 20px rgba(91, 141, 239, 0.26);
+  --rb-glow-soft: 0 0 12px rgba(43, 47, 58, 0.1);
+  --rb-glow-violet: 0 0 24px rgba(242, 125, 146, 0.16);
 
   /* ===== Radius (from MiniMax design ref, rounded everywhere) ===== */
   --rb-radius-xs: 4px;
@@ -131,15 +135,13 @@
   --rb-text-mono-em: 500 13px/1.50 var(--rb-font-mono);
 
   /* ===== Shadows ===== */
-  --rb-shadow-card:    0 4px 16px rgba(0, 0, 0, 0.35),
-                       0 1px 2px rgba(0, 0, 0, 0.25);
-  --rb-shadow-elevated:0 12px 40px rgba(0, 0, 0, 0.55),
-                       0 0 0 1px rgba(236, 72, 153, 0.10);
-  --rb-shadow-pink:    0 8px 32px rgba(236, 72, 153, 0.35);
-  --rb-shadow-workspace: var(--rb-shadow-card);
-  --rb-shadow-bubble-neutral: var(--rb-shadow-elevated);
-  --rb-shadow-bubble-accent: var(--rb-shadow-pink);
-  --rb-shadow-control-hover: var(--rb-shadow-elevated);
+  --rb-shadow-card: 0 4px 16px rgba(43, 47, 58, 0.1), 0 1px 2px rgba(43, 47, 58, 0.06);
+  --rb-shadow-elevated: 0 12px 40px rgba(43, 47, 58, 0.14), 0 0 0 1px rgba(91, 141, 239, 0.1);
+  --rb-shadow-pink: 0 8px 32px rgba(91, 141, 239, 0.22);
+  --rb-shadow-workspace: inset 0 2px 8px rgba(43, 47, 58, 0.04), inset 0 0 2px rgba(43, 47, 58, 0.03);
+  --rb-shadow-bubble-neutral: 2px 2px 3px rgba(43, 47, 58, 0.06), 3px 5px 16px rgba(43, 47, 58, 0.06);
+  --rb-shadow-bubble-accent: 2px 2px 4px rgba(91, 141, 239, 0.12), 3px 7px 16px rgba(91, 141, 239, 0.16);
+  --rb-shadow-control-hover: 2px 2px 5px rgba(43, 47, 58, 0.08), 3px 8px 18px rgba(43, 47, 58, 0.06);
   --rb-shadow-control-focus: 0 0 0 3px color-mix(in srgb, var(--rb-accent) 20%, transparent), var(--rb-shadow-elevated);
 
   /* Task-card semantic tokens; theme files resolve these against their own palette. */
@@ -161,33 +163,33 @@
 
   /* ===== Light-mode primitives (neutral defaults; pearl-white overrides these) ===== */
   --rb-card-bg:        transparent;
-  --rb-divider-light:  rgba(0, 0, 0, 0.08);
-  --rb-hover-light:    rgba(0, 0, 0, 0.04);
-  --rb-active-light:   rgba(0, 0, 0, 0.08);
-  --rb-input-bg:       rgba(255, 255, 255, 0.06);
-  --rb-input-border:   rgba(236, 72, 153, 0.18);
-  --rb-input-text:     #ebe5f5;
-  --rb-input-placeholder: rgba(235, 229, 245, 0.48);
-  --rb-slider-track:   rgba(255, 255, 255, 0.18);
-  --rb-slider-fill:    #ec4899;
+  --rb-divider-light: rgba(43, 47, 58, 0.08);
+  --rb-hover-light: rgba(43, 47, 58, 0.04);
+  --rb-active-light: rgba(43, 47, 58, 0.08);
+  --rb-input-bg: #ffffff;
+  --rb-input-border: #d8d1c2;
+  --rb-input-text: #2b2f3a;
+  --rb-input-placeholder: #9c9fa9;
+  --rb-slider-track: rgba(43, 47, 58, 0.18);
+  --rb-slider-fill: #5b8def;
   --rb-slider-thumb:   #ffffff;
-  --rb-toggle-off:     rgba(255, 255, 255, 0.18);
-  --rb-toggle-on:      #ec4899;
-  --rb-scroll-thumb:   rgba(255, 255, 255, 0.20);
-  --rb-scroll-thumb-hover: rgba(255, 255, 255, 0.32);
+  --rb-toggle-off: #e8e4db;
+  --rb-toggle-on: #5b8def;
+  --rb-scroll-thumb: rgba(74, 81, 98, 0.28);
+  --rb-scroll-thumb-hover: rgba(74, 81, 98, 0.44);
 
   /* ===== Markdown render variables (dark theme defaults) ===== */
-  --md-code-bg:           rgba(255, 255, 255, 0.04);
-  --md-code-border:       rgba(255, 182, 220, 0.18);
-  --md-inline-code-bg:    rgba(255, 255, 255, 0.08);
-  --md-inline-code-text:  #fef7ff;
+  --md-code-bg: #f8f8f9;
+  --md-code-border: #e8e4db;
+  --md-inline-code-bg: #f3f4f4;
+  --md-inline-code-text: #2b2f3a;
   --md-quote-border:      var(--rb-pink-400);
-  --md-quote-bg:          rgba(236, 72, 153, 0.06);
-  --md-table-border:      rgba(255, 182, 220, 0.18);
+  --md-quote-bg: #f7fafe;
+  --md-table-border: #e8e4db;
   --md-link-color:        var(--rb-pink-400);
   --md-link-hover:        var(--rb-pink-300);
   --md-copy-text:         var(--rb-text-muted);
-  --md-copy-bg:           rgba(255, 255, 255, 0.06);
+  --md-copy-bg: #f7f7f7;
   --md-copy-border:       var(--rb-border-soft);
   --md-katex-text:        var(--rb-text-default);
 

@@ -301,6 +301,7 @@
 .cy-settings-music-modal__section label { color: var(--rb-text-primary); font: var(--rb-text-small-em); }
 .cy-settings-music-modal__section .ant-input,
 .cy-settings-music-modal__section .ant-input-affix-wrapper { border-color: var(--rb-border-default); background: var(--rb-surface-elevated); }
+.cy-settings-music-modal__developer { justify-self: start; height: auto; padding: 0; font: var(--rb-text-small); }
 .cy-settings-music-modal__section textarea { resize: vertical; }
 .cy-settings-music-modal__actions { display: flex; justify-content: flex-end; }
 .cy-settings-music-modal__connection { display: flex; align-items: center; gap: 10px; min-height: 36px; color: var(--rb-text-primary); font: var(--rb-text-small); }
@@ -831,6 +832,7 @@
 .cy-model-editor__title-copy p { margin: 0; color: var(--rb-text-secondary); font: var(--rb-text-caption); }
 
 .cy-model-card { background: var(--rb-surface-elevated); }
+.cy-model-magpie { margin-bottom: 12px; }
 .cy-model-card__section { padding: 16px; }
 .cy-model-card__section + .cy-model-card__section { border-top: 1px solid var(--rb-border-subtle); }
 
@@ -938,7 +940,19 @@
 .cy-cyrene-note { min-height: 0; color: var(--rb-text-secondary); font: var(--rb-text-micro); }
 .cy-settings-row .cy-cyrene-dimensions { width: min(180px, 48%); flex: none; }
 .cy-cyrene-actions { justify-content: flex-end; min-height: 56px; }
-.cy-cyrene-model-choice { max-width: 48%; overflow: hidden; text-overflow: ellipsis; }
+.cy-cyrene-models { flex-direction: column; align-items: stretch; gap: 10px; }
+.cy-cyrene-model-list { display: grid; gap: 8px; }
+.cy-cyrene-model-empty { color: var(--rb-text-secondary); font: var(--rb-text-small); }
+.cy-cyrene-model { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--rb-border-subtle); border-radius: 10px; background: var(--rb-surface-elevated); }
+.cy-cyrene-model--current { border-color: var(--rb-border-focus); }
+.cy-cyrene-model__copy { display: grid; min-width: 0; }
+.cy-cyrene-model__copy strong { color: var(--rb-text-primary); font: var(--rb-text-small-em); }
+.cy-cyrene-model__copy span { color: var(--rb-text-secondary); font: var(--rb-text-small); overflow-wrap: anywhere; }
+.cy-cyrene-model__actions { display: flex; align-items: center; gap: 8px; }
+.cy-cyrene-install { grid-column: 1 / -1; display: grid; gap: 6px; }
+.cy-cyrene-install__bar { height: 4px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--rb-text-primary) 12%, transparent); }
+.cy-cyrene-install__bar > span { display: block; height: 100%; border-radius: 999px; background: var(--rb-accent); transition: width 0.2s ease; }
+.cy-cyrene-install__meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--rb-text-secondary); font: var(--rb-text-small); }
 .cy-settings-form-footer { display: flex; justify-content: flex-end; margin-top: 20px; }
 .cy-settings-page .cy-cyrene-radio-row > .ant-radio-group { display: flex; flex-wrap: wrap; max-width: 55%; }
 .cy-settings-page .cy-cyrene-radio-row > .ant-radio-group .ant-radio-button-wrapper { height: auto; min-height: 32px; white-space: normal; overflow-wrap: anywhere; text-align: center; }
@@ -1024,7 +1038,8 @@
 @media (max-width: 900px) {
   .cy-settings-page .cy-cyrene-radio-row > .ant-radio-group { max-width: 100%; }
   .cy-settings-page .cy-cyrene-radio-row { align-items: flex-start; flex-direction: column; }
-  .cy-cyrene-model-choice { max-width: 100%; }
+  .cy-cyrene-model { grid-template-columns: minmax(0, 1fr); }
+  .cy-cyrene-model__actions { justify-content: flex-start; }
 }
 @media (max-width: 720px) {
   .cy-memory-fields { grid-template-columns: minmax(0, 1fr); }
@@ -1098,7 +1113,7 @@
   }
 }
 
-/* 昔涟消息字体预览：与聊天 AI 回复气泡消费同一组 CSS 变量，拖动滑块即时可见效果 */
+/* 麻糬消息字体预览：与聊天 AI 回复气泡消费同一组 CSS 变量，拖动滑块即时可见效果 */
 .cy-message-typography-preview {
   flex: 1;
   min-width: 0;

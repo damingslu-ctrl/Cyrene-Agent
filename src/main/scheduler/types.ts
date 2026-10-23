@@ -74,7 +74,7 @@ export interface ScheduledTaskHistoryEntry {
   outputPreview?: string;
   errorMessage?: string;
   effectiveToolIds: string[];
-  /** 每次触发创建的独立 Cyrene 会话，可从运行历史重新打开。 */
+  /** 每次触发创建的独立麻糬会话，可从运行历史重新打开。 */
   sessionId?: string;
 }
 

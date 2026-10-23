@@ -17,9 +17,9 @@ describe("buildModePrompt", () => {
   });
 
   it("only injects the Golden Descendant roster into task-capable modes", () => {
-    expect(buildModePrompt("work", load)).toContain("可委托的黄金裔");
-    expect(buildModePrompt("code", load)).toContain("可委托的黄金裔");
-    expect(buildModePrompt("chat", load)).not.toContain("可委托的黄金裔");
-    expect(buildModePrompt("learn", load)).not.toContain("可委托的黄金裔");
+    expect(buildModePrompt("work", load)).toContain("可委托的猫伴");
+    expect(buildModePrompt("code", load)).toContain("可委托的猫伴");
+    expect(buildModePrompt("chat", load)).not.toContain("可委托的猫伴");
+    expect(buildModePrompt("learn", load)).not.toContain("可委托的猫伴");
   });
 });

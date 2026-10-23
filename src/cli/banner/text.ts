@@ -1,16 +1,22 @@
 /**
  * The three fixed lines shown inside the banner frame.
- * The quote is the Cyrene brand line; it is intentionally not the version.
+ * The title/tagline are brand-driven (src/shared/brand.ts); the quote stays
+ * a fixed line, not the version.
  */
+import { PRODUCT_NAME, PRODUCT_NAME_ZH } from "../../shared/brand";
+
+export const BANNER_TITLE = `${PRODUCT_NAME}（${PRODUCT_NAME_ZH}）`;
+export const BANNER_TAGLINE = "本机构建 · 不联网检查升级";
+
 export const BANNER_LINES = [
-  "♡ Cyrene Agent ♡",
-  "Your Desktop AI Companion",
+  `♡ ${BANNER_TITLE} ♡`,
+  BANNER_TAGLINE,
   '"Every memory has a place."',
 ] as const;
 
 export const ABOUT_LINES = [
-  "GitHub:   https://github.com/Playa-0v0/Cyrene-Agent",
-  "License:  MIT (see MODEL_LICENSE.md for model terms)",
+  "Build:    local · no online update checks",
+  "License:  MIT (see LICENSE)",
 ] as const;
 
 /** Default framed-box width when the terminal width is unknown or too narrow. */

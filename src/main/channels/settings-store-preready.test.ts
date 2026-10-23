@@ -18,7 +18,7 @@ vi.mock("electron", () => {
   return {
     app: {
       getPath: (_k: string) => PREREADY_TMP,
-      getName: () => "live2d-cyrene",
+      getName: () => "cyrene-verge",
       isReady: () => appReady,
     },
     safeStorage: {

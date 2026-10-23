@@ -124,13 +124,13 @@ function iconSpecForTool(toolId: string): ToolIconSpec {
   return { lucide: FALLBACK_TOOL_ICON };
 }
 
-/** 图标配色统一走主题粉（浅粉底 + 粉色图标），不做逐工具随机色。 */
+/** 图标配色统一走主题主色（主色浅底 + 主色图标），不做逐工具随机色。 */
 function ToolIcon({ toolId }: { toolId: string }) {
   const spec = iconSpecForTool(toolId);
   return (
     <span
       className="tool-card__icon"
-      style={{ background: "var(--rb-surface-active, #fde0ed)", color: "var(--rb-accent, #ff5b8a)" }}
+      style={{ background: "var(--rb-surface-active)", color: "var(--rb-accent)" }}
     >
       {"brand" in spec ? (
         // 品牌图标用官方 path，颜色统一走主题色，保持整卡配色一致

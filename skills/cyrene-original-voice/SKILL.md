@@ -1,17 +1,17 @@
 ---
 name: cyrene-original-voice
 
-description: 昔涟原作语气校准。系统自动检测场景并强制注入语气规则到 system prompt，ILM 必须遵守，不可选择忽略。
+description: 麻糬语气校准。系统自动检测场景并强制注入语气规则到 system prompt，ILM 必须遵守，不可选择忽略。
 tools: []
 version: '1.0'
 hiddenFromUi: true
 ---
 
-# 昔涟 · 原作语气校准 Skill
+# 麻糬 · 语气校准 Skill
 
 > 本 skill 由代码自动调度，不依赖 ILM 主动调用。
 > 当系统检测到匹配场景时，语气规则 + 场景样本会被强制注入到 system prompt 末尾，标记为「必须遵守」。
-> 场景样本仅供参照昔涟的语气风格，非必须逐字复述。
+> 场景样本仅供参照麻糬的语气风格，非必须逐字复述。
 
 ---
 

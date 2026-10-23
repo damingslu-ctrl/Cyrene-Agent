@@ -138,16 +138,16 @@ describe("TaskSessionStore", () => {
 
   it("finds and closes an open companion context per parent conversation", async () => {
     const { store } = createStore();
-    const created = await store.create({ ...createInput(), companionId: "风堇" });
+    const created = await store.create({ ...createInput(), companionId: "年糕" });
 
-    expect(await store.findOpenByCompanion("chat-1", "风堇")).toMatchObject({ id: created.id });
-    expect(await store.listOpenCompanions("chat-1")).toEqual(["风堇"]);
+    expect(await store.findOpenByCompanion("chat-1", "年糕")).toMatchObject({ id: created.id });
+    expect(await store.listOpenCompanions("chat-1")).toEqual(["年糕"]);
 
-    await expect(store.closeByCompanion("chat-1", "风堇")).rejects.toThrow("TASK_ALREADY_RUNNING");
+    await expect(store.closeByCompanion("chat-1", "年糕")).rejects.toThrow("TASK_ALREADY_RUNNING");
     await store.checkpoint(created.id, { status: "completed" });
-    const closed = await store.closeByCompanion("chat-1", "风堇");
+    const closed = await store.closeByCompanion("chat-1", "年糕");
     expect(closed).toMatchObject({ status: "completed", contextOpen: false });
-    expect(await store.findOpenByCompanion("chat-1", "风堇")).toBeNull();
+    expect(await store.findOpenByCompanion("chat-1", "年糕")).toBeNull();
     expect(await store.listOpenCompanions("chat-1")).toEqual([]);
   });
 

@@ -7,8 +7,8 @@ import { SettingsInput, SettingsPasswordInput, SettingsSelect, SettingsSwitch } 
 import { useTranslation } from "../../i18n";
 import { MusicSettingsModal } from "./MusicSettingsModal";
 import { Card } from "../../components/ui/Card";
+import { SEARCH_ENGINES, searchEngineOptionIds, type SearchEngineId, type SearchEngineProvider } from "../../../../shared/search-engines";
 
-type SearchEngine = "off" | "bocha" | "tavily" | "minimax" | "anySearch";
 type PermissionLevel = "project-read-only" | "read-only" | "scoped" | "per-action" | "full";
 
 interface ToolValues {
@@ -16,21 +16,23 @@ interface ToolValues {
   weatherSource: "open-meteo" | "amap";
   amapKey: string;
   travelEnabled: boolean;
-  searchEngine: SearchEngine;
+  searchEngine: SearchEngineId;
   searchBochaKey: string;
   searchTavilyKey: string;
   searchMinimaxKey: string;
   searchAnySearchKey: string;
+  searchBaiduKey: string;
+  searchDeepseekKey: string;
 }
 
 const defaults: ToolValues = {
   weatherEnabled: false, weatherSource: "open-meteo", amapKey: "", travelEnabled: false,
   searchEngine: "off", searchBochaKey: "", searchTavilyKey: "", searchMinimaxKey: "", searchAnySearchKey: "",
+  searchBaiduKey: "", searchDeepseekKey: "",
 };
 
-const searchKeyFor: Record<Exclude<SearchEngine, "off">, keyof ToolValues> = {
-  bocha: "searchBochaKey", tavily: "searchTavilyKey", minimax: "searchMinimaxKey", anySearch: "searchAnySearchKey",
-};
+/** 下拉里的搜索源：注册表里除「关闭」外的全部档位。 */
+const searchProviderIds = searchEngineOptionIds().filter((id): id is SearchEngineProvider => id !== "off");
 
 function readTools(value: unknown): ToolValues {
   const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -91,7 +93,7 @@ export function ToolSettingsPanel({ musicSettingsNavigation = 0 }: { musicSettin
   const { t } = useTranslation();
   const [values, setValues] = useState<ToolValues>(defaults);
   const [permission, setPermission] = useState<PermissionLevel>("read-only");
-  const [lastSearchEngine, setLastSearchEngine] = useState<Exclude<SearchEngine, "off">>("bocha");
+  const [lastSearchEngine, setLastSearchEngine] = useState<SearchEngineProvider>("bocha");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -101,6 +103,8 @@ export function ToolSettingsPanel({ musicSettingsNavigation = 0 }: { musicSettin
   const [confirmSeconds, setConfirmSeconds] = useState(5);
   const [musicCount, setMusicCount] = useState<number | null>(null);
   const [musicStatus, setMusicStatus] = useState("");
+  const [amapTesting, setAmapTesting] = useState(false);
+  const [amapKeyStatus, setAmapKeyStatus] = useState("");
 
   useEffect(() => {
     if (musicSettingsNavigation > 0) setMusicSettingsOpen(true);
@@ -158,7 +162,7 @@ export function ToolSettingsPanel({ musicSettingsNavigation = 0 }: { musicSettin
     if (await savePatch({ searchEngine }) && searchEngine !== "off") setLastSearchEngine(searchEngine);
   }
 
-  async function setSearchEngine(searchEngine: Exclude<SearchEngine, "off">) {
+  async function setSearchEngine(searchEngine: SearchEngineProvider) {
     if (await savePatch({ searchEngine })) setLastSearchEngine(searchEngine);
   }
 
@@ -205,8 +209,33 @@ export function ToolSettingsPanel({ musicSettingsNavigation = 0 }: { musicSettin
     }
   }
 
+  // 测的是输入框里当前这一串，而不是上次保存的旧 Key：改完没保存就点「测试」，
+  // 结果必须对应眼前看到的 Key。
+  async function testAmapKey() {
+    if (!window.settings?.checkAmapKey) return;
+    const key = values.amapKey.trim();
+    if (!key) { setAmapKeyStatus(t("settingsPage.tools.amapKeyRequired")); return; }
+    setAmapTesting(true);
+    setAmapKeyStatus(t("settingsPage.tools.amapKeyTesting"));
+    try {
+      const result = await window.settings.checkAmapKey(key);
+      setAmapKeyStatus(result.ok
+        ? (result.sample
+          ? t("settingsPage.tools.amapKeyTestOk", { latency: result.latency ?? 0, sample: result.sample })
+          : t("settingsPage.tools.amapKeyTestOkNoSample", { latency: result.latency ?? 0 }))
+        : t("settingsPage.tools.amapKeyTestFailed", { error: result.error ?? t("settingsPage.modelSettings.unknownError") }));
+    } catch (error) {
+      setAmapKeyStatus(t("settingsPage.tools.amapKeyTestFailed", { error: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      setAmapTesting(false);
+    }
+  }
+
   const activeSearch = values.searchEngine === "off" ? lastSearchEngine : values.searchEngine;
-  const searchKey = searchKeyFor[activeSearch];
+  // keyField=null 的档位（bing 走公开结果页、不带凭据）不渲染输入框而是一句说明：
+  // 摆一个空 key 框，用户会以为还得先去申请一个密钥才能用。
+  const activeSearchSpec = SEARCH_ENGINES[activeSearch];
+  const searchKeyField = activeSearchSpec.keyField;
   const permissionDisplay = permission === "scoped" ? "read-only" : permission;
 
   return <>
@@ -220,7 +249,7 @@ export function ToolSettingsPanel({ musicSettingsNavigation = 0 }: { musicSettin
           <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.weather")}</strong><span>{t("settingsPage.tools.weatherDescription")}</span></div><SettingsSwitch ariaLabel={t("settingsPage.tools.weather")} checked={values.weatherEnabled} disabled={saving} onChange={(checked) => void setBoolean("weatherEnabled", checked)} /></div>
           <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.weatherSource")}</strong></div><SettingsSelect className="cy-settings-tools__select" ariaLabel={t("settingsPage.tools.weatherSource")} value={values.weatherSource} disabled={saving} options={[{ value: "open-meteo", label: t("settingsPage.tools.openMeteo") }, { value: "amap", label: t("settingsPage.tools.amapWeather") }]} onChange={(weatherSource) => void savePatch({ weatherSource })} /></div>
           <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.travel")}</strong><span>{t("settingsPage.tools.travelDescription")}</span></div><SettingsSwitch ariaLabel={t("settingsPage.tools.travel")} checked={values.travelEnabled} disabled={saving} onChange={(checked) => void setBoolean("travelEnabled", checked)} /></div>
-          {(values.weatherSource === "amap" || values.travelEnabled) && <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.amapKey")}</strong><span>{t("settingsPage.tools.amapKeyDescription")}</span></div><div className="cy-settings-row__control cy-settings-tools__field"><SettingsPasswordInput showLabel={t("settingsPage.asr.showSecret")} hideLabel={t("settingsPage.asr.hideSecret")} value={values.amapKey} onChange={(event) => setValues((current) => ({ ...current, amapKey: event.target.value }))} /><Button disabled={saving} onClick={() => void savePatch({ amapKey: values.amapKey })}>{t("settingsPage.tools.save")}</Button></div></div>}
+          {(values.weatherSource === "amap" || values.travelEnabled) && <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.amapKey")}</strong><span>{amapKeyStatus || t("settingsPage.tools.amapKeyDescription")}</span></div><div className="cy-settings-row__control cy-settings-tools__field"><SettingsPasswordInput showLabel={t("settingsPage.asr.showSecret")} hideLabel={t("settingsPage.asr.hideSecret")} value={values.amapKey} onChange={(event) => { setValues((current) => ({ ...current, amapKey: event.target.value })); setAmapKeyStatus(""); }} /><Button disabled={saving} onClick={() => void savePatch({ amapKey: values.amapKey })}>{t("settingsPage.tools.save")}</Button><Button loading={amapTesting} disabled={saving} onClick={() => void testAmapKey()}>{t("settingsPage.tools.amapKeyTest")}</Button></div></div>}
         </Card>
       </section>
 
@@ -228,7 +257,7 @@ export function ToolSettingsPanel({ musicSettingsNavigation = 0 }: { musicSettin
         <div className="cy-settings-section__heading"><h2><Search size={18} />{t("settingsPage.tools.search")}</h2><p>{t("settingsPage.tools.searchDescription")}</p></div>
         <Card>
           <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.searchEnabled")}</strong></div><SettingsSwitch ariaLabel={t("settingsPage.tools.searchEnabled")} checked={values.searchEngine !== "off"} disabled={saving} onChange={(checked) => void setSearchEnabled(checked)} /></div>
-          {values.searchEngine !== "off" && <><div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.searchSource")}</strong></div><SettingsSelect className="cy-settings-tools__select" ariaLabel={t("settingsPage.tools.searchSource")} value={values.searchEngine} disabled={saving} options={(["bocha", "tavily", "minimax", "anySearch"] as const).map((value) => ({ value, label: t(`settingsPage.tools.search${value}`) }))} onChange={(value) => void setSearchEngine(value)} /></div><div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.searchKey", { provider: t(`settingsPage.tools.search${activeSearch}`) })}</strong></div><div className="cy-settings-row__control cy-settings-tools__field"><SettingsPasswordInput showLabel={t("settingsPage.asr.showSecret")} hideLabel={t("settingsPage.asr.hideSecret")} value={String(values[searchKey])} onChange={(event) => setValues((current) => ({ ...current, [searchKey]: event.target.value }))} /><Button disabled={saving} onClick={() => void savePatch({ [searchKey]: values[searchKey] })}>{t("settingsPage.tools.save")}</Button></div></div></>}
+          {values.searchEngine !== "off" && <><div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.searchSource")}</strong></div><SettingsSelect className="cy-settings-tools__select" ariaLabel={t("settingsPage.tools.searchSource")} value={values.searchEngine} disabled={saving} options={searchProviderIds.map((value) => ({ value, label: t(`settingsPage.tools.search${value}`) }))} onChange={(value) => void setSearchEngine(value)} /></div>{searchKeyField ? <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.searchKey", { provider: t(`settingsPage.tools.search${activeSearch}`) })}</strong></div><div className="cy-settings-row__control cy-settings-tools__field"><SettingsPasswordInput showLabel={t("settingsPage.asr.showSecret")} hideLabel={t("settingsPage.asr.hideSecret")} value={String(values[searchKeyField])} onChange={(event) => setValues((current) => ({ ...current, [searchKeyField]: event.target.value }))} /><Button disabled={saving} onClick={() => void savePatch({ [searchKeyField]: values[searchKeyField] })}>{t("settingsPage.tools.save")}</Button></div></div> : <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.tools.searchNoKey")}</strong><span>{t("settingsPage.tools.searchNoKeyDescription")}</span></div></div>}</>}
         </Card>
       </section>
 

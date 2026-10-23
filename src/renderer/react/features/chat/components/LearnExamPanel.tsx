@@ -238,7 +238,7 @@ export function LearnExamPanel({
             <div className="learn-exam-panel__question-meta"><span>{TYPE_LABEL[question.type]}</span><b>{question.points} 分</b><i>·</i><span>第 {activeIndex + 1} 题 / 共 {exam.questions.length} 题</span></div>
             <div className="learn-exam-panel__prompt" role="heading" aria-level={2}><ExamRichText text={question.prompt} /></div>
             <QuestionAnswer question={question} answer={answers[question.id]} disabled={isLocked} onChange={(answer) => saveAnswer(question.id, answer)} />
-            <p className="learn-exam-panel__hint"><Circle size={14} />{question.type === "multiple_choice" ? "本题为多选题，请选择所有你认为正确的选项。" : question.type === "essay" ? "尽量写出完整思路，提交后 Cyrene 会结合评分标准批改。" : "可以通过左侧导航随时切换题目，已经填写的答案会保留。"}</p>
+            <p className="learn-exam-panel__hint"><Circle size={14} />{question.type === "multiple_choice" ? "本题为多选题，请选择所有你认为正确的选项。" : question.type === "essay" ? "尽量写出完整思路，提交后麻糬会结合评分标准批改。" : "可以通过左侧导航随时切换题目，已经填写的答案会保留。"}</p>
             {exam.status === "graded" && exam.gradingResult && <GradingResult exam={exam} question={question} />}
             {exam.status === "grading" && <p className="learn-exam-panel__notice">已交卷，正在批改…</p>}
             {exam.status === "grading_failed" && <p className="learn-exam-panel__notice is-error">批改没有完成，可以重试。</p>}

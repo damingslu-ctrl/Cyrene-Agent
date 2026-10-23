@@ -1,4 +1,5 @@
 import { closeConversationDatabases } from "../storage/conversation-database-client";
+import { CONSOLE_PREFIX } from "../../shared/brand";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -529,7 +530,7 @@ describe("AgentRuntime 心情观察器", () => {
       { provider: "p", baseUrl: "u", model: "m", apiKey: "k" }, [], "问题", "回复",
     )).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalledWith(
-      "[Cyrene] observe runtime failed; keeping current feeling:",
+      CONSOLE_PREFIX + " observe runtime failed; keeping current feeling:",
       expect.any(Error),
     );
   });

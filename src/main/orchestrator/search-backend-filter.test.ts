@@ -1,90 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  validateSearchApiKey,
   shouldExposeSearchTool,
   filterToolsBySearchBackend,
   BUILTIN_SEARCH_TOOL_ID,
   MINIMAX_SEARCH_TOOL_PREFIX,
   type SearchBackend,
 } from "./search-backend-filter";
-
-// ── API Key 校验 ──────────────────────────
-
-describe("validateSearchApiKey", () => {
-  it("accepts a valid ASCII key", () => {
-    const result = validateSearchApiKey("sk-abc123XYZ", "Test Key");
-    expect(result.valid).toBe(true);
-    expect(result.normalized).toBe("sk-abc123XYZ");
-    expect(result.diagnostics.hasNonAscii).toBe(false);
-    expect(result.diagnostics.hasControlChars).toBe(false);
-  });
-
-  it("trims whitespace", () => {
-    const result = validateSearchApiKey("  sk-abc123  ", "Test Key");
-    expect(result.valid).toBe(true);
-    expect(result.normalized).toBe("sk-abc123");
-    expect(result.diagnostics.trimmed).toBe(true);
-  });
-
-  it("rejects empty key", () => {
-    const result = validateSearchApiKey("", "Test Key");
-    expect(result.valid).toBe(false);
-    expect(result.error).toContain("不能为空");
-  });
-
-  it("rejects whitespace-only key", () => {
-    const result = validateSearchApiKey("   ", "Test Key");
-    expect(result.valid).toBe(false);
-    expect(result.error).toContain("不能为空");
-    expect(result.diagnostics.trimmed).toBe(true);
-  });
-
-  it("rejects non-ASCII characters", () => {
-    const result = validateSearchApiKey("sk-abc中文123", "Test Key");
-    expect(result.valid).toBe(false);
-    expect(result.error).toContain("非 ASCII");
-    expect(result.diagnostics.hasNonAscii).toBe(true);
-  });
-
-  it("rejects smart quotes", () => {
-    const result = validateSearchApiKey("sk-abc\u201C123", "Test Key");
-    expect(result.valid).toBe(false);
-    expect(result.diagnostics.hasNonAscii).toBe(true);
-  });
-
-  it("rejects control characters", () => {
-    const result = validateSearchApiKey("sk-abc\x00123", "Test Key");
-    expect(result.valid).toBe(false);
-    expect(result.error).toContain("控制字符");
-    expect(result.diagnostics.hasControlChars).toBe(true);
-  });
-
-  it("rejects newline in key", () => {
-    const result = validateSearchApiKey("sk-abc\n123", "Test Key");
-    expect(result.valid).toBe(false);
-    expect(result.diagnostics.hasControlChars).toBe(true);
-  });
-
-  it("rejects tab in key", () => {
-    const result = validateSearchApiKey("sk-abc\t123", "Test Key");
-    expect(result.valid).toBe(false);
-    expect(result.diagnostics.hasControlChars).toBe(true);
-  });
-
-  it("diagnostics never contain the raw key", () => {
-    const result = validateSearchApiKey("sk-supersecretkey123", "Test Key");
-    const diagnosticsSerialized = JSON.stringify(result.diagnostics);
-    expect(diagnosticsSerialized).not.toContain("supersecretkey123");
-    // diagnostics only have metadata, not the key itself
-    expect(result.diagnostics.length).toBe(20);
-    expect(result.diagnostics.hasNonAscii).toBe(false);
-  });
-
-  it("reports correct length after trim", () => {
-    const result = validateSearchApiKey("  abc  ", "Test Key");
-    expect(result.diagnostics.length).toBe(3);
-  });
-});
+import { SEARCH_ENGINES, type SearchEngineProvider } from "../../shared/search-engines";
 
 // ── 搜索工具过滤 ──────────────────────────
 
@@ -95,6 +17,10 @@ describe("shouldExposeSearchTool", () => {
 
   it("exposes built-in web_search for tavily backend", () => {
     expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, "tavily")).toBe(true);
+  });
+
+  it("exposes built-in web_search for anySearch backend", () => {
+    expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, "anySearch")).toBe(true);
   });
 
   it("hides built-in web_search for minimax backend", () => {
@@ -125,6 +51,30 @@ describe("shouldExposeSearchTool", () => {
     expect(shouldExposeSearchTool("weather", "off")).toBe(true);
     expect(shouldExposeSearchTool("music_search", "minimax")).toBe(true);
     expect(shouldExposeSearchTool("file_create", "bocha")).toBe(true);
+  });
+
+  // 注册表驱动的穷尽覆盖：逐条硬写用例时，新增一档不会自动出现在这里，
+  // 而「忘改判定」的表现恰好是 web_search 静默消失——所以判定的覆盖面必须来自注册表。
+  it("内置 web_search 的暴露判定与注册表 builtIn 逐档一致", () => {
+    const providers = Object.keys(SEARCH_ENGINES) as SearchEngineProvider[];
+    expect(providers.length).toBeGreaterThan(0); // 空遍历会读成 PASS，先钉住有东西可测
+    for (const id of providers) {
+      expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, id), `档位 ${id}`).toBe(SEARCH_ENGINES[id].builtIn);
+    }
+    expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, "off")).toBe(false);
+  });
+
+  it("MiniMax MCP 工具只在 minimax 档暴露", () => {
+    for (const id of Object.keys(SEARCH_ENGINES) as SearchEngineProvider[]) {
+      expect(shouldExposeSearchTool("minimax-web-search-web_search", id), `档位 ${id}`).toBe(id === "minimax");
+    }
+  });
+
+  it("新增的免密钥/需密钥档都能把内置工具递给模型", () => {
+    // 这三档是本次加的；判定退回旧的 OR 列表时，这里三行全红。
+    expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, "bing")).toBe(true);
+    expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, "baidu")).toBe(true);
+    expect(shouldExposeSearchTool(BUILTIN_SEARCH_TOOL_ID, "deepseek")).toBe(true);
   });
 });
 

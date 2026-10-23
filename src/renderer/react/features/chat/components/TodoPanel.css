@@ -249,6 +249,11 @@
   width: 15px;
   height: 15px;
   flex-shrink: 0;
+  color: var(--rb-accent);
+}
+
+.cy-todo__bullet--checked path {
+  stroke: var(--rb-text-on-accent);
 }
 
 .cy-todo__content {

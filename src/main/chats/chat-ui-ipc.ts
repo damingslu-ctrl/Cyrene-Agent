@@ -1,3 +1,4 @@
+import { CONSOLE_PREFIX } from "../../shared/brand";
 import { app, BrowserWindow, clipboard, dialog } from "electron";
 import { stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -175,7 +176,7 @@ export function registerChatUiIpc(deps: ChatUiIpcDependencies): void {
     try {
       return list.map((entry) => describePendingAttachment(entry.path, entry.mime));
     } catch (err: any) {
-      console.error("[Cyrene] ingestFiles ERROR:", err?.message || err);
+      console.error(CONSOLE_PREFIX + " ingestFiles ERROR:", err?.message || err);
       return [];
     }
   });
@@ -207,7 +208,7 @@ export function registerChatUiIpc(deps: ChatUiIpcDependencies): void {
         }
       }
     } catch (err: any) {
-      console.error("[Cyrene] pasteClipboardFiles ERROR:", err?.message || err);
+      console.error(CONSOLE_PREFIX + " pasteClipboardFiles ERROR:", err?.message || err);
     }
     return attachments;
   });

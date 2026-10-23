@@ -1,3 +1,4 @@
+import { BRAND, CONSOLE_PREFIX } from "../../shared/brand";
 import { disposeAllShellJobs } from "../orchestrator/tools/builtin-tools/shell-job-manager";
 import { closeConversationDatabases } from "../storage/conversation-database-client";
 /**
@@ -11,12 +12,12 @@ import { closeConversationDatabases } from "../storage/conversation-database-cli
 import { app, BrowserWindow, dialog, screen } from "electron";
 import * as fs from "fs";
 import * as path from "path";
-import { autoUpdater } from "electron-updater";
 
 import { ensureGpuSandboxAcl } from "../gpu-sandbox-acl";
+import { configureVergeIdentity, hasExplicitUserDataDir } from "../app-identity";
 import { getExternalContentPaths } from "../external-content-paths";
 import { migrateStagedExternalContent } from "../external-content-migration";
-import { logger, LogTag } from "../logger";
+import { logger, LogTag, installMainLogSink } from "../logger";
 import { renderBanner } from "../../shared/banner";
 import { IPC } from "../../shared/ipc-channels";
 import { isDev } from "../env";
@@ -38,7 +39,6 @@ import { createModelBackedConversationTranscriptCompactor } from "../orchestrato
 import { ConversationJournalService } from "../orchestrator/conversation-journal-service";
 import { activeConversationRegistry } from "../chats/active-conversation-registry";
 import { registerSettingsIpc } from "../settings/settings-ipc";
-import { registerNewsIpc } from "../news/news-feed";
 import {
   applyGeneralSettings,
   handleGeneralSettingsChanged,
@@ -88,8 +88,7 @@ import {
 } from "../orchestrator/plan-mode";
 import { initMcpManager, pruneMcpServersByIds } from "../orchestrator/mcp-manager";
 import { syncPlaywrightMcp, syncFilesystemMcp, REMOVED_BUILTIN_MCP_IDS } from "../sync-mcp-builtin";
-import { registerAppUpdateIpc } from "../updater/app-update-ipc";
-import { createGitHubAppUpdateService, scheduleStartupUpdateCheck } from "../updater/github-app-updater";
+import { registerAppInfoIpc } from "../verge/app-info-ipc";
 import { registerWindowSystemIpc } from "../windows/window-system-ipc";
 import { enqueueLLMTask } from "../llm-queue";
 import {
@@ -136,11 +135,18 @@ import { resolveGitExecutable, type ResolvedGitExecutable } from "../code-git/gi
 import { registerCodeGitIpc } from "../code-git/code-git-ipc";
 import { installSingleInstanceGuard } from "../single-instance";
 import { migrateLegacyUserData } from "../user-data-migration";
+import { migrateVergeUserData } from "../verge-identity-migration";
 import { createWindowManager } from "../windows/window-manager";
 import { createTray } from "../tray";
 import { createSplashWindow } from "../startup/create-splash-window";
 import { revealStartupWindows } from "../startup/startup-window-reveal";
 import { bootstrapMusicService } from "../music/bootstrap";
+import { createVergeService } from "../verge/verge-service";
+import { registerVergeIpc } from "../verge/verge-ipc";
+import { attachPetContextMenu } from "../verge/pet-menu";
+import { attachQuietClock, quietChangedPayload } from "../verge/quiet-clock-wiring";
+import { armQuiet, isQuietNow } from "../verge/quiet-clock";
+import { TUCK_IDLE_SECS, TUCK_PROBE_IDLE_SECS } from "../verge/tuck-clock";
 import { resolveMusicPaths } from "../music/paths";
 import { initializeScreenshotService } from "../screenshot/screenshot-lifecycle";
 import { bootstrapConfigGetters } from "../startup/bootstrap-config";
@@ -164,7 +170,6 @@ import { prepareBeforeReady } from "./pre-ready";
 import { startShell } from "./shell-bootstrap";
 import { startCore } from "./core-bootstrap";
 import { startBackground } from "./background";
-import { installUpdateShutdownFallback, type UpdateLifecycleLike } from "./electron-lifecycle";
 import type { ApplicationDependencies } from "./application";
 
 /** Loading 最短展示时长（ms）：从实际 show() 时刻起算。 */
@@ -259,6 +264,18 @@ function recoverInterruptedPlanSessions(plansRoot: string): void {
 export function createDefaultApplicationDependencies(): ApplicationDependencies {
   // Agent Runtime 早于插件管理器构造；通过窄闭包在运行期转发宿主事件，避免反转启动顺序。
   let pluginManager: PluginManager | undefined;
+  // 宠物窗右键菜单/免打扰的挂载点（Task 11）：createLowCostServices（core 阶段先跑）
+  // 造好 verge service 后把闭包塞进来；createPetWindow 在 core 后段才第一次被调
+  // （core-bootstrap.ts:195，晚于 registerCoreIpc），所以首窗挂载时闭包必已就位。
+  let attachVergePetMenu: ((win: Electron.BrowserWindow) => void) | null = null;
+  // quiet 写盘收口（Task 11 修复轮）：createLowCostServices 造好自醒钟后把闭包塞进来，
+  // registerCoreIpc 的 toggle 路径与宠物窗菜单共用同一条——rearm + 广播当下截止。
+  // 两处各写各的会留下「盘上有已过去的截止没人清、月牙等重启才上屏」的欠账态
+  // （native main.rs:2515-2517 明令当场清）。
+  let onVergeQuietStateChange: ((quietUntil: number | null) => void) | null = null;
+  // tuck 开关收口（Task 12）：与 quiet 同构——菜单与 VERGE_SET_TUCK 共用一条广播，
+  // 「取消勾选立刻回位且不再藏」要求渲染端即时收到新值，不许等重启。
+  let onVergeTuckStateChange: ((enabled: boolean) => void) | null = null;
   // 自动压缩与 CHATS_COMPACT 必须共享同一个会话级压缩器，避免两条路径各自组装 provider。
   const getTranscriptCompactor = createTranscriptCompactorGetter(() =>
     createModelBackedConversationTranscriptCompactor({
@@ -305,6 +322,21 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
     shutdown,
 
     prepare: () => prepareBeforeReady({
+      // 探针/验收启动带 --user-data-dir 时，pre-ready 会凭这个标志整步跳过 userData 搬运
+      usesExplicitUserDataDir: hasExplicitUserDataDir(process.argv),
+      configureIdentity: () => {
+        const identity = configureVergeIdentity(app, app.getPath("appData"));
+        // 落盘接收器必须晚于身份：installFileLogSink 会把传入的 userData 永久绑进闭包，
+        // 早一步（模块顶层）就会绑到上游 %APPDATA%\Cyrene。
+        installMainLogSink();
+        if (identity.explicitUserDataDir) {
+          // 默认可见级别是 warn，info 会被吞掉，所以这条优先级让路提示用 warn。
+          logger.warn(
+            LogTag.Runtime,
+            `检测到显式 --user-data-dir，跳过 fork 的 userData 覆盖，本次实际使用：${identity.userDataPath}`,
+          );
+        }
+      },
       installSingleInstance: (onSecondInstance) => installSingleInstanceGuard(app, onSecondInstance),
       migrateLegacyUserData: () => {
         return migrateLegacyUserData({
@@ -312,6 +344,14 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           targetUserDataPath: app.getPath("userData"),
         });
       },
+      // 身份改名（cyrene-verge → Mochi）带来的一次性搬运。命令行显式给了 --user-data-dir
+      // 时，pre-ready 整步跳过这两次搬运（探针 profile 不该接走用户的真账本）。这两次真跑时
+      // getPath("userData") 之所以只会是 brand 目录，靠的是上面 usesExplicitUserDataDir 与
+      // configureVergeIdentity 读的是同一个 process.argv —— 谁改了其中一处，另一处就会跟着失效。
+      migrateVergeUserData: () => migrateVergeUserData({
+        appDataPath: app.getPath("appData"),
+        targetUserDataPath: app.getPath("userData"),
+      }),
       registerPrivilegedSchemes,
       configureGpuSwitches: () => {
         if (loadGeneralSettings().disableGpuElectron) {
@@ -334,7 +374,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
       writeStartupLog: () => {
         // banner 是纯文本（无色彩、无日志前缀），与 logger 输出区分开
         process.stdout.write("\n" + renderBanner() + "\n\n");
-        logger.info(LogTag.Runtime, "starting Cyrene Agent");
+        logger.info(LogTag.Runtime, `starting ${BRAND.productName} Agent`);
       },
       createIpcScope: () => createIpcScope(),
       createSplashWindow: (options) => createSplashWindow({ isDev, onShown: options.onShown }),
@@ -343,6 +383,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         isDev,
         loadPetWindowSettingsSlice: loadGeneralSettings,
         persistPetWindowPosition: ({ x, y }) => saveGeneralSettings({ petWindowX: x, petWindowY: y }),
+        attachPetContextMenu: (win) => attachVergePetMenu?.(win),
       }),
       createChatShell: (windowManager) => windowManager.createReactChatWindowShell(),
       registerProtocolHandlers,
@@ -471,10 +512,56 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         // 后端由首次音乐动作惰性连接，退出清理由中心协调器负责。
         const music = bootstrapMusicService(resolveMusicPaths());
 
-        // 应用更新服务（检查/下载按需；安装必须先走受控退出）
-        const update = createGitHubAppUpdateService({
-          currentVersion: app.getVersion(),
-          isPackaged: app.isPackaged,
+        // Verge 内建模块骨架：store → service → IPC 三段装配
+        const verge = createVergeService(app.getPath("userData"));
+
+        // 宠物窗右键菜单（Task 11）：菜单动作写盘走 service，窗口动作就地取 win。
+        // 到点自醒也在这里接：落盘后的 setTimeout(remaining).unref()，到点当场清、
+        // 广播撤月牙；所有写盘路径（菜单 / toggle-quiet 的 IPC）都走下面同一个收口。
+        // 这段必须先于首窗挂载就位（createPetWindow 在 core-bootstrap 的后段才调用）。
+        const quietClock = attachQuietClock({
+          service: verge,
+          // 到点自醒只在「当场清盘之后」被调，所以这里读回来的一定是 null——
+          // 广播的仍是清盘后的 quietUntil，native 语义不变（main.rs:2515-2517）。
+          // 闭包晚绑定：notifyWake 由定时器触发，那时 applyQuietState 已就位。
+          notifyWake: () => applyQuietState(verge.getState().quietUntil),
+        });
+        // quiet 状态变更的唯一收口：先按当下 quietUntil 重排自醒钟，再把当下值广播出去。
+        // 菜单（pet-menu）与 VERGE_TOGGLE_QUIET 都必须走这一个函数，不许两处各写各的。
+        const applyQuietState = (quietUntil: number | null): void => {
+          quietClock.rearm();
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) win.webContents.send(
+              IPC.VERGE_QUIET_CHANGED,
+              quietChangedPayload(quietUntil),
+            );
+          }
+        };
+        // tuck 开关变更的唯一收口（applyQuietState 同构，Task 11 先例）：两条写盘路径
+        // （菜单 / VERGE_SET_TUCK）落盘后都从这里广播当下值，渲染端据此开/关藏身闸门。
+        const applyTuckState = (enabled: boolean): void => {
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) win.webContents.send(IPC.VERGE_TUCK_CHANGED, { tuckEnabled: enabled });
+          }
+        };
+        // 启动即重排：盘上若躺着未来截止（含重启验收的 now+5000），进程一起来
+        // 自醒钟就到位——不依赖下一次 toggle 才排上定时器。
+        quietClock.rearm();
+        attachVergePetMenu = (win) => {
+          attachPetContextMenu({
+            window: win,
+            service: verge,
+            quit: () => app.quit(),
+            onQuietStateChange: applyQuietState,
+            onTuckStateChange: (enabled) => onVergeTuckStateChange?.(enabled),
+          });
+        };
+        onVergeQuietStateChange = applyQuietState;
+        onVergeTuckStateChange = applyTuckState;
+        shutdown.register({
+          id: "verge-quiet-clock",
+          phase: "stopLocalResources",
+          dispose: async () => { quietClock.dispose(); },
         });
 
         return {
@@ -492,7 +579,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           mailAttachmentStore,
           screenshot,
           music,
-          update,
+          verge,
         };
       },
 
@@ -687,8 +774,71 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         });
         registerGmailIpc({ ipc, auth: services.gmailAuth, service: services.gmail, attachmentStore: services.mailAttachmentStore });
 
-        // 项目公告：渲染端首次打开时拉一次，之后主进程每 6 小时对一次版本
-        registerNewsIpc(ipc);
+        // Verge 内建模块骨架：IPC 注册到 shell.ipc（IpcScope.dispose 时自动清除处理器）
+        const removeVergeIpc = registerVergeIpc(ipc, services.verge);
+
+        // 本机版本信息：设置页与 --brand-probe 共用。原来这里是 app-update:* 五条通道。
+        const removeAppInfoIpc = registerAppInfoIpc(ipc, {
+          getName: () => app.getName(),
+          getVersion: () => app.getVersion(),
+          dataDirName: () => path.basename(app.getPath("userData")),
+        });
+
+        // Task 11 的三条渲染入口与到点自醒重排：
+        // - toggle-quiet 是 invoke（拿翻转后的 quietUntil 回执）；is-quiet 是取回执的读。
+        // - 写盘后一律走 onVergeQuietStateChange 这一条收口（rearm + 广播当下值），
+        //   与宠物窗菜单同一个函数：两处各写各的就会漏掉自醒钟或漏掉月牙。
+        //   「手工把 quietUntil 改小再重启」那档验收由启动时的 attachQuietClock 覆盖。
+        ipc.handle(IPC.VERGE_TOGGLE_QUIET, () => {
+          const next = armQuiet({ current: services.verge.getState().quietUntil, now: Date.now() });
+          services.verge.setQuietUntil(next);
+          onVergeQuietStateChange?.(next);
+          return next;
+        });
+        ipc.handle(IPC.VERGE_IS_QUIET, () => {
+          const state = services.verge.getState();
+          return isQuietNow(state.quietUntil, Date.now());
+        });
+        ipc.on(IPC.VERGE_SET_TUCK, (_event, enabled: unknown) => {
+          if (typeof enabled !== "boolean") return;
+          services.verge.setTuckEnabled(enabled);
+          // 落盘 + 广播同一个收口（与菜单 onTuckStateChange 共用 applyTuckState）：
+          // 渲染端要即时开/关藏身闸门——「取消勾选立刻回位」不允许等重启。
+          onVergeTuckStateChange?.(enabled);
+        });
+        // Task 12：第一次藏身开口说过 TUCK_HINT 后由渲染端上报，落盘一次不再重说。
+        // 只有这一条写路径——探针/菜单都不碰 tuckHinted。
+        ipc.on(IPC.VERGE_TUCK_HINTED, () => {
+          services.verge.markTuckHinted();
+        });
+        // 渲染端起帧拉一次几何基线（它不是位置权威，但算 peek 目标与夹取要先有窗在哪）。
+        // 无窗返回 null——禁兜底：拿不到就是没窗，不许用常量拼一份假基线。
+        ipc.handle(IPC.VERGE_GET_PET_GEOMETRY, () => {
+          const bounds = shell.windowManager?.getPetWindowBounds() ?? null;
+          if (!bounds) return null;
+          const { workArea } = screen.getDisplayMatching(bounds);
+          const state = services.verge.getState();
+          return {
+            bounds,
+            workArea,
+            tuckEnabled: state.tuckEnabled,
+            tuckHinted: state.tuckHinted,
+            // native main.rs:5648 的同一个开关：--tuck-probe 把藏身阈值缩到 2.5s，
+            // 让屏幕验收在几秒内拍到藏身；阈值权威在主端，渲染端只消费。
+            tuckLimit: process.argv.includes("--tuck-probe") ? TUCK_PROBE_IDLE_SECS : TUCK_IDLE_SECS,
+          };
+        });
+        shutdown.register({
+          id: "verge-module",
+          phase: "flushPersistence",
+          dispose: async () => { removeVergeIpc(); },
+        });
+        // 本机版本信息与 Verge 快照同属一条读通道，注销也挂在同一处。
+        shutdown.register({
+          id: "app-info-ipc",
+          phase: "flushPersistence",
+          dispose: async () => { removeAppInfoIpc(); },
+        });
 
         registerMemoryUserToolIpc({
           ipc,
@@ -736,18 +886,6 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           ipc,
           pendingTurnLifecycle,
         );
-
-        // 应用更新 IPC：安装走受控退出；autoUpdater 兜底路径进入同一协调器
-        registerAppUpdateIpc({
-          ipc,
-          service: services.update,
-          requestControlledShutdown: (input) => shutdown.requestControlledShutdown(input),
-        });
-        installUpdateShutdownFallback({
-          updater: autoUpdater as unknown as UpdateLifecycleLike,
-          coordinator: shutdown,
-          finalAction: () => services.update.install(),
-        });
 
         // 计划模式开关/查询 IPC
         ipc.handle(IPC.PLAN_SET_MODE, (_event, payload: { conversationId?: string; target?: "on" | "off"; workspaceRoot?: string }) => {
@@ -852,7 +990,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         // 一次性清理已下架的内置 MCP（Firecrawl hosted 等）
         const removed = await pruneMcpServersByIds([...REMOVED_BUILTIN_MCP_IDS]);
         if (removed.length > 0) {
-          console.log("[Cyrene] 已清理遗留的已下架内置 MCP:", removed.join(", "));
+          console.log(CONSOLE_PREFIX + " 已清理遗留的已下架内置 MCP:", removed.join(", "));
         }
       },
       syncBuiltInMcp: async () => {
@@ -887,10 +1025,6 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
       prewarmScreenshot: async () => {
         await core.services.screenshot.prewarm();
       },
-      scheduleUpdateCheck: async () => {
-        const dispose = scheduleStartupUpdateCheck(core.services.update);
-        return { dispose };
-      },
       startProactiveTrigger: async () => {
         core.services.proactive.initializeProactiveTrigger();
         return { dispose: () => core.services.proactive.stopProactiveTrigger() };
@@ -903,7 +1037,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
     }),
 
     logFatal: (error) => {
-      console.error("[Cyrene] fatal startup error:", error);
+      console.error(CONSOLE_PREFIX + " fatal startup error:", error);
       logger.error(LogTag.Runtime, "fatal startup error:", error);
     },
   };

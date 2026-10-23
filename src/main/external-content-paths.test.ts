@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { load } from "js-yaml";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -8,6 +9,7 @@ import {
   findSkillPath,
   resolveExternalContentPaths,
   resolveSkillScanSources,
+  resolveSkillsSnapshotArchivePath,
 } from "./external-content-paths";
 
 const temporaryDirectories: string[] = [];
@@ -111,5 +113,60 @@ describe("external content lookup", () => {
       { directory: installSkills, source: "builtin" },
       { directory: userDataSkills, source: "user" },
     ]);
+  });
+});
+
+/**
+ * 快照归档路径是「打包目标」与「运行时查找」两处定义的交接点：
+ * 打包把 vendor/cyrene-skills 复制到 resources/<to>/，运行时去 resources/<目录>/ 找。
+ * 两边只要有一个改了名字，装完就是「首启没有技能」——而且只在装机后才暴露。
+ */
+describe("skills 快照归档路径", () => {
+  const installRoot = path.resolve("E:/install");
+  const resourcesPath = path.join(installRoot, "resources");
+  const paths = { installRoot };
+
+  it("打包后从 resources/mochi-skills 读快照", () => {
+    const resolved = resolveSkillsSnapshotArchivePath(paths, {
+      isPackaged: true,
+      resourcesPath,
+      existsSync: () => true,
+    });
+    expect(resolved).toBe(path.join(resourcesPath, "mochi-skills", "skills-snapshot.zip"));
+  });
+
+  it("开发态仍从仓库 vendor/cyrene-skills 读快照（仓库侧目录名按仓库纪律保留）", () => {
+    const resolved = resolveSkillsSnapshotArchivePath(paths, {
+      isPackaged: false,
+      existsSync: () => true,
+    });
+    expect(resolved).toBe(path.join(installRoot, "vendor", "cyrene-skills", "skills-snapshot.zip"));
+  });
+
+  it("归档不存在时返回 null（而不是指着一个不存在的路径）", () => {
+    const resolved = resolveSkillsSnapshotArchivePath(paths, {
+      isPackaged: true,
+      resourcesPath,
+      existsSync: () => false,
+    });
+    expect(resolved).toBeNull();
+  });
+
+  it("运行时查找的目录名与 electron-builder.yml 的打包目标同名", () => {
+    const yml = load(fs.readFileSync(path.resolve(process.cwd(), "electron-builder.yml"), "utf8")) as {
+      extraResources?: { from: string; to: string }[];
+    };
+    const entry = (yml.extraResources ?? []).find((item) => item.from === "vendor/cyrene-skills");
+    expect(entry, "electron-builder.yml 里没有 vendor/cyrene-skills 的 extraResources 条目").toBeDefined();
+
+    const resolved = resolveSkillsSnapshotArchivePath(paths, {
+      isPackaged: true,
+      resourcesPath,
+      existsSync: () => true,
+    });
+    expect(path.basename(path.dirname(resolved!))).toBe(entry!.to);
+
+    // 正对照：上游那套旧目录名必须判为不合格，否则这条锁形同虚设。
+    expect("cyrene-skills").not.toBe(entry!.to);
   });
 });

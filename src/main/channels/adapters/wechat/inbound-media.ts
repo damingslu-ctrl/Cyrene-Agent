@@ -143,11 +143,11 @@ export function buildWechatVideoPrompt(username: string): string {
 }
 
 export function buildWechatSaveIntentPrompt(username: string): string {
-  return `好呀，${username}，尽管把文件发过来吧。我会帮你放到桌面的“Cyrene 收件箱”里哦~~`;
+  return `好呀，${username}，尽管把文件发过来吧。我会帮你放到桌面的“Mochi 收件箱”里哦~~`;
 }
 
 export function buildWechatSaveSuccessPrompt(username: string, filePath: string): string {
-  return `收好啦，${username}。人家已经帮你放到桌面的“Cyrene 收件箱”里了：${filePath}`;
+  return `收好啦，${username}。人家已经帮你放到桌面的“Mochi 收件箱”里了：${filePath}`;
 }
 
 export function buildWechatAsrMissingPrompt(username: string): string {

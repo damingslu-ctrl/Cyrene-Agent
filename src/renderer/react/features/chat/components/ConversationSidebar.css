@@ -74,7 +74,7 @@
 .cy-sidebar-project__folder-icon { flex: none; color: var(--rb-text-secondary, #8e8e93); }
 .cy-sidebar-project__handle:focus-visible,
 .cy-sidebar-project-category__toggle:focus-visible,
-.cy-sidebar-group__toggle:focus-visible { outline: 2px solid var(--rb-border-focus, #ff9fbd); outline-offset: -2px; }
+.cy-sidebar-group__toggle:focus-visible { outline: 2px solid var(--rb-border-focus); outline-offset: -2px; }
 .cy-sidebar-project__chevron { width: 6px; height: 6px; flex: none; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform 150ms ease; opacity: .55; }
 .cy-sidebar-project__chevron.is-open { transform: rotate(45deg); }
 .cy-sidebar-project__title { min-width: 0; flex: 1; overflow: hidden; color: inherit; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/1.35 var(--rb-font-sans, sans-serif); }
@@ -113,10 +113,10 @@
 .cy-sidebar-session:hover { background: var(--rb-surface-hover, #fff1f6); color: var(--rb-text-primary, #1d1d1f); }
 .cy-sidebar-session.is-active { background: var(--rb-surface-elevated, #fff); color: var(--rb-text-primary, #1d1d1f); font-weight: 400; box-shadow: 0 1px 4px rgb(46 38 41 / 7%); }
 .cy-sidebar-session__title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cy-sidebar-session__rename { min-width: 0; width: 100%; padding: 2px 4px; border: 1px solid var(--rb-border-focus, #ff9fbd); border-radius: 5px; font: inherit; }
+.cy-sidebar-session__rename { min-width: 0; width: 100%; padding: 2px 4px; border: 1px solid var(--rb-border-focus); border-radius: 5px; font: inherit; }
 .cy-sidebar-pinned { padding-bottom: 4px; border-bottom: 1px solid var(--rb-border-subtle, rgb(0 0 0 / 6%)); }
 .cy-sidebar-groups-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 5px 8px; color: var(--rb-text-secondary, #8e8e93); font: 500 11px/1.3 var(--rb-font-sans, sans-serif); }
-.cy-sidebar-groups-toolbar button { padding: 3px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--rb-accent, #ff5b8a); cursor: pointer; font: inherit; }
+.cy-sidebar-groups-toolbar button { padding: 3px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--rb-accent); cursor: pointer; font: inherit; }
 .cy-sidebar-groups-toolbar button:hover { background: var(--rb-surface-hover, #fff1f6); }
 .cy-sidebar-group { margin: 2px 0; }
 .cy-sidebar-group__sessions { padding: 1px 0 3px 12px; }
@@ -273,7 +273,7 @@
 
 .cy-session-label__pin {
   flex: none;
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
   font-size: 10px;
   opacity: 0.85;
 }
@@ -293,7 +293,7 @@
   width: 6px;
   height: 6px;
   border-radius: var(--rb-radius-full, 9999px);
-  background: var(--rb-accent, #ff5b8a);
+  background: var(--rb-accent);
 }
 
 /* 时间悬停气泡：与输入框下方下拉菜单（cy-composer-menu-popover）同款浮层配色——
@@ -409,7 +409,7 @@
 
 .cy-project-card__open:hover {
   background: var(--rb-surface-hover);
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
 }
 
 .cy-project-card__open:disabled {
@@ -420,7 +420,7 @@
 .cy-session-rename-input {
   width: 100%;
   padding: 1px 6px;
-  border: 1px solid var(--rb-accent, #ff5b8a);
+  border: 1px solid var(--rb-accent);
   border-radius: 6px;
   background: #fff;
   color: var(--rb-text-primary);
@@ -458,14 +458,14 @@
 
 .cy-session-context-menu .ant-menu-item:hover {
   background: #fff6f8;
-  color: var(--rb-accent, #ff5b8a);
+  color: var(--rb-accent);
 }
 
 .cy-session-context-menu .ant-menu-item-danger {
-  color: #ff4d4f;
+  color: var(--rb-danger);
 }
 
 .cy-session-context-menu .ant-menu-item-danger:hover {
-  color: #ff7875;
+  color: var(--rb-danger);
   background: #fff1f0;
 }

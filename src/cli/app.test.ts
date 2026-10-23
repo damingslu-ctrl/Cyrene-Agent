@@ -50,10 +50,10 @@ describe("main: hello", () => {
 });
 
 describe("main: about", () => {
-  it("prints banner + GitHub URL", async () => {
+  it("prints banner + local build line", async () => {
     const code = await main(["about"], VERSION);
     expect(code).toBe(0);
-    expect(stdoutBuf).toContain("https://github.com/Playa-0v0/Cyrene-Agent");
+    expect(stdoutBuf).toContain("本机构建 · 不联网检查升级");
   });
 });
 
@@ -81,7 +81,7 @@ describe("main: help", () => {
   it("prints usage and exits 0", async () => {
     const code = await main(["--help"], VERSION);
     expect(code).toBe(0);
-    expect(stdoutBuf).toContain("Usage: cyrene");
+    expect(stdoutBuf).toContain("Usage: mochi");
   });
 });
 
@@ -112,7 +112,7 @@ describe("main: default (subsequent)", () => {
     // second run
     const code = await main([], VERSION);
     expect(code).toBe(0);
-    expect(stdoutBuf).toContain(`Cyrene Agent v${VERSION}`);
+    expect(stdoutBuf).toContain(`Mochi Agent v${VERSION}`);
     expect(stdoutBuf).toContain("Ready.");
     expect(stdoutBuf).not.toContain("Every memory has a place.");
   });

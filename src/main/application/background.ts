@@ -3,11 +3,10 @@
  * 所有后台任务交给 BackgroundTaskRunner 跟踪：每项任务获得 AbortSignal、
  * 退出时 abort 并等待/放弃，迟到完成的任务立即执行其返回的 dispose。
  *
- * 依赖组（A–D 并发；组内箭头为严格顺序）：
+ * 依赖组（A–C 并发；组内箭头为严格顺序）：
  *   A: MCP 清理 → 内置同步 → MCP 恢复（30s 屏障）→ channels 启动 → scheduler 启动 → 主动触发器 → 动态反应队列扫描器
  *   B: 记忆协调 → 重排序器预热
  *   C: 截图预热
- *   D: 更新检查
  * 全部组结算后推进 ready；失败进入 degradedReasons，不阻塞聊天。
  */
 
@@ -39,7 +38,6 @@ export interface BackgroundDependencies {
   reconcileMemory(signal: AbortSignal): Promise<void>;
   initializeReranker(signal: AbortSignal): Promise<void>;
   prewarmScreenshot(signal: AbortSignal): Promise<void>;
-  scheduleUpdateCheck(signal: AbortSignal): Promise<{ dispose(): void } | void>;
   startProactiveTrigger(signal: AbortSignal): Promise<{ dispose(): void } | void>;
   /** 启动动态反应队列周期扫描器（含启动补扫，重启后逾期任务尽快续上） */
   startMomentsReactionScanner(signal: AbortSignal): Promise<{ dispose(): void } | void>;
@@ -141,7 +139,6 @@ export function startBackground(deps: BackgroundDependencies): BackgroundHandle 
   const runner = createBackgroundTaskRunner();
 
   let proactiveTriggerDisposer: OptionalDisposer;
-  let updateCheckDisposer: OptionalDisposer;
   let momentsScannerDisposer: OptionalDisposer;
 
   const isShuttingDown = (): boolean => {
@@ -204,11 +201,6 @@ export function startBackground(deps: BackgroundDependencies): BackgroundHandle 
     phase: "stopProducers",
     dispose: async () => { scheduler.stop(); },
   });
-  shutdown.register({
-    id: "update-check-timer",
-    phase: "stopProducers",
-    dispose: async () => { disposeOptional(updateCheckDisposer); },
-  });
 
   async function groupA(): Promise<void> {
     await runTracked("mcp-prune", "mcp", (signal) => deps.pruneRemovedMcp(signal));
@@ -264,14 +256,8 @@ export function startBackground(deps: BackgroundDependencies): BackgroundHandle 
     await runTracked("screenshot-prewarm", "screenshot", (signal) => deps.prewarmScreenshot(signal));
   }
 
-  async function groupD(): Promise<void> {
-    await runTracked("update-check", "update-check", async (signal) => {
-      updateCheckDisposer = await deps.scheduleUpdateCheck(signal);
-    });
-  }
-
   const settled = (async () => {
-    await Promise.allSettled([groupA(), groupB(), groupC(), groupD()]);
+    await Promise.allSettled([groupA(), groupB(), groupC()]);
     try {
       if (readiness.getPhase() === "background-starting") {
         readiness.transition("ready");

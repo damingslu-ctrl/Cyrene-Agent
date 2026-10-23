@@ -44,7 +44,7 @@
 
 .cy-command-terminal__status.is-running::before { background: var(--rb-warning, #c58a31); }
 .cy-command-terminal__status.is-success::before { background: var(--rb-success, #43a877); }
-.cy-command-terminal__status.is-error::before { background: var(--rb-danger, #d94f61); }
+.cy-command-terminal__status.is-error::before { background: var(--rb-danger); }
 
 .cy-command-terminal__body {
   max-height: min(320px, 42vh);
@@ -62,7 +62,7 @@
   overflow-wrap: anywhere;
 }
 
-.cy-command-terminal__command > span { color: var(--rb-accent, #ff5b8a); }
+.cy-command-terminal__command > span { color: var(--rb-accent); }
 .cy-command-terminal__command code { font: inherit; }
 
 .cy-command-terminal__output {
@@ -83,7 +83,7 @@
   width: 6px;
   height: 13px;
   margin-left: 2px;
-  background: var(--rb-accent, #ff5b8a);
+  background: var(--rb-accent);
   vertical-align: -2px;
   animation: cy-command-terminal-cursor 1s steps(1) infinite;
 }

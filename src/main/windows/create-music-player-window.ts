@@ -1,5 +1,6 @@
 import { app, BrowserWindow, screen } from "electron";
 import * as path from "path";
+import { BRAND } from "../../shared/brand";
 import { isDev } from "../env";
 import { loadGeneralSettings } from "../settings/settings-facade";
 import { persistedWindowState } from "./create-aux-windows";
@@ -33,7 +34,7 @@ export function createMusicPlayerWindow(): void {
     height,
     minWidth: 720,
     minHeight: 520,
-    title: "Cyrene · 音乐",
+    title: `${BRAND.productName} · 音乐`,
     icon: getCurrentAppIconPath(),
     backgroundColor: "#00000000",
     autoHideMenuBar: true,

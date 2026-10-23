@@ -6,7 +6,7 @@
 // - 占用比 = totalTokens / contextWindowTokens；SVG 弧长只吃 clamp 后的
 //   visualRatio（ratio>1 时文本诚实显示如 118%，圆环 clamp 到整圈）。
 // - 颜色分级：正常主题强调色；≥70% 暖色；≥90% 警示红。仅变色，无动画。
-// - 菜单趣味性：按档位切换 Cyrene 小人（开心/提醒/担心）+ 一句拟人提示。
+// - 菜单趣味性：按档位切换麻糬小人（开心/提醒/担心）+ 一句拟人提示。
 // - 小人可点击主动压缩（chats:compact）：悬停 crossfade 到压缩小人图，
 //   点击把模型窗口内旧消息摘要成一条记忆，聊天窗口经 CHATS_CHANGED 重载。
 import { Popover } from "antd";
@@ -41,17 +41,19 @@ function compactApi(): CompactChatApi | undefined {
 }
 
 /** 类别展示元数据（label 为用户可见文案）。
- *  t() 不能在模块顶层常量里调用（语言切换后不更新），故改为函数、在调用时求值。 */
-export function contextUsageCategoryMeta(): Record<ContextUsageCategoryKey, { label: string; color: string }> {
+ *  t() 不能在模块顶层常量里调用（语言切换后不更新），故改为函数、在调用时求值。
+ *  这里**不**带颜色：占比圆点统一走 CSS 主题色（.cy-context-usage-menu__dot），
+ *  历史上留过一份分类色表，但它从没被渲染过——挂着只会让上游色板继续混进代码。 */
+export function contextUsageCategoryMeta(): Record<ContextUsageCategoryKey, { label: string }> {
   return {
-    systemPrompt: { label: t("contextRing.categorySystemPrompt"), color: "#8B5CF6" },
-    tools: { label: t("contextRing.categoryTools"), color: "#3B82F6" },
-    skills: { label: t("contextRing.categorySkills"), color: "#06B6D4" },
-    runtimeAndToolLogs: { label: t("contextRing.categoryRuntimeAndToolLogs"), color: "#F59E0B" },
-    conversation: { label: t("contextRing.categoryConversation"), color: "#10B981" },
-    other: { label: t("contextRing.categoryOther"), color: "#9CA3AF" },
+    systemPrompt: { label: t("contextRing.categorySystemPrompt") },
+    tools: { label: t("contextRing.categoryTools") },
+    skills: { label: t("contextRing.categorySkills") },
+    runtimeAndToolLogs: { label: t("contextRing.categoryRuntimeAndToolLogs") },
+    conversation: { label: t("contextRing.categoryConversation") },
+    other: { label: t("contextRing.categoryOther") },
     // 旧快照兼容（拆分前"工具与 Skill"合一）；新快照不再产出此 key。
-    toolDefinitions: { label: t("contextRing.categoryToolDefinitions"), color: "#3B82F6" },
+    toolDefinitions: { label: t("contextRing.categoryToolDefinitions") },
   };
 }
 

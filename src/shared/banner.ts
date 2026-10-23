@@ -1,21 +1,27 @@
 /**
- * The Cyrene ASCII banner, shared between the CLI and the Electron main
+ * The Mochi ASCII banner, shared between the CLI and the Electron main
  * process so both startup paths show the same branding.
  *
  * Kept color-free by design: the banner is a brand artifact, not a log
  * line. Logger output (which may be colored) is a separate concern.
+ *
+ * ⚠️ 与 `src/cli/banner/ascii.ts` 的 `MOCHI_LOGO` 是**历史重复**（改名之前就存在的两份
+ * 同形字），本任务只做同步、不合并两份实现；两边都必须保持 6 行 × 39 列等宽。
  */
-export const CYRENE_LOGO = [
-  "██████╗██╗   ██╗██████╗ ███████╗███╗   ██╗███████╗",
-  "██╔════╝╚██╗ ██╔╝██╔══██╗██╔════╝████╗  ██║██╔════╝",
-  "██║      ╚████╔╝ ██████╔╝█████╗  ██╔██╗ ██║█████╗",
-  "██║       ╚██╔╝  ██╔══██╗██╔══╝  ██║╚██╗██║██╔══╝",
-  "╚██████╗   ██║   ██║  ██║███████╗██║ ╚████║███████╗",
-  " ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝╚══════╝",
+import { BRAND } from "./brand";
+
+export const MOCHI_LOGO = [
+  "███╗   ███╗ ██████╗ ██████╗ ██╗  ██╗██╗",
+  "████╗ ████║██╔═══██╗██╔════╝██║  ██║██║",
+  "██╔████╔██║██║   ██║██║     ███████║██║",
+  "██║╚██╔╝██║██║   ██║██║     ██╔══██║██║",
+  "██║ ╚═╝ ██║╚██████╔╝╚██████╗██║  ██║██║",
+  "╚═╝     ╚═╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝╚═╝",
 ] as const;
 
+/** 首行只替换品牌字面量，`♡ … ♡` 的拼接形状不动；`Agent` 一词属渲染文案档，归 10b。 */
 export const BANNER_LINES = [
-  "♡ Cyrene Agent ♡",
+  `♡ ${BRAND.productName} Agent ♡`,
   "Your Desktop AI Companion",
   '"Every memory has a place."',
 ] as const;
@@ -49,5 +55,5 @@ function frameBox(lines: readonly string[], width: number): string {
 
 /** The full banner: logo + blank line + framed box. No color, no log prefix. */
 export function renderBanner(): string {
-  return CYRENE_LOGO.join("\n") + "\n\n" + frameBox(BANNER_LINES, DEFAULT_BANNER_WIDTH);
+  return MOCHI_LOGO.join("\n") + "\n\n" + frameBox(BANNER_LINES, DEFAULT_BANNER_WIDTH);
 }

@@ -575,7 +575,7 @@ export async function executeAskUser(
     return {
       ...observation,
       message: Array.isArray(preview)
-        ? `${observation.message}\n${preview.join("\n")}${additionalContext ? `\n给昔涟的额外补充：${additionalContext}` : ""}`
+        ? `${observation.message}\n${preview.join("\n")}${additionalContext ? `\n给麻糬的额外补充：${additionalContext}` : ""}`
         : observation.message,
     };
   } catch (err) {

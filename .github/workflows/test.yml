@@ -54,6 +54,17 @@ jobs:
       - name: Check plugin schema contract
         run: pnpm run check:plugin-schema
 
+      # 身份 / 色板 / 名册 / 位图资产的一致性门（全部是生成器 --check，漂移即红）。
+      # 与 vitest 里的静态锁互补：那几把锁读解析后的字段，这几条读**生成物逐字节**；
+      # cat-sprites --check 还带像素尺（同图/空图/错色都红），是「表情包与猫同一套 DrawOp」的证。
+      - name: Check brand / palette / roster / sprites
+        run: |
+          pnpm run check:brand
+          pnpm run palette:check
+          pnpm run palette:migrate:check
+          pnpm run check:roster
+          pnpm run check:sprites
+
       # 分块测试：与 vitest.config.mts 的 include 对应，各步骤之和不重不漏覆盖全部测试文件
       # （已用 vitest list 逐一核对；filter 带尾斜杠、exclude 用根相对路径避免前缀误匹配）。
       # 拆成多个独立步骤是为了 CI 上出现 fork worker 崩溃时能一眼定位目录

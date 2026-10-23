@@ -1164,7 +1164,7 @@ export function ChatPage({ onOpenSettings, scheduledTasksNavigation = 0 }: { onO
       });
       return true;
     } catch (error) {
-      console.error("[Cyrene React] 重建最后一轮对话失败:", error);
+      console.error("[Mochi React] 重建最后一轮对话失败:", error);
       return false;
     } finally {
       lastTurnRevisionStartingRef.current = false;

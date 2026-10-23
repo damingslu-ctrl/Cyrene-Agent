@@ -1,49 +1,19 @@
 /**
- * 搜索后端工具过滤与 API Key 校验。
+ * 搜索后端工具过滤。
  *
  * 每轮根据当前搜索后端设置，决定暴露哪些搜索工具给模型。
  * 搜索后端互斥：同一时间只暴露一个搜索后端的工具。
+ * Key 校验不在这里——那是凭据层的通用判据，住在 `shared/api-key.ts`。
  */
-
-// ── API Key 校验 ──────────────────────────
-
-export interface KeyValidationResult {
-  valid: boolean;
-  normalized: string;
-  error?: string;
-  diagnostics: { length: number; trimmed: boolean; hasNonAscii: boolean; hasControlChars: boolean };
-}
-
-/**
- * 校验搜索 API Key 的安全性。
- * 不泄漏原始 Key，只返回脱敏诊断。
- */
-export function validateSearchApiKey(rawKey: string, label: string): KeyValidationResult {
-  const originalLength = rawKey.length;
-  const normalized = rawKey.trim();
-  const trimmed = normalized.length !== originalLength;
-  const hasNonAscii = /[^\x20-\x7E]/.test(normalized);
-  const hasControlChars = /[\x00-\x1F\x7F]/.test(normalized);
-  const diagnostics = { length: normalized.length, trimmed, hasNonAscii, hasControlChars };
-
-  if (normalized.length === 0) {
-    return { valid: false, normalized: "", error: `${label}不能为空`, diagnostics };
-  }
-  if (hasControlChars) {
-    return { valid: false, normalized: "", error: `${label}包含控制字符，请重新输入`, diagnostics };
-  }
-  if (hasNonAscii) {
-    return { valid: false, normalized: "", error: `${label}包含非 ASCII 字符，请确认是否复制了多余内容`, diagnostics };
-  }
-  return { valid: true, normalized, diagnostics };
-}
+import { usesBuiltinSearchTool, type SearchEngineId } from "../../shared/search-engines";
 
 // ── 搜索工具过滤 ──────────────────────────
 
 export const BUILTIN_SEARCH_TOOL_ID = "web_search";
 export const MINIMAX_SEARCH_TOOL_PREFIX = "minimax-web-search-";
 
-export type SearchBackend = "off" | "bocha" | "tavily" | "minimax" | "anySearch";
+/** 搜索后端档位。联合类型本身住在 shared 注册表里，这里只做别名，不再抄第二份。 */
+export type SearchBackend = SearchEngineId;
 
 /**
  * 判断一个工具是否应该根据当前搜索后端设置被暴露。
@@ -54,7 +24,7 @@ export function shouldExposeSearchTool(
   activeBackend: SearchBackend,
 ): boolean {
   if (toolId === BUILTIN_SEARCH_TOOL_ID) {
-    return activeBackend === "bocha" || activeBackend === "tavily" || activeBackend === "anySearch";
+    return usesBuiltinSearchTool(activeBackend);
   }
   if (toolId.startsWith(MINIMAX_SEARCH_TOOL_PREFIX)) {
     return activeBackend === "minimax";

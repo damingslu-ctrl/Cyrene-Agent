@@ -49,6 +49,7 @@ import type { ReasoningEffort, ReasoningPreference } from "../../../../shared/re
 import { normalizeManualReasoningConfig, type ManualReasoningConfig, type ManualReasoningStyle } from "../../../../shared/manual-reasoning";
 import type { TimeoutSettings } from "../../../../shared/timeout-types";
 import { DEFAULT_TIMEOUT_SETTINGS } from "../../../../shared/timeout-types";
+import type { MagpieSyncResult } from "../../../../shared/magpie";
 import { CUSTOM_ENDPOINT_PROVIDERS, getCustomEndpointMode, type CustomEndpointMode } from "../../../settings/custom-endpoint-state";
 import { MODEL_PRESETS, presetTransportUrl } from "../../../settings/api/presets";
 import type { ModelPreset } from "../../../settings/shared/types";
@@ -108,6 +109,7 @@ const iconByProvider: Record<string, ProviderIconSet> = {
   // Grok 官方即黑白标（无 Color 变体）；Gemini 用四色渐变的 Color 变体
   grok: { mono: Grok },
   gemini: { mono: Gemini, color: Gemini.Color },
+  magpie: { mono: Cpu },
 };
 
 const runtimeDefaults: RuntimeValues = {
@@ -135,7 +137,8 @@ function providerIcon(provider: string, size = 22): ReactNode {
                 : providerKey.includes("claude") || providerKey.includes("anthropic") ? "claude"
                   : providerKey.includes("mimo") || providerKey.includes("小米") ? "mimo"
                     : providerKey.includes("grok") ? "grok"
-                      : providerKey.includes("gemini") ? "gemini" : "";
+                      : providerKey.includes("gemini") ? "gemini"
+                        : providerKey.includes("magpie") ? "magpie" : "";
   const icon = iconByProvider[iconKey];
   const Logo = icon?.color ?? icon?.mono;
   return Logo
@@ -253,6 +256,8 @@ export function ModelSettingsPanel() {
   const [vision, setVision] = useState<VisionValues>({ baseUrl: "", apiKey: "", model: "" });
   const [thinkingOverride, setThinkingOverride] = useState<-1 | 0 | 1>(0);
   const [disableMaxToken, setDisableMaxToken] = useState(false);
+  const [magpieSyncing, setMagpieSyncing] = useState(false);
+  const [magpieStatus, setMagpieStatus] = useState<MagpieSyncResult>();
   const [runtime, setRuntime] = useState(runtimeDefaults);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -282,6 +287,15 @@ export function ModelSettingsPanel() {
     value: item.providerName,
     label: <span className="cy-model-provider-option">{providerIcon(item.providerName, 20)}<span>{item.shortName}</span></span>,
   }));
+  const isMagpie = preset.providerId === "magpie";
+  const localNoAuth = customMode === "local" || isMagpie;
+  const magpieDescription = !magpieStatus
+    ? t("settingsPage.modelSettings.magpieIdle")
+    : !magpieStatus.available
+      ? `${t("settingsPage.modelSettings.magpieUnavailable")}${magpieStatus.error ? ` · ${magpieStatus.error}` : ""}`
+      : magpieStatus.importedModels > 0
+        ? t("settingsPage.modelSettings.magpieImported", { count: magpieStatus.importedModels })
+        : t("settingsPage.modelSettings.magpieEmpty");
 
   useEffect(() => {
     let disposed = false;
@@ -314,6 +328,7 @@ export function ModelSettingsPanel() {
           setActiveId(selected.id);
           applyProfile(selected);
         }
+        void syncMagpie({ selectIfEmpty: loadedProfiles.length === 0 });
       } catch {
         if (!disposed) setStatus({ kind: "error", text: t("settingsPage.modelSettings.loadFailed") });
       } finally {
@@ -368,6 +383,37 @@ export function ModelSettingsPanel() {
     setStatus(undefined);
   }
 
+  // 静默识别 Magpie：启动/打开面板/选中 Magpie 时同步目录；只有目录变化才刷新档案列表。
+  async function syncMagpie(options: { selectIfEmpty?: boolean; openProfile?: boolean } = {}) {
+    const sync = window.settings?.syncMagpieModels;
+    if (!sync) return;
+    setMagpieSyncing(true);
+    try {
+      const result = await sync();
+      setMagpieStatus(result);
+      if (!result.profileId) return;
+      if (!result.changed && !options.openProfile && !options.selectIfEmpty) return;
+      const catalog = await window.settings!.listModelProfiles();
+      const refreshed = catalog.profiles as ModelProfile[];
+      setProfiles(refreshed);
+      setDefaultProfileId(catalog.defaultModelProfileId);
+      const imported = refreshed.find((item) => item.id === result.profileId);
+      if (imported && (options.openProfile || options.selectIfEmpty)) {
+        setActiveId(imported.id);
+        applyProfile(imported);
+      }
+    } catch (error) {
+      setMagpieStatus({
+        available: false,
+        changed: false,
+        importedModels: 0,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setMagpieSyncing(false);
+    }
+  }
+
   function startNewDraft(nextProvider = MODEL_PRESETS[0].providerName) {
     const nextPreset = findPreset(nextProvider);
     setActiveId(undefined);
@@ -403,6 +449,7 @@ export function ModelSettingsPanel() {
     setNewModel("");
     if (nextMode === "local") setApiKey("");
     setStatus(undefined);
+    if (nextPreset.providerId === "magpie") void syncMagpie({ openProfile: true });
   }
 
   function changeTransport(nextTransport: ApiTransport) {
@@ -556,7 +603,7 @@ export function ModelSettingsPanel() {
   }
 
   function currentApiKey() {
-    return customMode === "local" && !apiKey.trim() ? LOCAL_ENDPOINT_AUTH_FALLBACK : apiKey.trim();
+    return localNoAuth && !apiKey.trim() ? LOCAL_ENDPOINT_AUTH_FALLBACK : apiKey.trim();
   }
 
   function validateProfile(): string | null {
@@ -879,6 +926,17 @@ export function ModelSettingsPanel() {
             {activeId === defaultProfileId ? <Tag className="cy-model-default-tag">{t("settingsPage.modelSettings.default")}</Tag> : activeId ? <Button type="text" onClick={() => void setAsDefault()}>{t("settingsPage.modelSettings.setDefault")}</Button> : null}
           </div>
 
+          {isMagpie && (
+            <Alert
+              className="cy-model-magpie"
+              type={magpieStatus?.available === false ? "warning" : "info"}
+              showIcon
+              message={t("settingsPage.modelSettings.magpieTitle")}
+              description={magpieDescription}
+              action={<Button size="small" loading={magpieSyncing} icon={<RefreshCw size={14} />} onClick={() => void syncMagpie()}>{t("settingsPage.modelSettings.magpieResync")}</Button>}
+            />
+          )}
+
           <Card className="cy-model-card">
             <div className="cy-model-card__section">
               <div className="cy-model-section-heading"><h3><Cpu size={17} />{t("settingsPage.modelSettings.providerSection")}</h3><p>{t("settingsPage.modelSettings.providerDescription")}</p></div>
@@ -907,8 +965,8 @@ export function ModelSettingsPanel() {
               <div className="cy-model-fields">
                 <label className="cy-model-field">
                   <span>{t("settingsPage.modelSettings.apiKey")}</span>
-                  <SettingsPasswordInput showLabel={t("settingsPage.asr.showSecret")} hideLabel={t("settingsPage.asr.hideSecret")} value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={customMode === "local" ? t("settingsPage.modelSettings.apiKeyOptional") : "sk-…"} autoComplete="new-password" />
-                  {customMode === "local" && <small>{t("settingsPage.modelSettings.localApiKeyHint")}</small>}
+                  <SettingsPasswordInput showLabel={t("settingsPage.asr.showSecret")} hideLabel={t("settingsPage.asr.hideSecret")} value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={localNoAuth ? t("settingsPage.modelSettings.apiKeyOptional") : "sk-…"} autoComplete="new-password" />
+                  {localNoAuth && <small>{isMagpie ? t("settingsPage.modelSettings.magpieApiKeyHint") : t("settingsPage.modelSettings.localApiKeyHint")}</small>}
                 </label>
                 <label className="cy-model-field">
                   <span>{t("settingsPage.modelSettings.baseUrl")}</span>

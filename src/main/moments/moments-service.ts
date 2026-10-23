@@ -3,12 +3,12 @@
 // 职责：
 // - 包装 moments-store 的 CRUD（读走内存缓存，写走串行队列）；
 // - 用户发帖 / 评论成功后调度反应任务入持久化反应队列：
-//   昔涟全模型决策；角色先抽签（谁刷到）再双骰分流（评/赞/划走），
+//   麻糬全模型决策；角色先抽签（谁刷到）再双骰分流（评/赞/划走），
 //   到期由扫描器执行决策与落库，长尾延迟 + 深夜窗口保证拟人节奏；
-// - AI 评论落库后事件驱动续接互动链：角色评论昔涟动态 → 昔涟回应 →
+// - AI 评论落库后事件驱动续接互动链：角色评论麻糬动态 → 麻糬回应 →
 //   角色再回（深度内）——回复链深度达到上限时自然收束，用户插话开新链；
-// - run 收尾后按策略调度昔涟主动发帖（后台 LLM，经 enqueueLLMTask 串行），
-//   昔涟发帖同样进角色抽签池；
+// - run 收尾后按策略调度麻糬主动发帖（后台 LLM，经 enqueueLLMTask 串行），
+//   麻糬发帖同样进角色抽签池；
 // - 规则闸门前置：反应开关关闭或模型未配置时连任务都不入队，不浪费 token。
 //
 // 反应执行分两段：agent/角色决策只产出结果（stale/retry/invalid/decided），
@@ -96,9 +96,9 @@ const MOMENTS_MODEL_TIMEOUT_MS = 45_000;
 
 /** ring buffer 保留的最近轮数（MomentEvent.summary 的原料） */
 const RING_BUFFER_MAX_TURNS = 6;
-/** 供新颖性判断的最近昔涟动态条数 */
+/** 供新颖性判断的最近麻糬动态条数 */
 const RECENT_CYRENE_POSTS_FOR_NOVELTY = 5;
-/** 昔涟在线判定窗口：最近一次对话收尾距今不足 10 分钟视为在线 */
+/** 麻糬在线判定窗口：最近一次对话收尾距今不足 10 分钟视为在线 */
 const CYRENE_ONLINE_WINDOW_MS = 10 * 60_000;
 
 /** Moments 一次 run 收尾的输入（事件产生时冻结的不可变快照）。 */
@@ -120,13 +120,13 @@ export interface MomentsService {
   deletePost: (postId: string) => Promise<MomentCommitResult<null>>;
   createUserComment: (input: MomentCreateCommentInput) => Promise<MomentCommitResult<MomentComment>>;
   toggleUserLike: (postId: string) => Promise<MomentCommitResult<{ liked: boolean }>>;
-  /** 昔涟在聊天里发动态（工具通道）：即时落库不排队，成功后进角色抽签池。 */
+  /** 麻糬在聊天里发动态（工具通道）：即时落库不排队，成功后进角色抽签池。 */
   cyreneCreatePostFromTool: (input: { title?: string; text: string }) => Promise<MomentCommitResult<MomentPost>>;
-  /** 昔涟在聊天里点赞（工具通道）：幂等，已点过返回既有结果。 */
+  /** 麻糬在聊天里点赞（工具通道）：幂等，已点过返回既有结果。 */
   cyreneLikeFromTool: (postId: string) => Promise<MomentCommitResult<{ liked: true }>>;
-  /** 昔涟在聊天里评论/回复（工具通道）：落库后按需续接互动链。 */
+  /** 麻糬在聊天里评论/回复（工具通道）：落库后按需续接互动链。 */
   cyreneCommentFromTool: (input: MomentCreateCommentInput) => Promise<MomentCommitResult<MomentComment>>;
-  /** run 成功收尾时调用：记录 ring buffer 并按策略调度昔涟主动发帖。 */
+  /** run 成功收尾时调用：记录 ring buffer 并按策略调度麻糬主动发帖。 */
   scheduleTurn: (input: MomentsTurnInput) => void;
   /** 启动反应队列周期扫描器（启动即补扫一轮，重启后逾期任务尽快续上）；由后台启动组挂载 */
   startReactionScanner(): void;
@@ -207,7 +207,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
     runModel: deps.runModel,
     commitPost: async (input) => {
       const result = await deps.store.createCyrenePost(input);
-      // 昔涟发帖成功后同样进角色抽签池：角色们也会刷到她的动态
+      // 麻糬发帖成功后同样进角色抽签池：角色们也会刷到她的动态
       if (result.applied) scheduleCharacterPostReactions(result.value);
       return result;
     },
@@ -249,7 +249,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
   }
 
   /**
-   * 昔涟表态落库：点赞走昔涟点赞通道，评论/回复走昔涟评论通道——
+   * 麻糬表态落库：点赞走麻糬点赞通道，评论/回复走麻糬评论通道——
    * 评论一律携带任务 id（sourceTaskId）幂等落库，崩溃重跑不重复写入
    * （store 串行队列内含开关与目标存在性复核，AI 思考期间世界变化不豁免）。
    */
@@ -273,7 +273,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
   }
 
   /**
-   * 昔涟在线感知：任何会话的最近一次收尾距今不足 10 分钟即在线。
+   * 麻糬在线感知：任何会话的最近一次收尾距今不足 10 分钟即在线。
    * ring buffer 是内存态，重启后视为离线——保守但正确。
    */
   function isCyreneOnline(): boolean {
@@ -286,7 +286,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
   }
 
   /**
-   * 昔涟任务到期时间：在线走短延迟且不受深夜窗口影响（用户正和她聊天，
+   * 麻糬任务到期时间：在线走短延迟且不受深夜窗口影响（用户正和她聊天，
    * 凌晨三点她就是醒着的）；离线走长尾分桶，且入队落在深夜时段时整体
    * 推迟到次日早晨，避免半夜刷朋友圈。
    */
@@ -334,7 +334,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
     enqueueReactionTask({ actor: "cyrene", dueAt: computeCyreneDueAt(input.kind), ...input });
   }
 
-  /** 昔涟表态决策：闸门复核后委托 agent（agent 内含目标重读与模型调用） */
+  /** 麻糬表态决策：闸门复核后委托 agent（agent 内含目标重读与模型调用） */
   async function cyreneDecide(task: ReactionTask): Promise<ReactionDecideOutcome> {
     // 执行时复核闸门：入队时通过不代表到期时仍通过，世界已变则任务作废
     if (!reactionsEnabled()) return { type: "stale", reason: "reactions_disabled" };
@@ -483,7 +483,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
     }
   }
 
-  // 反应执行器：昔涟与角色共用一条队列，按 actor 分发各自的决策与落库逻辑。
+  // 反应执行器：麻糬与角色共用一条队列，按 actor 分发各自的决策与落库逻辑。
   const reactionExecutor: ReactionTaskExecutor = {
     decide: (task) => (task.actor === "cyrene" ? cyreneDecide(task) : characterDecide(task)),
     apply: async (task, decision) => {
@@ -532,9 +532,9 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
 
   /**
    * 评论落库后的续接调度：任何新落库的评论都可能开启下一段互动——
-   * 昔涟动态下的他人评论（或回复昔涟的评论）给昔涟入回复任务；
+   * 麻糬动态下的他人评论（或回复麻糬的评论）给麻糬入回复任务；
    * 回复目标是角色评论的给该角色入回复任务。
-   * 用户、昔涟、角色的评论统一走这里，触发规则一份代码三处复用。
+   * 用户、麻糬、角色的评论统一走这里，触发规则一份代码三处复用。
    */
   function ensureFollowUpScheduled(comment: MomentComment): void {
     const feed = deps.store.getFeedItem(comment.postId);
@@ -543,7 +543,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
     const isCharacterAuthor = (author: string) =>
       author !== "user" && author !== "cyrene" && personas.has(author);
 
-    // 昔涟的动态下有人说话：她可能回应（自己的评论除外，不自问自答）
+    // 麻糬的动态下有人说话：她可能回应（自己的评论除外，不自问自答）
     if (feed.post.author === "cyrene" && comment.author !== "cyrene") {
       enqueueReplyEval("cyrene", comment, feed.comments);
     }
@@ -607,7 +607,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
 
   function scheduleUserPostReaction(post: MomentPost): void {
     // 点名直达：@ 的人不掷抽签与双骰，直接走模型表态 + 秒回延迟。
-    // 名单在入队前过滤为合法主体（昔涟或注册角色），手滑写的名字静默忽略。
+    // 名单在入队前过滤为合法主体（麻糬或注册角色），手滑写的名字静默忽略。
     const personas = loadPersonas();
     const mentionedCyrene = post.mentions?.includes("cyrene") ?? false;
     const mentionedCharacters = [...new Set(post.mentions ?? [])]
@@ -619,7 +619,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
         actor: "cyrene",
         postId: post.id,
         mentioned: true,
-        // 秒回档不套深夜窗口：用户半夜 @ 昔涟，说明醒着在等她
+        // 秒回档不套深夜窗口：用户半夜 @ 麻糬，说明醒着在等她
         dueAt: now() + computeMentionDelayMs(random),
       });
     } else if (reactionGateOpen()) {
@@ -638,7 +638,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
       });
     }
 
-    // 角色抽签自带闸门：昔涟反应关闭不影响角色刷到（两条独立链路）；
+    // 角色抽签自带闸门：麻糬反应关闭不影响角色刷到（两条独立链路）；
     // 已被点名直达的角色从抽签池排除，避免同一人挂两条表态任务
     scheduleCharacterPostReactions(post, new Set(mentionedCharacters));
   }
@@ -690,7 +690,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
     getFeedItem: (postId) => deps.store.getFeedItem(postId),
 
     createUserPost: (input) => {
-      // 点名白名单过滤：只保留昔涟与注册角色，渲染端传来的其他名字一律丢弃
+      // 点名白名单过滤：只保留麻糬与注册角色，渲染端传来的其他名字一律丢弃
       // （mentions 决定调度行为，不能信任渲染端输入；文本本身不受影响）
       const legal = new Set<string>(["cyrene", ...loadPersonas().keys()]);
       const mentions = [...new Set(input.mentions ?? [])].filter((name) => legal.has(name));
@@ -705,7 +705,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
 
     createUserComment: (input) =>
       deps.store.createComment(input, "user").then((result) => {
-        // 用户评论落库后续接：在昔涟动态下说话、回复昔涟或回复角色都可能引来回应
+        // 用户评论落库后续接：在麻糬动态下说话、回复麻糬或回复角色都可能引来回应
         if (result.applied) ensureFollowUpScheduled(result.value);
         return result;
       }),
@@ -713,7 +713,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
     toggleUserLike: (postId) => deps.store.toggleLike(postId, "user"),
 
     // ── 聊天工具通道 ──────────────────────────────────────────
-    // 昔涟在对话中主动使用朋友圈：即时落库不走反应延迟（她正和用户聊天，
+    // 麻糬在对话中主动使用朋友圈：即时落库不走反应延迟（她正和用户聊天，
     // "当场发"才自然）；闸门沿用提交时复核，设置关闭时返回可读原因。
     // 发帖成功后照常进角色抽签池，评论落库后续接互动链。
 
@@ -822,7 +822,7 @@ export function buildMomentsWorldbookContext(text: string): string {
 /**
  * 具体图片读取闭包：用户动态的 user_attachment 副本转 base64 dataUrl，
  * 直发多模态主模型；读取失败降级文字说明，不阻断反应流程。
- * character_asset 是昔涟自己的配图素材，不作为视觉输入。
+ * character_asset 是麻糬自己的配图素材，不作为视觉输入。
  */
 export function loadUserMomentPostImages(post: MomentPost): MomentPostImage[] {
   // 图片路由统一收口在 image-router。moments 只直发不转述：

@@ -1,16 +1,12 @@
-import { AppstoreOutlined, LoadingOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Modal } from "antd";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AppstoreOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   MarketPluginEntry,
-  MarketPluginDetails,
-  MarketSourceStatus,
   PluginListEntry,
   PluginManagementApi,
   PluginOverview,
   PluginRuntimeStatus,
 } from "../../../../../shared/plugin-management";
-import { isNewerVersion } from "../../../../../shared/version";
 import { useTranslation } from "../../../i18n";
 import { Card } from "../../../components/ui/Card";
 import { useFeedback } from "../../../components/feedback/FeedbackProvider";
@@ -21,20 +17,6 @@ interface PluginModePanelProps {
   api?: PluginManagementApi;
 }
 
-// Cyrene 官方插件收录仓库（GitHub 为主，Gitee 为国内镜像），面板内展示并可在系统浏览器打开
-const PLUGIN_REGISTRY_URL = "https://github.com/Playa-0v0/Cyrene-Plugins";
-
-/** 从索引源地址推导展示名：认识的源走 i18n 友好名，其余直接显示主机名 */
-function marketSourceLabel(url: string, t: (key: string) => string): string {
-  if (url.includes("gitee.com")) return t("pluginPanel.market.sourceGitee");
-  if (url.includes("github")) return t("pluginPanel.market.sourceGithub");
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
-}
-
 type HeaderAction = "refresh" | "import" | null;
 type PanelView = "installed" | "market";
 
@@ -42,14 +24,8 @@ interface MarketState {
   phase: "idle" | "loading" | "ready" | "error";
   plugins: MarketPluginEntry[];
   error?: string;
-  /** 各索引源的实时死活（含拉取失败时的全死状态），用于头部徽章展示 */
-  sources?: MarketSourceStatus[];
-}
-
-interface MarketDetailsState {
-  phase: "idle" | "loading" | "ready" | "error";
-  details?: MarketPluginDetails;
-  error?: string;
+  /** 被枚举的本地插件目录绝对路径；用户把插件文件夹放进这里再刷新 */
+  directory?: string;
 }
 
 const STATUS_ORDER: Record<PluginRuntimeStatus, number> = {
@@ -70,30 +46,6 @@ export function pluginToggleTarget(plugin: PluginListEntry): boolean {
   return plugin.status !== "running";
 }
 
-/** 市场卡片按钮的展示形态：由本地安装情况推导，渲染端只做展示判断，安装安全校验全在主进程 */
-type MarketCardAction =
-  | { kind: "install" }
-  | { kind: "update" }
-  | { kind: "replace" }
-  | { kind: "installed"; version: string }
-  | { kind: "installedLocalNewer"; version: string };
-
-export function resolveMarketAction(
-  entry: MarketPluginEntry,
-  installed: PluginListEntry | undefined,
-): MarketCardAction {
-  if (!installed) return { kind: "install" };
-  // 市场来源的已装插件才提供"更新"，本地来源（含内置）一律走替换确认
-  if (installed.origin === "market") {
-    if (isNewerVersion(entry.version, installed.version)) return { kind: "update" };
-    if (isNewerVersion(installed.version, entry.version)) {
-      return { kind: "installedLocalNewer", version: installed.version };
-    }
-    return { kind: "installed", version: installed.version };
-  }
-  return { kind: "replace" };
-}
-
 export function PluginModePanel({ api: providedApi }: PluginModePanelProps) {
   const { t } = useTranslation();
   // 统一反馈入口：删除插件走危险确认
@@ -107,12 +59,6 @@ export function PluginModePanel({ api: providedApi }: PluginModePanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<PanelView>("installed");
   const [market, setMarket] = useState<MarketState>({ phase: "idle", plugins: [] });
-  const [installingId, setInstallingId] = useState<string | null>(null);
-  const [marketError, setMarketError] = useState<string | null>(null);
-  const [marketNotice, setMarketNotice] = useState<string | null>(null);
-  const [detailsPlugin, setDetailsPlugin] = useState<MarketPluginEntry | null>(null);
-  const [detailsState, setDetailsState] = useState<MarketDetailsState>({ phase: "idle" });
-  const detailsRequestSeq = useRef(0);
 
   const reload = useCallback(async () => {
     if (!api) throw new Error(t("pluginPanel.apiUnavailable"));
@@ -133,18 +79,16 @@ export function PluginModePanel({ api: providedApi }: PluginModePanelProps) {
     return () => { cancelled = true; };
   }, [reload]);
 
-  // 每次切入市场视图都重新拉取列表；preferred 指定偏好源时把它提到探测首位；不监听不轮询
-  const loadMarket = useCallback(async (preferred?: string) => {
+  // 每次切入本地目录视图都重新读取 userData/plugins；不监听不轮询
+  const loadMarket = useCallback(async () => {
     if (!api) return;
     setMarket({ phase: "loading", plugins: [] });
-    setMarketError(null);
-    setMarketNotice(null);
     try {
-      const result = await api.marketList(preferred);
+      const result = await api.marketList();
       if (!result.ok) {
-        setMarket({ phase: "error", plugins: [], error: result.error ?? t("pluginPanel.unknownError"), sources: result.sources });
+        setMarket({ phase: "error", plugins: [], error: result.error ?? t("pluginPanel.unknownError") });
       } else {
-        setMarket({ phase: "ready", plugins: result.plugins, sources: result.sources });
+        setMarket({ phase: "ready", plugins: result.plugins, directory: result.directory });
       }
     } catch (cause) {
       setMarket({
@@ -174,23 +118,20 @@ export function PluginModePanel({ api: providedApi }: PluginModePanelProps) {
     });
   }, [filter, overview.plugins]);
 
-  const usedMarketSource = market.sources?.find((source) => source.used)?.url;
-
   const refreshPlugins = useCallback(async () => {
     if (!api) return;
     setHeaderAction("refresh");
     setError(null);
     try {
       setOverview(normalizePluginOverview(await api.rescan()));
-      // 市场列表只在切入市场视图时拉取一次；在市场视图里点刷新若只重扫本地插件，
-      // 页面上看不到任何变化。这里同时重新拉取市场列表，并沿用当前正在使用的数据源。
-      if (view === "market") await loadMarket(usedMarketSource);
+      // 本地目录视图里点刷新同时重读目录；用户刚把插件文件夹放进去时要立刻看到
+      if (view === "market") await loadMarket();
     } catch (cause) {
       setError(t("pluginPanel.refreshFailed", { error: cause instanceof Error ? cause.message : String(cause) }));
     } finally {
       setHeaderAction(null);
     }
-  }, [api, t, view, loadMarket, usedMarketSource]);
+  }, [api, t, view, loadMarket]);
 
   const importPlugin = useCallback(async () => {
     if (!api) return;
@@ -210,53 +151,6 @@ export function PluginModePanel({ api: providedApi }: PluginModePanelProps) {
       setHeaderAction(null);
     }
   }, [api, reload, t]);
-
-  const installFromMarket = useCallback(async (entry: MarketPluginEntry) => {
-    if (!api) return;
-    setInstallingId(entry.id);
-    setMarketError(null);
-    setMarketNotice(null);
-    try {
-      const result = await api.marketInstall(entry.id);
-      if (!result.ok) {
-        setMarketError(t("pluginPanel.market.installFailed", { error: result.error ?? t("pluginPanel.unknownError") }));
-      } else {
-        setMarketNotice(t("pluginPanel.market.installSuccess", { name: result.plugin.name }));
-        // 刷新本地列表，让卡片按钮状态（更新/已安装）立即跟上
-        await reload();
-      }
-    } catch (cause) {
-      setMarketError(t("pluginPanel.market.installFailed", { error: cause instanceof Error ? cause.message : String(cause) }));
-    } finally {
-      setInstallingId(null);
-    }
-  }, [api, reload, t]);
-
-  const openMarketDetails = useCallback(async (entry: MarketPluginEntry) => {
-    if (!api) return;
-    const requestSeq = ++detailsRequestSeq.current;
-    setDetailsPlugin(entry);
-    setDetailsState({ phase: "loading" });
-    try {
-      const preferred = market.sources?.find((source) => source.used)?.url;
-      const result = await api.marketDetails(entry.id, preferred);
-      if (requestSeq !== detailsRequestSeq.current) return;
-      if (result.ok) setDetailsState({ phase: "ready", details: result.details });
-      else setDetailsState({ phase: "error", error: result.error });
-    } catch (cause) {
-      if (requestSeq !== detailsRequestSeq.current) return;
-      setDetailsState({
-        phase: "error",
-        error: cause instanceof Error ? cause.message : String(cause),
-      });
-    }
-  }, [api, market.sources]);
-
-  const closeMarketDetails = useCallback(() => {
-    detailsRequestSeq.current += 1;
-    setDetailsPlugin(null);
-    setDetailsState({ phase: "idle" });
-  }, []);
 
   const openPlugin = useCallback(async (plugin: PluginListEntry) => {
     if (!api) return;
@@ -331,18 +225,6 @@ export function PluginModePanel({ api: providedApi }: PluginModePanelProps) {
           <img className="plugin-panel__heading-icon" src={pluginIconUrl} alt="" />
           <h1 className="plugin-panel__title">{inMarket ? t("pluginPanel.market.title") : t("pluginPanel.title")}</h1>
           <p className="plugin-panel__subtitle">{inMarket ? t("pluginPanel.market.subtitle") : t("pluginPanel.subtitle")}</p>
-          <p className="plugin-panel__subtitle plugin-panel__registry">
-            {t("pluginPanel.registryPrefix")}
-            <a
-              className="plugin-panel__registry-link"
-              href={PLUGIN_REGISTRY_URL}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {t("pluginPanel.registryLink")}
-            </a>
-            {t("pluginPanel.registrySuffix")}
-          </p>
         </div>
         <div className="plugin-panel__header-actions">
           <button
@@ -392,36 +274,12 @@ export function PluginModePanel({ api: providedApi }: PluginModePanelProps) {
 
       {inMarket ? (
         <>
-          {market.sources && market.sources.length > 0 && (
-            <div className="plugin-panel__source-switch" role="group" aria-label={t("pluginPanel.market.sourceSection")}>
-              <span className="plugin-panel__source-switch-label">{t("pluginPanel.market.sourceSection")}</span>
-              {market.sources.map((source) => {
-                const stateLabel = source.used
-                  ? t("pluginPanel.market.sourceUsed")
-                  : source.ok
-                    ? t("pluginPanel.market.sourceStandby")
-                    : t("pluginPanel.market.sourceDead");
-                return (
-                  <button
-                    type="button"
-                    key={source.url}
-                    className={`plugin-panel__source-chip${source.used ? " is-used" : source.ok ? " is-standby" : " is-dead"}`}
-                    onClick={() => void loadMarket(source.url)}
-                    disabled={!api || market.phase === "loading"}
-                    title={`${marketSourceLabel(source.url, t)} · ${stateLabel}`}
-                  >
-                    {marketSourceLabel(source.url, t)}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {(marketError || marketNotice) && (
-            <div className="plugin-panel__notices" role="status">
-              {marketError && <div className="plugin-panel__notice is-error">{marketError}</div>}
-              {marketNotice && <div className="plugin-panel__notice">{marketNotice}</div>}
-            </div>
-          )}
+          <div className="plugin-panel__directory">
+            <span className="plugin-panel__directory-label">{t("pluginPanel.market.directoryLabel")}</span>
+            <code className="plugin-panel__directory-path">
+              {market.directory ?? t("common.loading")}
+            </code>
+          </div>
           {market.phase === "loading" ? (
             <div className="plugin-panel__loading">{t("common.loading")}</div>
           ) : market.phase === "error" ? (
@@ -432,178 +290,28 @@ export function PluginModePanel({ api: providedApi }: PluginModePanelProps) {
             <div className="plugin-panel__empty">{t("pluginPanel.market.emptyHint")}</div>
           ) : (
             <div className="plugin-panel__grid">
-              {market.plugins.map((entry) => {
-                const installed = overview.plugins.find((plugin) => plugin.id === entry.id);
-                const action = resolveMarketAction(entry, installed);
-                const installingThis = installingId === entry.id;
-                const installBlocked = installingId !== null;
-                let label: string;
-                let primary = false;
-                let disabled = false;
-                let hint: string | undefined;
-                switch (action.kind) {
-                  case "install":
-                    label = t("pluginPanel.market.install");
-                    primary = true;
-                    break;
-                  case "update":
-                    label = t("pluginPanel.market.update");
-                    primary = true;
-                    break;
-                  case "replace":
-                    label = t("pluginPanel.market.replaceInstall");
-                    hint = t("pluginPanel.market.replaceHint");
-                    break;
-                  case "installed":
-                    label = t("pluginPanel.market.installed", { version: action.version });
-                    disabled = true;
-                    break;
-                  case "installedLocalNewer":
-                    label = t("pluginPanel.market.installedLocalNewer", { version: action.version });
-                    disabled = true;
-                    break;
-                }
-                return (
-                  <Card as="article" className="plugin-card-ui" key={entry.id}>
-                    <div className="plugin-card-ui__main">
-                      <span className="plugin-card-ui__icon" aria-hidden="true">
-                        <img src={pluginIconUrl} alt="" />
-                      </span>
-                      <div className="plugin-card-ui__body">
-                        <div className="plugin-card-ui__name-row">
-                          <strong className="plugin-card-ui__name">{entry.name}</strong>
-                          <span className="plugin-card-ui__version">v{entry.version}</span>
-                        </div>
-                        <p className="plugin-card-ui__description" title={entry.description}>{entry.description}</p>
-                        <p className="plugin-card-ui__developer">
-                          {t("pluginPanel.developer", { author: entry.author.trim() || t("pluginPanel.unknownDeveloper") })}
-                          <span className="plugin-card-ui__meta-sep"> · </span>
-                          <span className="plugin-card-ui__downloads">
-                            {t("pluginPanel.market.downloads", { downloads: entry.downloads })}
-                          </span>
-                        </p>
+              {market.plugins.map((entry) => (
+                <Card as="article" className="plugin-card-ui" key={entry.id}>
+                  <div className="plugin-card-ui__main">
+                    <span className="plugin-card-ui__icon" aria-hidden="true">
+                      <img src={pluginIconUrl} alt="" />
+                    </span>
+                    <div className="plugin-card-ui__body">
+                      <div className="plugin-card-ui__name-row">
+                        <strong className="plugin-card-ui__name">{entry.name}</strong>
+                        <span className="plugin-card-ui__version">v{entry.version}</span>
+                        <span className="plugin-card-ui__status">{t("pluginPanel.market.localBadge")}</span>
                       </div>
+                      <p className="plugin-card-ui__description" title={entry.description}>{entry.description}</p>
+                      <p className="plugin-card-ui__developer">
+                        {t("pluginPanel.developer", { author: entry.author.trim() || t("pluginPanel.unknownDeveloper") })}
+                      </p>
                     </div>
-                    <div className="plugin-card-ui__actions">
-                      <button
-                        type="button"
-                        className="plugin-card-ui__button"
-                        onClick={() => void openMarketDetails(entry)}
-                        disabled={!api}
-                      >
-                        {t("pluginPanel.market.details")}
-                      </button>
-                      <button
-                        type="button"
-                        className={`plugin-card-ui__button${primary ? " is-enabled" : ""}`}
-                        onClick={() => void installFromMarket(entry)}
-                        disabled={disabled || installBlocked}
-                        title={hint}
-                      >
-                        {installingThis && <LoadingOutlined spin />}
-                        {installingThis ? ` ${t("pluginPanel.market.installing")}` : label}
-                      </button>
-                    </div>
-                  </Card>
-                );
-              })}
+                  </div>
+                </Card>
+              ))}
             </div>
           )}
-          <Modal
-            open={detailsPlugin !== null}
-            onCancel={closeMarketDetails}
-            footer={null}
-            width={680}
-            className="plugin-market-details-modal"
-            destroyOnHidden
-            title={detailsPlugin?.name ?? t("pluginPanel.market.details")}
-          >
-            {detailsPlugin && (() => {
-              const installed = overview.plugins.find((plugin) => plugin.id === detailsPlugin.id);
-              const action = resolveMarketAction(detailsPlugin, installed);
-              const actionLabel = action.kind === "update"
-                ? t("pluginPanel.market.update")
-                : action.kind === "replace"
-                  ? t("pluginPanel.market.replaceInstall")
-                  : action.kind === "installed"
-                    ? t("pluginPanel.market.installed", { version: action.version })
-                    : action.kind === "installedLocalNewer"
-                      ? t("pluginPanel.market.installedLocalNewer", { version: action.version })
-                      : t("pluginPanel.market.install");
-              const actionDisabled = action.kind === "installed"
-                || action.kind === "installedLocalNewer"
-                || installingId !== null;
-              const details = detailsState.details;
-              const sections = [
-                { key: "features", title: t("pluginPanel.market.detailsFeatures"), items: details?.features ?? [] },
-                { key: "requirements", title: t("pluginPanel.market.detailsRequirements"), items: details?.requirements ?? [] },
-                { key: "setup", title: t("pluginPanel.market.detailsSetup"), items: details?.setup ?? [] },
-                { key: "dataHandling", title: t("pluginPanel.market.detailsData"), items: details?.dataHandling ?? [] },
-              ];
-              const documentationUrl = details?.documentationUrl ?? detailsPlugin.homepage;
-              return (
-                <>
-                  <div className="plugin-market-details__header">
-                    <span className="plugin-market-details__icon"><img src={pluginIconUrl} alt="" /></span>
-                    <div className="plugin-market-details__heading">
-                      <div className="plugin-market-details__name-row">
-                        <span className="plugin-card-ui__version">v{detailsPlugin.version}</span>
-                      </div>
-                      <p>{t("pluginPanel.developer", { author: detailsPlugin.author.trim() || t("pluginPanel.unknownDeveloper") })}</p>
-                    </div>
-                  </div>
-                  <p className="plugin-market-details__summary">{detailsPlugin.description}</p>
-                  <div className="plugin-market-details__meta">
-                    <span>{t("pluginPanel.market.downloads", { downloads: detailsPlugin.downloads })}</span>
-                  </div>
-
-                  {detailsState.phase === "loading" ? (
-                    <div className="plugin-market-details__loading"><LoadingOutlined spin /> {t("pluginPanel.market.detailsLoading")}</div>
-                  ) : detailsState.phase === "error" ? (
-                    <div className="plugin-market-details__fallback" role="status">
-                      {t("pluginPanel.market.detailsUnavailable")}
-                      <button type="button" onClick={() => void openMarketDetails(detailsPlugin)}>
-                        {t("pluginPanel.market.detailsRetry")}
-                      </button>
-                    </div>
-                  ) : detailsState.phase === "ready" ? (
-                    <div className="plugin-market-details__sections">
-                      {sections.map((section) => section.items.length > 0 && (
-                        <section className="plugin-market-details__section" key={section.key}>
-                          <h3>{section.title}</h3>
-                          <ul>{section.items.map((item, index) => <li key={`${section.key}-${index}`}>{item}</li>)}</ul>
-                        </section>
-                      ))}
-                      {sections.every((section) => section.items.length === 0) && (
-                        <p className="plugin-market-details__empty">{t("pluginPanel.market.detailsEmpty")}</p>
-                      )}
-                    </div>
-                  ) : null}
-
-                  {documentationUrl && (
-                    <a className="plugin-market-details__link" href={documentationUrl} target="_blank" rel="noreferrer">
-                      {t("pluginPanel.market.detailsDocumentation")}
-                      <span aria-hidden="true">↗</span>
-                    </a>
-                  )}
-                  <div className="plugin-market-details__actions">
-                    <button type="button" className="plugin-card-ui__button" onClick={closeMarketDetails}>
-                      {t("common.cancel")}
-                    </button>
-                    <button
-                      type="button"
-                      className="plugin-card-ui__button is-enabled"
-                      onClick={() => void installFromMarket(detailsPlugin)}
-                      disabled={actionDisabled}
-                    >
-                      {installingId === detailsPlugin.id && <LoadingOutlined spin />}
-                      {installingId === detailsPlugin.id ? t("pluginPanel.market.installing") : actionLabel}
-                    </button>
-                  </div>
-                </>
-              );
-            })()}
-          </Modal>
         </>
       ) : (
         <>

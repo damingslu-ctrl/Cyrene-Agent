@@ -4,18 +4,35 @@ const mocks = vi.hoisted(() => ({
   app: { once: vi.fn() },
   createdWindows: [] as Array<ReturnType<typeof createFakeWindow>>,
   createPetWindow: vi.fn(),
+  // 位置权威的动作要有账：测试名字声称 controller 权威，就得看得见它被动过。
+  moveController: vi.fn(),
+  displayHandlers: [] as Array<() => void>,
 }));
 
 vi.mock("electron", () => ({
   app: mocks.app,
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
-  screen: { getCursorScreenPoint: vi.fn(() => ({ x: 0, y: 0 })) },
+  screen: {
+    getCursorScreenPoint: vi.fn(() => ({ x: 0, y: 0 })),
+    // 探针块要读 DPI（window-manager.ts 的 GEOM 行）。缺这个 mock 时，谁在 shell 里
+    // export 过 VERGE_GEOM_PROBE=1 再跑 vitest，就会在 ipc 回调里抛错——假失败。
+    getDisplayMatching: vi.fn(() => ({ scaleFactor: 1, workArea: { x: 0, y: 0, width: 1920, height: 1040 } })),
+    // Task 12：display-metrics-changed 要能被人按下扳机，dispose 要能看见解绑。
+    on: vi.fn((event: string, handler: () => void) => {
+      if (event === "display-metrics-changed") mocks.displayHandlers.push(handler);
+    }),
+    off: vi.fn((event: string, handler: () => void) => {
+      if (event === "display-metrics-changed") {
+        mocks.displayHandlers = mocks.displayHandlers.filter((candidate) => candidate !== handler);
+      }
+    }),
+  },
 }));
-vi.mock("../startup/create-pet-window", () => ({
-  createPetWindow: mocks.createPetWindow,
-  PET_WINDOW_BASE_HEIGHT: 500,
-  PET_WINDOW_BASE_WIDTH: 400,
-}));
+// 基址走真模块：PET_W 一改，夹具必须跟着变，否则 zoom 断言拿旧基址当基准。
+vi.mock("../startup/create-pet-window", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../startup/create-pet-window")>();
+  return { ...actual, createPetWindow: mocks.createPetWindow };
+});
 vi.mock("./create-aux-windows", () => ({
   createCallWindow: vi.fn(), createReactChatWindowShell: vi.fn(), createStickerManagerWindow: vi.fn(),
   loadReactChatWindowPage: vi.fn(), loadOnboardingWindowPage: vi.fn(), createOnboardingBrowserWindow: vi.fn(),
@@ -24,13 +41,27 @@ vi.mock("./create-aux-windows", () => ({
 vi.mock("./startup-window-load", () => ({ CHAT_READY_TIMEOUT_MS: 1, loadWindowForStartup: vi.fn() }));
 vi.mock("./create-music-player-window", () => ({ createMusicPlayerWindow: vi.fn() }));
 vi.mock("./broadcast", () => ({ broadcastToAllWindows: vi.fn() }));
-vi.mock("../pet-window-movement", () => ({ PetWindowMoveController: class { dispose() {} finishDragging() {} moveRelative() {} queueAbsolute() {} } }));
+vi.mock("../pet-window-movement", () => ({
+  PetWindowMoveController: class {
+    dispose() { mocks.moveController("dispose"); }
+    finishDragging() { mocks.moveController("finishDragging"); }
+    moveRelative() { mocks.moveController("moveRelative"); }
+    queueAbsolute() { mocks.moveController("queueAbsolute"); }
+  },
+}));
 vi.mock("../../shared/disclaimer", () => ({ CURRENT_DISCLAIMER_VERSION: "current" }));
 
 function createFakeWindow() {
   const listeners = new Map<string, Array<(...args: any[]) => void>>();
   let visible = false;
   let destroyed = false;
+  let bounds = { x: 0, y: 0, width: Math.round(PET_W), height: Math.round(PET_H) };
+  // 复刻 spikes/p1-window.md 屏幕层实测的 Chromium 行为：resizable:false 的窗每落一次
+  // 尺寸，就把 min/max 重新锁成该尺寸，于是**下一次缩小必被夹回**。创建时放开一次没用
+  // （D 档），只有紧挨着 setSize 之前放开才有效（B 档）。fake 不建模这段，产品里的
+  // 解锁代码就是永不被检验的装饰。
+  let min = { width: 0, height: 0 };
+  let max = { width: 100000, height: 100000 };
   return {
     on: vi.fn((event: string, listener: (...args: any[]) => void) => {
       listeners.set(event, [...(listeners.get(event) ?? []), listener]);
@@ -49,17 +80,44 @@ function createFakeWindow() {
     isDestroyed: vi.fn(() => destroyed),
     isVisible: vi.fn(() => visible),
     setAlwaysOnTop: vi.fn(),
-    getPosition: vi.fn(() => [0, 0]),
+    setOpacity: vi.fn(),
+    getPosition: vi.fn(() => [bounds.x, bounds.y]),
+    getBounds: vi.fn(() => ({ ...bounds })),
+    // 尺寸与位置是两条独立指令（native main.rs:4308-4315），fake 必须分开记账。
+    setSize: vi.fn((width: number, height: number) => {
+      const w = Math.min(Math.max(width, min.width), max.width);
+      const h = Math.min(Math.max(height, min.height), max.height);
+      bounds = { ...bounds, width: w, height: h };
+      min = { width: w, height: h };
+      max = { width: w, height: h };
+    }),
+    setMinimumSize: vi.fn((width: number, height: number) => {
+      min = { width, height };
+    }),
+    setMaximumSize: vi.fn((width: number, height: number) => {
+      max = { width, height };
+    }),
+    setPosition: vi.fn((x: number, y: number) => {
+      bounds = { ...bounds, x, y };
+    }),
+    // display-metrics-changed 重夹取走 setBounds(rect, false)（brief Step 3 的调用形态）。
+    setBounds: vi.fn((rect: { x: number; y: number; width: number; height: number }) => {
+      bounds = { ...bounds, ...rect };
+    }),
+    webContents: { send: vi.fn() },
   };
 }
 
 import { createWindowManager } from "./window-manager";
+import { PET_H, PET_W } from "../../shared/pet-geometry";
+import { IPC } from "../../shared/ipc-channels";
 
 describe("pet window resource release", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     mocks.createdWindows = [];
+    mocks.displayHandlers = [];
     mocks.createPetWindow.mockImplementation(() => {
       const window = createFakeWindow();
       mocks.createdWindows.push(window);
@@ -105,5 +163,383 @@ describe("pet window resource release", () => {
     expect(window.destroy).not.toHaveBeenCalled();
     expect(mocks.createdWindows).toHaveLength(1);
     expect(window.show).toHaveBeenCalledOnce();
+  });
+});
+
+describe("pet window bounds channel", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+    mocks.createdWindows = [];
+    mocks.displayHandlers = [];
+    mocks.createPetWindow.mockImplementation(() => {
+      const window = createFakeWindow();
+      mocks.createdWindows.push(window);
+      return window;
+    });
+  });
+
+  function buildManager(settings: Partial<{ petZoom: number }> = {}) {
+    return createWindowManager({
+      getCurrentAppIconPath: () => "icon",
+      isDev: false,
+      loadPetWindowSettingsSlice: () => ({ disclaimerAcceptedVersion: "current", ...settings }),
+      persistPetWindowPosition: vi.fn(),
+    });
+  }
+
+  it("只有位置越阈 → 只发 setPosition；只有尺寸越阈 → 只发 setSize（native 两条门）", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+
+    manager.setPetWindowBounds({ x: 300, y: 400, width: 82, height: 108 });
+    expect(win.setPosition).toHaveBeenCalledTimes(1);
+    expect(win.setSize).not.toHaveBeenCalled();
+
+    manager.setPetWindowBounds({ x: 300, y: 400, width: 248, height: 482 });
+    expect(win.setPosition).toHaveBeenCalledTimes(1);
+    expect(win.setSize).toHaveBeenCalledTimes(1);
+    expect(win.getBounds()).toEqual({ x: 300, y: 400, width: 248, height: 482 });
+    // animate 只标 macOS，但出货只有 win/nsis 也要把 false 传到底：删掉这个字面量
+    // 现在没有任何测试会红，所以在这里把它钉住。
+    expect(win.setPosition.mock.calls[0]?.[2]).toBe(false);
+  });
+
+  it("缩小不许被尺寸锁夹回：面板 248×482 收回到 82×108 必须真落位（屏幕层回归）", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+
+    // x 取渲染端在 1920 宽屏上真能请求到的贴右上限（1920−248）；1838 是收起档的上限，
+    // 长到面板宽就探出屏外，会被主端的物理矩形夹取挪位（见下一条）。
+    manager.setPetWindowBounds({ x: 1672, y: 520, width: 248, height: 482 });
+    expect(win.getBounds()).toEqual({ x: 1672, y: 520, width: 248, height: 482 });
+
+    // 收起方向：Chromium 把上一次的尺寸当成了下限，不解锁就停在 248×482。
+    manager.setPetWindowBounds({ x: 1672, y: 520, width: 82, height: 108 });
+    expect(win.getBounds()).toEqual({ x: 1672, y: 520, width: 82, height: 108 });
+  });
+
+  it("petZoom 1.5：渲染端发的是基址几何，主端必须乘回 zoom，否则每帧静默抹掉缩放（屏幕层⑤）", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+
+    manager.applyPetWindowZoom(1.5);
+    expect(win.getBounds()).toEqual({ x: 0, y: 0, width: 123, height: 162 });
+
+    // 渲染端 requestBounds 的载荷恒是基址（renderer.ts 把 zoom 折进 ctx 变换，不动载荷）。
+    manager.setPetWindowBounds({ x: 300, y: 200, width: 82, height: 108 });
+    expect(win.getBounds()).toEqual({ x: 300, y: 200, width: 123, height: 162 });
+
+    // 面板档同样放大；收起后 zoom 仍然活着。y=200 是因为 723 高的物理面板在
+    // 1040 工作区里放不下 400（主端按物理矩形夹，见上一条测试）。
+    manager.setPetWindowBounds({ x: 300, y: 200, width: 248, height: 482 });
+    expect(win.getBounds()).toEqual({ x: 300, y: 200, width: 372, height: 723 });
+    manager.setPetWindowBounds({ x: 300, y: 200, width: 82, height: 108 });
+    expect(win.getBounds()).toEqual({ x: 300, y: 200, width: 123, height: 162 });
+  });
+
+  it("zoom>1 时按物理矩形夹工作区；zoom=1 这条分支一次都不进（P1 已验的落位不许动）", () => {
+    const zoomed = buildManager();
+    const zoomWin = zoomed.createPetWindow();
+    zoomed.applyPetWindowZoom(1.5);
+
+    // 1838 是渲染端按基址 82 宽算出的贴右上限；物理 123 宽要落到 1797 才不探出屏外。
+    zoomed.setPetWindowBounds({ x: 1838, y: 520, width: 82, height: 108 });
+    expect(zoomWin.getBounds()).toEqual({ x: 1797, y: 520, width: 123, height: 162 });
+    // 夹完必须把落位回推，否则渲染端下一帧照样请求 1838，两条门每帧都开。
+    expect(zoomWin.webContents.send).toHaveBeenCalledWith(
+      IPC.VERGE_PET_GEOMETRY,
+      expect.objectContaining({ bounds: expect.objectContaining({ x: 1797 }) }),
+    );
+
+    // 负对照：zoom=1 物理＝基址，同一个请求原样落位且一条几何回推都不发。
+    const plain = buildManager();
+    const plainWin = plain.createPetWindow();
+    plain.setPetWindowBounds({ x: 1838, y: 520, width: 82, height: 108 });
+    expect(plainWin.getBounds()).toEqual({ x: 1838, y: 520, width: 82, height: 108 });
+    expect(plainWin.webContents.send).not.toHaveBeenCalledWith(
+      IPC.VERGE_PET_GEOMETRY,
+      expect.anything(),
+    );
+  });
+
+  it("改缩放档也要按物理矩形夹：贴右边缘的猫放大后不许探出屏外", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+    manager.setPetWindowBounds({ x: 1838, y: 520, width: 82, height: 108 });
+    expect(win.getBounds()).toEqual({ x: 1838, y: 520, width: 82, height: 108 });
+
+    manager.applyPetWindowZoom(1.5);
+    expect(win.getBounds()).toEqual({ x: 1797, y: 520, width: 123, height: 162 });
+    expect(win.webContents.send).toHaveBeenCalledWith(
+      IPC.VERGE_PET_GEOMETRY,
+      expect.objectContaining({ bounds: expect.objectContaining({ x: 1797 }) }),
+    );
+  });
+
+  it("缩放档收回 1.0 也必须挣脱尺寸锁：这条通道的缩小没有 PET_RESIZE 兜底", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+
+    manager.applyPetWindowZoom(1.5);
+    expect(win.getBounds()).toEqual({ x: 0, y: 0, width: 123, height: 162 });
+
+    // applyPetWindowZoom 是唯一直接 setSize 的来源，渲染端那条 248→82 的收起门碰不到它。
+    // 删掉这里的 unlockWindowSize，fake 的「落位即重锁」会把这次缩小夹回 123×162。
+    manager.applyPetWindowZoom(1);
+    expect(win.getBounds()).toEqual({ x: 0, y: 0, width: 82, height: 108 });
+  });
+
+  it("建窗时就把 petZoom 记进换算基线：core-bootstrap 的 applyPetWindowZoom 排在渲染端首帧之后", () => {
+    const manager = buildManager({ petZoom: 1.5 });
+    const win = manager.createPetWindow();
+
+    // createPetWindow 工厂已按 petZoom 定过物理尺寸，但 applyPetWindowZoom 要等
+    // core-bootstrap 在建窗之后才调；中间渲染端发来的首帧 PET_RESIZE 只能靠这里的
+    // seeding 换算。删掉 window-manager.ts:273 的赋值，本行会读到 zoom=1 的 82×108。
+    manager.setPetWindowBounds({ x: 300, y: 200, width: 82, height: 108 });
+    expect(win.getBounds()).toEqual({ x: 300, y: 200, width: 123, height: 162 });
+  });
+
+  it("拖拽期间主端不抢位置：夹取生效也不回推几何（位置权威是 controller）", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+    manager.applyPetWindowZoom(1.5);
+    manager.setPetWindowDragging(true);
+
+    manager.setPetWindowBounds({ x: 1838, y: 520, width: 82, height: 108 });
+    expect(win.setPosition).not.toHaveBeenCalled();
+    expect(win.webContents.send).not.toHaveBeenCalledWith(
+      IPC.VERGE_PET_GEOMETRY,
+      expect.anything(),
+    );
+  });
+
+  it("位移 0.4 + 尺寸 0.4：一条指令都不发（合成 4 维求和会误判成 0.566 > 0.5）", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+    manager.setPetWindowBounds({ x: 300, y: 400, width: 82, height: 108 });
+    const moveCalls = win.setPosition.mock.calls.length;
+    const sizeCalls = win.setSize.mock.calls.length;
+
+    manager.setPetWindowBounds({ x: 300.4, y: 400, width: 82.4, height: 108 });
+    expect(win.setPosition).toHaveBeenCalledTimes(moveCalls);
+    expect(win.setSize).toHaveBeenCalledTimes(sizeCalls);
+
+    // 正对照：同一方向推到 0.6 必须发，证明上面是「被吞」不是「通道没通」
+    manager.setPetWindowBounds({ x: 300.6, y: 400, width: 82.6, height: 108 });
+    expect(win.setPosition).toHaveBeenCalledTimes(moveCalls + 1);
+    expect(win.setSize).toHaveBeenCalledTimes(sizeCalls + 1);
+  });
+
+  it("同一 bounds 连发两次只发一套指令", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+    const bounds = { x: 300, y: 400, width: 248, height: 482 };
+
+    manager.setPetWindowBounds(bounds);
+    manager.setPetWindowBounds(bounds);
+
+    expect(win.setPosition).toHaveBeenCalledTimes(1);
+    expect(win.setSize).toHaveBeenCalledTimes(1);
+  });
+
+  it("拖拽期间位置门关闭、尺寸门照常（位置权威是 PetWindowMoveController）", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+    manager.setPetWindowBounds({ x: 300, y: 400, width: 82, height: 108 });
+    expect(win.setPosition).toHaveBeenCalledTimes(1);
+
+    // y 从 700 降到 400：482 高的面板压在 700 上会探出 mock 的 1040 工作区，
+    // 主端现在按物理矩形夹取（native main.rs:4171-4184）会改写落位——渲染端
+    // 自己按基址夹完，现实里发不出这种请求，这里要的是「门」的证据不是「夹取」的。
+    manager.setPetWindowDragging(true);
+    expect(mocks.moveController.mock.calls.flat()).not.toContain("finishDragging");
+    manager.setPetWindowBounds({ x: 600, y: 400, width: 82, height: 108 });
+    expect(win.setPosition).toHaveBeenCalledTimes(1);
+
+    manager.setPetWindowBounds({ x: 600, y: 400, width: 248, height: 482 });
+    expect(win.setSize).toHaveBeenCalledTimes(1);
+
+    manager.setPetWindowDragging(false);
+    expect(mocks.moveController.mock.calls.flat()).toContain("finishDragging");
+    manager.setPetWindowBounds({ x: 600, y: 400, width: 248, height: 482 });
+    // 拖拽一收，位置门重新打开并补发请求——否则猫会停在拖拽起点不动。
+    expect(win.setPosition).toHaveBeenCalledTimes(2);
+    expect(win.getBounds()).toEqual({ x: 600, y: 400, width: 248, height: 482 });
+  });
+
+  it("拖拽中的窗口被销毁：closed 里复位拖拽门，重建后的窗口位置门照常开", () => {
+    const manager = buildManager();
+    const first = manager.createPetWindow();
+    manager.setPetWindowDragging(true);
+    // 渲染进程崩 / 退出 / 换屏重建：没人再发 setDragging(false)，闸门只能由 closed 兜底。
+    first.destroy();
+
+    const second = manager.createPetWindow();
+    expect(second).not.toBe(first);
+    // y=300：482 高的面板在 1040 工作区里放不进 600（见上一条同款说明）。
+    manager.setPetWindowBounds({ x: 500, y: 300, width: 248, height: 482 });
+    expect(second.setPosition).toHaveBeenCalledTimes(1);
+    expect(second.setSize).toHaveBeenCalledTimes(1);
+    // 正对照：同一 manager 上没被拖拽污染过的通道确实通
+    expect(second.getBounds()).toEqual({ x: 500, y: 300, width: 248, height: 482 });
+  });
+
+  it("VERGE_GEOM_PROBE=1：只在真发指令时打行，被拖拽闸门吞掉的位置报 applied -,-", () => {
+    vi.stubEnv("VERGE_GEOM_PROBE", "1");
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args) => { lines.push(String(args[0])); });
+    try {
+      const manager = buildManager();
+      manager.createPetWindow();
+      manager.setPetWindowBounds({ x: 300, y: 400, width: 82, height: 108 });
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("applied 300,400\tactual 300,400 82x108");
+
+      // 同一 bounds 再发：两条门都吞 → 探针也不许多出第二行
+      manager.setPetWindowBounds({ x: 300, y: 400, width: 82, height: 108 });
+      expect(lines).toHaveLength(1);
+
+      // 新 manager 才有新的 0.5s 节流窗口：拖拽中尺寸门照发，位置门没发过指令
+      lines.length = 0;
+      const second = buildManager();
+      second.createPetWindow();
+      second.setPetWindowDragging(true);
+      second.setPetWindowBounds({ x: 300, y: 400, width: 248, height: 482 });
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("applied -,-\tactual 0,0 248x482");
+    } finally {
+      spy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("宠物窗尚未创建时请求被忽略（不抛错）", () => {
+    const manager = buildManager();
+    expect(() => manager.setPetWindowBounds({ x: 0, y: 0, width: 82, height: 108 })).not.toThrow();
+  });
+
+  it("attachPetContextMenu 注入在 createPetWindow 时挂到窗上（仅宠物窗，不外溢）", () => {
+    // 装配点闭包（default-dependencies）在 shell 阶段注入，宠物窗在 core 阶段建——
+    // 这里验证的是这条接线：窗一落成就有右键菜单，别的窗不沾光。
+    const attached: unknown[] = [];
+    const manager = createWindowManager({
+      getCurrentAppIconPath: () => "icon",
+      isDev: false,
+      loadPetWindowSettingsSlice: () => ({ disclaimerAcceptedVersion: "current" }),
+      persistPetWindowPosition: vi.fn(),
+      attachPetContextMenu: (win) => { attached.push(win); },
+    });
+
+    const win = manager.createPetWindow();
+    // 注入发生在 setPetWindow 之后（窗口已注册，closed 兜底先就位再挂菜单）
+    expect(attached).toEqual([win]);
+  });
+
+  it("不注入 attachPetContextMenu：默认路径不挂菜单也不炸", () => {
+    const manager = buildManager();
+    const win = manager.createPetWindow();
+    expect(win.isDestroyed()).toBe(false);
+  });
+
+  it("载荷扩列后 GEOM 行报实际模型值；旧四数载荷仍打 -（没有证据就承认没有证据）", () => {
+    vi.stubEnv("VERGE_GEOM_PROBE", "1");
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args) => { lines.push(String(args[0])); });
+    try {
+      const manager = buildManager();
+      manager.createPetWindow();
+      manager.setPetWindowBounds({
+        x: 300, y: 400, width: 82, height: 108,
+        peekDx: 40, e: 0,
+        pinInWin: { x: 80.5, y: 39.2 },
+        center: { x: 63.5, y: 43.7 },
+      });
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("peek 40.0\te 0.00");
+      expect(lines[0]).toContain("pin 80.5,39.2");
+      expect(lines[0]).toContain("center 63.5,43.7");
+
+      // 正对照的反面：旧载荷不带四列 → 全打 `-`，不许拿常量冒充。
+      lines.length = 0;
+      const second = buildManager();
+      second.createPetWindow();
+      second.setPetWindowBounds({ x: 500, y: 300, width: 82, height: 108 });
+      expect(lines[0]).toContain("peek -\te -");
+      expect(lines[0]).toContain("pin -,-\tcenter -,-");
+    } finally {
+      spy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("getPetWindowBounds：无窗返回 null，有窗返回实时 bounds", () => {
+    const manager = buildManager();
+    expect(manager.getPetWindowBounds()).toBeNull();
+    const win = manager.createPetWindow();
+    win.setPosition(700, 250);
+    expect(manager.getPetWindowBounds()).toEqual({ x: 700, y: 250, width: Math.round(PET_W), height: Math.round(PET_H) });
+  });
+});
+
+describe("display-metrics-changed workArea 重夹取", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+    mocks.createdWindows = [];
+    mocks.displayHandlers = [];
+    mocks.createPetWindow.mockImplementation(() => {
+      const window = createFakeWindow();
+      mocks.createdWindows.push(window);
+      return window;
+    });
+  });
+
+  function buildManager(persist = vi.fn()) {
+    const manager = createWindowManager({
+      getCurrentAppIconPath: () => "icon",
+      isDev: false,
+      loadPetWindowSettingsSlice: () => ({ disclaimerAcceptedVersion: "current" }),
+      persistPetWindowPosition: persist,
+    });
+    return { manager, persist };
+  }
+
+  it("副屏拔掉：留在旧副屏坐标的窗按主屏 workArea 夹回、落盘、推渲染端", () => {
+    const { manager, persist } = buildManager();
+    const win = manager.createPetWindow();
+    // 拔屏前窗口在副屏（假 screen 现在只报主屏 workArea {0,0,1920,1040}）
+    win.setPosition(2400, 500);
+
+    expect(mocks.displayHandlers.length).toBeGreaterThan(0);
+    for (const handler of mocks.displayHandlers) handler();
+
+    const clamped = { x: 1920 - Math.round(PET_W), y: 500, width: Math.round(PET_W), height: Math.round(PET_H) };
+    expect(win.setBounds).toHaveBeenCalledWith(clamped, false);
+    expect(persist).toHaveBeenCalledWith({ x: clamped.x, y: 500 });
+    expect(win.webContents.send).toHaveBeenCalledWith(IPC.VERGE_PET_GEOMETRY, {
+      bounds: clamped,
+      workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+    });
+  });
+
+  it("正对照：窗口已在新 workArea 内 —— 不发 setBounds、不许多写一次保存点", () => {
+    const { manager, persist } = buildManager();
+    const win = manager.createPetWindow();
+    win.setPosition(800, 300);
+
+    for (const handler of mocks.displayHandlers) handler();
+
+    expect(win.setBounds).not.toHaveBeenCalled();
+    expect(persist).not.toHaveBeenCalled();
+    expect(win.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it("dispose 解绑：销毁之后再变拓扑不再夹取", () => {
+    const { manager } = buildManager();
+    manager.createPetWindow();
+    manager.dispose();
+    expect(mocks.displayHandlers).toHaveLength(0);
   });
 });

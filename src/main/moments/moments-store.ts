@@ -62,23 +62,23 @@ let readyPromise: Promise<void> | null = null;
 let tail: Promise<unknown> = Promise.resolve();
 const changeListeners = new Set<() => void>();
 
-/** 昔涟在 Feed 内的行为种类，提交时按种类复核对应开关。 */
+/** 麻糬在 Feed 内的行为种类，提交时按种类复核对应开关。 */
 export type CyreneMomentBehavior = "reaction" | "posting";
 
 /**
- * 昔涟行为开关（默认全放行）。IPC 注册时注入真实读取逻辑；
+ * 麻糬行为开关（默认全放行）。IPC 注册时注入真实读取逻辑；
  * 检查发生在串行队列内的提交时刻，AI 思考期间关闭开关时迟到的结果不豁免。
  */
 let cyreneBehaviorGate: (behavior: CyreneMomentBehavior) => boolean = () => true;
 
-/** 注册昔涟行为开关检查（moments-ipc 注入，读取 general settings）。 */
+/** 注册麻糬行为开关检查（moments-ipc 注入，读取 general settings）。 */
 export function setCyreneBehaviorGate(gate: (behavior: CyreneMomentBehavior) => boolean): void {
   cyreneBehaviorGate = gate;
 }
 
 /**
  * 角色行为开关（默认全放行，settings 就绪后由 IPC 层注入真实读取）。
- * 与昔涟开关分离：用户可以单独关掉角色互动而保留昔涟反应。
+ * 与麻糬开关分离：用户可以单独关掉角色互动而保留麻糬反应。
  */
 let characterBehaviorGate: () => boolean = () => true;
 
@@ -206,7 +206,7 @@ export function createUserPost(input: MomentCreatePostInput): Promise<MomentComm
   return enqueue(() => commitCreatePost("user", input));
 }
 
-/** 昔涟发帖：内部通道，不经 IPC（renderer 无法伪造 cyrene 身份）。 */
+/** 麻糬发帖：内部通道，不经 IPC（renderer 无法伪造 cyrene 身份）。 */
 export function createCyrenePost(input: {
   title?: string;
   text: string;
@@ -319,7 +319,7 @@ export function createComment(
     if (!isValidAuthor(author)) {
       return { applied: false, reason: "invalid_input" as const };
     }
-    // 昔涟的评论属于反应行为：提交时复核开关，AI 思考期间关闭则拒绝
+    // 麻糬的评论属于反应行为：提交时复核开关，AI 思考期间关闭则拒绝
     if (author === "cyrene" && !cyreneBehaviorGate("reaction")) {
       return { applied: false, reason: "moments_disabled" as const };
     }
@@ -392,7 +392,7 @@ export function toggleLike(
 }
 
 /**
- * 昔涟点赞提交（AI 反应通道）：只插入不撤销。
+ * 麻糬点赞提交（AI 反应通道）：只插入不撤销。
  * 与用户的 toggleLike 语义不同——AI 决策"点赞"就是点赞，重复提交按唯一性拒绝。
  */
 export function createCyreneLike(postId: string): Promise<MomentCommitResult<{ liked: true }>> {

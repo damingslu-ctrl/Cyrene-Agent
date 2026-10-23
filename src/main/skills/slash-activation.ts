@@ -1,3 +1,4 @@
+import { CONSOLE_PREFIX } from "../../shared/brand";
 import { parseSlashCommand, skillRegistry } from "./index";
 import type { SkillMode, SkillModeOverrides } from "./types";
 
@@ -38,7 +39,7 @@ export function resolveSlashActivation<T extends { role: string; content: string
   if (skill && skill.enabled && skillRegistry.isAvailable(parsed.skillId) && isEnabledForMode(skill)) {
     const body = skillRegistry.getBody(parsed.skillId);
     if (body !== null) {
-      console.log("[Cyrene] /命令激活 skill:", parsed.skillId);
+      console.log(CONSOLE_PREFIX + " /命令激活 skill:", parsed.skillId);
       return `\n\n---\n\n[已激活 skill: ${parsed.skillId}]\n${body}`;
     }
     return "";

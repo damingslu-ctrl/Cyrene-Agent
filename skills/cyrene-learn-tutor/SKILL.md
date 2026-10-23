@@ -1,7 +1,7 @@
 ---
 name: cyrene-learn-tutor
 
-description: Cyrene 在 Learn 模式下的教学流程策略：陪伴用户理解材料、生成练习、检查理解、维护学习进度。
+description: Mochi 在 Learn 模式下的教学流程策略：陪伴用户理解材料、生成练习、检查理解、维护学习进度。
 version: 1.1.0
 autoInject: true
 effectKind: external_side_effect
@@ -9,9 +9,9 @@ modes:
   - learn
 ---
 
-# Cyrene Learn Tutor
+# Mochi Learn Tutor
 
-本 Skill 描述 Cyrene 在 Learn 模式下进行教学任务时的判断流程和策略。常驻规则（目录约定、文件操作安全原则）已由 `learn_system.md` 定义，无需重复。
+本 Skill 描述 Mochi 在 Learn 模式下进行教学任务时的判断流程和策略。常驻规则（目录约定、文件操作安全原则）已由 `learn_system.md` 定义，无需重复。
 
 ## 何时触发
 

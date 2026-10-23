@@ -11,7 +11,8 @@
 //   1. safeStorage（OS 钥匙串：Windows DPAPI / macOS Keychain / Linux libsecret）
 //      → 存储前缀 `enc:<base64>`
 //   2. safeStorage 不可用时（headless / 沙盒 / libsecret 没装）：用机器指纹 XOR 混淆
-//      → 存储前缀 `obf:<base64>` —— 不是真加密，但能挡住 cat / grep 这种偷窥
+//      → 存储前缀 `obf:2:<校验和>:<base64>` —— 不是真加密，但能挡住 cat / grep 这种偷窥；
+//        key 只由「机器 + 固定 salt」派生，与 userData / app.name 无关（见 ./obfuscation）
 //
 // 为什么这样：
 //   - 单纯回退到明文会让"重启后 secret 丢失"成为静默 bug（用户根本不知道）
@@ -22,11 +23,17 @@ import * as path from "path";
 import { app, safeStorage } from "electron";
 import type { ChannelId } from "./types";
 import { normalizeQqListenMode, type QqListenMode } from "../../shared/qq-listen";
+import { renameWithRetrySync } from "../storage/rename-with-retry";
+import {
+  OBF_PREFIX_LEGACY,
+  OBF_PREFIX_V2,
+  deobfuscateLegacy,
+  deobfuscateV2,
+  obfuscateV2,
+} from "./obfuscation";
 
 /** safeStorage 加密后的前缀。读取时遇到这个前缀就解密 */
 const ENC_PREFIX = "enc:";
-/** base64 混淆前缀（safeStorage 不可用时的兜底，可 round-trip 但不抗逆向） */
-const OBF_PREFIX = "obf:";
 /** 明文兜底标记（旧版数据迁移用） */
 const PLAIN_PREFIX = "plain:";
 
@@ -46,40 +53,10 @@ function isSafeStorageAvailable(): boolean {
   return safeStorageAvailable;
 }
 
-/** 机器指纹 XOR 混淆 key —— 不抗逆向但保证 round-trip。
- *  用 userData 绝对路径 + 包名做 SHA256 → 16 字节。 */
-function getMachineKey(): Buffer {
-  const seed = `${app.getPath("userData")}::${app.getName()}::cyrene-bot-secret`;
-  // 用 node 内置 crypto（避免依赖冲突）
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { createHash } = require("crypto") as typeof import("crypto");
-  return createHash("sha256").update(seed).digest().subarray(0, 16);
-}
-
-/** XOR 混淆（不是真加密，仅挡 casual 偷窥）。 */
-function obfuscate(plain: string): string {
-  const key = getMachineKey();
-  const buf = Buffer.from(plain, "utf8");
-  const out = Buffer.alloc(buf.length);
-  for (let i = 0; i < buf.length; i++) {
-    // eslint-disable-next-line no-bitwise
-    out[i] = buf[i] ^ key[i % key.length];
-  }
-  return OBF_PREFIX + out.toString("base64");
-}
-
-/** XOR 解混淆（必须和 obfuscate 用同一台机器 —— key 派生自 userData 路径）。 */
-function deobfuscate(stored: string): string {
-  const key = getMachineKey();
-  const b64 = stored.slice(OBF_PREFIX.length);
-  const buf = Buffer.from(b64, "base64");
-  const out = Buffer.alloc(buf.length);
-  for (let i = 0; i < buf.length; i++) {
-    // eslint-disable-next-line no-bitwise
-    out[i] = buf[i] ^ key[i % key.length];
-  }
-  return out.toString("utf8");
-}
+/** 一次性迁移标记：load 时发现旧 obf:（无版本）密文则置位，load 末尾统一重加密落盘 */
+let pendingRewrite = false;
+/** reentrancy 护栏：save 内部会再调 load，若不挡住，旧密文会在 save 里再次触发 save → 无限递归 */
+let inRewrite = false;
 
 /** 加密一个字符串。优先级: safeStorage > 机器指纹混淆 > 明文 */
 function encryptField(plain: string): string {
@@ -92,7 +69,7 @@ function encryptField(plain: string): string {
       console.warn("[ChannelsSettings] safeStorage.encryptString 失败, 回退混淆:", err);
     }
   }
-  return obfuscate(plain);
+  return obfuscateV2(plain);
 }
 
 /** 解密一个字符串。识别 enc:/obf:/plain: 前缀。空字符串返回空。 */
@@ -113,11 +90,39 @@ function decryptField(stored: string): string {
       return "";
     }
   }
-  if (stored.startsWith(OBF_PREFIX)) {
+  if (stored.startsWith(OBF_PREFIX_V2)) {
+    // 注意失败分支的数据安全红线：校验和不过 ≠ 数据被丢。磁盘上的 obf:2: 原文留在
+    // channels-settings.json 里不动，本次先试一次旧解码器兜底，实在解不出才降级为空串。
     try {
-      return deobfuscate(stored);
+      return deobfuscateV2(stored);
     } catch (err) {
-      console.warn("[ChannelsSettings] deobfuscate 失败:", err);
+      // 校验和不过 ≠ 数据被丢：把 v2 信封剥掉、用旧公式对裸 body 再碰一次运气
+      // （对应"密钥轮了但 body 还是旧 key 编的"这类历史尾巴）。解出合法 UTF-8 就按明文
+      // 返回并触发一次重写（用新 key 重加密），实在解不出才降级为空串——全程不静默。
+      const separator = stored.indexOf(":", OBF_PREFIX_V2.length);
+      if (separator > 0) {
+        try {
+          const plain = deobfuscateLegacy(`${OBF_PREFIX_LEGACY}${stored.slice(separator + 1)}`, app.getPath("appData"));
+          console.warn("[ChannelsSettings] obf:2: 校验和不过，旧解码器兜底成功，按明文继续:", err);
+          pendingRewrite = true;
+          return plain;
+        } catch {
+          // 落到下面统一 warn + 丢弃
+        }
+      }
+      console.warn("[ChannelsSettings] obf:2: 解密失败（密钥轮换或数据损坏），已丢弃该字段:", err);
+      return "";
+    }
+  }
+  if (stored.startsWith(OBF_PREFIX_LEGACY)) {
+    try {
+      // 旧格式：用旧公式解一次，立刻按新公式重写。key 不再随身份派生，所以 Task 9 换目录后
+      // 这条仍然解得开——legacyKey 钉的是当年的字面路径，不是当前 userData。
+      const plain = deobfuscateLegacy(stored, app.getPath("appData"));
+      pendingRewrite = true;
+      return plain;
+    } catch (err) {
+      console.warn("[ChannelsSettings] 旧 obf: 解密失败，已丢弃该字段（不再返回乱码）:", err);
       return "";
     }
   }
@@ -359,6 +364,21 @@ export function loadChannelsSettings(): ChannelsSettings {
     if (loaded.qqbot.appSecret) {
       loaded.qqbot.appSecret = decryptField(loaded.qqbot.appSecret);
     }
+    if (pendingRewrite && !inRewrite) {
+      inRewrite = true;
+      try {
+        pendingRewrite = false;
+        // 走 save 的正路重加密落盘（save 内部 wrap 会把明文换成 obf:2:），失败只 warn：
+        // 读回来的明文本次仍然可用，下次启动再试一次。
+        try {
+          saveChannelsSettings(loaded);
+        } catch (err) {
+          console.warn("[ChannelsSettings] 旧 obf: 重加密落盘失败:", err);
+        }
+      } finally {
+        inRewrite = false;
+      }
+    }
     return loaded;
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -374,22 +394,22 @@ export function saveChannelsSettings(patch: Partial<ChannelsSettings>): Channels
   if (patch.qqbot) merged.qqbot = { ...existing.qqbot, ...patch.qqbot };
 
   // 私密字段加密边界：UI 传来的是明文，写盘前要 wrap
-  // 避开"密文回传"场景：检测 enc:/obf:/plain: 前缀，避免重复加密。
+  // 避开"密文回传"场景：检测 enc:/obf:2:/obf:/plain: 前缀，避免重复加密。
   if (typeof merged.feishu?.appSecret === "string" && merged.feishu.appSecret) {
     const v = merged.feishu.appSecret;
-    if (!v.startsWith(ENC_PREFIX) && !v.startsWith(OBF_PREFIX) && !v.startsWith(PLAIN_PREFIX)) {
+    if (!v.startsWith(ENC_PREFIX) && !v.startsWith(OBF_PREFIX_V2) && !v.startsWith(OBF_PREFIX_LEGACY) && !v.startsWith(PLAIN_PREFIX)) {
       merged.feishu.appSecret = encryptField(v);
     }
   }
   if (typeof merged.qq?.accessToken === "string" && merged.qq.accessToken) {
     const v = merged.qq.accessToken;
-    if (!v.startsWith(ENC_PREFIX) && !v.startsWith(OBF_PREFIX) && !v.startsWith(PLAIN_PREFIX)) {
+    if (!v.startsWith(ENC_PREFIX) && !v.startsWith(OBF_PREFIX_V2) && !v.startsWith(OBF_PREFIX_LEGACY) && !v.startsWith(PLAIN_PREFIX)) {
       merged.qq.accessToken = encryptField(v);
     }
   }
   if (typeof merged.qqbot?.appSecret === "string" && merged.qqbot.appSecret) {
     const v = merged.qqbot.appSecret;
-    if (!v.startsWith(ENC_PREFIX) && !v.startsWith(OBF_PREFIX) && !v.startsWith(PLAIN_PREFIX)) {
+    if (!v.startsWith(ENC_PREFIX) && !v.startsWith(OBF_PREFIX_V2) && !v.startsWith(OBF_PREFIX_LEGACY) && !v.startsWith(PLAIN_PREFIX)) {
       merged.qqbot.appSecret = encryptField(v);
     }
   }
@@ -397,8 +417,13 @@ export function saveChannelsSettings(patch: Partial<ChannelsSettings>): Channels
   const final = normalize(merged);
   // 写盘时 final.appSecret / final.encryptKey 已经是密文形态（带 enc: 前缀）
   // load 时解密，运行时给上层看到明文。
+  // 落盘走临时文件 + rename 的原子写（同 verge-store 的口径）：写一半崩溃/被杀，
+  // 目标文件要么是旧完整内容要么是新完整内容，绝不会出现半截 JSON。
   fs.mkdirSync(path.dirname(filePath()), { recursive: true });
-  fs.writeFileSync(filePath(), JSON.stringify(final, null, 2), "utf8");
+  const target = filePath();
+  const tmp = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(final, null, 2), "utf8");
+  renameWithRetrySync(tmp, target);
 
   // 返回给上层时再解密一次，让 API 用户拿到明文
   const out: ChannelsSettings = {

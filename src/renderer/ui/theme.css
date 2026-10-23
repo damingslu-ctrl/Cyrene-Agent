@@ -6,16 +6,16 @@
 
 :root {
   --rb-feedback-radius: 18px;
-  --rb-feedback-surface: rgba(30, 25, 35, 0.97);
-  --rb-feedback-fg: #f3eef6;
-  --rb-feedback-muted: #c9bfd2;
-  --rb-feedback-border: rgba(255, 182, 220, 0.22);
+  --rb-feedback-surface: #1c202a;
+  --rb-feedback-fg: #e8e6df;
+  --rb-feedback-muted: #9a9daa;
+  --rb-feedback-border: rgba(232, 230, 223, 0.14);
   --rb-feedback-shadow: 0 28px 70px rgba(0, 0, 0, 0.38);
-  --rb-feedback-details-bg: rgba(255, 255, 255, 0.06);
-  --rb-feedback-danger: #e15b70;
-  --rb-feedback-success: #43a877;
-  --rb-feedback-warning: #d09a43;
-  --rb-feedback-info: var(--rb-pink-400);
+  --rb-feedback-details-bg: rgba(232, 230, 223, 0.06);
+  --rb-feedback-danger: #f27d92;
+  --rb-feedback-success: #7fd6a2;
+  --rb-feedback-warning: #f0c4b4;
+  --rb-feedback-info: #8ab4ff;
   --rb-feedback-motion: 180ms;
 }
 
@@ -25,65 +25,10 @@ html[data-ui-theme-pending] .sticker-shell {
   visibility: hidden;
 }
 
+/* 主题色令牌一律住在 themes/pearl-white.css；这里只留 color-scheme，
+   因为同特异度下源序在后，块内任何重名令牌都会盖掉主题文件——历史上就把它盖空过。 */
 [data-ui-theme="pearl-white"] {
   color-scheme: light;
-
-  /* Surfaces — pure white */
-  --rb-bg-0: #ffffff;
-  --rb-bg-1: #f5f5f7;
-  --rb-bg-2: #fafafc;
-  --rb-bg-3: #ffffff;
-  --rb-bg-elevated: #ffffff;
-
-  /* Text — near-black */
-  --rb-text-strong:  #1d1d1f;
-  --rb-text-default: #2c2c2e;
-  --rb-text-muted:   #4f4a57;
-  --rb-text-faint:   #6f6876;
-  --rb-text-on-pink: #ffffff;
-
-  /* Borders / dividers */
-  --rb-border-faint: rgba(0, 0, 0, 0.06);
-  --rb-border-soft:  #e5e5ea;
-  --rb-border-strong:#d2d2d7;
-  --rb-border-grid:  rgba(0, 0, 0, 0.04);
-
-  /* Glows / shadows — soft black, no color cast */
-  --rb-glow-pink:   0 0 12px rgba(255, 91, 138, 0.18);
-  --rb-glow-soft:   0 0 6px  rgba(0, 0, 0, 0.06);
-  --rb-glow-violet: 0 0 10px rgba(0, 0, 0, 0.04);
-  --rb-shadow-card:    0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
-  --rb-shadow-elevated:0 8px 32px rgba(0, 0, 0, 0.10);
-  --rb-shadow-pink:    0 4px 16px rgba(255, 91, 138, 0.20);
-
-  /* Pink accent stays — Cyrene's color */
-  --rb-pink-50:  #fff1f6;
-  --rb-pink-100: #ffd6e4;
-  --rb-pink-200: #ffb1cb;
-  --rb-pink-300: #ff7da8;
-  --rb-pink-400: #ff6b97;
-  --rb-pink-500: #ff5b8a;
-  --rb-pink-600: #e84a78;
-  --rb-pink-700: #c43a64;
-  --rb-pink-glow: #ff6ec7;
-
-  /* Light-mode component primitives */
-  --rb-card-bg:        #ffffff;
-  --rb-divider-light:  rgba(0, 0, 0, 0.08);
-  --rb-hover-light:    rgba(0, 0, 0, 0.04);
-  --rb-active-light:   rgba(0, 0, 0, 0.08);
-  --rb-input-bg:       #ffffff;
-  --rb-input-border:   #d2d2d7;
-  --rb-input-text:     #1d1d1f;
-  --rb-input-placeholder: #6f6876;
-  --rb-slider-track:   rgba(0, 0, 0, 0.08);
-  --rb-slider-fill:    var(--rb-pink-500);
-  --rb-slider-thumb:   #ffffff;
-  --rb-toggle-off:     #e5e5ea;
-  --rb-toggle-on:      var(--rb-pink-500);
-  --rb-scroll-thumb:   rgba(0, 0, 0, 0.18);
-  --rb-scroll-thumb-hover: rgba(0, 0, 0, 0.32);
-
 }
 
 /* NOTE: do NOT paint `body` here. The Live2D pet window keeps its
@@ -232,7 +177,7 @@ html[data-ui-theme-pending] .sticker-shell {
 }
 
 [data-ui-theme="pearl-white"] .disclaimer-section a {
-  border-bottom-color: rgba(232, 74, 120, 0.34);
+  border-bottom-color: color-mix(in srgb, var(--rb-accent) 34%, transparent);
 }
 
 [data-ui-theme="pearl-white"] .disclaimer-section a:hover {
@@ -269,25 +214,25 @@ html[data-ui-theme-pending] .sticker-shell {
 
 [data-ui-theme="pearl-white"] .switch input:checked + .switch__track,
 [data-ui-theme="pearl-white"] .plugin-switch input:checked + span {
-  background: linear-gradient(135deg, #ffe5ef, #ffd6e4);
-  border-color: #ffb1cb;
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.72), 0 0 0 3px rgba(255, 214, 228, 0.42);
+  background: linear-gradient(135deg, #ffe5ef, var(--rb-pink-50));
+  border-color: var(--rb-pink-100);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.72), 0 0 0 3px color-mix(in srgb, var(--rb-pink-50) 42%, transparent);
 }
 
 [data-ui-theme="pearl-white"] .switch input:checked + .switch__track .switch__thumb,
 [data-ui-theme="pearl-white"] .plugin-switch input:checked + span::after {
   background: #ffffff;
-  border-color: #ffb1cb;
-  box-shadow: 0 2px 7px rgba(232, 74, 120, 0.18);
+  border-color: var(--rb-pink-100);
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--rb-accent) 18%, transparent);
 }
 
 [data-ui-theme="pearl-white"] .switch:hover .switch__track,
 [data-ui-theme="pearl-white"] .plugin-switch:hover span {
-  border-color: #ffb1cb;
+  border-color: var(--rb-pink-100);
 }
 
 [data-ui-theme="pearl-white"] input[type="range"] {
-  accent-color: #ffb1cb;
+  accent-color: var(--rb-pink-100);
 }
 
 [data-ui-theme="pearl-white"] .range-row input[type="range"],
@@ -297,9 +242,9 @@ html[data-ui-theme-pending] .sticker-shell {
   appearance: none;
   height: 7px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #ffd6e4, #ffeef5);
-  border: 1px solid #f2c4d5;
-  box-shadow: inset 0 1px 2px rgba(116, 80, 96, 0.08);
+  background: linear-gradient(90deg, var(--rb-pink-50), #ffeef5);
+  border: 1px solid var(--rb-pink-50);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--rb-pink-700) 8%, transparent);
   outline: none;
 }
 
@@ -320,8 +265,8 @@ html[data-ui-theme-pending] .sticker-shell {
   margin-top: -6px;
   border-radius: 50%;
   background: #ffffff;
-  border: 1px solid #ffb1cb;
-  box-shadow: 0 2px 7px rgba(232, 74, 120, 0.18);
+  border: 1px solid var(--rb-pink-100);
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--rb-accent) 18%, transparent);
   cursor: pointer;
 }
 
@@ -331,7 +276,7 @@ html[data-ui-theme-pending] .sticker-shell {
   height: 7px;
   border-radius: 999px;
   background: #ffe5ef;
-  border: 1px solid #f2c4d5;
+  border: 1px solid var(--rb-pink-50);
 }
 
 [data-ui-theme="pearl-white"] .range-row input[type="range"]::-moz-range-progress,
@@ -339,7 +284,7 @@ html[data-ui-theme-pending] .sticker-shell {
 [data-ui-theme="pearl-white"] .tts-field input[type="range"]::-moz-range-progress {
   height: 7px;
   border-radius: 999px;
-  background: #ffb1cb;
+  background: var(--rb-pink-100);
 }
 
 [data-ui-theme="pearl-white"] .range-row input[type="range"]::-moz-range-thumb,
@@ -349,8 +294,8 @@ html[data-ui-theme-pending] .sticker-shell {
   height: 18px;
   border-radius: 50%;
   background: #ffffff;
-  border: 1px solid #ffb1cb;
-  box-shadow: 0 2px 7px rgba(232, 74, 120, 0.18);
+  border: 1px solid var(--rb-pink-100);
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--rb-accent) 18%, transparent);
   cursor: pointer;
 }
 
@@ -532,7 +477,7 @@ html[data-ui-theme-pending] .sticker-shell {
 [data-ui-theme="pearl-white"] .schedule-settings-btn:hover,
 [data-ui-theme="pearl-white"] .chat__rail-new:hover {
   background: var(--rb-pink-600);
-  box-shadow: 0 6px 20px rgba(255, 91, 138, 0.28);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--rb-accent) 28%, transparent);
 }
 
 [data-ui-theme="pearl-white"] .chat__title-meta,
@@ -712,7 +657,7 @@ html[data-ui-theme-pending] .sticker-shell {
 [data-ui-theme="pearl-white"] .save-status.is-error,
 [data-ui-theme="pearl-white"] .tts-clone-status.is-error,
 [data-ui-theme="pearl-white"] .sticker-add-modal__error {
-  color: #b91c1c;
+  color: var(--rb-danger);
 }
 
 [data-ui-theme="pearl-white"] .token-tooltip {
@@ -777,11 +722,11 @@ html[data-ui-theme-pending] .sticker-shell {
 }
 
 [data-ui-theme="pearl-white"] .choice-card__question--invalid {
-  border-color: #e11d48;
+  border-color: var(--rb-danger);
 }
 
 [data-ui-theme="pearl-white"] .choice-card__question--invalid .choice-card__question-title {
-  color: #be123c;
+  color: var(--rb-danger);
 }
 
 [data-ui-theme="pearl-white"] .sticker-field input,
@@ -878,9 +823,9 @@ html[data-ui-theme-pending] .sticker-shell {
 }
 
 [data-ui-theme="pearl-white"] .todo-badge--high {
-  color: #b91c1c;
+  color: var(--rb-danger);
   background: rgba(254, 226, 226, 0.88);
-  border-color: rgba(248, 113, 113, 0.34);
+  border-color: color-mix(in srgb, var(--rb-danger) 34%, transparent);
 }
 
 [data-ui-theme="pearl-white"] .todo-badge--medium {
@@ -1000,9 +945,9 @@ html[data-ui-theme-pending] .sticker-shell {
 
 [data-ui-theme="pearl-white"] .chat-sessions__delete:hover,
 [data-ui-theme="pearl-white"] .chat-sessions__cancel-rename:hover {
-  color: #b91c1c;
+  color: var(--rb-danger);
   background: rgba(254, 226, 226, 0.78);
-  border-color: rgba(248, 113, 113, 0.32);
+  border-color: color-mix(in srgb, var(--rb-danger) 32%, transparent);
 }
 
 [data-ui-theme="pearl-white"] .channels-feedback--ok {
@@ -1010,7 +955,7 @@ html[data-ui-theme-pending] .sticker-shell {
 }
 
 [data-ui-theme="pearl-white"] .channels-feedback--err {
-  color: #b91c1c;
+  color: var(--rb-danger);
 }
 
 [data-ui-theme="pearl-white"] .channels-feedback--info {
@@ -1045,12 +990,12 @@ html[data-ui-theme-pending] .sticker-shell {
 }
 
 [data-ui-theme="pearl-white"] .usage-bar__fill {
-  box-shadow: 0 0 10px rgba(255, 91, 138, 0.25);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--rb-accent) 25%, transparent);
 }
 
 [data-ui-theme="pearl-white"] .loader {
   box-shadow:
-    0 0 16px 0 rgba(255, 91, 138, 0.22),
+    0 0 16px 0 color-mix(in srgb, var(--rb-accent) 22%, transparent),
     0 14px 28px 0 rgba(0, 0, 0, 0.06);
 }
 
@@ -1213,31 +1158,31 @@ html[data-ui-theme-pending] .sticker-shell {
 
 /* ===== Markdown render variables (light theme overrides) ===== */
 [data-ui-theme="pearl-white"] {
-  --md-code-bg:           rgba(0, 0, 0, 0.03);
-  --md-code-border:       var(--rb-pink-200);
-  --md-inline-code-bg:    rgba(236, 72, 153, 0.08);
-  --md-inline-code-text:  #1d1d1f;
+  --md-code-bg: #f8f8f9;
+  --md-code-border:       var(--rb-border-soft);
+  --md-inline-code-bg: #f3f4f4;
+  --md-inline-code-text: #2b2f3a;
   --md-quote-border:      var(--rb-pink-400);
-  --md-quote-bg:          rgba(236, 72, 153, 0.04);
-  --md-table-border:      var(--rb-pink-200);
+  --md-quote-bg: #f7fafe;
+  --md-table-border:      var(--rb-border-soft);
   --md-link-color:        var(--rb-pink-600);
   --md-link-hover:        var(--rb-pink-700);
   --md-copy-text:         var(--rb-text-muted);
-  --md-copy-bg:           rgba(0, 0, 0, 0.03);
+  --md-copy-bg: #f7f7f7;
   --md-copy-border:       var(--rb-border-soft);
   --md-katex-text:        var(--rb-text-default);
 
   /* 渲染层统一反馈 Token（pearl-white 覆盖：珍珠白表面、微粉边框） */
   --rb-feedback-radius: 18px;
-  --rb-feedback-surface: rgba(255, 255, 255, 0.96);
-  --rb-feedback-fg: var(--rb-text-strong);
-  --rb-feedback-muted: var(--rb-text-muted);
-  --rb-feedback-border: rgba(220, 183, 207, 0.75);
-  --rb-feedback-shadow: 0 28px 70px rgba(67, 42, 59, 0.17);
-  --rb-feedback-details-bg: rgba(0, 0, 0, 0.04);
-  --rb-feedback-danger: #d94f61;
-  --rb-feedback-success: #43a877;
-  --rb-feedback-warning: #c58a31;
-  --rb-feedback-info: var(--rb-pink-500);
+  --rb-feedback-surface: #2b2f3a;
+  --rb-feedback-fg: #f7f4ec;
+  --rb-feedback-muted: #868a96;
+  --rb-feedback-border: rgba(138, 180, 255, 0.28);
+  --rb-feedback-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+  --rb-feedback-details-bg: rgba(232, 230, 223, 0.06);
+  --rb-feedback-danger: #f27d92;
+  --rb-feedback-success: #7fd6a2;
+  --rb-feedback-warning: #f0c4b4;
+  --rb-feedback-info: #8ab4ff;
   --rb-feedback-motion: 180ms;
 }

@@ -3,7 +3,7 @@ import { applyTaskDelegationEvent, normalizeTaskDelegationEvent } from "./task-d
 
 const running = {
   invocationId: "child-run-1", taskId: "task-1", description: "检查取消链路",
-  nickname: "风堇", assetFileName: "风堇.png", status: "running" as const,
+  nickname: "年糕", assetFileName: "年糕.png", status: "running" as const,
 };
 
 describe("task delegation presentation reducer", () => {
@@ -16,6 +16,6 @@ describe("task delegation presentation reducer", () => {
 
   it("rejects unknown nicknames and mismatched asset filenames", () => {
     expect(normalizeTaskDelegationEvent({ ...running, nickname: "未知角色" })).toBeUndefined();
-    expect(normalizeTaskDelegationEvent({ ...running, assetFileName: "白厄.png" })).toBeUndefined();
+    expect(normalizeTaskDelegationEvent({ ...running, assetFileName: "芝麻.png" })).toBeUndefined();
   });
 });

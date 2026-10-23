@@ -15,8 +15,8 @@ import {
 
 function makePersona(overrides: Partial<CharacterPersona> = {}): CharacterPersona {
   return {
-    nickname: "万敌",
-    assetFileName: "万敌.png",
+    nickname: "奶盖",
+    assetFileName: "奶盖.png",
     personaText: "角色卡",
     headerText: "注入头",
     activityWeight: 0.35,
@@ -80,11 +80,11 @@ describe("pickCandidateCount 冷场分布", () => {
 
 describe("pickWeightedCandidates 加权不放回抽取", () => {
   it("权重高者按概率优先，权重低者在随机落点时被抽中", () => {
-    const heavy = makePersona({ nickname: "风堇", activityWeight: 0.75 });
-    const light = makePersona({ nickname: "遐蝶", activityWeight: 0.05 });
-    // roll 落在风堇的权重区间内 → 抽中风堇
+    const heavy = makePersona({ nickname: "年糕", activityWeight: 0.75 });
+    const light = makePersona({ nickname: "布丁", activityWeight: 0.05 });
+    // roll 落在年糕的权重区间内 → 抽中年糕
     expect(pickWeightedCandidates([heavy, light], 1, () => 0.5)).toEqual([heavy]);
-    // roll 越过风堇区间（≥ (0.75+0.05)*0.99 的比例位）→ 抽中遐蝶
+    // roll 越过年糕区间（≥ (0.75+0.05)*0.99 的比例位）→ 抽中布丁
     expect(pickWeightedCandidates([heavy, light], 1, () => 0.99)).toEqual([light]);
   });
 
@@ -128,9 +128,9 @@ describe("rollReactionDice 双骰分流", () => {
 describe("computeReplyLandingDepth 评论树穷举", () => {
   it("昔涟动态：角色评(0) → 昔涟回(1) → 角色再回(2)，第三跳落点 3 收束", () => {
     const comments = [
-      makeComment({ id: "c1", author: "万敌" }),
+      makeComment({ id: "c1", author: "奶盖" }),
       makeComment({ id: "c2", author: "cyrene", replyTo: "c1" }),
-      makeComment({ id: "c3", author: "万敌", replyTo: "c2" }),
+      makeComment({ id: "c3", author: "奶盖", replyTo: "c2" }),
     ];
     expect(computeReplyLandingDepth(comments, "c1")).toBe(1);
     expect(computeReplyLandingDepth(comments, "c2")).toBe(2);
@@ -142,9 +142,9 @@ describe("computeReplyLandingDepth 评论树穷举", () => {
 
   it("用户插话开启新链：回复用户评论从 1 起算，用户之上更早的链不计入", () => {
     const comments = [
-      makeComment({ id: "c1", author: "万敌" }),
+      makeComment({ id: "c1", author: "奶盖" }),
       makeComment({ id: "c2", author: "user", replyTo: "c1" }),
-      makeComment({ id: "c3", author: "万敌", replyTo: "c2" }),
+      makeComment({ id: "c3", author: "奶盖", replyTo: "c2" }),
       // 用户在 c3 下再插话，又开新链
       makeComment({ id: "c4", author: "user", replyTo: "c3" }),
     ];
@@ -157,11 +157,11 @@ describe("computeReplyLandingDepth 评论树穷举", () => {
 
   it("用户↔角色多轮永不被断：每次用户发言后角色的回复都从新链起算", () => {
     const comments = [
-      makeComment({ id: "c1", author: "万敌" }),
+      makeComment({ id: "c1", author: "奶盖" }),
       makeComment({ id: "c2", author: "user", replyTo: "c1" }),
-      makeComment({ id: "c3", author: "万敌", replyTo: "c2" }),
+      makeComment({ id: "c3", author: "奶盖", replyTo: "c2" }),
       makeComment({ id: "c4", author: "user", replyTo: "c3" }),
-      makeComment({ id: "c5", author: "万敌", replyTo: "c4" }),
+      makeComment({ id: "c5", author: "奶盖", replyTo: "c4" }),
     ];
     for (const userAnchor of ["c2", "c4"]) {
       expect(withinReplyDepthLimit(comments, userAnchor)).toBe(true);
@@ -169,14 +169,14 @@ describe("computeReplyLandingDepth 评论树穷举", () => {
   });
 
   it("顶层评论的回复落在第 1 层；不存在的触发评论返回 0", () => {
-    const comments = [makeComment({ id: "c1", author: "万敌" })];
+    const comments = [makeComment({ id: "c1", author: "奶盖" })];
     expect(computeReplyLandingDepth(comments, "c1")).toBe(1);
     expect(computeReplyLandingDepth(comments, "c_missing")).toBe(0);
   });
 
   it("replyTo 成环时安全止步，不死循环", () => {
     const comments = [
-      makeComment({ id: "c1", author: "万敌", replyTo: "c2" }),
+      makeComment({ id: "c1", author: "奶盖", replyTo: "c2" }),
       makeComment({ id: "c2", author: "cyrene", replyTo: "c1" }),
     ];
     expect(computeReplyLandingDepth(comments, "c1")).toBeGreaterThanOrEqual(1);

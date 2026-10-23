@@ -51,7 +51,7 @@ export function WelcomeGate({
             <img className="cy-onboarding__poster" src={resolveAsset("cyrene-welcome.png")} alt={t("onboarding.posterAlt")} onError={() => setPosterFailed(true)} />
           )}
           <div className="cy-onboarding__welcome-copy">
-            <p className="cy-onboarding__eyebrow">CYRENE AGENT</p>
+            <p className="cy-onboarding__eyebrow">MOCHI AGENT</p>
             <h1>{t("onboarding.welcomeTitle")}</h1>
             <p className="cy-onboarding__tagline">{t("onboarding.tagline")}</p>
             <p className="cy-onboarding__notice">{t("onboarding.disclaimerNotice")}</p>

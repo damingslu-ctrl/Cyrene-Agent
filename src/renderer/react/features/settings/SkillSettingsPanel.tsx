@@ -167,13 +167,13 @@ function iconSpecForSkill(skillId: string): SkillIconSpec {
   return { lucide: FALLBACK_SKILL_ICON };
 }
 
-/** 图标配色统一走主题粉（浅粉底 + 粉色图标），不做逐技能随机色。 */
+/** 图标配色统一走主题主色（主色浅底 + 主色图标），不做逐技能随机色。 */
 function SkillIcon({ skillId }: { skillId: string; name: string }) {
   const spec = iconSpecForSkill(skillId);
   return (
     <span
       className="skill-card__icon"
-      style={{ background: "var(--rb-surface-active, #fde0ed)", color: "var(--rb-accent, #ff5b8a)" }}
+      style={{ background: "var(--rb-surface-active)", color: "var(--rb-accent)" }}
     >
       {"brand" in spec ? (
         <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">

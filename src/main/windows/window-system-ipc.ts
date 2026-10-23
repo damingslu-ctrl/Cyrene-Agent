@@ -1,11 +1,13 @@
 import { BrowserWindow } from "electron";
 import { IPC } from "../../shared/ipc-channels";
+import { WINDOW_BACKGROUND_NO_THEME_CONTEXT } from "../../shared/palette-from-cat";
 import { createIpcScope, type IpcScope } from "../application/ipc-scope";
 import { clearUsage, getUsageReport } from "../token-usage-store";
 import {
   musicPlayerWindow,
 } from "./window-state";
 import type { WindowManager } from "./window-manager";
+import type { PetResizePayload } from "./pet-bounds";
 
 export interface WindowSystemIpcDependencies {
   get windowManager(): WindowManager | null;
@@ -40,6 +42,24 @@ export function registerWindowSystemIpc(deps: WindowSystemIpcDependencies): void
 
   ipc.on(IPC.WINDOW_SET_DRAGGING, (_event, isDragging: boolean) => {
     deps.windowManager?.setPetWindowDragging(isDragging);
+  });
+
+  // 渲染端每帧驱动猫窗几何（收起 82×108 ↔ 面板 248×482）：单向消息，
+  // 不用 invoke——返回值无人消费，而 invoke 会给每帧留下一条待结算的 promise。
+  // 契约：bounds 四个数已由渲染端 Math.round 取整（native 的 request_inner_size
+  // 收整像素，main.rs:4308-4315）。这里不重复取整——窗口栅格按 DIP 记账，
+  // 小数位只会让 shouldApplyBounds 的 0.5 阈永远猜不准。
+  // Task 12 扩载荷：pinInWin/center/peekDx/e 为模型取证列，仅供 GEOM 探针，
+  // 不参与 shouldApplyBounds——位置/尺寸两闸只认 bounds 四数（native 两闸独立）。
+  ipc.on(IPC.VERGE_PET_RESIZE, (_event, payload: PetResizePayload) => {
+    const n = payload as unknown as Record<string, unknown> | null;
+    const ok =
+      !!n &&
+      Number.isFinite(n.x) && Number.isFinite(n.y) &&
+      Number.isFinite(n.width) && Number.isFinite(n.height) &&
+      (n.width as number) > 0 && (n.height as number) > 0;
+    if (!ok) return; // 坏载荷直接丢帧：几何下一帧自会重发，不许把 NaN 喂给 setBounds
+    deps.windowManager?.setPetWindowBounds(payload);
   });
 
   // 桌宠窗口自身的最小化/隐藏入口。两者曾随 index.ts 拆分（711a40d9）被误删，
@@ -80,7 +100,14 @@ export function registerWindowSystemIpc(deps: WindowSystemIpcDependencies): void
   });
 
   ipc.on(IPC.SETTINGS_OPEN_CHROME_GPU, async () => {
-    const win = new BrowserWindow({ width: 1024, height: 768 });
+    const win = new BrowserWindow({
+      width: 1024,
+      height: 768,
+      // chrome://gpu 是 Chromium 自绘的浅色页，跟随的是 **OS** 外观（本仓不设
+      // nativeTheme.themeSource），与 app 主题无关；这里仍取派生值而不是留空，
+      // 否则 OS 深色下会先闪一块 Electron 默认白（C4 的第三处原生面）。
+      backgroundColor: WINDOW_BACKGROUND_NO_THEME_CONTEXT,
+    });
     win.loadURL("chrome://gpu");
     win.show();
   });

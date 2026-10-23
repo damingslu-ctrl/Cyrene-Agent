@@ -223,7 +223,7 @@ function NoticeRow({ notice, onClick }: { notice: MomentNoticeItem; onClick: (no
   const { t } = useTranslation();
   const cyreneAvatarUrl = useCyreneAvatar();
   const isCyrene = notice.actor === "cyrene";
-  // 昔涟走专属头像，角色走头像池（朋友圈专用小头像），两者都不是（理论不会出现）则无头像
+  // 麻糬走专属头像，角色走头像池（朋友圈专用小头像），两者都不是（理论不会出现）则无头像
   const avatarUrl = isCyrene ? cyreneAvatarUrl : getCharacterAvatar(notice.actor);
   const displayName = isCyrene ? t("moments.cyreneName") : translateCharacterName(notice.actor, t);
   return (

@@ -1,10 +1,24 @@
+import { CONSOLE_PREFIX } from "../../shared/brand";
 import { app, BrowserWindow, screen } from "electron";
 import path from "node:path";
 import { IPC } from "../../shared/ipc-channels";
+import { PET_H, PET_W, clampRestoreOrigin } from "../../shared/pet-geometry";
 
-/** 桌宠窗口的基础尺寸（zoom=1.0 时）。缩放因子改变窗口与模型尺寸，二者同步。 */
-export const PET_WINDOW_BASE_WIDTH = 400;
-export const PET_WINDOW_BASE_HEIGHT = 500;
+/**
+ * 桌宠窗口的基础尺寸（zoom=1.0 时收起档）。由构造等于 `src/shared/pet-geometry.ts`
+ * 的 PET_W/PET_H：猫画布就是窗口，面板/气泡档由渲染端经 PET_RESIZE 长出去。
+ */
+export const PET_WINDOW_BASE_WIDTH = Math.round(PET_W);
+export const PET_WINDOW_BASE_HEIGHT = Math.round(PET_H);
+
+/**
+ * petZoom 的唯一归一化口径：非正数/非数字一律回 1。创建尺寸、`applyPetWindowZoom`
+ * 和 PET_RESIZE 的基址→物理换算三处必须用同一个式子，否则缩放档会在两条通道里
+ * 各自漂移（窗口 123 宽、载荷按 1 换算 → 猫被静默缩回 82）。
+ */
+export function normalizePetZoom(zoom: number | undefined): number {
+  return typeof zoom === "number" && zoom > 0 ? zoom : 1;
+}
 
 /**
  * 仅创建阶段需要的 GeneralSettings 切片。
@@ -44,43 +58,37 @@ export function createPetWindow(
   const settings = ctx.loadGeneralSettings();
   const transparent = true;
   // 窗口实际尺寸随 petZoom 等比缩放；创建尺寸与离屏判定保持一致。
-  const zoom = typeof settings.petZoom === "number" && settings.petZoom > 0 ? settings.petZoom : 1;
+  const zoom = normalizePetZoom(settings.petZoom);
   const petWidth = Math.round(PET_WINDOW_BASE_WIDTH * zoom);
   const petHeight = Math.round(PET_WINDOW_BASE_HEIGHT * zoom);
   let restoreX: number | undefined;
   let restoreY: number | undefined;
 
   if (settings.petWindowX !== undefined && settings.petWindowY !== undefined) {
-    const targetBounds = {
-      x: settings.petWindowX,
-      y: settings.petWindowY,
-      width: petWidth,
-      height: petHeight,
-    };
-    const display = screen.getDisplayMatching(targetBounds);
-    const wa = display.workArea;
-
-    // 窗口与 workArea 交集至少占窗口的三分之一才使用保存的坐标
-    const interW =
-      Math.min(targetBounds.x + petWidth, wa.x + wa.width) -
-      Math.max(targetBounds.x, wa.x);
-    const interH =
-      Math.min(targetBounds.y + petHeight, wa.y + wa.height) -
-      Math.max(targetBounds.y, wa.y);
-
-    if (interW >= petWidth / 3 && interH >= petHeight / 3) {
-      restoreX = settings.petWindowX;
-      restoreY = settings.petWindowY;
-    } else {
+    const saved = { x: settings.petWindowX, y: settings.petWindowY };
+    const display = screen.getDisplayMatching({ ...saved, width: petWidth, height: petHeight });
+    // 夹在**猫所在显示器**的工作区里。用主屏工作区判会拿副屏的合法位置误伤，
+    // 把猫拽回主屏（native `main.rs:4146-4147` 明确警告过这一点）。
+    // 上游原来的「交集 ≥ 1/3 就照用」是按 400×500 大窗定的比例规则，基址换到 82×108
+    // 后等于「27px 露头就放行」，同一个式子的语义自己崩了，所以这里按整窗可见夹。
+    // 判据归单测：src/shared/pet-geometry.test.ts 的 clampRestoreOrigin。
+    const origin = clampRestoreOrigin({
+      saved,
+      workArea: display.workArea,
+      size: { width: petWidth, height: petHeight },
+    });
+    restoreX = origin.x;
+    restoreY = origin.y;
+    if (restoreX !== saved.x || restoreY !== saved.y) {
       console.log(
-        "[Cyrene] 桌宠保存位置已离屏（仅 " +
-          interW + "x" + interH + " 可见），回退到屏幕中央",
+        `${CONSOLE_PREFIX} 桌宠保存位置已离屏（${saved.x},${saved.y}），` +
+          `夹回工作区为 ${restoreX},${restoreY}`,
       );
     }
   }
 
   if (restoreX === undefined || restoreY === undefined) {
-    // 无保存坐标或已离屏：居中到主屏工作区，避免落在不可见区域
+    // 无保存坐标：居中到主屏工作区，避免落在不可见区域
     const wa = screen.getPrimaryDisplay().workArea;
     restoreX = Math.round(wa.x + (wa.width - petWidth) / 2);
     restoreY = Math.round(wa.y + (wa.height - petHeight) / 2);
@@ -112,9 +120,11 @@ export function createPetWindow(
     win.loadFile(path.join(app.getAppPath(), "dist", "renderer", "index.html"));
   }
 
-  if (!ctx.isDev) {
-    win.setIgnoreMouseEvents(true, { forward: true });
-  }
+  // dev 也开穿透：Task 5 判定「穿透只能在真桌面上验」，把 dev 排除在外就等于每次
+  // 调鼠标层都要先打一次生产包。交互由渲染端按命中区显式收回（WINDOW_SET_INTERACTIVE）。
+  // 注：82×108 上点透明区的实测项仍未做，记在 docs/verge/spikes/p1-window.md 待验证项，
+  // 随 Task 10 的首次 dev 一起验，不许在这里当已证结论引用。
+  win.setIgnoreMouseEvents(true, { forward: true });
 
   win.on("hide", () => {
     win.webContents.send(IPC.PET_VISIBILITY_CHANGED, false);

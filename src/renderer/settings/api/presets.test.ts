@@ -4,9 +4,19 @@ import { MODEL_PRESETS, presetTransportUrl } from "./presets";
 describe("provider preset transport endpoints", () => {
   it("keeps provider display order and custom entries independent of new candidates", () => {
     expect(MODEL_PRESETS.map(({ providerId }) => providerId)).toEqual([
-      "minimax", "deepseek", "doubao", "glm", "kimi", "qwen", "chatgpt", "claude", "mimo", "grok", "gemini", "custom-cloud", "custom-local",
+      "minimax", "deepseek", "doubao", "glm", "kimi", "qwen", "chatgpt", "claude", "mimo", "grok", "gemini", "magpie", "custom-cloud", "custom-local",
     ]);
     expect(MODEL_PRESETS.slice(-2).map(({ mainModels }) => mainModels)).toEqual([[], []]);
+  });
+
+  it("Magpie 是可见的本地网关预设，默认指向 3425 的 /v1", () => {
+    const magpie = MODEL_PRESETS.find((preset) => preset.providerId === "magpie")!;
+    expect(magpie.providerName).toBe("Magpie");
+    expect(magpie.shortName).toBe("Magpie");
+    expect(magpie.baseUrl).toBe("http://127.0.0.1:3425/v1");
+    expect(magpie.transport).toBe("openai");
+    expect(magpie.mainModels).toEqual([]);
+    expect(magpie.hiddenInPresetList).not.toBe(true);
   });
 
   it("keeps MiMo vision defaults and custom endpoint presentation", () => {

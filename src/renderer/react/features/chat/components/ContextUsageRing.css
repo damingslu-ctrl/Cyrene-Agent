@@ -41,7 +41,7 @@
 }
 
 .cy-context-usage-ring.is-alert .cy-context-usage-ring__progress {
-  stroke: #ef4444;
+  stroke: var(--rb-danger);
 }
 
 /* ── 占比菜单 ── */
@@ -126,7 +126,7 @@
 }
 
 .cy-context-usage-menu__mood.is-alert span {
-  color: #dc2626;
+  color: var(--rb-danger);
 }
 
 .cy-context-usage-menu__header {
@@ -170,7 +170,7 @@
 }
 
 .cy-context-usage-menu__progress.is-alert span {
-  background: #ef4444;
+  background: var(--rb-danger);
 }
 
 .cy-context-usage-menu__rows {

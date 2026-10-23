@@ -1,10 +1,12 @@
 import { app, BrowserWindow, screen } from "electron";
 import * as path from "path";
+import { BRAND } from "../../shared/brand";
 import { IPC } from "../../shared/ipc-channels";
 import { isDev } from "../env";
 import { DEFAULT_WORKSPACE_WINDOW_SIZE } from "../window-layout";
 import { loadGeneralSettings } from "../settings/settings-facade";
 import { getEffectiveUiTheme } from "../system-ui-theme";
+import { WINDOW_BACKGROUNDS, WINDOW_BACKGROUND_NO_THEME_CONTEXT } from "../../shared/palette-from-cat";
 import { stopCall, setCallWindow } from "../call/call-manager";
 import { attachContextMenu } from "./context-menu";
 import { getWorkspaceInitialBounds } from "./workspace-window-bounds";
@@ -57,14 +59,16 @@ export function createReactChatWindowShell(): BrowserWindow {
   const workArea = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
   const bounds = getWorkspaceInitialBounds(workArea);
   const { rememberWindowState, uiTheme } = loadGeneralSettings();
-  // 非透明窗口：底色跟随主题，避免暗色主题启动瞬间闪白
-  const windowBackgroundColor = getEffectiveUiTheme(uiTheme) === "charcoal-pink" ? "#141414" : "#fff8fb";
+  // 非透明窗口：底色跟随主题，避免暗色主题启动瞬间闪白。
+  // 值来自 src/shared/palette-from-cat.ts——渲染侧的 CSS 与这里的原生底色必须是同一次派生，
+  // 否则「窗口底色」和「页面底色」会是两只猫的两张纸。
+  const windowBackgroundColor = WINDOW_BACKGROUNDS[getEffectiveUiTheme(uiTheme)];
   const window = new BrowserWindow({
     ...persistedWindowState("cyrene.workspace", rememberWindowState, true),
     ...bounds,
     minWidth: Math.min(960, workArea.width),
     minHeight: Math.min(540, workArea.height),
-    title: "Cyrene · 聊天",
+    title: `${BRAND.productName} · 聊天`,
     icon: getCurrentAppIconPath(),
     backgroundColor: windowBackgroundColor,
     autoHideMenuBar: true,
@@ -140,9 +144,9 @@ export function createOnboardingBrowserWindow(): BrowserWindow {
     minWidth: Math.min(680, workArea.width),
     minHeight: Math.min(600, workArea.height),
     center: true,
-    title: "欢迎使用 Cyrene",
+    title: `欢迎使用 ${BRAND.productName}`,
     icon: getCurrentAppIconPath(),
-    backgroundColor: "#fff8fb",
+    backgroundColor: WINDOW_BACKGROUND_NO_THEME_CONTEXT,
     autoHideMenuBar: true,
     show: false,
     frame: false,
@@ -202,7 +206,7 @@ export async function createStickerManagerWindow(): Promise<{ ok: boolean; error
     height,
     minWidth: 460,
     minHeight: 360,
-    title: "表情包管理",
+    title: `${BRAND.productName} · 表情包`,
     backgroundColor: "#00000000",
     autoHideMenuBar: true,
     show: false,
@@ -276,7 +280,7 @@ export function createCallWindow(): void {
     height: CALL_H,
     minWidth: 420,
     minHeight: 600,
-    title: "Cyrene · 语音通话",
+    title: `${BRAND.productName} · 语音通话`,
     icon: getCurrentAppIconPath(),
     backgroundColor: "#00000000",
     autoHideMenuBar: true,

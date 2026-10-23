@@ -11,6 +11,7 @@ import type {
   SegmentedOutputMode,
 } from "../../shared/preferences";
 import type { CustomStyleConfig, StyleId } from "../../shared/style-sampling";
+import type { SearchEngineId } from "../../shared/search-engines";
 import type { ToolModeOverrides } from "../orchestrator/tools/registry/tool-registry";
 import type { SkillModeOverrides } from "../skills/types";
 import type { LspServerOverride } from "../lsp/types";
@@ -33,13 +34,13 @@ export interface GeneralSettings {
   citaSemanticEngine: "remote";
   /** Chat 模式的轻量社交上下文；默认关闭，开启后每轮最多多一次异步抽取调用。 */
   chatSocialContextEnabled: boolean;
-  /** 朋友圈功能总开关：关闭后 UI 隐藏、Chat 上下文不注入、昔涟不反应不发帖。 */
+  /** 朋友圈功能总开关：关闭后 UI 隐藏、Chat 上下文不注入、麻糬不反应不发帖。 */
   momentsEnabled: boolean;
   /** Chat 模式注入近期朋友圈动态背景；默认开启（只读本地数据，无额外 LLM 调用）。 */
   chatMomentsContextEnabled: boolean;
-  /** 昔涟主动发帖；默认关闭（审慎，与 proactiveChatMode 默认 off 一致）。 */
+  /** 麻糬主动发帖；默认关闭（审慎，与 proactiveChatMode 默认 off 一致）。 */
   cyreneMomentsPostingEnabled: boolean;
-  /** 昔涟对朋友圈动态的点赞/评论反应；默认开启（Feed 内被动行为，不打扰）。 */
+  /** 麻糬对朋友圈动态的点赞/评论反应；默认开启（Feed 内被动行为，不打扰）。 */
   cyreneMomentsReactionsEnabled: boolean;
   /** 角色对朋友圈动态的点赞/评论/互聊；默认开启（有独立日调用上限兜底成本）。 */
   momentsCharacterReactionsEnabled: boolean;
@@ -66,7 +67,7 @@ export interface GeneralSettings {
   /** @deprecated 旧版透明窗口开关，仅保留用于配置兼容。 */
   uiThemeRadius: boolean;
   uiIcon: UiIcon;
-  /** 昔涟回复正文的排版（字号/行距/字距/字重），只作用于 AI 回复气泡。 */
+  /** 麻糬回复正文的排版（字号/行距/字距/字重），只作用于 AI 回复气泡。 */
   messageTypography: MessageTypography;
   /** 聊天窗口打开时默认选中的模式。 */
   defaultChatMode: DefaultChatMode;
@@ -135,14 +136,18 @@ export interface GeneralSettings {
   playwrightMcpEnabled: boolean;
   /** 📁 文件系统 MCP（官方 server-filesystem，允许目录为下载文件夹）是否启用。默认 false。 */
   filesystemMcpEnabled: boolean;
-  // 联网搜索：选哪个搜索源 + 对应 key
-  searchEngine: "off" | "bocha" | "tavily" | "minimax" | "anySearch";
+  // 联网搜索：选哪个搜索源 + 对应 key（档位与字段名的单一事实源在 shared/search-engines.ts）
+  searchEngine: SearchEngineId;
   /** 内置浏览器视口模式：auto 面板窄时用移动版身份访问；custom 始终桌面版（原有行为）。默认 auto。 */
   browserViewportMode: BrowserViewportMode;
   searchBochaKey: string;
   searchTavilyKey: string;
   searchMinimaxKey: string;
   searchAnySearchKey: string;
+  /** 百度千帆「联网搜索」API Key（https://console.bce.baidu.com/qianfan 创建，Bearer 用） */
+  searchBaiduKey: string;
+  /** DeepSeek 搜索 API Key（https://platform.deepseek.com/api_keys） */
+  searchDeepseekKey: string;
   /** ✉️邮件发送插件是否启用 */
   emailEnabled: boolean;
   /** SMTP 主机，如 smtp.qq.com */

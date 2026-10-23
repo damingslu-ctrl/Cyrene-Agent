@@ -1,8 +1,8 @@
 /**
- * cyrene run: launch Electron from the current directory.
+ * mochi run: launch Electron from the current directory.
  *
  * v0.9 scope: dev-only. Assumes the user is at a project root with a
- * runnable package.json. v1.x will add `cyrene desktop` for installed apps.
+ * runnable package.json. v1.x will add `mochi desktop` for installed apps.
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -30,7 +30,7 @@ export async function runCyreneRun(): Promise<RunResult> {
       else resolve({ kind: "ok", code: code ?? 0 });
     });
     child.on("error", (err) => {
-      errLine(`cyrene run: failed to spawn electron: ${err.message}`);
+      errLine(`mochi run: failed to spawn electron: ${err.message}`);
       resolve({ kind: "ok", code: 1 });
     });
   });
@@ -41,7 +41,7 @@ export async function cmdRun(): Promise<number> {
   const result = await runCyreneRun();
   if (result.kind === "not-in-project") {
     errLine(
-      `cyrene run: no package.json found in ${process.cwd()}. Run cyrene from inside a Cyrene project, or use the desktop installer.`,
+      `mochi run: no package.json found in ${process.cwd()}. Run mochi from inside a Mochi project, or use the desktop installer.`,
     );
     return 0;
   }

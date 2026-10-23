@@ -1,5 +1,5 @@
 /**
- * Obsidian Tools — 将 ObsidianWorkspaceService 封装为 Cyrene ToolRegistry 工具。
+ * Obsidian Tools — 将 ObsidianWorkspaceService 封装为麻糬 ToolRegistry 工具。
  *
  * 6 个工具：
  * - obsidian_list_files

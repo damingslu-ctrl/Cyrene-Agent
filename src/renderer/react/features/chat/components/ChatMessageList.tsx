@@ -127,10 +127,10 @@ interface ChatMessageListProps {
   preferredAddress: string;
   /** 手动压缩进行中：列表尾部渲染「正在触发压缩」呼吸占位条，完成即由投影 marker 接管。 */
   compacting?: boolean;
-  /** 子代理详情可注入角色状态图；主聊天区不传时继续用默认昔涟素材。 */
+  /** 子代理详情可注入角色状态图；主聊天区不传时继续用默认麻糬素材。 */
   characterMoodAssets?: Partial<Record<CharacterStatusMood, string>>;
   assistantAvatar?: { src: string; alt: string; sprite?: boolean };
-  /** 子代理详情可将任务指令显示为昔涟发出的消息。 */
+  /** 子代理详情可将任务指令显示为麻糬发出的消息。 */
   userAvatar?: { src: string; alt: string; sprite?: boolean };
   stickerSize?: "small" | "standard" | "large";
   onTtsCacheKey?: (messageId: string, cacheKey: string, converterVersion: string) => void;
@@ -147,7 +147,7 @@ interface ChatMessageListProps {
   workspaceRoot?: string;
   /** 点击界内文件链接 → 打开右侧预览标签并定位行号 */
   onOpenFileLink?: (relPath: string, line?: number) => void;
-  /** 点击助手消息网页链接 → 在 Cyrene 右侧浏览器打开，或从右键菜单选择外部浏览器。 */
+  /** 点击助手消息网页链接 → 在麻糬右侧浏览器打开，或从右键菜单选择外部浏览器。 */
   onOpenWebLink?: (url: string, destination: "cyrene" | "external") => void | Promise<void>;
   onMailDraftChange?: (messageId: string, card: MailDraftCardData) => void;
 }

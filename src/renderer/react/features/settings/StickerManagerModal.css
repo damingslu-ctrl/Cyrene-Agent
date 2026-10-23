@@ -76,11 +76,11 @@
 }
 
 .cy-settings-theme-modal .cy-sticker-modal__pill:hover:not(:disabled) {
-  box-shadow: 0 0 0 3px rgba(255, 91, 138, 0.08);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rb-accent) 8%, transparent);
 }
 
 .cy-settings-theme-modal .cy-sticker-modal__pill.is-on {
-  background: var(--rb-accent, #FF5B8A);
+  background: var(--rb-accent);
 }
 
 .cy-settings-theme-modal .cy-sticker-modal__pill:disabled {
@@ -112,7 +112,7 @@
   padding: 1px 7px;
   font-size: 10px;
   font-weight: 500;
-  color: #5f27cd;
+  color: var(--rb-accent);
   background: #efeafc;
   border-radius: 999px;
 }

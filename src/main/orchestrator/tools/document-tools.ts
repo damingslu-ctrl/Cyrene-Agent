@@ -1,4 +1,4 @@
-// 文档生成工具 —— 让昔涟能产出可交付物（Excel/Word/PDF）。
+// 文档生成工具 —— 让麻糬能产出可交付物（Excel/Word/PDF）。
 // Markdown/纯文本笔记统一走 write_file（见 fs-tools.ts）。
 //
 // 设计要点：

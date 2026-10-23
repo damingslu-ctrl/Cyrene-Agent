@@ -12,12 +12,12 @@
 }
 
 [data-slot="tabs-trigger"]:focus-visible {
-  outline: 2px solid var(--rb-accent, #e75d87);
+  outline: 2px solid var(--rb-accent);
   outline-offset: 2px;
 }
 
 [data-slot="tabs-content"]:focus-visible {
-  outline: 2px solid var(--rb-accent, #e75d87);
+  outline: 2px solid var(--rb-accent);
   outline-offset: 2px;
 }
 

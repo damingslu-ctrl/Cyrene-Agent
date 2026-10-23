@@ -37,7 +37,7 @@
   width: 100%;
   height: 2em;
   filter: blur(45px);
-  background-color: #e299ff;
+  background-color: var(--rb-pink-100);
   background-image: radial-gradient(at 52% 57%, hsla(11, 83%, 72%, 1) 0px, transparent 50%),
     radial-gradient(at 37% 57%, hsla(175, 78%, 66%, 1) 0px, transparent 50%);
 }
@@ -48,12 +48,12 @@
   height: var(--size__loader);
   border-radius: 50%;
   animation: loader__circle__jumping 2s infinite;
-  background-color: #b499ff;
+  background-color: var(--rb-pink-100);
 }
 
 .loader__circle:nth-child(2n) {
   animation-delay: 300ms;
-  background-color: #e499ff;
+  background-color: var(--rb-pink-100);
 }
 
 .loader__circle:nth-child(3n) {

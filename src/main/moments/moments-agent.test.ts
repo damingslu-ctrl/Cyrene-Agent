@@ -183,7 +183,7 @@ describe("buildReplyMessages", () => {
     const user = String(messages[1].content);
     expect(user).toContain("[原始动态]");
     expect(user).toContain("昔涟发的动态");
-    expect(user).toContain("用户（回复昔涟）：用户回复昔涟");
+    expect(user).toContain("用户（回复麻糬）：用户回复昔涟");
     expect(user).toContain("之前聊到的约定");
     expect(user).toContain('"shouldReply"');
   });
@@ -323,21 +323,21 @@ describe("createMomentsAgent", () => {
   }
 
 describe("moments worldbook 注入与图片直发", () => {
-  const WORLDBOOK = "[相关设定]\n【风堇】\n风堇是黄金裔，掌握雷电力量的战士。";
+  const WORLDBOOK = "[相关设定]\n【年糕】\n年糕是猫伴里最爱守夜的那只。";
 
   describe("worldbook 注入", () => {
     it("decideUserPostReaction 用动态文本扫关键词，命中注入 system", async () => {
       const h = makeHarness({
         modelText: '{"like":true,"comment":{"shouldComment":false}}',
         worldbookText: WORLDBOOK,
-        post: makePost({ text: "今天见到风堇了！" }),
+        post: makePost({ text: "今天见到年糕了！" }),
       });
       await h.agent.decideUserPostReaction("moment_p1");
 
-      expect(h.buildWorldbookContext).toHaveBeenCalledWith(expect.stringContaining("风堇"));
+      expect(h.buildWorldbookContext).toHaveBeenCalledWith(expect.stringContaining("年糕"));
       const messages = h.runModel.mock.calls[0][0] as Array<{ role: string; content?: unknown }>;
-      expect(messages[0].content).toContain("【风堇】");
-      expect(messages[0].content).toContain("黄金裔");
+      expect(messages[0].content).toContain("【年糕】");
+      expect(messages[0].content).toContain("守夜");
     });
 
     it("decideCommentReply 合并动态正文与评论内容扫描", async () => {
@@ -347,7 +347,7 @@ describe("moments worldbook 注入与图片直发", () => {
         feed: {
           post: makePost({ author: "cyrene", text: "昔涟动态" }),
           comments: [
-            makeComment({ id: "c1", author: "user", content: "你知道风堇吗", createdAt: 100 }),
+            makeComment({ id: "c1", author: "user", content: "你知道年糕吗", createdAt: 100 }),
           ],
           likes: [],
         },
@@ -356,7 +356,7 @@ describe("moments worldbook 注入与图片直发", () => {
 
       const scanned = h.buildWorldbookContext!.mock.calls[0][0] as string;
       expect(scanned).toContain("昔涟动态");
-      expect(scanned).toContain("风堇");
+      expect(scanned).toContain("年糕");
     });
 
     it("generatePost 用会话摘录扫描，命中注入 system", async () => {
@@ -364,11 +364,11 @@ describe("moments worldbook 注入与图片直发", () => {
         modelText: '{"shouldPost":false,"text":""}',
         worldbookText: WORLDBOOK,
       });
-      await h.agent.generatePost({ summary: "聊到了风堇的往世乐土剧情", recentCyrenePosts: [] });
+      await h.agent.generatePost({ summary: "聊到了年糕的往世乐土剧情", recentCyrenePosts: [] });
 
-      expect(h.buildWorldbookContext).toHaveBeenCalledWith("聊到了风堇的往世乐土剧情");
+      expect(h.buildWorldbookContext).toHaveBeenCalledWith("聊到了年糕的往世乐土剧情");
       const messages = h.runModel.mock.calls[0][0] as Array<{ role: string; content?: unknown }>;
-      expect(messages[0].content).toContain("【风堇】");
+      expect(messages[0].content).toContain("【年糕】");
     });
 
     it("未注入 buildWorldbookContext 时不注入设定，链路照常", async () => {

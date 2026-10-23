@@ -80,7 +80,7 @@ describe("createApplication", () => {
     application.prepareBeforeReady();
     if (application.isPrimaryProcess()) await application.start();
     await vi.waitFor(() => expect(deps.app.quit).toHaveBeenCalledOnce());
-    expect(deps.dialog.showErrorBox).toHaveBeenCalledWith("Cyrene 启动失败", expect.stringContaining(error.message));
+    expect(deps.dialog.showErrorBox).toHaveBeenCalledWith("Mochi 启动失败", expect.stringContaining(error.message));
     expect(deps.startShell).not.toHaveBeenCalled();
     expect(deps.startCore).not.toHaveBeenCalled();
     expect(deps.startBackground).not.toHaveBeenCalled();

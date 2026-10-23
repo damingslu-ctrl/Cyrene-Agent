@@ -5,13 +5,13 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { app } from "electron";
+import {
+  LOCAL_EMBEDDING_MODELS,
+  LOCAL_EMBEDDING_MODEL_KEYS,
+  type LocalEmbeddingModelKey,
+} from "../../shared/local-models";
 
 const HF_CACHE_DIR = path.join(os.homedir(), ".cache", "huggingface", "Xenova");
-
-export interface ModelInstallStatus {
-  embedding: { bgem3: boolean };
-  reranker: { standard: boolean };
-}
 
 // All models require these files to be considered "installed"
 const REQUIRED_FILES = ["tokenizer.json", "config.json", "onnx/model_quantized.onnx"];
@@ -29,19 +29,46 @@ const REQUIRED_FILES = ["tokenizer.json", "config.json", "onnx/model_quantized.o
 //     sub-dir there is therefore just `bge-m3/` (not `Xenova/bge-m3/`).
 //
 // PROJECT_SUB_PATHS layout:
-//   models/Xenova/bge-m3/                 ← bgem3
+//   models/Xenova/bge-base-zh-v1.5/       ← embedding-bgeBaseZh
+//   models/Xenova/bge-m3/                 ← embedding-bgem3
 //   models/bge-reranker-base/             ← reranker-standard
 //
 // HF_CACHE_SUB_PATHS layout (~/.cache/huggingface/Xenova/):
-//   bge-m3/                               ← bgem3
+//   bge-base-zh-v1.5/                     ← embedding-bgeBaseZh
+//   bge-m3/                               ← embedding-bgem3
+//
+// Embedding entries are derived from the shared registry so a new model can
+// never be installable but undetectable (the two lists drifting is how
+// "放到 models/ 却检测不到" gets filed).
 const PROJECT_SUB_PATHS: Record<string, string[]> = {
-  "embedding-bgem3": ["Xenova/bge-m3"],
   "reranker-standard": ["bge-reranker-base"],
 };
 
-const HF_CACHE_SUB_PATHS: Record<string, string[]> = {
-  "embedding-bgem3": ["bge-m3"],
-};
+const HF_CACHE_SUB_PATHS: Record<string, string[]> = {};
+
+for (const key of LOCAL_EMBEDDING_MODEL_KEYS) {
+  const dirName = LOCAL_EMBEDDING_MODELS[key].dirName;
+  PROJECT_SUB_PATHS[embeddingModelId(key)] = [`Xenova/${dirName}`];
+  HF_CACHE_SUB_PATHS[embeddingModelId(key)] = [dirName];
+}
+
+function embeddingModelId(modelKey: string): string {
+  return `embedding-${modelKey}`;
+}
+
+function toModelId(kind: "embedding" | "reranker", modelKey: string): string {
+  // 只有 standard 一档 reranker，modelKey 由调用方固定传入。
+  return kind === "embedding" ? embeddingModelId(modelKey) : "reranker-standard";
+}
+
+/**
+ * Canonical project-side sub-directory for a model, e.g. `Xenova/bge-m3`.
+ * The downloader must write exactly this layout or the loader can't find it.
+ * Returns null for an unregistered model.
+ */
+export function getProjectModelSubPath(kind: "embedding" | "reranker", modelKey: string): string | null {
+  return PROJECT_SUB_PATHS[toModelId(kind, modelKey)]?.[0] ?? null;
+}
 
 /** Result of probing one (baseDir, subPath) candidate. */
 interface CandidateCheck {
@@ -81,8 +108,9 @@ function probeCandidates(
  *   1. CYRENE_MODELS_DIR env var (highest — explicit override)
  *   2. process.cwd() + "models"  (when launched from project root, e.g. `electron .`)
  *   3. directory beside the executable + "models" (release users drop models here)
- *   4. app.getAppPath() + "models"  (development fallback)
- *   5. process.resourcesPath + "models"  (packaged extraResources fallback)
+ *   4. <userData>/models  (app-managed install target — the downloader writes here)
+ *   5. app.getAppPath() + "models"  (development fallback)
+ *   6. process.resourcesPath + "models"  (packaged extraResources fallback)
  *
  * Why this matters: the previous implementation used
  * `path.join(__dirname, "..", "..", "..", "models")` — but the compiled
@@ -98,6 +126,14 @@ export function getProjectModelsDirCandidates(): string[] {
   if (!out.includes(cwdModels)) out.push(cwdModels);
   const executableModels = path.join(path.dirname(process.execPath), "models");
   if (!out.includes(executableModels)) out.push(executableModels);
+  // <userData>/models 是唯一保证「非管理员装机也能写」的位置，下载器就落在这里；
+  // 开发态与打包态因此共用同一份模型，重装不必再下一遍。
+  try {
+    const userDataModels = path.join(app.getPath("userData"), "models");
+    if (!out.includes(userDataModels)) out.push(userDataModels);
+  } catch {
+    // app not ready yet — fall through
+  }
   try {
     const appModels = path.join(app.getAppPath(), "models");
     if (!out.includes(appModels)) out.push(appModels);
@@ -117,12 +153,24 @@ export function getProjectModelsDir(): string {
 }
 
 /**
+ * Where the in-app downloader installs models: `<userData>/models`.
+ * Returns null when the app is not ready yet (before `app.whenReady()`).
+ */
+export function getInstallableModelsDir(): string | null {
+  try {
+    return path.join(app.getPath("userData"), "models");
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve the base directory containing a complete local model. This is the
  * same probe used by the settings status UI, so a displayed installed model
  * and the runtime loader can never disagree about its location.
  */
 export function getProjectModelBaseDir(kind: "embedding" | "reranker", modelKey: string): string | null {
-  const modelId = kind === "embedding" ? "embedding-bgem3" : "reranker-standard";
+  const modelId = toModelId(kind, modelKey);
   for (const baseDir of getProjectModelsDirCandidates()) {
     const probe = probeCandidates(modelId, baseDir, PROJECT_SUB_PATHS);
     if (probe.installed) return baseDir;
@@ -172,10 +220,7 @@ export function getModelInstallStatusDetail(
   kind: "embedding" | "reranker",
   modelKey: string,
 ): ModelStatusDetail {
-  const modelId =
-    kind === "embedding"
-      ? "embedding-bgem3"
-      : "reranker-standard";
+  const modelId = toModelId(kind, modelKey);
 
   const subPaths = PROJECT_SUB_PATHS[modelId] ?? [];
   const projectBaseDirs = getProjectModelsDirCandidates();
@@ -259,20 +304,14 @@ export function getModelInstallStatusDetail(
   };
 }
 
-export function getModelInstallStatus(): ModelInstallStatus {
-  return {
-    embedding: {
-      bgem3: getModelInstallStatusDetail("embedding", "bgem3").installed,
-    },
-    reranker: {
-      standard: getModelInstallStatusDetail("reranker", "standard").installed,
-    },
-  };
-}
-
 export function checkEmbeddingModelInstalled(modelKey: string): boolean {
   const detail = getModelInstallStatusDetail("embedding", modelKey);
   return detail.installed;
+}
+
+/** 已安装的本机 embedding 模型 key（按注册表顺序）。 */
+export function listInstalledEmbeddingModels(): LocalEmbeddingModelKey[] {
+  return LOCAL_EMBEDDING_MODEL_KEYS.filter(checkEmbeddingModelInstalled);
 }
 
 export function checkRerankerModelInstalled(): boolean {

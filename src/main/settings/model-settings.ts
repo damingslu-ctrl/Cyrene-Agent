@@ -1,3 +1,4 @@
+import { CONSOLE_PREFIX } from "../../shared/brand";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -16,6 +17,11 @@ import {
 } from "../../shared/session-model";
 import { addModelProfile, resolveDefaultModelProfile, updateModelProfile, type SavedModelProfile } from "./model-catalog";
 import { normalizeMemoryMode, type MemoryMode } from "../memory/memory-mode";
+import {
+  DEFAULT_LOCAL_EMBEDDING_MODEL,
+  resolveLocalEmbeddingModelKey,
+  type LocalEmbeddingModelKey,
+} from "../../shared/local-models";
 
 /**
  * 统一模型配置入口：所有模块（包括 Code 模式）必须通过此函数读取。
@@ -107,11 +113,11 @@ function migrateProviderRenames(
     if (next[newKey]) {
       // 新名已经有数据（说明用户已经在新名下存过），旧名的本地副本保留为最近一次更新优先：
       // 这里取保守路线 → 不覆盖 next[newKey]，旧名直接丢弃。
-      console.log("[Cyrene] provider rename: drop legacy", key, "→ kept", newKey);
+      console.log(CONSOLE_PREFIX + " provider rename: drop legacy", key, "→ kept", newKey);
       continue;
     }
     if (newKey !== key) {
-      console.log("[Cyrene] provider rename:", key, "→", newKey);
+      console.log(CONSOLE_PREFIX + " provider rename:", key, "→", newKey);
     }
     next[newKey] = value;
   }
@@ -166,7 +172,8 @@ export interface ModelSettings {
   /** CITA 结构化输出重试总预算（秒）。4-30，默认 8。 */
   citaRepairBudgetSec: number;
   rerankerMode: "standard" | "none";
-  embeddingModel: "bgem3";
+  /** 本机 embedding 模型；脏值在 normalizer 里回落到默认档。 */
+  embeddingModel: LocalEmbeddingModelKey;
   /**
    * Embedding 维度（可选，仅 cloud 模式有效）。
    * 留空 = 首次请求自动探测；填写 = 作为严格声明并与实际响应校验。
@@ -211,7 +218,7 @@ const DEFAULT_MODEL_SETTINGS: ModelSettings = {
   modelRequestMaxRetries: 5,
   citaRepairBudgetSec: 8,
   rerankerMode: "standard",
-  embeddingModel: "bgem3",
+  embeddingModel: DEFAULT_LOCAL_EMBEDDING_MODEL,
   multimodal: true,
   contextWindowTokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
 };
@@ -455,7 +462,7 @@ export function normalizeModelSettings(input: Partial<ModelSettings> | null | un
       ? Math.max(4, Math.min(30, Math.round(input.citaRepairBudgetSec)))
       : 8,
     rerankerMode: input?.rerankerMode === "none" ? "none" : "standard",
-    embeddingModel: "bgem3",
+    embeddingModel: resolveLocalEmbeddingModelKey(input?.embeddingModel),
     embeddingDimensions: typeof input?.embeddingDimensions === "number"
       && Number.isFinite(input.embeddingDimensions)
       && input.embeddingDimensions > 0
@@ -584,12 +591,12 @@ function loadModelSettings0(): ModelSettings {
         fs.writeFileSync(filePath, JSON.stringify(normalized, null, 2), "utf8");
       } catch (writeErr) {
         // 写盘失败不阻塞启动：内存里已是迁移后的配置，下次启动会再试一次
-        console.error("[Cyrene] model settings migration persist failed:", writeErr);
+        console.error(CONSOLE_PREFIX + " model settings migration persist failed:", writeErr);
       }
     }
     return normalized;
   } catch (err) {
-    console.error("[Cyrene] load settings failed:", err);
+    console.error(CONSOLE_PREFIX + " load settings failed:", err);
     return { ...DEFAULT_MODEL_SETTINGS };
   }
 }

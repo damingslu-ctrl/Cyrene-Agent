@@ -2,17 +2,17 @@
 //
 // - 与 src/main/social-context/（对话关系背景，SocialAtom）完全无关，勿混淆；
 // - 持久化为 userData/moments.json + userData/moments-media/<postId>/（JSON + schemaVersion）；
-// - author 为开放 string：除 user / cyrene 外，其余值表示入驻朋友圈的角色（如 "万敌"），
+// - author 为开放 string：除 user / cyrene 外，其余值表示入驻朋友圈的角色（如 "奶盖"），
 //   合法性由主进程角色注册表判定，类型层不做穷尽。
 
 export type MomentAuthor = "user" | "cyrene" | (string & {});
 
-/** 判别 author 是否为注册表内的角色（昔涟不算角色）。 */
+/** 判别 author 是否为注册表内的角色（麻糬不算角色）。 */
 export function isCharacterAuthor(author: string, knownCharacters: ReadonlySet<string>): boolean {
   return author !== "user" && author !== "cyrene" && knownCharacters.has(author);
 }
 
-/** 判别 author 是否为任意 AI 主体（昔涟或角色）。 */
+/** 判别 author 是否为任意 AI 主体（麻糬或角色）。 */
 export function isAiAuthor(author: string, knownCharacters: ReadonlySet<string>): boolean {
   return author === "cyrene" || isCharacterAuthor(author, knownCharacters);
 }
@@ -25,7 +25,7 @@ export interface MomentMedia {
   /**
    * user_attachment 时为副本文件名（如 "1.jpg"）；
    * character_asset 时为渲染端可直接消费的引用——内置贴图存 public 相对路径
-   * （如 "stickers/peek.gif"，渲染端 resolveAsset 解析），用户贴图存 local-sticker:// 完整 URL。
+   * （如 "stickers/peek.png"，渲染端 resolveAsset 解析），用户贴图存 local-sticker:// 完整 URL。
    */
   ref: string;
 }
@@ -123,7 +123,7 @@ export interface CharacterTimeline {
 /**
  * 角色评论提交结果：created = 本次落库；already_applied = 同一反应任务
  * 此前已产出评论（崩溃重跑），返回既有评论供调用方继续后续调度。
- * 两种状态都必须触发后续事件（如给昔涟入回复任务），already_applied 不是终点。
+ * 两种状态都必须触发后续事件（如给麻糬入回复任务），already_applied 不是终点。
  */
 export type ApplyCommentResult =
   | { status: "created"; comment: MomentComment }
@@ -184,7 +184,7 @@ export interface MomentsApi {
   deletePost: (postId: string) => Promise<MomentCommitResult<null>>;
   createComment: (input: MomentCreateCommentInput) => Promise<MomentCommitResult<MomentComment>>;
   toggleLike: (postId: string) => Promise<MomentCommitResult<{ liked: boolean }>>;
-  /** 点名名单：昔涟 + 全部入驻角色昵称（@ 选择框数据源） */
+  /** 点名名单：麻糬 + 全部入驻角色昵称（@ 选择框数据源） */
   listCharacters: () => Promise<string[]>;
   onChanged: (callback: () => void) => () => void;
 }

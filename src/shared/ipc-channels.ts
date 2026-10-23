@@ -42,13 +42,6 @@ export const IPC = {
   PET_VISIBILITY_CHANGED: "pet:visibility-changed",
   APP_QUIT: "app:quit",
 
-  // GitHub 应用更新
-  APP_UPDATE_GET_STATE: "app-update:get-state",
-  APP_UPDATE_CHECK: "app-update:check",
-  APP_UPDATE_DOWNLOAD: "app-update:download",
-  APP_UPDATE_INSTALL: "app-update:install",
-  APP_UPDATE_STATE: "app-update:state",
-
   // chat window
   CHAT_MINIMIZE: "chat:minimize",
   CHAT_CLOSE: "chat:close",
@@ -119,7 +112,7 @@ export const IPC = {
   MOMENTS_CREATE_COMMENT: "moments:create-comment",
   MOMENTS_TOGGLE_LIKE: "moments:toggle-like",
   MOMENTS_CHANGED: "moments:changed",
-  // 点名名单：@ 选择框数据源（昔涟 + 全部入驻角色）
+  // 点名名单：@ 选择框数据源（麻糬 + 全部入驻角色）
   MOMENTS_LIST_CHARACTERS: "moments:list-characters",
 
   // settings window
@@ -133,9 +126,11 @@ export const IPC = {
   SETTINGS_MODEL_PROFILE_SAVE: "settings:model-profiles:save",
   SETTINGS_MODEL_PROFILE_DELETE: "settings:model-profiles:delete",
   SETTINGS_MODEL_PROFILE_SET_DEFAULT: "settings:model-profiles:set-default",
+  SETTINGS_MAGPIE_SYNC: "settings:magpie:sync",
   SETTINGS_TEST_CONNECTION: "settings:test-connection",
   SETTINGS_PREVIEW_REASONING: "settings:preview-reasoning",
   SETTINGS_TEST_VISION: "settings:test-vision",
+  SETTINGS_CHECK_AMAP_KEY: "settings:check-amap-key",
   SETTINGS_GET_GENERAL: "settings:get-general",
   SETTINGS_SAVE_GENERAL: "settings:save-general",
   SETTINGS_GET_TIMEOUT_SETTINGS: "settings:get-timeout-settings",
@@ -294,8 +289,12 @@ export const IPC = {
   EMBEDDING_SET_MODEL: "embedding:set-model",
   RERANKER_SET_MODE: "reranker:set-mode",
   RERANKER_GET_STATUS: "reranker:get-status",
-  // unified model install status
-  MODEL_GET_INSTALL_STATUS: "model:get-install-status",
+  // 应用内检索模型下载（<userData>/models）；清单是唯一状态源
+  MODEL_INSTALL_LIST: "model:install-list",
+  MODEL_INSTALL_RUN: "model:install-run",
+  MODEL_INSTALL_CANCEL: "model:install-cancel",
+  /** 主进程 → 渲染进程：下载进度推流 */
+  MODEL_INSTALL_PROGRESS: "model:install-progress",
   // shell external URL
   OPEN_EXTERNAL: "shell:open-external",
   // user profile
@@ -576,13 +575,29 @@ export const IPC = {
   PLUGINS_UNINSTALL: "plugins:uninstall",
   /** 设置面板桥的统一转发通道：仅面板宿主窗口可用，pluginId 由宿主侧绑定 */
   PLUGINS_PANEL_INVOKE: "plugins:panel:invoke",
+  /** 本地插件目录枚举：语义是「userData/plugins 里有什么」，不是远端索引 */
   PLUGINS_MARKET_LIST: "plugins:market:list",
-  PLUGINS_MARKET_DETAILS: "plugins:market:details",
-  PLUGINS_MARKET_INSTALL: "plugins:market:install",
 
-  // 项目公告（远端 Markdown 文本）
-  NEWS_GET: "news:get",
-  /** 主进程拉到新版本时反向推送给窗口，渲染端据此更新未读提示 */
-  NEWS_UPDATED: "news:updated",
+  // Verge 内建模块快照（store → service → IPC 三段骨架）
+  VERGE_GET_SNAPSHOT: "verge:get-snapshot",
+  // 本机版本信息：设置页与 --brand-probe 共用的唯一读端（原来这里是 app-update:* 五条通道）
+  VERGE_GET_APP_INFO: "verge:get-app-info",
+  // 宠物窗尺寸通道：renderer → main 推送目标边界，main 去重后调 setBounds
+  VERGE_PET_RESIZE: "verge:pet-resize",
+  // 渲染器 → main：toggleQuiet 返回翻转后的 quietUntil（null = 已取消）；setTuck 单向。
+  VERGE_TOGGLE_QUIET: "verge:toggle-quiet",
+  VERGE_SET_TUCK: "verge:set-tuck",
+  VERGE_IS_QUIET: "verge:is-quiet",
+  /** main → 渲染端：到点自醒当场清盘时通知撤月牙（payload = 清盘后的 quietUntil，恒 null）。 */
+  VERGE_QUIET_CHANGED: "verge:quiet-changed",
+  // —— Task 12 贴边藏身与显示器变更 ——
+  /** 渲染端起帧拉一次几何基线：返回 { bounds, workArea, tuckEnabled, tuckHinted, tuckLimit }。 */
+  VERGE_GET_PET_GEOMETRY: "verge:get-pet-geometry",
+  /** main → 渲染端：display-metrics-changed 重夹取之后推新 bounds + workArea。 */
+  VERGE_PET_GEOMETRY: "verge:pet-geometry",
+  /** main → 渲染端：tuck 开关变更（菜单/IPC 双路经收口闸口后统一广播）。 */
+  VERGE_TUCK_CHANGED: "verge:tuck-changed",
+  /** 渲染端 → main：第一次藏身开口说过 TUCK_HINT 后落盘 tuckHinted，不再重说。 */
+  VERGE_TUCK_HINTED: "verge:tuck-hinted",
 
 } as const;

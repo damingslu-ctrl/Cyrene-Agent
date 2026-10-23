@@ -4,7 +4,7 @@
   max-width: min(760px, 100%);
   border: 1px solid var(--rb-border-default);
   border-radius: 16px;
-  background: var(--rb-surface-raised, var(--rb-surface-default));
+  background: var(--rb-surface-elevated);
   color: var(--rb-text-primary);
 }
 
@@ -21,7 +21,7 @@
 .cy-mail-draft__status { border-radius: 999px; padding: 2px 8px; background: var(--rb-surface-secondary); font-size: 12px; }
 .cy-mail-draft__status.is-sent { color: var(--rb-color-success, #219653); }
 .cy-mail-draft__status.is-unknown { color: var(--rb-color-warning, #b7791f); }
-.cy-mail-draft__status.is-reconnect_required { color: var(--rb-color-danger, #cf3f58); }
+.cy-mail-draft__status.is-reconnect_required { color: var(--rb-color-danger, var(--rb-danger)); }
 .cy-mail-draft__identity { padding: 7px 2px; color: var(--rb-text-secondary); font-size: 13px; }
 .cy-mail-draft__identity span:first-child { width: 58px; flex: none; }
 .cy-mail-draft__field { display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: center; gap: 8px; padding: 5px 2px; }

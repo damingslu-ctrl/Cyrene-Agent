@@ -1,5 +1,8 @@
+import { CONSOLE_PREFIX } from "../../shared/brand";
+import { resolveLocalEmbeddingModelKey } from "../../shared/local-models";
 import { app, BrowserWindow, shell } from "electron";
 import { IPC } from "../../shared/ipc-channels";
+import { isUpstreamUrl } from "../../shared/upstream-hosts";
 import { createIpcScope, type IpcScope } from "../application/ipc-scope";
 import type { GeneralSettings } from "./general-settings";
 import type { TimeoutSettings } from "../../shared/timeout-types";
@@ -11,10 +14,21 @@ import {
 import type { RuntimeStateService } from "../orchestrator/runtime-state-service";
 import { initReranker, getRerankerInstallStatus, resetReranker } from "../rag/reranker";
 import { switchEmbeddingModel } from "../rag";
+import { getCurrentModelKey } from "../rag/embedding";
+import { checkEmbeddingModelInstalled } from "../rag/model-status";
+import {
+  cancelLocalModelInstall,
+  describeModelInstall,
+  installLocalEmbeddingModel,
+  isModelInstallRunning,
+  type ModelInstallProgress,
+} from "../rag/model-install";
+import { LOCAL_EMBEDDING_MODEL_KEYS } from "../../shared/local-models";
 import { testVendorConnection } from "../orchestrator/vendors/test-connection";
 import { getAdapterForConfig } from "../orchestrator/vendors";
 import type { VendorConfig } from "../orchestrator/vendors";
 import { normalizeModelSettings, getPublicModelConfig, listSavedModelProfiles, saveModelProfile, setDefaultModelProfile, saveModelSettings } from "./model-settings";
+import { syncMagpieModels } from "./magpie-sync";
 import type { ModelSettings } from "./model-settings";
 import { getTimeoutSettings, saveTimeoutSettings } from "../timeout-manager";
 import type { syncVolcanoSearchMcp } from "./general-settings-lifecycle";
@@ -24,6 +38,7 @@ import { registerDataDirIpc } from "./data-dir-ipc";
 import { getBrowserPanelController } from "../browser/browser-panel-runtime";
 import { normalizeMemoryMode, type MemoryMode } from "../memory/memory-mode";
 import { getEffectiveUiTheme, watchSystemUiTheme } from "../system-ui-theme";
+import { checkAmapKey } from "../amap/key-check";
 
 export interface SettingsIpcDependencies {
   get windowManager(): WindowManager | null;
@@ -113,6 +128,21 @@ export function registerSettingsIpc(deps: SettingsIpcDependencies): void {
     const saved = setDefaultModelProfile(id);
     broadcastModelConfigChanged(saved);
     return { profiles: listSavedModelProfiles(saved), defaultModelProfileId: saved.defaultModelProfileId };
+  });
+  ipc.handle(IPC.SETTINGS_MAGPIE_SYNC, async () => {
+    const result = await syncMagpieModels();
+    if (result.changed) broadcastModelConfigChanged();
+    return result;
+  });
+
+  // 启动时静默识别一次：Magpie 在线则自动导入/刷新模型；不在线不打扰启动。
+  void syncMagpieModels().then((result) => {
+    if (result.changed) {
+      console.log(CONSOLE_PREFIX + " magpie models imported:", result.importedModels);
+      broadcastModelConfigChanged();
+    }
+  }).catch((error) => {
+    console.log(CONSOLE_PREFIX + " magpie sync skipped:", error instanceof Error ? error.message : String(error));
   });
 
   ipc.handle(IPC.SETTINGS_GET_GENERAL, () => getGeneralSettings());
@@ -242,7 +272,7 @@ export function registerSettingsIpc(deps: SettingsIpcDependencies): void {
     IPC.SETTINGS_TEST_VISION,
     async (_event, cfg: { baseUrl: string; apiKey: string; model: string }) => {
       const start = Date.now();
-      console.log("[Cyrene] test vision: model=" + cfg.model + " url=" + cfg.baseUrl);
+      console.log(CONSOLE_PREFIX + " test vision: model=" + cfg.model + " url=" + cfg.baseUrl);
       try {
         const { captionImage } = await import("../orchestrator/vision-captioner.js");
         const result = await captionImage(
@@ -261,19 +291,29 @@ export function registerSettingsIpc(deps: SettingsIpcDependencies): void {
     },
   );
 
+  /**
+   * 高德 Key 自检。探测与话术都在 ../amap/key-check，这里只做参数归一。
+   * 探测用渲染端传来的当前输入值：用户刚改完还没保存就点「测试」，测的必须是框里那一串，
+   * 而不是上一次落盘的旧 Key。没传值时回落到已保存的 Key（IPC 边界的兜底）。
+   */
+  ipc.handle(IPC.SETTINGS_CHECK_AMAP_KEY, async (_event, key?: unknown) => {
+    const candidate = typeof key === "string" ? key : getGeneralSettings().amapKey;
+    return checkAmapKey(candidate);
+  });
+
   ipc.handle(IPC.EMBEDDING_SET_MODEL, async (_event, modelKey: string) => {
-    console.log("[Cyrene] embedding model switch requested:", modelKey);
+    console.log(CONSOLE_PREFIX + " embedding model switch requested:", modelKey);
     try {
       const result = await switchEmbeddingModel(modelKey);
       if (result.ok) {
         await reconcileUserMemoryIndex();
-        saveModelSettings({ embeddingModel: "bgem3" });
+        saveModelSettings({ embeddingModel: resolveLocalEmbeddingModelKey(modelKey) });
         broadcastModelConfigChanged();
       }
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error("[Cyrene] embedding model switch failed:", message);
+      console.error(CONSOLE_PREFIX + " embedding model switch failed:", message);
       return { ok: false, clearedEntries: 0, error: message };
     }
   });
@@ -283,22 +323,57 @@ export function registerSettingsIpc(deps: SettingsIpcDependencies): void {
     saveModelSettings({ ...current, rerankerMode: mode });
     if (normalizeMemoryMode(current.memoryMode) === "vector") await initReranker(mode);
     else resetReranker();
-    console.log("[Cyrene] reranker mode switched to", mode);
+    console.log(CONSOLE_PREFIX + " reranker mode switched to", mode);
     return true;
   });
 
   ipc.handle(IPC.RERANKER_GET_STATUS, () => getRerankerInstallStatus());
 
-  ipc.handle(IPC.MODEL_GET_INSTALL_STATUS, () => {
-    const { getModelInstallStatus } = require("../rag/model-status");
-    return getModelInstallStatus();
+  // ── 应用内检索模型下载 ──
+  // 设置页要回答三个问题：有哪些档、每个档装没装、当前用的是哪个。
+  // 清单（大小/文件数/落位目录）来自 shared 注册表，渲染进程不自己拼路径。
+  ipc.handle(IPC.MODEL_INSTALL_LIST, () => {
+    return {
+      models: LOCAL_EMBEDDING_MODEL_KEYS.map((key) => describeModelInstall(key)).filter(Boolean),
+      currentModelKey: getCurrentModelKey(),
+      installing: isModelInstallRunning(),
+    };
   });
 
+  ipc.handle(IPC.MODEL_INSTALL_RUN, async (_event, modelKey: string) => {
+    const emit = (progress: ModelInstallProgress) =>
+      deps.windowManager?.broadcast(IPC.MODEL_INSTALL_PROGRESS, progress);
+    console.log(CONSOLE_PREFIX + " local model install requested:", modelKey);
+    const result = await installLocalEmbeddingModel(modelKey, { onProgress: emit });
+    if (result.ok) {
+      // 下完 ≠ 生效：只有当前档本身还没装上时才把它切过去。
+      // 用户补下第二个模型不该被悄悄换掉向量维度——那会让索引整个失配。
+      const current = getModelSettings().embeddingModel;
+      if (!checkEmbeddingModelInstalled(current)) {
+        const switched = await switchEmbeddingModel(modelKey);
+        if (switched.ok) {
+          saveModelSettings({ embeddingModel: resolveLocalEmbeddingModelKey(modelKey) });
+          broadcastModelConfigChanged();
+        }
+      }
+    } else {
+      console.warn(CONSOLE_PREFIX + " local model install failed:", result.error);
+    }
+    return result;
+  });
+
+  ipc.handle(IPC.MODEL_INSTALL_CANCEL, () => cancelLocalModelInstall());
+
   ipc.handle(IPC.OPEN_EXTERNAL, async (_event, url: string) => {
-    // mailto: 用于「报告问题」里的发邮件入口，交给系统默认邮件客户端；其余协议一律拒绝
+    // 放行 http(s) 与 mailto:（后者交给系统默认邮件客户端）；其余协议一律拒绝。
+    // 协议通过后还有下面的上游域名闸门，两条判据是「且」的关系。
     const allowed = url.startsWith("http://") || url.startsWith("https://") || url.startsWith("mailto:");
     if (!allowed) {
       return { ok: false, error: "Invalid URL" };
+    }
+    // 渲染进程点到的上游仓库/官网也不放行：协议闸门之外再加域名闸门。
+    if (isUpstreamUrl(url)) {
+      return { ok: false, error: "blocked-upstream-host" };
     }
     try {
       await shell.openExternal(url);

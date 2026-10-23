@@ -45,16 +45,16 @@
 
 /* antd v6 的滑块是 .ant-segmented-thumb 元素（v4 时代的 item::after 写法已失效，
    默认白色块会盖住选中文字）。改为半透明强调色高亮 + 选中文字用强调色，
-   跟随昔涟主题变量（--cy-accent），变量缺失时回退默认粉。 */
+   跟随麻糬主题变量（--cy-accent），变量缺失时回退默认粉。 */
 .cy-reasoning-popover .ant-segmented-thumb {
   border-radius: 8px;
-  background: rgba(255, 91, 138, 0.22);
-  background: color-mix(in srgb, var(--rb-accent, #FF5B8A) 22%, transparent);
+  background: color-mix(in srgb, var(--rb-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--rb-accent) 22%, transparent);
   box-shadow: none;
 }
 
 .cy-reasoning-popover .ant-segmented-item-selected {
-  color: var(--rb-accent, #FF5B8A);
+  color: var(--rb-accent);
   font-weight: 600;
 }
 
@@ -68,7 +68,7 @@
   height: 36px;
   border-radius: 999px;
   overflow: hidden;
-  background: linear-gradient(90deg, #09151c, #171320 52%, #251421);
+  background: linear-gradient(90deg, #09151c, var(--rb-surface-elevated) 52%, var(--rb-surface-elevated));
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(38, 20, 34, 0.25);
   isolation: isolate;
 }
@@ -79,13 +79,13 @@
   inset: 0 auto 0 0;
   width: var(--cy-reasoning-progress);
   border-radius: inherit;
-  background: linear-gradient(90deg, #8ae9e9, #ffd1e4 52%, #ff82b1);
+  background: linear-gradient(90deg, #8ae9e9, var(--rb-pink-50) 52%, var(--rb-accent));
   transition: width 160ms ease-out;
 }
 
 [data-ui-theme="pearl-white"] .cy-reasoning-slider__track {
   background: linear-gradient(90deg, #eaf7f7, #f7f0f5 52%, #fceaf1);
-  box-shadow: inset 0 0 0 1px rgba(231, 194, 207, 0.56), 0 2px 8px rgba(213, 125, 158, 0.12);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rb-pink-50) 56%, transparent), 0 2px 8px color-mix(in srgb, var(--rb-pink-100) 12%, transparent);
 }
 
 .cy-reasoning-slider__pixels {
@@ -108,7 +108,7 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 250, 255, 0.96), rgba(255, 159, 205, 0.68) 24%, rgba(72, 214, 214, 0.3) 55%, transparent 75%);
+  background: radial-gradient(circle, rgba(255, 250, 255, 0.96), color-mix(in srgb, var(--rb-pink-100) 68%, transparent) 24%, rgba(72, 214, 214, 0.3) 55%, transparent 75%);
   filter: blur(3px);
   opacity: var(--cy-reasoning-visible);
   transform: translate(-50%, -50%);
@@ -140,14 +140,14 @@
   border: 2px solid #fff2f8;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(255, 111, 170, 0.32), 0 0 17px rgba(255, 126, 188, 0.72), 0 0 25px rgba(71, 210, 213, 0.2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rb-accent) 32%, transparent), 0 0 17px color-mix(in srgb, var(--rb-accent) 72%, transparent), 0 0 25px rgba(71, 210, 213, 0.2);
   transform: translate(-50%, -50%);
   transition: left 160ms ease-out, box-shadow 160ms ease-out;
   pointer-events: none;
 }
 
 .cy-reasoning-slider__input:focus-visible + .cy-reasoning-slider__thumb {
-  outline: 2px solid var(--rb-accent, #FF5B8A);
+  outline: 2px solid var(--rb-accent);
   outline-offset: -4px;
 }
 
@@ -171,13 +171,13 @@
 }
 
 .cy-reasoning-slider__marks button.is-active {
-  color: var(--rb-accent, #FF5B8A);
+  color: var(--rb-accent);
   font-weight: 700;
 }
 
 .cy-reasoning-slider__marks button:focus-visible,
 .cy-reasoning-panel__auxiliary button:focus-visible {
-  outline: 2px solid var(--rb-accent, #FF5B8A);
+  outline: 2px solid var(--rb-accent);
   outline-offset: 2px;
 }
 
@@ -189,7 +189,7 @@
 
 .cy-reasoning-panel__auxiliary button {
   padding: 3px 8px;
-  border: 1px solid color-mix(in srgb, var(--rb-accent, #FF5B8A) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rb-accent) 25%, transparent);
   border-radius: 7px;
   background: transparent;
   color: var(--rb-text-secondary);
@@ -198,13 +198,13 @@
 }
 
 .cy-reasoning-panel__auxiliary button.is-active {
-  background: color-mix(in srgb, var(--rb-accent, #FF5B8A) 15%, transparent);
-  color: var(--rb-accent, #FF5B8A);
+  background: color-mix(in srgb, var(--rb-accent) 15%, transparent);
+  color: var(--rb-accent);
 }
 
 .cy-reasoning-panel__error {
   margin: 8px 4px 0;
-  color: #d1445a;
+  color: var(--rb-danger);
   font-size: 12px;
 }
 

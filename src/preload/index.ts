@@ -16,10 +16,8 @@ import type { AguiRunAck } from "../shared/run-terminal";
 import type { ReviewSnapshot, ReviewRestoreOutcome } from "../shared/review-types";
 import type { WorkspaceListResult, WorkspaceReadResult } from "../shared/workspace-files-types";
 import type { OpenInAppListResult, OpenInAppOpenResult } from "../shared/open-in-app-types";
-import type { NewsApi, NewsPayload } from "../shared/news-types";
 import { getLive2DIpcListenerCounts } from "./live2d-listener-diagnostics";
 import { exposeMusicApi } from "./music";
-import type { AppUpdateApi, AppUpdateState } from "../shared/app-update";
 import type { ConversationMode } from "../shared/chat-types";
 import type { SkillSuggestionItem, SkillSuggestionMode } from "../shared/skill-suggestions";
 import type { GmailAccountStatus, GmailClientConfigStatus } from "../shared/gmail-types";
@@ -56,18 +54,6 @@ const cyreneApi = {
     const listener = (_e: unknown, visible: boolean) => callback(visible);
     ipcRenderer.on(IPC.PET_VISIBILITY_CHANGED, listener);
     return () => ipcRenderer.off(IPC.PET_VISIBILITY_CHANGED, listener);
-  },
-};
-
-const appUpdateApi: AppUpdateApi = {
-  getState: () => ipcRenderer.invoke(IPC.APP_UPDATE_GET_STATE),
-  check: () => ipcRenderer.invoke(IPC.APP_UPDATE_CHECK),
-  download: () => ipcRenderer.invoke(IPC.APP_UPDATE_DOWNLOAD),
-  install: () => ipcRenderer.invoke(IPC.APP_UPDATE_INSTALL),
-  onStateChanged: (callback: (state: AppUpdateState) => void) => {
-    const listener = (_event: unknown, state: AppUpdateState) => callback(state);
-    ipcRenderer.on(IPC.APP_UPDATE_STATE, listener);
-    return () => ipcRenderer.off(IPC.APP_UPDATE_STATE, listener);
   },
 };
 
@@ -122,7 +108,6 @@ const chatApi = {
 };
 
 contextBridge.exposeInMainWorld("cyrene", cyreneApi);
-contextBridge.exposeInMainWorld("appUpdate", appUpdateApi);
 contextBridge.exposeInMainWorld("chat", chatApi);
 
 const browserPanelApi = {
@@ -210,24 +195,6 @@ const systemApi = {
 };
 
 contextBridge.exposeInMainWorld("system", systemApi);
-
-// 项目公告：取正文走 invoke，主进程对到新版本时反向推送
-const newsApi: NewsApi = {
-  get: (locale: string) => ipcRenderer.invoke(IPC.NEWS_GET, locale),
-  onUpdated: (callback: (payload: NewsPayload) => void) => {
-    const listener = (_e: unknown, payload: NewsPayload) => {
-      try {
-        callback(payload);
-      } catch (err) {
-        console.error("[Preload] news listener抛错:", err);
-      }
-    };
-    ipcRenderer.on(IPC.NEWS_UPDATED, listener);
-    return () => ipcRenderer.off(IPC.NEWS_UPDATED, listener);
-  },
-};
-
-contextBridge.exposeInMainWorld("news", newsApi);
 
 const schedulerEventsApi = {
   onEvent: (callback: (event: unknown) => void) => {
@@ -354,9 +321,11 @@ const settingsApi = {
   saveModelProfile: (profile: unknown) => ipcRenderer.invoke(IPC.SETTINGS_MODEL_PROFILE_SAVE, profile),
   deleteModelProfile: (id: string) => ipcRenderer.invoke(IPC.SETTINGS_MODEL_PROFILE_DELETE, id),
   setDefaultModelProfile: (id: string) => ipcRenderer.invoke(IPC.SETTINGS_MODEL_PROFILE_SET_DEFAULT, id),
+  syncMagpieModels: () => ipcRenderer.invoke(IPC.SETTINGS_MAGPIE_SYNC),
   testConnection: (config: { provider: string; baseUrl: string; model: string; apiKey: string; explicitTransport?: "openai" | "anthropic" | "responses"; reasoning?: ReasoningPreference; manualReasoning?: import("../shared/manual-reasoning").ManualReasoningConfig }) => ipcRenderer.invoke(IPC.SETTINGS_TEST_CONNECTION, config),
   previewReasoning: (config: { provider: string; baseUrl: string; model: string; apiKey: string; explicitTransport?: "openai" | "anthropic" | "responses"; reasoning?: ReasoningPreference; manualReasoning?: import("../shared/manual-reasoning").ManualReasoningConfig }) => ipcRenderer.invoke(IPC.SETTINGS_PREVIEW_REASONING, config),
   testVision: (config: { baseUrl: string; apiKey: string; model: string }) => ipcRenderer.invoke(IPC.SETTINGS_TEST_VISION, config),
+  checkAmapKey: (key?: string) => ipcRenderer.invoke(IPC.SETTINGS_CHECK_AMAP_KEY, key),
   // main → settings：要求切到指定标签（窗口已打开时由 main 发这个事件）
   onSwitchSection: (callback: (section: string) => void) => {
     const listener = (_e: unknown, section: string) => callback(section);
@@ -381,6 +350,14 @@ const settingsApi = {
   stickerPickFile: () => ipcRenderer.invoke(IPC.STICKERS_PICK_FILE),
   stickerAdd: (payload: { sourcePath: string; id: string; description: string; phrases: string[] }) => ipcRenderer.invoke(IPC.STICKERS_ADD, payload),
   embeddingSetModel: (model: string) => ipcRenderer.invoke(IPC.EMBEDDING_SET_MODEL, model),
+  getModelInstallList: () => ipcRenderer.invoke(IPC.MODEL_INSTALL_LIST),
+  modelInstallRun: (modelKey: string) => ipcRenderer.invoke(IPC.MODEL_INSTALL_RUN, modelKey),
+  modelInstallCancel: () => ipcRenderer.invoke(IPC.MODEL_INSTALL_CANCEL),
+  onModelInstallProgress: (callback: (progress: unknown) => void) => {
+    const listener = (_e: unknown, progress: unknown) => callback(progress);
+    ipcRenderer.on(IPC.MODEL_INSTALL_PROGRESS, listener);
+    return () => ipcRenderer.off(IPC.MODEL_INSTALL_PROGRESS, listener);
+  },
   rerankerSetMode: (mode: string) => ipcRenderer.invoke(IPC.RERANKER_SET_MODE, mode),
   getRerankerStatus: (): Promise<{ light: boolean; standard: boolean }> => ipcRenderer.invoke(IPC.RERANKER_GET_STATUS),
   setToolEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke(IPC.TOOL_SET_ENABLED, { id, enabled }),
@@ -550,9 +527,7 @@ const pluginsApi = {
   rescan: () => ipcRenderer.invoke(IPC.PLUGINS_RESCAN),
   importZip: () => ipcRenderer.invoke(IPC.PLUGINS_IMPORT_ZIP),
   uninstall: (id: string) => ipcRenderer.invoke(IPC.PLUGINS_UNINSTALL, id),
-  marketList: (preferred?: string) => ipcRenderer.invoke(IPC.PLUGINS_MARKET_LIST, preferred),
-  marketDetails: (id: string, preferred?: string) => ipcRenderer.invoke(IPC.PLUGINS_MARKET_DETAILS, id, preferred),
-  marketInstall: (id: string) => ipcRenderer.invoke(IPC.PLUGINS_MARKET_INSTALL, id),
+  marketList: () => ipcRenderer.invoke(IPC.PLUGINS_MARKET_LIST),
 };
 
 contextBridge.exposeInMainWorld("plugins", pluginsApi);
@@ -599,7 +574,6 @@ contextBridge.exposeInMainWorld("stickerManager", stickerManagerApi);
 
 const modelConfigApi = {
   get: () => ipcRenderer.invoke(IPC.MODEL_CONFIG_GET),
-  getModelInstallStatus: () => ipcRenderer.invoke(IPC.MODEL_GET_INSTALL_STATUS),
   onChanged: (callback: (config: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, config: unknown) => callback(config);
     ipcRenderer.on(IPC.MODEL_CONFIG_CHANGED, listener);
@@ -1063,3 +1037,58 @@ const ttsApi = {
 contextBridge.exposeInMainWorld("tts", ttsApi);
 
 exposeMusicApi();
+
+type PetRect = { x: number; y: number; width: number; height: number };
+/** PET_RESIZE 完整载荷：bounds 四数取整（闸的依据），后四列是模型取证量（只喂 GEOM 探针）。 */
+type PetResizePayload = PetRect & {
+  pinInWin?: { x: number; y: number };
+  center?: { x: number; y: number };
+  peekDx?: number;
+  e?: number;
+};
+
+const vergeApi = {
+  getSnapshot: () => ipcRenderer.invoke(IPC.VERGE_GET_SNAPSHOT),
+  /** 本机版本信息（设置页与头像菜单的版本行共用；buildChannel 恒为 local）。 */
+  getAppInfo: () =>
+    ipcRenderer.invoke(IPC.VERGE_GET_APP_INFO) as Promise<import("../shared/app-info").AppInfo>,
+  resizePetWindow: (bounds: PetResizePayload) =>
+    ipcRenderer.send(IPC.VERGE_PET_RESIZE, bounds),
+  // 免打扰（Task 11）：toggleQuiet invoke 拿翻转后的 quietUntil（再点一次=取消，回 null）；
+  // isQuiet 是「右键菜单之外的读法」（渲染器启动时先读一次盘上状态）；
+  // onQuietChanged 是安静状态的下行：载荷带当下 quietUntil——写盘（右键菜单 / toggle）
+  // 时是未来截止（月牙上屏），到点自醒当场清盘后是 null（撤月牙）。
+  quietFor: () => ipcRenderer.invoke(IPC.VERGE_TOGGLE_QUIET) as Promise<number | null>,
+  isQuiet: () => ipcRenderer.invoke(IPC.VERGE_IS_QUIET) as Promise<boolean>,
+  setTuck: (enabled: boolean) => ipcRenderer.send(IPC.VERGE_SET_TUCK, enabled),
+  onQuietChanged: (callback: (payload: { quietUntil: number | null }) => void) => {
+    const listener = (_e: unknown, payload: { quietUntil: number | null }) => callback(payload);
+    ipcRenderer.on(IPC.VERGE_QUIET_CHANGED, listener);
+    return () => ipcRenderer.off(IPC.VERGE_QUIET_CHANGED, listener);
+  },
+  // —— Task 12 贴边藏身与显示器变更 ——
+  // 渲染端起帧拉一次几何基线（窗不存在时 main 返回 null，禁兜底：拿不到就是没窗）。
+  getPetGeometry: () =>
+    ipcRenderer.invoke(IPC.VERGE_GET_PET_GEOMETRY) as Promise<{
+      bounds: PetRect;
+      workArea: PetRect;
+      tuckEnabled: boolean;
+      tuckHinted: boolean;
+      tuckLimit: number;
+    } | null>,
+  /** main → 渲染端：display-metrics-changed 重夹取后推新 bounds + workArea。 */
+  onPetGeometryChanged: (callback: (payload: { bounds: PetRect; workArea: PetRect }) => void) => {
+    const listener = (_e: unknown, payload: { bounds: PetRect; workArea: PetRect }) => callback(payload);
+    ipcRenderer.on(IPC.VERGE_PET_GEOMETRY, listener);
+    return () => ipcRenderer.off(IPC.VERGE_PET_GEOMETRY, listener);
+  },
+  /** main → 渲染端：tuck 开关变更（菜单与 IPC 双路经收口闸口后统一广播）。 */
+  onTuckChanged: (callback: (payload: { tuckEnabled: boolean }) => void) => {
+    const listener = (_e: unknown, payload: { tuckEnabled: boolean }) => callback(payload);
+    ipcRenderer.on(IPC.VERGE_TUCK_CHANGED, listener);
+    return () => ipcRenderer.off(IPC.VERGE_TUCK_CHANGED, listener);
+  },
+  /** 渲染端 → main：第一次藏身开口说过 TUCK_HINT，落盘 tuckHinted，不再重说。 */
+  tuckHinted: () => ipcRenderer.send(IPC.VERGE_TUCK_HINTED),
+};
+contextBridge.exposeInMainWorld("verge", vergeApi);

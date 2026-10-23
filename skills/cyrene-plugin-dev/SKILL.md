@@ -1,6 +1,6 @@
 ---
 name: cyrene-plugin-dev
-description: 当用户想为 Cyrene 开发插件（扩展昔涟的工具、做插件弹窗、接入渠道）、调试插件报错，或询问插件怎么写时使用。涉及 Cyrene 本体源码的功能开发不使用本 Skill。
+description: 当用户想为 Mochi 开发插件（扩展麻糬的工具、做插件弹窗、接入渠道）、调试插件报错，或询问插件怎么写时使用。涉及 Mochi 本体源码的功能开发不使用本 Skill。
 version: 1.3.0
 effectKind: mutation
 modes:
@@ -8,17 +8,17 @@ modes:
   - work
 ---
 
-# Cyrene 插件开发
+# Mochi 插件开发
 
-本 Skill 指导如何为 Cyrene 开发运行时插件：从需求到可安装的 zip 包，一次做对。
+本 Skill 指导如何为 Mochi 开发运行时插件：从需求到可安装的 zip 包，一次做对。
 
 ## 何时使用
 
-- 用户想给 Cyrene 加新能力，且明确走插件形式（而不是改本体源码）
+- 用户想给 Mochi 加新能力，且明确走插件形式（而不是改本体源码）
 - 用户拿来的插件报错，需要排查（启用失败、工具不生效、弹窗异常）
 - 用户询问插件怎么写、能做什么
 
-不使用：改 Cyrene 本体源码的普通开发任务；只是使用已装插件。
+不使用：改 Mochi 本体源码的普通开发任务；只是使用已装插件。
 
 ## 前置知识：先读再写
 
@@ -41,7 +41,7 @@ modes:
 | 纯工具插件 | 只注册 `registerTool`，AI 对话中自动调用（最常见） |
 | 带界面插件 | 额外实现 `open()` 弹独立窗口 |
 | 事件驱动插件 | `ctx.events.on/emit`：监听宿主生命周期（如关机前收尾）、与其他插件互通 |
-| 动态上下文插件 | `ctx.registerPromptProvider`：让昔涟主动感知实时状态（天气/日程/番茄钟），无需用户开口问 |
+| 动态上下文插件 | `ctx.registerPromptProvider`：让麻糬主动感知实时状态（天气/日程/番茄钟），无需用户开口问 |
 | 调用 LLM 的插件 | manifest 声明 `"deps": ["llm"]` |
 | 渠道插件 | `ctx.registerChannelAdapter`（进阶，先确认用户真的需要） |
 | 数据服务插件 | `deps` 声明后经 `ctx.deps` 使用：`secrets`（密钥保管）、`conversations`（只读对话分页）、`workspace`（工作区只读绑定）、`scheduler`（自有定时任务） |
@@ -87,7 +87,7 @@ p.register({
 });
 ```
 
-TypeScript 插件优先用官方 SDK 的测试工具（不需要启动 Cyrene）：
+TypeScript 插件优先用官方 SDK 的测试工具（不需要启动 Mochi）：
 
 ```bash
 npm install @playa0v0/cyrene-plugin-sdk
@@ -108,7 +108,7 @@ await ctx.dispose();
 
 - 把插件目录压成 zip：`Compress-Archive -Path <plugin-id>/* -DestinationPath <plugin-id>-<version>.zip`
 - zip 限制：≤50 MiB、≤2000 条目、解压总量 ≤200 MiB；不能有符号链接和 `..` 路径
-- 开发期也可以直接把文件复制到 `%APPDATA%\Cyrene\plugins\<plugin-id>\`（与 zip 导入等价）
+- 开发期也可以直接把文件复制到 `%APPDATA%\Mochi\plugins\<plugin-id>\`（与 zip 导入等价）
 - 安装后**默认停用**，需用户在聊天窗口的“插件”面板中手动启用
 
 ### 6. 安装后实测
@@ -119,11 +119,11 @@ await ctx.dispose();
 2. 有弹窗的：点“打开”按钮窗口正常显示、关闭再开正常
 3. 有工具的：对话里问一个应触发工具的问题，确认 AI 调用并转述结果
 
-## 分发与收录
+## 分发
 
-- 插件装好后只在用户本机可用。**用户想让插件被更多人看到/使用时，主动提醒**：可提交 PR 到官方收录仓库 [Cyrene-Plugins](https://github.com/Playa-0v0/Cyrene-Plugins)，审核通过后其他用户可直接下载 ZIP 导入
-- 收录要求（完整规范见仓库 CONTRIBUTING.md）：`plugins/<插件id>/` 下放可直接安装的产物（manifest + 编译后入口 + README）+ `registry.json` 登记 + README「已收录插件」表格加一行；**不要上传 zip**，ZIP 由维护者从审核过的源码统一打包
-- 反过来，用户想安装别人开发的插件：从仓库 README「已收录插件」表格下载 ZIP，走上方导入流程即可
+- 插件装好后只在用户本机可用；本 fork 不接远端收录仓库，也没有「官方市场」。
+- 用户想把插件分享给别人：把插件目录压成 zip 直接发给对方，对方在「插件 → 添加」里导入即可。
+- 反过来，用户想装别人给的插件：拿到 zip 后走同一导入流程。收不收、怎么收由用户自己决定。
 
 ## 排查既有插件问题
 

@@ -57,7 +57,7 @@ describe("agent round presentation", () => {
     expect(resolveAgentRoundTitle(round, [
       tool("a", "list_dir", "success"),
       tool("b", "read_file", "running"),
-    ])).toBe("昔涟正在读取文件");
+    ])).toBe("麻糬正在读取文件");
   });
 
   it("describes a running shell call with its exact command", () => {
@@ -150,7 +150,7 @@ describe("agent round presentation", () => {
       tool("read-1", "read_file"),
       tool("read-2", "read_file"),
       tool("read-failed", "read_file", "error"),
-    ])).toBe("昔涟已完成 · 浏览 5 个目录 · 读取 2 个文件 · 1 项失败");
+    ])).toBe("麻糬已完成 · 浏览 5 个目录 · 读取 2 个文件 · 1 项失败");
   });
 
   it("falls back to an operation count for tools without a semantic summary", () => {
@@ -158,13 +158,13 @@ describe("agent round presentation", () => {
     expect(resolveAgentRoundTitle(round, [
       tool("a", "custom_a"),
       tool("b", "custom_b"),
-    ])).toBe("昔涟已完成 · 完成 2 项操作");
+    ])).toBe("麻糬已完成 · 完成 2 项操作");
   });
 
   it("keeps an interrupted round honest instead of claiming completion", () => {
     const round = startAgentRound([], "round-0", 100)[0];
     expect(resolveAgentRoundTitle(round, [tool("a", "read_file", "error")], true))
-      .toBe("昔涟已中断 · 1 项失败");
+      .toBe("麻糬已中断 · 1 项失败");
   });
 
   it("prefers the registry display name over the i18n mapping and raw id", () => {

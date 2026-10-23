@@ -1,5 +1,7 @@
 // 用量统计视图模型：把 token-usage 报告折叠成热力图 / 摘要 / 趋势 / 模型占比。
 // 全部为纯函数，日期一律走本地时区的 ISO "YYYY-MM-DD"，方便单测。
+import { CATEGORICAL_COLORS } from "../../../../shared/palette-from-cat";
+import { DIM } from "../../../../shared/pet-tokens";
 
 export interface UsageDay {
   date: string; // "MM-DD"
@@ -279,7 +281,8 @@ export interface ModelSlice {
   color: string;
 }
 
-const MODEL_COLORS = ["#ec4899", "#8b7cf6", "#4db6ac", "#f4a261", "#5b8def", "#f88fbc"];
+/** 分模型配色：走猫板定性色板（chart.js 画在 canvas 上，只能给具体值）。 */
+const MODEL_COLORS = CATEGORICAL_COLORS;
 
 /** 取前 6 个模型，其余合并为"其他"；share 基于 input+output。 */
 export function buildModelSlices(models: UsageModel[], otherLabel: string): ModelSlice[] {
@@ -296,7 +299,7 @@ export function buildModelSlices(models: UsageModel[], otherLabel: string): Mode
     color: MODEL_COLORS[index % MODEL_COLORS.length],
   }));
   if (restTokens > 0) {
-    slices.push({ model: otherLabel, tokens: restTokens, requests: 0, share: restTokens / total, color: "#94a3b8" });
+    slices.push({ model: otherLabel, tokens: restTokens, requests: 0, share: restTokens / total, color: DIM });
   }
   return slices;
 }

@@ -120,7 +120,7 @@ describe("agent settings migration", () => {
       },
     });
     const host = await renderSettings();
-    const nav = buttonByText(host, "昔涟设置");
+    const nav = buttonByText(host, "Mochi 设置");
     expect(nav).toBeDefined();
     await act(async () => { nav!.click(); });
     expect(host.textContent).toContain("状态栏实时更新");
@@ -128,7 +128,7 @@ describe("agent settings migration", () => {
     const llmOption = Array.from(host.querySelectorAll("label")).find((item) => item.textContent?.trim() === "LLM 分析");
     expect(llmOption).toBeDefined();
     await act(async () => { (llmOption as HTMLElement).click(); });
-    await act(async () => { buttonByText(host, "保存昔涟设置")!.click(); });
+    await act(async () => { buttonByText(host, "保存 Mochi 设置")!.click(); });
     expect(config.runtimeSync).toBe("llm");
   });
 
@@ -159,7 +159,7 @@ describe("agent settings migration", () => {
   it("shows sticker validation feedback inside the add dialog", async () => {
     Object.assign(window, { settings: { getGeneral: async () => ({}), getConfig: async () => ({}) } });
     const host = await renderSettings();
-    await act(async () => { buttonByText(host, "昔涟设置")!.click(); });
+    await act(async () => { buttonByText(host, "Mochi 设置")!.click(); });
     await act(async () => { buttonByText(host, "添加表情包")!.click(); });
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog).not.toBeNull();

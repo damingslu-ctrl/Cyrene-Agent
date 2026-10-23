@@ -77,6 +77,20 @@ describe("CacheDownloader — download", () => {
     await expect(fs.access(path.join(cacheDir, `${ENC}.mp3.part`))).rejects.toThrow();
   });
 
+  it("上游播放地址在下载前拒绝（不发请求、不落盘、不写索引）", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const dl = new CacheDownloader(cacheDir);
+    await dl.initialize();
+
+    const result = await dl.download(makeTrack(), "https://github.com./a.mp3");
+    expect(result.ok).toBe(false);
+    expect(result.errorCode).toBe("E_CACHE_DOWNLOAD_FAILED");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(dl.isCached(ENC)).toBe(false);
+    await expect(fs.access(path.join(cacheDir, `${ENC}.mp3.part`))).rejects.toThrow();
+  });
+
   it("已缓存的歌重复 download → 跳过且不再打网络", async () => {
     const content = Buffer.from("fake-mp3-audio-data");
     const fetchMock = mockFetchOk(content);

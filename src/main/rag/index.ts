@@ -1,3 +1,4 @@
+import { CONSOLE_PREFIX } from "../../shared/brand";
 import * as path from "path";
 import * as fs from "fs";
 import { app } from "electron";
@@ -157,7 +158,7 @@ export async function initWorldbook(): Promise<void> {
   await worldbook.loadFromDirectory();
 
   // 把实体图谱中的已有实体名灌入 jieba 自定义词典
-  // 防止 "昔涟"、"小鹿" 等 AI 伴侣核心名词被错误切分
+  // 防止 "麻糬"、"小鹿" 等 AI 伴侣核心名词被错误切分
   await feedEntityNamesToJieba();
   logger.info(LogTag.RAG, "worldbook initialized");
 }
@@ -187,8 +188,8 @@ export async function switchEmbeddingModel(modelKey: string): Promise<{ ok: bool
   if (!isMemoryEnabled()) return { ok: false, clearedEntries: 0, error: "记忆模式已关闭" };
   try {
     // Switch the embedding pipeline first
-    switchModel(modelKey);
-    const newProvider = getEmbeddingProvider("auto", undefined, undefined, modelKey);
+    const switched = switchModel(modelKey);
+    const newProvider = switched ? getEmbeddingProvider("auto", undefined, undefined, modelKey) : null;
 
     // 模型不存在时无法切换 — 输出详细诊断帮助排查"放到 models/ 却检测不到"
     if (!newProvider) {
@@ -198,7 +199,7 @@ export async function switchEmbeddingModel(modelKey: string): Promise<{ ok: bool
         const detail = getModelInstallStatusDetail("embedding", modelKey);
         if (detail.existingProjectDir) {
           console.error(
-            `[Cyrene] embedding model "${modelKey}" project directory exists but is incomplete.\n` +
+            `${CONSOLE_PREFIX} embedding model "${modelKey}" project directory exists but is incomplete.\n` +
             `  existingProjectDir: ${detail.existingProjectDir}\n` +
             `  requiredFiles:      ${JSON.stringify(detail.requiredFiles)}\n` +
             `  missingFiles:       ${JSON.stringify(detail.missingFiles)}\n` +
@@ -206,7 +207,7 @@ export async function switchEmbeddingModel(modelKey: string): Promise<{ ok: bool
           );
         } else {
           console.error(
-            `[Cyrene] embedding model "${modelKey}" not detected anywhere.\n` +
+            `${CONSOLE_PREFIX} embedding model "${modelKey}" not detected anywhere.\n` +
             `  modelDirCandidates: ${JSON.stringify(detail.modelDirCandidates)}\n` +
             `  subPathCandidates:  ${JSON.stringify(detail.subPathCandidates)}\n` +
             `  requiredFiles:      ${JSON.stringify(detail.requiredFiles)}\n` +
@@ -214,7 +215,7 @@ export async function switchEmbeddingModel(modelKey: string): Promise<{ ok: bool
           );
         }
       } catch (diagErr) {
-        console.error("[Cyrene] model diagnostic log failed:", diagErr);
+        console.error(CONSOLE_PREFIX + " model diagnostic log failed:", diagErr);
       }
       return { ok: false, clearedEntries: 0, error: "Local embedding model not found. Cannot switch." };
     }

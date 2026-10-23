@@ -1,7 +1,7 @@
 ---
 name: cyrene-exam-paper
 
-description: Cyrene 在 Learn 模式下的试卷能力：命题蓝图驱动出卷（知识点→能力→题型）、右侧交互答题、提交后批改评分与考试复盘。学科出题细则在 references/ 按需加载。
+description: Mochi 在 Learn 模式下的试卷能力：命题蓝图驱动出卷（知识点→能力→题型）、右侧交互答题、提交后批改评分与考试复盘。学科出题细则在 references/ 按需加载。
 version: 1.3.0
 autoInject: true
 effectKind: external_side_effect
@@ -9,7 +9,7 @@ modes:
   - learn
 ---
 
-# Cyrene Exam Paper（试卷能力）
+# Mochi Exam Paper（试卷能力）
 
 出正式试卷的完整契约：先确认命题蓝图，再按题型分批写入计划草稿并发布。应用会在右侧内置浏览器打开固定答题页；用户答题时自动保存，只有交卷后才会在所属对话启动新一轮批改。文件操作安全原则已由 `cyrene-obsidian-workspace` 定义，无需重复。
 

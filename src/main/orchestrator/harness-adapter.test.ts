@@ -409,12 +409,12 @@ describe("Task delegation lifecycle projection", () => {
     const sent: BaseEvent[] = [];
     sendTaskLifecycleAsAgui({
       invocationId: "child-run-1", taskId: "task-1", description: "检查取消链路",
-      nickname: "风堇", assetFileName: "风堇.png", status: "running",
+      nickname: "年糕", assetFileName: "年糕.png", status: "running",
     }, "thread-1", "run-1", (event) => sent.push(event));
 
     expect(sent).toEqual([expect.objectContaining({
       type: "CUSTOM", name: "cyrene.task", threadId: "thread-1", runId: "run-1",
-      value: { invocationId: "child-run-1", taskId: "task-1", description: "检查取消链路", nickname: "风堇", assetFileName: "风堇.png", status: "running" },
+      value: { invocationId: "child-run-1", taskId: "task-1", description: "检查取消链路", nickname: "年糕", assetFileName: "年糕.png", status: "running" },
     })]);
     expect(JSON.stringify(sent)).not.toContain("prompt");
   });

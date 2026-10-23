@@ -44,13 +44,13 @@ describe("Harness user-wait builtins", () => {
   it("validates and delegates a foreground task without exposing its prompt", async () => {
     const executor = vi.fn(async () => ({ taskId: "task-1", status: "completed" as const, text: "已检查。" }));
     const result = await executeTask({ id: "task-call", name: "task", arguments: JSON.stringify({
-      description: "检查取消链路", prompt: "检查取消传播并给出证据", subagent_type: "general", companion_id: "风堇",
+      description: "检查取消链路", prompt: "检查取消传播并给出证据", subagent_type: "general", companion_id: "年糕",
     }) }, executor);
 
     expect(taskToolSpec.name).toBe("task");
     expect(JSON.stringify(taskToolSpec.parameters)).toContain("companion_id");
-    expect(taskToolSpec.description).toContain("黄金裔");
-    expect(executor).toHaveBeenCalledWith({ description: "检查取消链路", prompt: "检查取消传播并给出证据", subagentType: "general", companionId: "风堇", taskId: undefined, accessMode: "write", maxParallelToolCalls: 4 });
+    expect(taskToolSpec.description).toContain("猫伴");
+    expect(executor).toHaveBeenCalledWith({ description: "检查取消链路", prompt: "检查取消传播并给出证据", subagentType: "general", companionId: "年糕", taskId: undefined, accessMode: "write", maxParallelToolCalls: 4 });
     expect(result.output).toContain("task-1");
     expect(result.message).not.toContain("检查取消传播");
   });

@@ -15,6 +15,12 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { BRAND } from "../../../../shared/brand";
+import { isUpstreamUrl } from "../../../../shared/upstream-hosts";
+import {
+  UpstreamRedirectBlockedError,
+  fetchWithoutUpstreamRedirects,
+} from "../../../egress/safe-fetch";
 import type { ToolDefinition } from "../registry/tool-registry";
 import type { ToolContext } from "../registry/tool-context";
 
@@ -98,6 +104,10 @@ async function executeDownloadFile(args: Record<string, unknown>, ctx?: ToolCont
   if (!/^https?:\/\//i.test(url)) {
     return "[错误] url 必须以 http:// 或 https:// 开头";
   }
+  // 上游域名在联网之前拒绝：下载通道同样不许把已切断的上游内容带回来。
+  if (isUpstreamUrl(url)) {
+    return "[错误] 该地址属于已切断的上游站点（GitHub / Gitee / 官方站），客户端不再访问。";
+  }
 
   // ── 文件名：显式传入优先，否则从 URL 推断 ──
   let filename = String(args.filename || "").trim();
@@ -127,13 +137,12 @@ async function executeDownloadFile(args: Record<string, unknown>, ctx?: ToolCont
   const idleTimer = setTimeout(() => ac.abort(), DOWNLOAD_IDLE_TIMEOUT_MS);
   const combinedSignal = ctx?.signal ? AbortSignal.any([ctx.signal, ac.signal]) : ac.signal;
   try {
-    const resp = await fetch(url, {
+    const resp = await fetchWithoutUpstreamRedirects(url, {
       signal: combinedSignal,
       headers: {
-        "User-Agent": "Mozilla/5.0 (Cyrene Agent) Chrome/120 Safari/537.36",
+        "User-Agent": `Mozilla/5.0 (${BRAND.productName}) Chrome/120 Safari/537.36`,
         Accept: "*/*",
       },
-      redirect: "follow",
     });
     if (!resp.ok) {
       return "[错误] HTTP " + resp.status + " " + resp.statusText;
@@ -183,6 +192,9 @@ async function executeDownloadFile(args: Record<string, unknown>, ctx?: ToolCont
     console.log(LOG_PREFIX, "已下载:", finalPath, `(${total} bytes)`);
     return `[download_file] 已保存：${finalPath}（${sizeText}）`;
   } catch (err) {
+    if (err instanceof UpstreamRedirectBlockedError) {
+      return "[错误] 该地址跳转到了已切断的上游站点（GitHub / Gitee / 官方站），客户端不再访问。";
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return "[错误] 下载失败: " + msg;
   } finally {

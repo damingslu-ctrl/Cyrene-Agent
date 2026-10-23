@@ -3,8 +3,10 @@ name: package-windows
 # Windows 安装包构建工作流（治理方案阶段 B）：
 # - 复用与本地 package:win:dir 相同的构建链（build / build:screenshot-helper /
 #   prepare:mingit / prepare:mpv），产出 NSIS 安装器并留存为工作流产物
-# - --publish never：只构建不上传；应用更新源（GitHub Releases，由
-#   update-packaging-config.test.ts 固定）不在本工作流变更
+# - --publish never：只构建不上传；升级源已随 P4 拆除（electron-builder.yml 无
+#   publish 块、electron-updater 已从依赖移除），产物里不会再产出 latest.yml。
+#   *.blockmap 仍会随 NSIS 产出（electron-builder 26 对 nsis 无条件生成差分包指纹），
+#   但没有 latest.yml 索引就无从生效；两者都不应当作上传必达项
 # - 发布（草稿 Release）待 GitHub 托管恢复后另建独立工作流：仅版本标签触发、
 #   contents:write 最小权限、测试与安装验证通过后建草稿、人工核对再公开。
 #   详见 docs/refactor/2026-09-14-engineering-governance-plan.md 阶段 B
@@ -73,7 +75,9 @@ jobs:
       - name: Build NSIS installer
         run: pnpm exec electron-builder --win nsis --publish never
 
-      # 验证安装器、latest.yml 更新元数据与 win-unpacked 内随包二进制齐全
+      # 验证安装器与 win-unpacked 内随包二进制齐全；latest.yml 必须不存在
+      # （.blockmap 允许：没有 latest.yml 索引它就是死文件）
+      # 这条反向锁由 verify:installer 执行
       - name: Verify installer artifacts
         run: pnpm run verify:installer
 
@@ -81,11 +85,9 @@ jobs:
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: cyrene-windows-installer
+          name: mochi-windows-installer
           path: |
-            release/Cyrene-Setup-*.exe
-            release/Cyrene-Setup-*.exe.blockmap
-            release/latest.yml
+            release/Mochi-Setup-*.exe
           if-no-files-found: error
           # 安装器数百 MB，缩短留存时间避免占满产物配额
           retention-days: 14

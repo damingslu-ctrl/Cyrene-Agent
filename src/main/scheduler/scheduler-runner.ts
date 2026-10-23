@@ -24,7 +24,7 @@ type LegacyRunOptions = Omit<CyreneRunOptions, "toolSystemContent" | "soulSystem
 
 interface RunnerDeps {
   buildOptions: (task: ScheduledTask) => Promise<LegacyRunOptions>;
-  /** 有绑定工作区的用户任务每次触发创建独立 Cyrene 会话，不复用当前活动聊天。 */
+  /** 有绑定工作区的用户任务每次触发创建独立麻糬会话，不复用当前活动聊天。 */
   createRunSession?: (task: ScheduledTask) => (string) | Promise<string>;
   getChatWebContents: () => WebContents | null;
   recordHistory: (entry: ScheduledTaskHistoryEntry) => void;

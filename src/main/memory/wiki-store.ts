@@ -37,7 +37,7 @@ const INDEX_FILE = "wiki.sqlite";
 const DIRTY_FILE = "index-state.json";
 const TOMBSTONES_FILE = "source-tombstones.json";
 const MAX_SEARCH_ROWS = 100;
-const SCHEMA_DOCUMENT = `# Cyrene Wiki 页面规则
+const SCHEMA_DOCUMENT = `# Mochi Wiki 页面规则
 
 - Markdown 页面及其中的来源引用是知识内容；wiki.sqlite 只是可重建的检索索引。
 - 页面 YAML 头部的 claims 是事实记录，正文由程序生成。请在应用内更正或删除事实。
@@ -283,7 +283,7 @@ export class WikiStore {
 
   private async writeIndexDocument(): Promise<void> {
     const rows = this.database().prepare("SELECT id,title,excerpt FROM pages ORDER BY title COLLATE NOCASE").all() as unknown as Array<Pick<PageRow,"id"|"title"|"excerpt">>;
-    const content = ["# Cyrene Wiki", "", ...rows.map((row) => `- [${row.title.replace(/[\[\]]/g, "")}](${pageRelativePath(row.id).replaceAll("\\", "/")})${row.excerpt ? ` — ${row.excerpt.replace(/[\r\n]/g, " ")}` : ""}`), ""].join("\n");
+    const content = ["# Mochi Wiki", "", ...rows.map((row) => `- [${row.title.replace(/[\[\]]/g, "")}](${pageRelativePath(row.id).replaceAll("\\", "/")})${row.excerpt ? ` — ${row.excerpt.replace(/[\r\n]/g, " ")}` : ""}`), ""].join("\n");
     await writeWikiFileAtomic(this.root, "index.md", content);
   }
 

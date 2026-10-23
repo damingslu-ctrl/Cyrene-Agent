@@ -23,18 +23,17 @@ const MODE_LABEL_KEYS: Record<TodoPanelProps["mode"], string> = {
 function EmptyCircleIcon() {
   return (
     <svg className="cy-todo__bullet" viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="8" fill="none" stroke="#FF5B8A" strokeWidth="2" />
+      <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="2" />
     </svg>
   );
 }
 
 function CheckedCircleIcon() {
   return (
-    <svg className="cy-todo__bullet" viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" fill="#FF5B8A" />
+    <svg className="cy-todo__bullet cy-todo__bullet--checked" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" fill="currentColor" />
       <path
         d="M7 12l3 3 5-6"
-        stroke="#fff"
         strokeWidth="2.2"
         fill="none"
         strokeLinecap="round"

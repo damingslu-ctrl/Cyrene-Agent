@@ -1,5 +1,16 @@
 // @xenova/transformers is ESM-only, use dynamic import in CJS context
-import { checkEmbeddingModelInstalled, getProjectModelBaseDir } from "./model-status";
+import {
+  checkEmbeddingModelInstalled,
+  getProjectModelBaseDir,
+  listInstalledEmbeddingModels,
+} from "./model-status";
+import {
+  DEFAULT_LOCAL_EMBEDDING_MODEL,
+  LOCAL_EMBEDDING_MODELS,
+  LOCAL_EMBEDDING_MODEL_KEYS,
+  isLocalEmbeddingModelKey,
+  type LocalEmbeddingModelKey,
+} from "../../shared/local-models";
 import * as path from "path";
 import * as os from "os";
 
@@ -63,28 +74,59 @@ export interface EmbeddingProvider {
 
 // ── 模型注册表 ──
 interface ModelConfig {
-  key: string;
+  key: LocalEmbeddingModelKey;
   hfName: string;
   dims: number;
 }
 
-const LOCAL_MODELS: Record<string, ModelConfig> = {
-  bgem3: { key: "bgem3", hfName: "Xenova/bge-m3", dims: 1024 },
-};
+const LOCAL_MODELS: Record<LocalEmbeddingModelKey, ModelConfig> = Object.fromEntries(
+  LOCAL_EMBEDDING_MODEL_KEYS.map((key) => {
+    const spec = LOCAL_EMBEDDING_MODELS[key];
+    return [key, { key, hfName: spec.hfName, dims: spec.dims }];
+  }),
+) as Record<LocalEmbeddingModelKey, ModelConfig>;
 
-const DEFAULT_MODEL_KEY = "bgem3";
+const DEFAULT_MODEL_KEY: LocalEmbeddingModelKey = DEFAULT_LOCAL_EMBEDDING_MODEL;
+
+/**
+ * 选出真正能用的本机 embedding 模型。
+ *
+ * 优先级：请求的 key → 默认档 → 注册表里任一已装档。
+ * 为什么要回落：设置里的 embeddingModel 可能是旧版本钉死的值或用户手改的脏值，
+ * 直接返回 null 会让整个向量记忆静默失效——装了模型却「没生效」就是这么来的。
+ * 回落会打 warn（含维度），因为换档意味着索引要重建。
+ */
+export function resolveLocalModelKey(preferred?: string): LocalEmbeddingModelKey | null {
+  const requested = isLocalEmbeddingModelKey(preferred) ? preferred : undefined;
+  let resolved: LocalEmbeddingModelKey | null = null;
+  if (requested && checkEmbeddingModelInstalled(requested)) {
+    resolved = requested;
+  } else {
+    const installed = listInstalledEmbeddingModels();
+    if (installed.length > 0) {
+      resolved = installed.includes(DEFAULT_MODEL_KEY) ? DEFAULT_MODEL_KEY : installed[0];
+    }
+  }
+  if (resolved && preferred !== undefined && preferred !== resolved) {
+    console.warn(
+      `[Embedding] requested model "${preferred}" is unavailable — using "${resolved}" ` +
+        `(${LOCAL_MODELS[resolved].dims}-dim index; switching models rebuilds the vector index)`,
+    );
+  }
+  return resolved;
+}
 
 // ── 本地 Pipeline ──
-// bge-m3 是唯一的 embedding 模型，同时服务于 RAG 记忆/文档检索和场景识别
+// 本机 embedding 模型同时服务于 RAG 记忆/文档检索和场景识别
 const localPipelines: Map<string, any> = new Map();
 const localPipelineLoads: Map<string, Promise<any>> = new Map();
-let currentModelKey: string = DEFAULT_MODEL_KEY;
+let currentModelKey: LocalEmbeddingModelKey = DEFAULT_MODEL_KEY;
 let localPipelineInitCount = 0;
 
 const importEsm = new Function("moduleName", "return import(moduleName)") as (moduleName: string) => Promise<any>;
 
-async function getLocalPipeline(modelKey?: string): Promise<any> {
-  const key = modelKey || currentModelKey;
+async function getLocalPipeline(modelKey: LocalEmbeddingModelKey): Promise<any> {
+  const key = modelKey;
   const config = LOCAL_MODELS[key];
   if (!config) throw new Error("Unknown embedding model: " + key);
 
@@ -120,14 +162,11 @@ async function getLocalPipeline(modelKey?: string): Promise<any> {
 }
 
 export function createLocalEmbeddingProvider(modelKey?: string): EmbeddingProvider | null {
-  const key = modelKey || DEFAULT_MODEL_KEY;
+  // 一个都没装才返回 null；装了别的档就换着用（维度变了由调用方重建索引）
+  const key = resolveLocalModelKey(modelKey ?? currentModelKey);
+  if (!key) return null;
+  currentModelKey = key;
   const config = LOCAL_MODELS[key];
-  if (!config) throw new Error("Unknown embedding model: " + key);
-
-  // 模型缺失返回 null，调用方决定如何处理
-  if (!checkEmbeddingModelInstalled(key)) {
-    return null;
-  }
 
   return {
     name: "local-" + config.hfName.split("/").pop(),
@@ -387,24 +426,40 @@ export function getEmbeddingWorkerConfig(): EmbeddingWorkerConfig {
   return { provider: "local", modelKey: currentModelKey };
 }
 
-export function getCurrentModelKey(): string {
+export function getCurrentModelKey(): LocalEmbeddingModelKey {
   return currentModelKey;
 }
 
 export function getCurrentModelDims(): number {
-  const config = LOCAL_MODELS[currentModelKey];
-  return config ? config.dims : 1024;
+  return LOCAL_MODELS[currentModelKey].dims;
 }
 
-export function switchEmbeddingModel(modelKey: string): void {
-  if (modelKey !== "bgem3") {
-    console.warn(`[Embedding] ignoring model switch to "${modelKey}" — bge-m3 is the only supported model`);
-    return;
+/**
+ * 显式切换到某个本机模型。
+ *
+ * 与 resolveLocalModelKey 的自动回落不同：这是用户点按钮的动作，指定档没装就
+ * 必须失败（换档要重建向量索引，悄悄换成另一维度会让人以为「切了却没变化」）。
+ */
+export function switchEmbeddingModel(modelKey: string): boolean {
+  if (!isLocalEmbeddingModelKey(modelKey)) {
+    console.warn(
+      `[Embedding] ignoring model switch to "${modelKey}" — not a registered local model ` +
+        `(known: ${LOCAL_EMBEDDING_MODEL_KEYS.join(", ")})`,
+    );
+    return false;
   }
+  if (!checkEmbeddingModelInstalled(modelKey)) {
+    console.warn(
+      `[Embedding] ignoring model switch to "${modelKey}" — model files are not installed`,
+    );
+    return false;
+  }
+  if (modelKey === currentModelKey) return true;
   cachedProvider = null;
   localPipelines.delete(currentModelKey);
   localPipelineLoads.delete(currentModelKey);
   currentModelKey = modelKey;
+  return true;
 }
 
 export function resetEmbeddingProvider(): void {

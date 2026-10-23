@@ -1084,7 +1084,7 @@ describe("chats IPC mode filtering", () => {
       description: "检查落库",
       prompt: "迁移前的提示",
       subagentType: "general",
-      companionId: "风堇",
+      companionId: "年糕",
       mode: "code",
     });
 

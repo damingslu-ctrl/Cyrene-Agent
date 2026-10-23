@@ -154,7 +154,7 @@ describe("反应队列持久化与执行", () => {
   it("入队即落盘，重启后从磁盘恢复未完成任务", () => {
     const filePath = tempQueueFile();
     const first = makeQueue({ filePath, now: 5_000 });
-    const task = first.queue.enqueue({ kind: "post_eval", actor: "万敌", postId: "p1", dueAt: 999_999 })!;
+    const task = first.queue.enqueue({ kind: "post_eval", actor: "奶盖", postId: "p1", dueAt: 999_999 })!;
 
     // 文件里已有任务（入队即落盘）
     const onDisk = JSON.parse(fs.readFileSync(filePath, "utf8")) as { tasks: unknown[] };
@@ -170,8 +170,8 @@ describe("反应队列持久化与执行", () => {
     const now = 1_000_000;
     const h = makeQueue({ filePath, now });
     // 两条都已逾期：早逾期的（200ms 前）必须先于晚逾期的（100ms 前）执行
-    const recent = h.queue.enqueue({ kind: "post_eval", actor: "万敌", postId: "p1", dueAt: now - 100 })!;
-    const overdue = h.queue.enqueue({ kind: "post_eval", actor: "风堇", postId: "p2", dueAt: now - 200 })!;
+    const recent = h.queue.enqueue({ kind: "post_eval", actor: "奶盖", postId: "p1", dueAt: now - 100 })!;
+    const overdue = h.queue.enqueue({ kind: "post_eval", actor: "年糕", postId: "p2", dueAt: now - 200 })!;
 
     await h.queue.drainOnce();
 
@@ -188,7 +188,7 @@ describe("反应队列持久化与执行", () => {
 
   it("未到期任务不执行", async () => {
     const h = makeQueue({ now: 0 });
-    h.queue.enqueue({ kind: "post_eval", actor: "万敌", postId: "p1", dueAt: 60_000 });
+    h.queue.enqueue({ kind: "post_eval", actor: "奶盖", postId: "p1", dueAt: 60_000 });
 
     await h.queue.drainOnce();
 
@@ -200,30 +200,30 @@ describe("反应队列持久化与执行", () => {
     const h = makeQueue();
 
     // 同 actor 同动态的 post_eval 只入队一次
-    expect(h.queue.enqueue({ kind: "post_eval", actor: "万敌", postId: "p1" })).not.toBeNull();
-    expect(h.queue.enqueue({ kind: "post_eval", actor: "万敌", postId: "p1" })).toBeNull();
+    expect(h.queue.enqueue({ kind: "post_eval", actor: "奶盖", postId: "p1" })).not.toBeNull();
+    expect(h.queue.enqueue({ kind: "post_eval", actor: "奶盖", postId: "p1" })).toBeNull();
     // 动态不同不去重
-    expect(h.queue.enqueue({ kind: "post_eval", actor: "万敌", postId: "p2" })).not.toBeNull();
+    expect(h.queue.enqueue({ kind: "post_eval", actor: "奶盖", postId: "p2" })).not.toBeNull();
     // auto_like 与 post_eval 语义不同，互不去重
-    expect(h.queue.enqueue({ kind: "auto_like", actor: "万敌", postId: "p1" })).not.toBeNull();
+    expect(h.queue.enqueue({ kind: "auto_like", actor: "奶盖", postId: "p1" })).not.toBeNull();
     // reply_eval 以 triggerCommentId 区分：不同评论的回复任务都要保留
-    expect(h.queue.enqueue({ kind: "reply_eval", actor: "万敌", postId: "p1", triggerCommentId: "c1" })).not.toBeNull();
-    expect(h.queue.enqueue({ kind: "reply_eval", actor: "万敌", postId: "p1", triggerCommentId: "c1" })).toBeNull();
-    expect(h.queue.enqueue({ kind: "reply_eval", actor: "万敌", postId: "p1", triggerCommentId: "c2" })).not.toBeNull();
+    expect(h.queue.enqueue({ kind: "reply_eval", actor: "奶盖", postId: "p1", triggerCommentId: "c1" })).not.toBeNull();
+    expect(h.queue.enqueue({ kind: "reply_eval", actor: "奶盖", postId: "p1", triggerCommentId: "c1" })).toBeNull();
+    expect(h.queue.enqueue({ kind: "reply_eval", actor: "奶盖", postId: "p1", triggerCommentId: "c2" })).not.toBeNull();
 
     expect(h.queue.list()).toHaveLength(5);
   });
 
   it("auto_like 不调模型，到期直接落库点赞", async () => {
     const h = makeQueue({ now: 0 });
-    h.queue.enqueue({ kind: "auto_like", actor: "遐蝶", postId: "p1", dueAt: 0 });
+    h.queue.enqueue({ kind: "auto_like", actor: "布丁", postId: "p1", dueAt: 0 });
 
     await h.queue.drainOnce();
 
     expect(h.decide).not.toHaveBeenCalled();
     expect(h.apply).toHaveBeenCalledTimes(1);
     const [task, decision] = h.apply.mock.calls[0];
-    expect((task as { actor: string }).actor).toBe("遐蝶");
+    expect((task as { actor: string }).actor).toBe("布丁");
     expect(decision).toEqual({ action: "like" });
     expect(h.queue.list()).toEqual([]);
   });
@@ -237,7 +237,7 @@ describe("反应队列持久化与执行", () => {
     );
     const apply = vi.fn(async () => undefined);
     const h = makeQueue({ executor: { executor: { decide, apply }, decide, apply }, now: 0 });
-    h.queue.enqueue({ kind: "post_eval", actor: "万敌", postId: "p1", dueAt: 0 });
+    h.queue.enqueue({ kind: "post_eval", actor: "奶盖", postId: "p1", dueAt: 0 });
 
     const first = h.queue.drainOnce();
     // 首轮排空卡在模型调用上：并发扫描必须让位
@@ -250,7 +250,7 @@ describe("反应队列持久化与执行", () => {
 
   it("执行器返回 stale（世界已变）时任务被删除", async () => {
     const h = makeQueue({ executor: makeExecutor({ decide: async () => ({ type: "stale", reason: "post_not_found" }) }) });
-    h.queue.enqueue({ kind: "post_eval", actor: "万敌", postId: "p1", dueAt: 0 });
+    h.queue.enqueue({ kind: "post_eval", actor: "奶盖", postId: "p1", dueAt: 0 });
 
     await h.queue.drainOnce();
 
@@ -264,13 +264,13 @@ describe("反应队列持久化与执行", () => {
 
     const h = makeQueue({ filePath });
     expect(h.queue.list()).toEqual([]);
-    expect(h.queue.enqueue({ kind: "post_eval", actor: "万敌", postId: "p1" })).not.toBeNull();
+    expect(h.queue.enqueue({ kind: "post_eval", actor: "奶盖", postId: "p1" })).not.toBeNull();
   });
 
   it("start 启动即补扫一轮：重启后已逾期的任务立即续上", async () => {
     const filePath = tempQueueFile();
     const first = makeQueue({ filePath, now: 1_000 });
-    first.queue.enqueue({ kind: "post_eval", actor: "万敌", postId: "p1", dueAt: 500 });
+    first.queue.enqueue({ kind: "post_eval", actor: "奶盖", postId: "p1", dueAt: 500 });
 
     // 模拟重启：新实例从磁盘恢复，start 的首轮补扫不等第一个扫描周期
     const h = makeQueue({ filePath, now: 2_000 });
@@ -294,7 +294,7 @@ describe("决策幂等与失败分类", () => {
       },
     });
     const h = makeQueue({ executor, filePath, now: 0 });
-    const task = h.queue.enqueue({ kind: "post_eval", actor: "万敌", postId: "p1", dueAt: 0 })!;
+    const task = h.queue.enqueue({ kind: "post_eval", actor: "奶盖", postId: "p1", dueAt: 0 })!;
 
     // 第一轮：决策落盘但副作用失败，任务保留
     await h.queue.drainOnce();
@@ -342,7 +342,7 @@ describe("决策幂等与失败分类", () => {
     const h = makeQueue({
       executor: makeExecutor({ decide: async () => ({ type: "invalid", reason: "invalid_json" }) }),
     });
-    h.queue.enqueue({ kind: "post_eval", actor: "那刻夏", postId: "p1", dueAt: 0 });
+    h.queue.enqueue({ kind: "post_eval", actor: "棉花", postId: "p1", dueAt: 0 });
 
     await h.queue.drainOnce();
 
@@ -354,7 +354,7 @@ describe("决策幂等与失败分类", () => {
     const h = makeQueue({
       executor: makeExecutor({ decide: async () => ({ type: "retry", reason: "http_429" }) }),
     });
-    h.queue.enqueue({ kind: "post_eval", actor: "万敌", postId: "p1", dueAt: 0 });
+    h.queue.enqueue({ kind: "post_eval", actor: "奶盖", postId: "p1", dueAt: 0 });
 
     // 第一次失败：退避 5 分钟
     await h.queue.drainOnce();
@@ -384,7 +384,7 @@ describe("决策幂等与失败分类", () => {
     const h = makeQueue({
       executor: makeExecutor({ decide: async () => { throw new Error("后台队列炸了"); } }),
     });
-    h.queue.enqueue({ kind: "post_eval", actor: "万敌", postId: "p1", dueAt: 0 });
+    h.queue.enqueue({ kind: "post_eval", actor: "奶盖", postId: "p1", dueAt: 0 });
 
     await h.queue.drainOnce();
 

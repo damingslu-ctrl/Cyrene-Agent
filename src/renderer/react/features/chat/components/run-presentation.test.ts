@@ -38,13 +38,13 @@ describe("work run presentation", () => {
   });
 
   it("keeps internal routing out of the user-facing stage copy", () => {
-    expect(describeRunStage({ kind: "understanding" })).toBe("昔涟正在理解需求…");
-    expect(describeRunStage({ kind: "planning" })).toBe("昔涟正在规划任务…");
+    expect(describeRunStage({ kind: "understanding" })).toBe("麻糬正在理解需求…");
+    expect(describeRunStage({ kind: "planning" })).toBe("麻糬正在规划任务…");
     expect(describeRunStage({ kind: "executing", detail: "查询淄博天气" }))
-      .toBe("昔涟正在执行：查询淄博天气…");
-    expect(describeRunStage({ kind: "waiting_permission" })).toBe("昔涟正在获取审批…");
-    expect(describeRunStage({ kind: "waiting_user" })).toBe("昔涟正在询问…");
-    expect(describeRunStage({ kind: "responding" })).toBe("昔涟正在组织回复…");
+      .toBe("麻糬正在执行：查询淄博天气…");
+    expect(describeRunStage({ kind: "waiting_permission" })).toBe("麻糬正在获取审批…");
+    expect(describeRunStage({ kind: "waiting_user" })).toBe("麻糬正在询问…");
+    expect(describeRunStage({ kind: "responding" })).toBe("麻糬正在组织回复…");
   });
 
   it("reduces permission requests to the action a person needs to approve", () => {

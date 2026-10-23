@@ -107,9 +107,9 @@ describe("normalizePlaylistDetail", () => {
 
 describe("normalizeUserProfile", () => {
   it("requires nickname", () => {
-    expect(normalizeUserProfile({ nickname: "Playa0", userId: 1, avatarUrl: "a" })).toEqual({
+    expect(normalizeUserProfile({ nickname: "DemoUser", userId: 1, avatarUrl: "a" })).toEqual({
       userId: "1",
-      nickname: "Playa0",
+      nickname: "DemoUser",
       avatarUrl: "a",
     });
     expect(normalizeUserProfile({ userId: 1 })).toBeNull();

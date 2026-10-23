@@ -10,6 +10,7 @@ import {
 } from "../orchestrator/tools/built-in-tools";
 import { setEmailConfig } from "../orchestrator/tools/email-tools";
 import { setTravelConfig } from "../orchestrator/tools/travel-tools";
+import { setAmapPlaceConfig } from "../orchestrator/tools/amap-place-tools";
 import { toolRegistry } from "../orchestrator/tools/registry/tool-registry";
 import { resolveVendorRuntimeSettings, setVendorRuntimeSettingsGetter } from "../orchestrator/vendors/runtime-settings";
 import { setChoiceCardSender, setChoiceDismissSender } from "../user-choice";
@@ -77,16 +78,26 @@ export function bootstrapConfigGetters(ctx: BootstrapConfigContext): void {
     }
   });
 
-  // 注入搜索配置获取器
-  setSearchConfig(
-    () => loadGeneralSettings().searchEngine,
-    () => loadGeneralSettings().searchBochaKey,
-    () => loadGeneralSettings().searchTavilyKey,
-    () => loadGeneralSettings().searchAnySearchKey,
-  );
+  // 注入搜索配置获取器（档位与 key 字段名的单一事实源在 shared/search-engines.ts）
+  setSearchConfig(() => {
+    const s = loadGeneralSettings();
+    return {
+      engine: s.searchEngine,
+      keys: {
+        searchBochaKey: s.searchBochaKey,
+        searchTavilyKey: s.searchTavilyKey,
+        searchMinimaxKey: s.searchMinimaxKey,
+        searchAnySearchKey: s.searchAnySearchKey,
+        searchBaiduKey: s.searchBaiduKey,
+        searchDeepseekKey: s.searchDeepseekKey,
+      },
+    };
+  });
 
   // 注入出行工具 amapKey 获取器（复用 GeneralSettings 中的 amapKey）
   setTravelConfig(() => loadGeneralSettings().amapKey, () => loadGeneralSettings().travelEnabled);
+  // POI/逆地理与出行工具是同一条高德链路，共用 amapKey 与 travelEnabled
+  setAmapPlaceConfig(() => loadGeneralSettings().amapKey, () => loadGeneralSettings().travelEnabled);
 
   // 注入邮件工具 SMTP 配置获取器（每次执行实时读 GeneralSettings）
   setEmailConfig(

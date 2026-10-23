@@ -2,9 +2,9 @@ import type { TaskDelegationDisplayRecord } from "../../../../../shared/chat-typ
 import type { TaskDelegationPresentation } from "../../../../../shared/task-session";
 
 const TASK_CHARACTER_ASSETS: Readonly<Record<string, string>> = {
-  风堇: "风堇.png", 刻律德菈: "刻律德菈.png", 长夜月: "长夜月.png", 遐蝶: "遐蝶.png", 缇宝: "缇宝.png",
-  阿格莱雅: "阿格莱雅.png", 白厄: "白厄.png", 丹恒: "丹恒.png", 海瑟音: "海瑟音.png",
-  那刻夏: "那刻夏.png", 赛飞儿: "赛飞儿.png", 万敌: "万敌.png",
+  年糕: "年糕.png", 豆花: "豆花.png", 汤圆: "汤圆.png", 布丁: "布丁.png", 抹茶: "抹茶.png",
+  可可: "可可.png", 芝麻: "芝麻.png", 栗子: "栗子.png", 海苔: "海苔.png",
+  棉花: "棉花.png", 鱼丸: "鱼丸.png", 奶盖: "奶盖.png",
 };
 
 export function normalizeTaskDelegationEvent(value: unknown): TaskDelegationPresentation | undefined {

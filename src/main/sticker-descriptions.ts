@@ -1,3 +1,5 @@
+import { BUILT_IN_STICKER_IDS } from "../shared/sticker-types";
+
 // 内置表情包的语义描述
 // 每个表情包对应一个 phrases 数组，用于文本匹配 + 发送给 LLM（用户发贴纸时转成自然语言）
 
@@ -61,61 +63,12 @@ export const BUILT_IN_STICKER_DESCRIPTIONS: Record<string, StickerDescription> =
   please: { phrases: ["求求你了嘛"] },
 };
 
-/** 内置表情包的文件名映射 */
-export const BUILT_IN_STICKER_FILES: Record<string, string> = {
-  playful: "playful.png",
-  "love-happy": "love-happy.png",
-  confident: "confident.png",
-  serious: "serious.png",
-  calm: "calm.png",
-  peek: "peek.gif",
-  "clingy-confused": "clingy-confused.gif",
-  "love-calm": "love-calm.png",
-  HI: "HI.jpg",
-  hello: "hello.jpg",
-  goodmoring1: "goodmoring1.jpg",
-  goodnight: "goodnight.jpg",
-  teatime: "teatime.jpg",
-  eating: "eating.jpg",
-  Allset: "Allset.jpg",
-  OK: "OK.jpg",
-  copythat: "copythat.jpg",
-  Thumbsup: "Thumbsup.jpg",
-  awesome: "awesome.jpg",
-  sogood: "sogood.jpg",
-  sonice: "sonice.jpg",
-  fighting: "fighting.jpg",
-  hellyeah: "hellyeah.jpg",
-  Thanks: "Thanks.jpg",
-  foryou: "foryou.jpg",
-  blushhard: "blushhard.jpg",
-  shyshort: "shyshort.jpg",
-  hmph: "hmph.jpg",
-  hugtight: "hugtight.jpg",
-  Airkiss: "Airkiss.jpg",
-  Gigglelots: "Gigglelots.jpg",
-  thinking: "thinking.jpg",
-  putmd: "putmd.jpg",
-  Whatswrong: "Whatswrong.jpg",
-  midmeh: "midmeh.jpg",
-  awkward: "awkward.jpg",
-  Madnow: "Madnow.jpg",
-  Hurtcry: "Hurtcry.jpg",
-  Sobbinghard: "Sobbinghard.jpg",
-  weeploud: "weeploud.jpg",
-  PanincCrying: "PanincCrying.jpg",
-  missme: "missme.jpg",
-  Free: "Free.jpg",
-  Dreak: "Dreak.jpg",
-  outfast: "outfast.jpg",
-  Vcayover: "Vcayover.jpg",
-  sleepynow: "sleepynow.jpg",
-  deadtired: "deadtired.jpg",
-  sotired: "sotired.jpg",
-  giveup: "giveup.jpg",
-  poorwallet: "poorwallet.jpg",
-  please: "please.jpg",
-};
+/** 内置表情包的文件名映射：统一 `<id>.png`。
+ *  旧图里三个文件是「叫 gif/png、字节是 WebP」，扩展名与内容不一致会被渠道按 MIME 发坏，
+ *  故本期一次换成真 PNG，文件名从 id 派生，不再逐条维护。 */
+export const BUILT_IN_STICKER_FILES: Record<string, string> = Object.fromEntries(
+  BUILT_IN_STICKER_IDS.map((id) => [id, `${id}.png`]),
+);
 
 /** 用户表情包清单项（只取描述相关字段，避免依赖 electron 侧的类型）。 */
 export interface StickerPhraseSource {

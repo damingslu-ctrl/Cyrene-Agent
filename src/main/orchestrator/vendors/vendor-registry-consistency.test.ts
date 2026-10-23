@@ -85,8 +85,10 @@ describe("厂商注册表 — 结构不变量", () => {
 });
 
 describe("注册表 ↔ presets — 跨层一致性", () => {
-  // 真实厂商预设（排除自定义端点伪条目）
-  const builtinPresets = MODEL_PRESETS.filter((p) => !p.customEndpointMode);
+  // 真实厂商预设（排除自定义端点与 Magpie 本地网关伪条目）
+  const builtinPresets = MODEL_PRESETS.filter(
+    (p) => !p.customEndpointMode && p.providerId !== "magpie",
+  );
 
   // ⑦ registry↔presets 按 providerId 双向覆盖，展示值一致；
   //    不比对 baseUrl —— presets 的是 UI 预填值、capability 的是运行时默认，设计上就不同

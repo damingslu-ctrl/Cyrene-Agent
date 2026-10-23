@@ -1,18 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { CYRENE_LOGO, CYRENE_LOGO_TEXT } from "./ascii";
+import { MOCHI_LOGO, MOCHI_LOGO_TEXT } from "./ascii";
 import { BANNER_LINES, ABOUT_LINES, MIN_BANNER_WIDTH } from "./text";
 import { renderBanner, renderAbout, resolveWidth } from "./render";
 
 describe("ascii", () => {
-  it("CYRENE_LOGO is exactly six non-empty lines", () => {
-    expect(CYRENE_LOGO).toHaveLength(6);
-    for (const line of CYRENE_LOGO) {
+  it("MOCHI_LOGO is exactly six non-empty lines", () => {
+    expect(MOCHI_LOGO).toHaveLength(6);
+    for (const line of MOCHI_LOGO) {
       expect(line.length).toBeGreaterThan(0);
     }
   });
 
-  it("CYRENE_LOGO_TEXT joins with single newlines", () => {
-    expect(CYRENE_LOGO_TEXT.split("\n")).toHaveLength(6);
+  // 字形是画出来的，不是算出来的：列宽一旦不齐，终端里就散架。这条锁把「等宽」钉住。
+  it("MOCHI_LOGO 的六行列宽一致（ANSI Shadow MOCHI = 39 列）", () => {
+    const widths = new Set(MOCHI_LOGO.map((line) => Array.from(line).length));
+    expect([...widths]).toEqual([39]);
+  });
+
+  it("MOCHI_LOGO_TEXT joins with single newlines", () => {
+    expect(MOCHI_LOGO_TEXT.split("\n")).toHaveLength(6);
   });
 });
 
@@ -21,7 +27,7 @@ describe("render", () => {
     const out = renderBanner({ width: 64 });
     const lines = out.split("\n");
     // 6 logo + 1 blank + 3 box rows (top, 1 line, bottom would be 5 for 3 text lines)
-    expect(lines.slice(0, 6).join("\n")).toBe(CYRENE_LOGO_TEXT);
+    expect(lines.slice(0, 6).join("\n")).toBe(MOCHI_LOGO_TEXT);
     expect(lines[6]).toBe("");
     // box top
     expect(lines[7].startsWith("╭")).toBe(true);
@@ -57,9 +63,9 @@ describe("render", () => {
     }
   });
 
-  it("renderAbout includes the GitHub URL", () => {
+  it("renderAbout includes the local build line instead of an upstream URL", () => {
     expect(renderAbout({ width: 64 })).toContain(
-      "https://github.com/Playa-0v0/Cyrene-Agent",
+      "Build:    local · no online update checks",
     );
   });
 
