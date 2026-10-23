@@ -39,6 +39,7 @@ let petVisibilityOff: (() => void) | null = null;
 let quietChangedOff: (() => void) | null = null;
 let tuckChangedOff: (() => void) | null = null;
 let geometryChangedOff: (() => void) | null = null;
+let petCommandOff: (() => void) | null = null;
 let petVisible = true;
 const disposers: Array<() => void> = [];
 
@@ -59,6 +60,9 @@ const renderer = new PixelPetRenderer({
   canvas,
   width: window.innerWidth,
   height: window.innerHeight,
+  companion: true,
+  // 漫游/气泡把窗口在静止光标底下搬走时，穿透判定必须按新窗口坐标重算一次。
+  onWindowGeometry: () => clickThrough?.refreshAfterWindowMove(),
   onLoad: () => {
     console.log(`${CONSOLE_PREFIX} Pixel pet renderer ready`);
 
@@ -93,8 +97,11 @@ const renderer = new PixelPetRenderer({
 
     // 免打扰（Task 11）：启动先读一次盘上状态（跨重启的安静期），再订安静状态变更的下行。
     // 落盘的变化才算数（brief 验收判据），屏幕上的月牙只是它的影子。
-    window.verge?.isQuiet().then((quiet) => renderer.setQuiet(quiet))
-      .catch(() => { /* 状态读取失败不影响加载：月牙缺失比启动失败轻 */ });
+    window.verge?.isQuiet().then((quiet) => {
+      renderer.setQuiet(quiet);
+      // 开窗先打个招呼；安静期由引擎拒收，不吵人。
+      if (!quiet) renderer.greet();
+    }).catch(() => { /* 状态读取失败不影响加载：月牙缺失比启动失败轻 */ });
     quietChangedOff = window.verge?.onQuietChanged(({ quietUntil }) => {
       // payload 带的是**当下** quietUntil：写盘（右键菜单 / toggle）时是未来的截止，
       // 到点自醒当场清盘后是 null（native main.rs:2515-2517）。判据按真语义一条通用：
@@ -116,6 +123,10 @@ const renderer = new PixelPetRenderer({
     tuckChangedOff = window.verge?.onTuckChanged(({ tuckEnabled }) => {
       renderer.setTuckEnabled(tuckEnabled);
     }) ?? null;
+    // 右键菜单的互动动作（摸摸/喂/玩/睡/状态）：菜单在主端，执行权在渲染端。
+    petCommandOff = window.verge?.onPetCommand((command) => {
+      renderer.handleCommand(command);
+    }) ?? null;
 
     (window as unknown as { __cyrene: unknown }).__cyrene = {
       renderer,
@@ -136,6 +147,8 @@ renderer.init();
 
 addTrackedEventListener(window, "resize", () => {
   renderer.resize(window.innerWidth, window.innerHeight);
+  // 窗口尺寸变了，同一光标点下的像素也变了（气泡展开尤其明显）。
+  clickThrough?.refreshAfterWindowMove();
 });
 
 window.addEventListener("beforeunload", () => {
@@ -151,6 +164,9 @@ window.addEventListener("beforeunload", () => {
   tuckChangedOff = null;
   geometryChangedOff?.();
   geometryChangedOff = null;
+  petCommandOff?.();
+  petCommandOff = null;
+  clearPetClickTimer();
   renderer.dispose();
   for (const off of disposers) off();
   disposers.length = 0;
@@ -165,6 +181,57 @@ let dragOverlay: HTMLImageElement | null = null;
 let dragToken = 0;
 
 let dragOverlayUrl: string | null = null;
+
+/** 按下后走满这个距离才算「拖」；以下都算「点」。 */
+const DRAG_THRESHOLD_PX = 4;
+/** 两次点头的合帧窗：窗内第二下升级成「玩」。 */
+const DOUBLE_CLICK_MS = 220;
+/** 投掷速度只取松手前这段轨迹，早年拖得多快不算。 */
+const VELOCITY_WINDOW_MS = 150;
+
+let pressPending = false;
+let pressStartX = 0;
+let pressStartY = 0;
+let petClickTimer: number | null = null;
+let moveSamples: Array<{ x: number; y: number; t: number }> = [];
+
+function clearPetClickTimer(): void {
+  if (petClickTimer !== null) {
+    window.clearTimeout(petClickTimer);
+    petClickTimer = null;
+  }
+}
+
+/** 单点头 = 摸摸；220ms 内第二下 = 玩。拖拽起手会取消挂起的单点。 */
+function onCatClick(): void {
+  if (petClickTimer !== null) {
+    clearPetClickTimer();
+    renderer.handleCommand("play");
+    return;
+  }
+  petClickTimer = window.setTimeout(() => {
+    petClickTimer = null;
+    renderer.handleCommand("pet");
+  }, DOUBLE_CLICK_MS);
+}
+
+function recordMoveSample(screenX: number, screenY: number, now: number): void {
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
+  moveSamples.push({ x: screenX, y: screenY, t: now });
+  const cutoff = now - VELOCITY_WINDOW_MS;
+  while (moveSamples.length > 2 && moveSamples[0].t < cutoff) moveSamples.shift();
+}
+
+/** 松手速度（px/s）：窗口轨迹的屏幕坐标差除以时间，够快引擎就转投掷物理。 */
+function takeThrowVelocity(): { x: number; y: number } {
+  const first = moveSamples[0];
+  const last = moveSamples[moveSamples.length - 1];
+  moveSamples = [];
+  if (!first || !last) return { x: 0, y: 0 };
+  const dt = (last.t - first.t) / 1000;
+  if (dt <= 0.016) return { x: 0, y: 0 };
+  return { x: (last.x - first.x) / dt, y: (last.y - first.y) / dt };
+}
 
 function clearDragOverlay(): void {
   if (dragOverlay) {
@@ -254,8 +321,13 @@ function cancelPendingMove(): void {
   pendingPosition = null;
 }
 
-function finishDrag(finalPos: { x: number; y: number } | null): void {
+function finishDrag(
+  finalPos: { x: number; y: number } | null,
+  velocity: { x: number; y: number } = { x: 0, y: 0 },
+): void {
   isDragging = false;
+  pressPending = false;
+  moveSamples = [];
   dragToken += 1;
   cancelPendingMove();
   clearDragOverlay();
@@ -263,7 +335,7 @@ function finishDrag(finalPos: { x: number; y: number } | null): void {
   // bounds——反过来会把这次 PET_RESIZE 的位置变化吞在闸门里，猫停在拖拽起点。
   // setDragging(false) 同时让 controller 把最后一次 moveTo 落位并持久化。
   window.cyrene.setDragging(false);
-  renderer.endDrag(finalPos);
+  renderer.endDrag(finalPos, velocity);
   // 拖后重拉一次基线（一拖一次 invoke，不是每帧开销）：
   // - pointercancel 没有 finalPos，真实落位只有主端知道；
   // - 跨屏拖拽后 workArea 也要跟着换屏——显示器查询的权威在 main。
@@ -286,24 +358,15 @@ addTrackedEventListener(canvas, "pointerenter", () => {
   renderer.setUserActive(true);
 });
 
-addTrackedEventListener(canvas, "pointercancel", () => {
-  if (isDragging) finishDrag(null);
-});
-
-addTrackedEventListener(canvas, "pointerleave", () => {
-  if (isDragging) return;
-  void window.cyrene.setInteractive(false);
-  renderer.setUserActive(false);
-});
-
-addTrackedEventListener(canvas, "pointerdown", (e) => {
-  const event = e as PointerEvent;
-  // 只认左键：右键是「安静半小时」的手势，不能被拖窗顺手吃掉。
-  if (event.button !== 0) return;
-  if (isDragging) return;
-  if (!Number.isFinite(event.screenX) || !Number.isFinite(event.screenY)) return;
-  if (!Number.isFinite(window.screenX) || !Number.isFinite(window.screenY)) return;
+function beginDragAt(event: PointerEvent): void {
+  if (!Number.isFinite(window.screenX) || !Number.isFinite(window.screenY)) {
+    pressPending = false;
+    return;
+  }
   isDragging = true;
+  pressPending = false;
+  // 这一下已经走成拖拽：挂起的单点「摸摸」作废。
+  clearPetClickTimer();
   dragToken += 1;
   const token = dragToken;
   dragOffsetX = event.screenX - window.screenX;
@@ -316,33 +379,11 @@ addTrackedEventListener(canvas, "pointerdown", (e) => {
   renderer.pause();
   void window.cyrene.setInteractive(true);
   window.cyrene.setDragging(true);
-  try {
-    (event.target as Element).setPointerCapture(event.pointerId);
-  } catch {}
   void showDragOverlay(token);
-});
+}
 
-addTrackedEventListener(canvas, "pointermove", (e) => {
-  const event = e as PointerEvent;
-  if (!isDragging) return;
-  scheduleMoveTo(event.screenX, event.screenY);
-});
-
-addTrackedEventListener(canvas, "pointerup", (e) => {
-  const event = e as PointerEvent;
-  if (!isDragging) return;
-  scheduleMoveTo(event.screenX, event.screenY);
-  if (rafId !== null) {
-    cancelAnimationFrame(rafId);
-    rafId = null;
-  }
-  const finalPos = flushMove();
-  finishDrag(finalPos);
-
-  try {
-    (event.target as Element).releasePointerCapture(event.pointerId);
-  } catch {}
-
+/** 松手/点头落点已在窗外：下一次移动之前窗口不该继续吃指针。 */
+function releaseOutside(event: PointerEvent): void {
   const rect = canvas.getBoundingClientRect();
   const outside =
     event.clientX < rect.left ||
@@ -350,4 +391,90 @@ addTrackedEventListener(canvas, "pointerup", (e) => {
     event.clientY < rect.top ||
     event.clientY > rect.bottom;
   if (outside) void window.cyrene.setInteractive(false);
+}
+
+addTrackedEventListener(canvas, "pointercancel", () => {
+  pressPending = false;
+  moveSamples = [];
+  if (isDragging) finishDrag(null);
+});
+
+addTrackedEventListener(canvas, "pointerleave", () => {
+  // 按住期间不放行：capture 还在，松手会回来，此刻撤互动会把 capture 冲掉。
+  if (isDragging || pressPending) return;
+  void window.cyrene.setInteractive(false);
+  renderer.setUserActive(false);
+});
+
+addTrackedEventListener(canvas, "pointerdown", (e) => {
+  const event = e as PointerEvent;
+  // 只认左键：右键是「安静半小时」的手势，不能被拖窗顺手吃掉。
+  if (event.button !== 0) return;
+  if (isDragging || pressPending) return;
+  if (!Number.isFinite(event.screenX) || !Number.isFinite(event.screenY)) return;
+
+  // 气泡比猫宽：点在气泡上先让它闭嘴，不拖窗、也不算摸摸。
+  const rect = canvas.getBoundingClientRect();
+  if (renderer.isPointOnBubble(event.clientX - rect.left, event.clientY - rect.top)) {
+    renderer.dismissBubble();
+    return;
+  }
+
+  pressPending = true;
+  pressStartX = event.screenX;
+  pressStartY = event.screenY;
+  moveSamples = [];
+  recordMoveSample(event.screenX, event.screenY, performance.now());
+  // 先按住 capture：4px 阈值内滑出窗也能收到 pointerup。
+  try {
+    (event.target as Element).setPointerCapture(event.pointerId);
+  } catch {}
+});
+
+addTrackedEventListener(canvas, "pointermove", (e) => {
+  const event = e as PointerEvent;
+  if (isDragging) {
+    recordMoveSample(event.screenX, event.screenY, performance.now());
+    scheduleMoveTo(event.screenX, event.screenY);
+    return;
+  }
+  if (!pressPending) return;
+  if (!Number.isFinite(event.screenX) || !Number.isFinite(event.screenY)) return;
+  const dx = event.screenX - pressStartX;
+  const dy = event.screenY - pressStartY;
+  if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+  beginDragAt(event);
+});
+
+addTrackedEventListener(canvas, "pointerup", (e) => {
+  const event = e as PointerEvent;
+
+  if (isDragging) {
+    recordMoveSample(event.screenX, event.screenY, performance.now());
+    const velocity = takeThrowVelocity();
+    scheduleMoveTo(event.screenX, event.screenY);
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    const finalPos = flushMove();
+    finishDrag(finalPos, velocity);
+
+    try {
+      (event.target as Element).releasePointerCapture(event.pointerId);
+    } catch {}
+
+    releaseOutside(event);
+    return;
+  }
+
+  if (pressPending) {
+    pressPending = false;
+    moveSamples = [];
+    onCatClick();
+    try {
+      (event.target as Element).releasePointerCapture(event.pointerId);
+    } catch {}
+    releaseOutside(event);
+  }
 });

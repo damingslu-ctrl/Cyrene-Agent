@@ -600,4 +600,21 @@ export const IPC = {
   /** 渲染端 → main：第一次藏身开口说过 TUCK_HINT 后落盘 tuckHinted，不再重说。 */
   VERGE_TUCK_HINTED: "verge:tuck-hinted",
 
+  // —— v1.4.0 网络页 ——
+  VERGE_NETWORK_GET: "verge:network:get",
+  VERGE_NETWORK_REFRESH: "verge:network:refresh",
+  VERGE_NETWORK_SET_MODE: "verge:network:set-mode",
+  VERGE_NETWORK_SELECT_NODE: "verge:network:select-node",
+  VERGE_NETWORK_TEST_GROUP: "verge:network:test-group",
+  VERGE_NETWORK_AUTO_SELECT: "verge:network:auto-select",
+  /** main → 所有窗口：完整快照或单帧流量（NetworkUpdate）。 */
+  VERGE_NETWORK_UPDATE: "verge:network:update",
+  // —— v1.4.0 桌宠互动 ——
+  /** main → 宠物窗：右键菜单里的互动动作（petCommand）。 */
+  VERGE_PET_COMMAND: "verge:pet-command",
+  /** 宠物窗 → main：漫游/投掷停稳后的一次性位置落盘。 */
+  VERGE_PET_POSITION_SETTLED: "verge:pet-position-settled",
+  /** main → 主窗：从宠物菜单跳「网络」页。 */
+  CYRENE_OPEN_NETWORK_PANEL: "cyrene:open-network-panel",
+
 } as const;

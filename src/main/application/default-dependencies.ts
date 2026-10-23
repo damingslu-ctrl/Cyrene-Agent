@@ -144,6 +144,9 @@ import { bootstrapMusicService } from "../music/bootstrap";
 import { createVergeService } from "../verge/verge-service";
 import { registerVergeIpc } from "../verge/verge-ipc";
 import { attachPetContextMenu } from "../verge/pet-menu";
+import { discoverConfigRoot } from "../verge/controller-config";
+import { createNetworkService } from "../verge/network-service";
+import { registerNetworkIpc } from "../verge/network-ipc";
 import { attachQuietClock, quietChangedPayload } from "../verge/quiet-clock-wiring";
 import { armQuiet, isQuietNow } from "../verge/quiet-clock";
 import { TUCK_IDLE_SECS, TUCK_PROBE_IDLE_SECS } from "../verge/tuck-clock";
@@ -515,6 +518,20 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         // Verge 内建模块骨架：store → service → IPC 三段装配
         const verge = createVergeService(app.getPath("userData"));
 
+        // v1.4.0 网络页：本机 mihomo 控制器聚合。轮询在 core 阶段起，退出时停。
+        const network = createNetworkService({
+          getConfigRoot: () => discoverConfigRoot({
+            appData: process.env.APPDATA,
+            localAppData: process.env.LOCALAPPDATA,
+          }),
+        });
+        network.start();
+        shutdown.register({
+          id: "verge-network-service",
+          phase: "stopLocalResources",
+          dispose: async () => { network.stop(); },
+        });
+
         // 宠物窗右键菜单（Task 11）：菜单动作写盘走 service，窗口动作就地取 win。
         // 到点自醒也在这里接：落盘后的 setTimeout(remaining).unref()，到点当场清、
         // 广播撤月牙；所有写盘路径（菜单 / toggle-quiet 的 IPC）都走下面同一个收口。
@@ -554,6 +571,16 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
             quit: () => app.quit(),
             onQuietStateChange: applyQuietState,
             onTuckStateChange: (enabled) => onVergeTuckStateChange?.(enabled),
+            onPetCommand: (command) => {
+              if (!win.isDestroyed()) win.webContents.send(IPC.VERGE_PET_COMMAND, command);
+            },
+            openNetworkPanel: () => {
+              void shell.windowManager.openReactChatWindow().then(() => {
+                for (const target of BrowserWindow.getAllWindows()) {
+                  if (!target.isDestroyed()) target.webContents.send(IPC.CYRENE_OPEN_NETWORK_PANEL);
+                }
+              });
+            },
           });
         };
         onVergeQuietStateChange = applyQuietState;
@@ -580,6 +607,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           screenshot,
           music,
           verge,
+          network,
         };
       },
 
@@ -776,6 +804,29 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
 
         // Verge 内建模块骨架：IPC 注册到 shell.ipc（IpcScope.dispose 时自动清除处理器）
         const removeVergeIpc = registerVergeIpc(ipc, services.verge);
+
+        // v1.4.0 网络页：服务订阅 → 全窗广播；动作失败回原因码，页面据此给文案。
+        const removeNetworkIpc = registerNetworkIpc(ipc, {
+          service: services.network,
+          broadcast: (channel, payload) => {
+            for (const win of BrowserWindow.getAllWindows()) {
+              if (!win.isDestroyed()) win.webContents.send(channel, payload);
+            }
+          },
+        });
+
+        // 漫游/投掷停稳后的一次性落盘：渲染端只在停稳时发，不逐帧写盘。
+        ipc.on(IPC.VERGE_PET_POSITION_SETTLED, (_event, position: unknown) => {
+          if (typeof position !== "object" || position === null) return;
+          const { x, y } = position as Record<string, unknown>;
+          if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) return;
+          saveGeneralSettings({ petWindowX: Math.round(x), petWindowY: Math.round(y) });
+        });
+        shutdown.register({
+          id: "verge-network-ipc",
+          phase: "flushPersistence",
+          dispose: async () => { removeNetworkIpc(); },
+        });
 
         // 本机版本信息：设置页与 --brand-probe 共用。原来这里是 app-update:* 五条通道。
         const removeAppInfoIpc = registerAppInfoIpc(ipc, {

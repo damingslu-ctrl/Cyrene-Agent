@@ -58,6 +58,24 @@ declare global {
       onTuckChanged(callback: (payload: { tuckEnabled: boolean }) => void): () => void;
       /** 渲染端 → main：第一次藏身开口说过 TUCK_HINT，落盘 tuckHinted，不再重说。 */
       tuckHinted(): void;
+      /** 主窗侧边栏「网络」页：读/写本机 mihomo 控制面。 */
+      network: {
+        get(): Promise<import("../../shared/network-types").NetworkSnapshot>;
+        refresh(): Promise<import("../../shared/network-types").NetworkSnapshot>;
+        setMode(mode: import("../../shared/network-types").ProxyMode):
+          Promise<import("../../shared/network-types").NetworkActionResult>;
+        selectNode(group: string, node: string):
+          Promise<import("../../shared/network-types").NetworkActionResult>;
+        testGroup(group: string): Promise<import("../../shared/network-types").NetworkTestResult>;
+        autoSelect(group: string): Promise<import("../../shared/network-types").NetworkAutoSelectResult>;
+        onUpdate(callback: (update: import("../../shared/network-types").NetworkUpdate) => void): () => void;
+      };
+      /** main → 宠物窗：右键菜单选的互动动作。 */
+      onPetCommand(callback: (command: import("../../shared/pet-commands").PetCommand) => void): () => void;
+      /** 渲染端 → main：漫游/投掷落定后记一次位置。 */
+      settlePetPosition(position: { x: number; y: number }): void;
+      /** main → 主窗：打开「网络」页。 */
+      onOpenNetworkPanel(callback: () => void): () => void;
     };
   }
 }

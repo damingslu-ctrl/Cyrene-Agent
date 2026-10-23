@@ -26,6 +26,7 @@ import type { MailAttachmentStore } from "../email/mail-attachment-store";
 import type { ScreenshotService } from "../screenshot/screenshot-lifecycle";
 import type { MusicBootstrap } from "../music/bootstrap";
 import type { VergeService } from "../verge/verge-service";
+import type { NetworkService } from "../verge/network-service";
 import type { LlmClient } from "../services/llm/llm-client";
 import type { CitaService } from "../cita";
 import type { SocialContextService } from "../services/social-context/social-context-service";
@@ -52,6 +53,7 @@ export interface CoreServices {
   screenshot: ScreenshotService;
   music: MusicBootstrap;
   verge: VergeService;
+  network: NetworkService;
 }
 
 export interface CoreResult {

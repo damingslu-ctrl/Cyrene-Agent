@@ -1,5 +1,6 @@
 import type { ChatPagePanel } from "./ChatPageNavigation";
 import { MomentsPanel } from "../../moments/MomentsPanel";
+import { NetworkPanel } from "../../network/NetworkPanel";
 import { ScheduledTasksPanel } from "../../scheduler/ScheduledTasksPanel";
 
 export function ChatPagePanelHost({
@@ -14,5 +15,6 @@ export function ChatPagePanelHost({
   switch (panel) {
     case "moments": return <MomentsPanel />;
     case "scheduledTasks": return <ScheduledTasksPanel onPickWorkspace={onPickWorkspace} onOpenSession={onOpenSession} />;
+    case "network": return <NetworkPanel />;
   }
 }

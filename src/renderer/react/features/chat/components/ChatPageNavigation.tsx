@@ -5,6 +5,7 @@ import type { SidebarOrganizationDraft, SidebarOrganizationSnapshot } from "../.
 import { useTranslation } from "../../../i18n";
 import { ModeSwitch } from "../../../components/ui/ModeSwitch";
 import { MomentsModeButton } from "../../../components/ui/MomentsModeButton";
+import { NetworkModeButton } from "../../../components/ui/NetworkModeButton";
 import { NewTaskButton } from "../../../components/ui/NewTaskButton";
 import { ScheduledTasksModeButton } from "../../../components/ui/ScheduledTasksModeButton";
 import { SettingsButton } from "../../../components/ui/SettingsButton";
@@ -16,7 +17,7 @@ import { ConversationSidebar } from "./ConversationSidebar";
 import { SidebarSearchDialog } from "./SidebarSearchDialog";
 import { reportChatPerfRender } from "./chat-perf-probe";
 
-export type ChatPagePanel = "moments" | "scheduledTasks";
+export type ChatPagePanel = "moments" | "scheduledTasks" | "network";
 
 export interface ChatPageNavigationProps {
   activePanel: ChatPagePanel | null;
@@ -123,6 +124,7 @@ export const ChatPageNavigation = React.memo(function ChatPageNavigation({
           </button>
           <ScheduledTasksModeButton active={activePanel === "scheduledTasks"} onClick={() => onTogglePanel("scheduledTasks")} />
           <MomentsModeButton active={activePanel === "moments"} onClick={() => onTogglePanel("moments")} />
+          <NetworkModeButton active={activePanel === "network"} onClick={() => onTogglePanel("network")} />
         </div>
         <div className="cy-page-conversations">
           <ConversationSidebar

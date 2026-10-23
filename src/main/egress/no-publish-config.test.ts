@@ -4,14 +4,17 @@ import { load } from "js-yaml";
 import { describe, expect, it } from "vitest";
 
 describe("打包配置不携带升级源", () => {
-  it("electron-builder.yml 没有 publish 块", () => {
+  it("electron-builder.yml 没有 publish 源", () => {
     const config = load(readFileSync(resolve(process.cwd(), "electron-builder.yml"), "utf8")) as {
       publish?: unknown;
       nsis?: unknown;
     };
     // 正对照：js-yaml 能读出同一文件的其他键，证明解析器没坏、不是「读不到所以 undefined」
     expect(config.nsis).toBeTruthy();
-    expect(config.publish).toBeUndefined();
+    // 显式 `publish: null`（d7c39d92）也是「没有发布源」：它存在的目的正是拦住
+    // electron-builder 从 .git/config 的 origin 推断发布源。判据是「解析出来不是
+    // 发布配置」，不是「键必须不存在」——null/undefined 都算没写，数组/对象才算有。
+    expect(config.publish ?? null).toBeNull();
   });
 
   it("package.json 的 build.publish 也不存在", () => {

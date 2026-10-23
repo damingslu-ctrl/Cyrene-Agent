@@ -1,11 +1,13 @@
 /// <reference path="../types/cyrene.d.ts" />
 import {
+  BUB_W,
   clampRestoreOrigin,
   computeCatRect,
   computePetLayout,
   PET_H,
   PET_W,
   PIN,
+  resolveGrowthDirection,
   scaleFor,
   type Point,
   type WorkArea,
@@ -20,7 +22,9 @@ import {
   unTuckForDrag,
 } from "../../main/verge/tuck-clock";
 import { paintOps } from "./ops";
-import { buildCapsuleOps, buildCatOps, type CatInput } from "./art";
+import { buildBubbleOps, buildCatOps, bubbleBoxRect, type BubbleBox, type CatInput } from "./art";
+import { CompanionEngine, type CompanionSnapshot } from "./companion";
+import type { PetCommand } from "../../shared/pet-commands";
 
 export interface HitAreaDef {
   name: string;
@@ -34,6 +38,16 @@ export interface PixelPetRendererOptions {
   onLoad(): void;
   /** 仅供面兼容：init 的异步失败路径随 Live2D 加载一起删了，P1 永不触发。 */
   onError(error: unknown): void;
+  /**
+   * 行为引擎（漫游/互动/气泡）。生产在 main.ts 显式打开；默认关——
+   * 贴边藏身那套机械测试要的是「不动、不说」的猫，不能被随机漫游掺进来。
+   */
+  companion?: boolean;
+  /**
+   * 每次真的发出 PET_RESIZE（窗口要动/要长）后回调一次。点击穿透的 alpha 判定
+   * 依赖光标与窗口的相对位置；窗口在静止光标底下挪了，必须重判一次。
+   */
+  onWindowGeometry?(): void;
 }
 
 // native main.rs:4317-4320 的三档重绘策略：4fps 保活 / 30fps 面板与短动画 / 60fps hover 与拖拽。
@@ -85,6 +99,20 @@ export class PixelPetRenderer {
     pinInWin: Point; center: Point; peekDx: number; e: number;
   } | null = null;
 
+  // —— companion（行为引擎）：位置权威在渲染端，停稳才落盘一次 ——
+  private readonly engine: CompanionEngine | null = null;
+  /** 气泡展开度 0..1：窗口宽 82 + 90·be；猫的钉位由 computePetLayout 保。 */
+  private bubbleExpand = 0;
+  /** 当前气泡往哪边长（近哪边就往反方向长，气窗绝不出屏）。 */
+  private bubbleGrowLeft = false;
+  private bubbleText = "";
+  /** 上一帧气泡是否在场（canRoam 的闸门；引擎自己不知道窗口几何）。 */
+  private bubbleActive = false;
+  /** 气泡命中区（基址坐标，随 be 变宽）。 */
+  private bubbleBox: BubbleBox | null = null;
+  /** 引擎时钟：rAF 的毫秒值直接喂 update，和绘制同一根秒表。 */
+  private lastCompanionAt: number | null = null;
+
   constructor(private readonly opts: PixelPetRendererOptions) {
     // willReadFrequently：点击穿透逐像素读 alpha（getImageData），不建这张快路径会退回 GPU 读回。
     this.ctx = opts.canvas.getContext("2d", { willReadFrequently: true, alpha: true })!;
@@ -104,6 +132,17 @@ export class PixelPetRenderer {
       pose: { paw: 0, yawn: 0, stretch: 0, tilt: 0, engagement: 0 },
       quiet: false,
     };
+    if (opts.companion) {
+      let storage: Storage | null = null;
+      try { storage = window.localStorage; } catch { storage = null; }
+      this.engine = new CompanionEngine({
+        storage,
+        now: () => performance.now(),
+        wallNow: () => Date.now(),
+        onMove: (position) => this.onCompanionMove(position),
+        onSettle: (position) => this.onCompanionSettle(position),
+      });
+    }
   }
 
   async init(): Promise<void> {
@@ -156,6 +195,7 @@ export class PixelPetRenderer {
   setQuiet(quiet: boolean): void {
     if (this.quiet === quiet) return;
     this.quiet = quiet;
+    this.engine?.setQuiet(quiet);
     if (!this.paused) this.draw(performance.now());
   }
 
@@ -173,6 +213,7 @@ export class PixelPetRenderer {
   /** user_active 的门（native main.rs:4609/4902）：进场清零闲置、离场开始计时。 */
   setUserActive(active: boolean): void {
     this.userActive = active;
+    this.engine?.setUserActive(active);
   }
 
   /**
@@ -206,6 +247,7 @@ export class PixelPetRenderer {
     // 夹取饱和的边角会被每帧 clampRestoreOrigin 自愈，不留双权威）。
     this.catOrigin = { x: bounds.x - this.peekDx, y: bounds.y };
     this.idleSecs = 0;
+    this.engine?.setPosition({ ...this.catOrigin });
     this.requestBounds("pet", 0, this.catOrigin, this.workArea!, this.peekDx);
     if (!this.paused) this.draw(performance.now());
   }
@@ -218,6 +260,13 @@ export class PixelPetRenderer {
   beginDrag(): void {
     this.dragging = true;
     this.idleSecs = 0;
+    // 抓起来就闭嘴：气泡窗比猫宽 90px，拖着它走会连着气泡一起搬，
+    // 松手后窗口还得缩回去——干脆在起手就把气泡收掉。
+    this.engine?.beginDrag(performance.now());
+    this.engine?.dismissBubble();
+    this.bubbleActive = false;
+    this.bubbleExpand = 0;
+    this.bubbleBox = null;
     if (this.catOrigin && Math.abs(this.peekDx) > 0.5) {
       this.catOrigin = { ...unTuckForDrag(this.catOrigin, this.peekDx), y: this.catOrigin.y };
       this.peekDx = 0;
@@ -230,21 +279,161 @@ export class PixelPetRenderer {
    * 主端位置门，再调这里。position = flushMove 真的发给 controller 的落位（peek 已在
    * beginDrag 吸收，拖完窗口位即新 catOrigin）。拿不到落位（pointercancel）就维持旧值，
    * 由紧随的 getPetGeometry 重拉自愈。
+   *
+   * velocity 是松手前最后 ~150ms 的速度（px/s）：超过阈值就进入投掷物理，
+   * 否则按「放下」原地落定（引擎会在此处发一次 settle，主端落盘）。
    */
-  endDrag(position: Point | null): void {
+  endDrag(position: Point | null, velocity: Point = { x: 0, y: 0 }): void {
     this.dragging = false;
     this.lastFrameAt = null;
+    this.lastCompanionAt = performance.now();
     if (!this.catOrigin) return;
     this.idleSecs = 0;
     if (position) {
       this.catOrigin = { x: position.x, y: position.y };
       this.peekDx = 0;
     }
-    if (this.workArea) this.requestBounds("pet", 0, this.catOrigin, this.workArea, this.peekDx);
+    this.engine?.endDrag({ ...this.catOrigin }, velocity, performance.now());
+    this.sendBoundsForContent();
   }
 
   isQuiet(): boolean {
     return this.quiet;
+  }
+
+  // —— companion 查询/互动面（main.ts 与右键菜单的接口）——
+
+  getCompanionSnapshot(): CompanionSnapshot | null {
+    return this.engine?.getSnapshot() ?? null;
+  }
+
+  /** 让它自己走过去（调试/引导用；正常漫游由引擎按闲置表发起）。 */
+  roamTo(target: Point): void {
+    if (!this.engine) return;
+    if (this.catOrigin) this.engine.setPosition({ ...this.catOrigin });
+    this.engine.roamTo(target);
+  }
+
+  handleCommand(command: PetCommand): void {
+    this.engine?.handleCommand(command, performance.now());
+    // 用户主动互动的数值立刻落盘：等到下一次漫游停稳才存，摸摸攒的亲密度会白丢。
+    this.engine?.save();
+  }
+
+  /** 开窗问候（主端确认不在安静期后调）：按时段一句，安静期引擎自己拒收。 */
+  greet(): boolean {
+    return this.engine?.greet(performance.now()) ?? false;
+  }
+
+  dismissBubble(): void {
+    this.engine?.dismissBubble(performance.now());
+  }
+
+  /**
+   * 气泡命中区（CSS 坐标，调用方给的是 pointer 事件的 clientX/Y）。
+   * 气泡画在猫的反侧，点它 = 让它闭嘴；点猫身才是摸摸。
+   */
+  isPointOnBubble(cssX: number, cssY: number): boolean {
+    const box = this.bubbleBox;
+    if (!box || this.bubbleExpand <= 0) return false;
+    const x = cssX / (this.zoom || 1);
+    const y = cssY / (this.zoom || 1);
+    return x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h;
+  }
+
+  /** 主端把 user_active/安静状态喂进来的另一条路（几何同步时一并带上）。 */
+  private onCompanionMove(position: Point): void {
+    if (this.dragging) return;
+    if (!this.catOrigin || !this.workArea) return;
+    this.catOrigin = { x: position.x, y: position.y };
+    // 走起来就不许再攒贴边：踢一脚闲置账（native 的 idle_t 也被动过就清零）。
+    this.idleSecs = 0;
+    this.sendBoundsForContent();
+  }
+
+  private onCompanionSettle(position: Point): void {
+    if (!this.catOrigin || !this.workArea) return;
+    this.catOrigin = { x: position.x, y: position.y };
+    this.idleSecs = 0;
+    this.sendBoundsForContent();
+    // 停稳才落盘：漫游/投掷期间逐帧写盘会把这个设置文件写成高频 IO。
+    window.verge?.settlePetPosition({ x: position.x, y: position.y });
+    this.engine?.save();
+  }
+
+  private sendBoundsForContent(): void {
+    if (!this.catOrigin || !this.workArea) return;
+    if (this.bubbleExpand > 0) {
+      this.requestBounds("bubble", this.bubbleExpand, this.catOrigin, this.workArea, 0);
+      return;
+    }
+    this.requestBounds("pet", 0, this.catOrigin, this.workArea, this.peekDx);
+  }
+
+  /** 引擎能不能自主移动：藏身、展开、被抓着的时候都不许。 */
+  private canRoam(): boolean {
+    if (!this.catOrigin || !this.workArea) return false;
+    if (this.dragging || this.paused) return false;
+    if (this.bubbleActive || this.bubbleExpand > 0.001) return false;
+    if (Math.abs(this.peekDx) > 0.5) return false;
+    if (this.tuckEnabled) {
+      const right = this.workArea.x + this.workArea.width;
+      const nearRight = right - (this.catOrigin.x + PET_W) < EDGE_NEAR_PX;
+      const nearLeft = this.catOrigin.x - this.workArea.x < EDGE_NEAR_PX;
+      if (nearRight || nearLeft) return false;
+    }
+    return true;
+  }
+
+  /**
+   * 每帧推进行为引擎 + 气泡窗的展开/收合。返回快照给 draw 翻译成 CatInput。
+   * 几何窗口的展开度直接由 requestBounds("bubble", be) 驱动——和面板同一套协议。
+   */
+  private tickCompanion(now: number): CompanionSnapshot | null {
+    const engine = this.engine;
+    if (!engine || !this.catOrigin || !this.workArea) return null;
+    const dtMs = this.lastCompanionAt === null ? 0 : Math.max(0, now - this.lastCompanionAt);
+    this.lastCompanionAt = now;
+
+    const snapshot = engine.update(now, {
+      workArea: this.workArea,
+      // 漫游夹的是「窗口」不是「猫」：catOrigin 是窗口原点，尺寸含 zoom。
+      size: { width: PET_W * this.zoom, height: PET_H * this.zoom },
+      canRoam: this.canRoam(),
+    });
+
+    const bubble = snapshot.bubble;
+    if (bubble) {
+      if (bubble.text !== this.bubbleText) {
+        // 新句子落位：先定朝哪边长（近哪边就往反方向），整段气泡都别再改向。
+        this.bubbleText = bubble.text;
+        this.bubbleGrowLeft = resolveGrowthDirection({
+          catOrigin: this.catOrigin,
+          workArea: this.workArea,
+          current: { growUp: false, growLeft: this.bubbleGrowLeft },
+          targetWidth: BUB_W,
+        }).growLeft;
+      }
+    }
+    this.bubbleActive = bubble !== null;
+
+    // 180ms 展开/收合。展开要等藏身退干净：be>0.05 后 computePetLayout 会走展开分支，
+    // 带着 peek 切分支会让窗口瞬移。
+    const target = bubble ? 1 : 0;
+    const step = Math.min(0.25, dtMs / 1000) / 0.18;
+    if (target > this.bubbleExpand) {
+      if (Math.abs(this.peekDx) < 0.5) this.bubbleExpand = Math.min(target, this.bubbleExpand + step);
+    } else if (target < this.bubbleExpand) {
+      this.bubbleExpand = Math.max(target, this.bubbleExpand - step);
+    }
+
+    const rectW = PET_W + (BUB_W - PET_W) * this.bubbleExpand;
+    this.bubbleBox = bubble && this.bubbleExpand > 0
+      ? bubbleBoxRect(rectW, this.bubbleGrowLeft, bubble.text)
+      : null;
+
+    this.sendBoundsForContent();
+    return snapshot;
   }
 
   getCanvas(): HTMLCanvasElement {
@@ -292,7 +481,8 @@ export class PixelPetRenderer {
       catOrigin,
       e,
       be,
-      growLeft: false,
+      // 气泡朝哪边长由 tickCompanion 先按可用空间定好；面板档仍未接。
+      growLeft: be > 0.001 ? this.bubbleGrowLeft : false,
       growUp: false,
       workArea,
       peekDx,
@@ -328,6 +518,7 @@ export class PixelPetRenderer {
     if (boundsStill && modelStill) return;
     this.lastSent = payload;
     window.verge.resizePetWindow(payload);
+    this.opts.onWindowGeometry?.();
   }
 
   /**
@@ -336,8 +527,8 @@ export class PixelPetRenderer {
    * 贴边判定（基准位不含 peek，:4934-4935 的反抖注释）→ 首滑先解释（:4947-4961）→
    * 指数缓动与吸附（tuckStep）→ 30/4fps 档切换（peek_animating，:4973/:4355）。
    */
-  private tickTuck(nowSec: number): void {
-    if (!this.catOrigin || !this.workArea || this.dragging) return;
+  private tickTuck(nowSec: number): boolean {
+    if (!this.catOrigin || !this.workArea || this.dragging) return false;
     const dtRaw = this.lastFrameAt === null ? 0 : Math.max(0, nowSec - this.lastFrameAt);
     this.lastFrameAt = nowSec;
 
@@ -356,8 +547,8 @@ export class PixelPetRenderer {
       this.catOrigin = clamped;
     }
 
-    // 六闸（shouldTuck，:4926-4931）。P1 面板/气泡不展开，e/be 恒 0、bubbleOpen 恒假——
-    // 闸门按契约完整实现，真值由 P2 动画层供。
+    // 六闸（shouldTuck，:4926-4931）。气泡开着/展开中的那几帧一律算「有气泡」：
+    // 让它先退 peek，再把窗口长出去（be>0.05 会切掉 computePetLayout 的 peek 分支）。
     let peekTarget = 0;
     if (shouldTuck({
       tuckEnabled: this.tuckEnabled,
@@ -365,8 +556,8 @@ export class PixelPetRenderer {
       idleSecs: this.idleSecs,
       limit: this.tuckLimit,
       e: 0,
-      be: 0,
-      bubbleOpen: false,
+      be: this.bubbleExpand,
+      bubbleOpen: this.bubbleActive || this.bubbleExpand > 0.001,
     })) {
       // 贴边判定看基准位（含 peek 会翻转目标、边缘来回抖，:4934-4935）。
       const rightGap = this.workArea.x + this.workArea.width - (this.catOrigin.x + PET_W);
@@ -402,11 +593,9 @@ export class PixelPetRenderer {
     // peek_animating（:4973-4974）：还在走/还没到位 → 30fps 档（native 的 33ms，:4355）。
     const peekAnimating =
       Math.abs(this.peekDx - prevDx) > 0.3 || Math.abs(this.peekDx - targetDx) > 0.5;
-    // 循环内直接换档，走 fps 闸自然生效——**不许** setRedrawPolicy：它的 stop/start
-    // 会和当前循环回调回来后的重挂叠成双 ticker。
-    this.fps = peekAnimating ? FPS_ACTIVE : FPS_IDLE;
 
-    this.requestBounds("pet", 0, this.catOrigin, this.workArea, this.peekDx);
+    this.sendBoundsForContent();
+    return peekAnimating;
   }
 
   /** 三档 fps 的接线在 Task 11/12（hover/拖拽提帧）；这里先产面。 */
@@ -450,7 +639,21 @@ export class PixelPetRenderer {
     this.cat.t = now / 1000;
     // 藏身状态机走在绘制前：peek/夹取/发请求都发生在同一帧（native 的
     // layout-send 与 tick 分两段只是 egui 结构，1 帧差不可观察）。
-    this.tickTuck(now / 1000);
+    const peekAnimating = this.tickTuck(now / 1000);
+    const snapshot = this.tickCompanion(now);
+
+    // 三档 fps：走路/投掷要 60，气泡/藏身缓动/计时动作 30，静坐 4。
+    const moving = snapshot !== null
+      && (snapshot.activity === "walk" || snapshot.activity === "thrown");
+    // 计时动作（洗脸/哈欠/伸懒腰/歪头/摸摸/吃/玩）与落地压扁都是连续动画：
+    // 留在 4fps 档会把它们切成一秒四格，动作越细腻越像卡带。
+    const animating = snapshot !== null
+      && (snapshot.activityProgress > 0 || snapshot.squash > 0);
+    if (moving) this.fps = FPS_HOVER;
+    else if (peekAnimating || this.bubbleExpand > 0 || animating) this.fps = FPS_ACTIVE;
+    else this.fps = FPS_IDLE;
+
+    if (snapshot) this.applyCompanionPose(snapshot);
     // 免打扰在源头闸住「睡着」这条分支（native #53/#67）：月牙与 Zzz 屏幕互斥，
     // art.ts 里的 `!quiet` 条只压得掉 Zzz 的尾巴，压不掉已经躺下的 mood:"sleep" 本体。
     // quiet 期间 sleep 档被改写成 idle——月牙是唯一的记号，不许睡脸冒充。
@@ -460,24 +663,39 @@ export class PixelPetRenderer {
     // setQuiet 只翻自身字段，draw 时必须回写进猫输入，否则月牙永远画不出来。
     this.cat.quiet = this.quiet;
 
-    // 变换里已折 zoom，clear/胶囊都要拿到 zoom 归一后的基址几何。
+    // 变换里已折 zoom，clear/气泡都要拿到 zoom 归一后的基址几何。
     const w = (this.opts.canvas.clientWidth || PET_W) / this.zoom;
     const h = (this.opts.canvas.clientHeight || PET_H) / this.zoom;
     this.ctx.clearRect(0, 0, w, h);
-    paintOps(this.ctx, [
-      ...buildCatOps(this.cat),
-      // P1 没有流量数据源：up/down 照实传 null（胶囊显示 "--"，「没连上内核」≠「连着但没流量」）；
-      // e=0、unread=0、无气泡。胶囊锚在窗口矩形 + growLeft，不跟猫体变换走（native main.rs:4976-4987）。
-      ...buildCapsuleOps({
+    const ops = buildCatOps(this.cat);
+    // 流量胶囊不再常驻：猫说话时窗口横长，气泡占右半边；读数搬进了侧边栏「网络」页。
+    if (this.bubbleExpand > 0 && this.bubbleText) {
+      ops.push(...buildBubbleOps({
         rectWidth: w,
         rectHeight: h,
-        e: 0,
-        growLeft: false,
-        up: null,
-        down: null,
-        unreadCount: 0,
-        bubbleVisible: false,
-      }),
-    ]);
+        growLeft: this.bubbleGrowLeft,
+        text: this.bubbleText,
+        be: this.bubbleExpand,
+      }));
+    }
+    paintOps(this.ctx, ops);
+  }
+
+  /** 行为快照 → 猫输入：动作进度只在这一个地方翻译，art.ts 不认识 companion。 */
+  private applyCompanionPose(snapshot: CompanionSnapshot): void {
+    this.cat.mood = snapshot.mood;
+    this.cat.facing = snapshot.facing;
+    this.cat.energy = snapshot.vitals.energy;
+    const progress = snapshot.activityProgress;
+    // 计时动作走一个正弦包络：0→1→0，起落都软，不会在半程「啪」地弹回站姿。
+    const pulse = progress > 0 ? Math.sin(Math.PI * progress) : 0;
+    this.cat.pose.walk = snapshot.activity === "walk" ? snapshot.step : 0;
+    this.cat.pose.squash = snapshot.squash;
+    this.cat.pose.paw = snapshot.activity === "groom" ? pulse : 0;
+    this.cat.pose.yawn = snapshot.activity === "yawn" ? pulse : 0;
+    this.cat.pose.stretch = snapshot.activity === "stretch" ? pulse : 0;
+    this.cat.pose.tilt = snapshot.activity === "tilt" ? 13 * pulse : 0;
+    this.cat.pet = snapshot.activity === "pet" ? Math.max(0.15, 1 - progress) : 0;
+    this.cat.pose.engagement = snapshot.activity === "walk" ? 0.4 : 0;
   }
 }

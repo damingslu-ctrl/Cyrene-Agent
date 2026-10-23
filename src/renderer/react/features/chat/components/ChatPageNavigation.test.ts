@@ -16,6 +16,9 @@ vi.mock("../../../components/ui/MomentsModeButton", () => ({
 vi.mock("../../../components/ui/ScheduledTasksModeButton", () => ({
   ScheduledTasksModeButton: () => createElement("span", null, "scheduled-tasks-button"),
 }));
+vi.mock("../../../components/ui/NetworkModeButton", () => ({
+  NetworkModeButton: () => createElement("span", null, "network-button"),
+}));
 vi.mock("../../../components/ui/WindowControls", () => ({
   WindowControls: () => createElement("span", null, "window-controls"),
 }));
@@ -58,8 +61,10 @@ describe("ChatPageNavigation", () => {
     expect(html).not.toContain("mode-switch");
     expect(html).toContain("moments-button");
     expect(html).toContain("scheduled-tasks-button");
+    expect(html).toContain("network-button");
     expect(html.indexOf("new-task-button")).toBeLessThan(html.indexOf("scheduled-tasks-button"));
     expect(html.indexOf("scheduled-tasks-button")).toBeLessThan(html.indexOf("moments-button"));
+    expect(html.indexOf("moments-button")).toBeLessThan(html.indexOf("network-button"));
     expect(html).toContain("conversation-sidebar");
   });
 
@@ -87,6 +92,7 @@ describe("ChatPageNavigation", () => {
 
     expect(html).not.toContain("model-button");
     expect(html).toContain("moments-button");
+    expect(html).toContain("network-button");
     expect(html).toContain("mode-switch");
   });
 });

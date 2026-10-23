@@ -61,10 +61,25 @@ function makeService(initial: { quietUntil: number | null; tuckEnabled: boolean 
   } as never;
 }
 
-/** 新建 mock 窗、挂菜单、触发一次右键，返回模板、handle 与两条收口的记账。 */
-function rightClick(service: VergeService, quit = vi.fn(), onQuietStateChange = vi.fn(), onTuckStateChange = vi.fn()) {
+/** 新建 mock 窗、挂菜单、触发一次右键，返回模板、handle 与全部收口的记账。 */
+function rightClick(
+  service: VergeService,
+  quit = vi.fn(),
+  onQuietStateChange = vi.fn(),
+  onTuckStateChange = vi.fn(),
+  onPetCommand = vi.fn(),
+  openNetworkPanel = vi.fn(),
+) {
   const win = new BrowserWindow() as unknown as BrowserWindow & { isDestroyed: () => boolean };
-  attachPetContextMenu({ window: win, service, quit, onQuietStateChange, onTuckStateChange });
+  attachPetContextMenu({
+    window: win,
+    service,
+    quit,
+    onQuietStateChange,
+    onTuckStateChange,
+    onPetCommand,
+    openNetworkPanel,
+  });
   const listener = mocks.contextMenuListeners.at(-1);
   if (!listener) throw new Error("context-menu listener was not registered");
   listener({}, {});
@@ -75,6 +90,8 @@ function rightClick(service: VergeService, quit = vi.fn(), onQuietStateChange = 
     win,
     onQuietStateChange,
     onTuckStateChange,
+    onPetCommand,
+    openNetworkPanel,
   };
 }
 
@@ -91,10 +108,14 @@ beforeEach(() => {
 });
 
 describe("attachPetContextMenu", () => {
-  it("右键弹出六项：安静半小时 / 取消安静 / 贴边藏身 / 隐藏 / 退出（藏身前有分隔线）", () => {
+  it("右键弹出互动 + 安静 + 窗口动作共 11 项（藏身前有分隔线）", () => {
     const { template, popup } = rightClick(makeService({ quietUntil: null, tuckEnabled: true }));
     const labels = template.filter((entry) => entry.type !== "separator").map((entry) => entry.label);
-    expect(labels).toEqual(["安静半小时", "取消安静", "贴边藏身", "隐藏", "退出"]);
+    expect(labels).toEqual([
+      "安静半小时", "取消安静", "贴边藏身",
+      "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样", "打开网络面板",
+      "隐藏", "退出",
+    ]);
     // 分隔线且只有一条，正好卡在「隐藏」前（性格动作 ⊖ 窗口动作的分界，native 托盘同类分法）。
     const hideIndex = template.findIndex((entry) => entry.label === "隐藏");
     expect(template[hideIndex - 1]).toMatchObject({ type: "separator" });
@@ -152,6 +173,40 @@ describe("attachPetContextMenu", () => {
     (win as unknown as { hide: unknown }).hide = hide;
     itemByLabel(template, "隐藏").click?.();
     expect(hide).toHaveBeenCalledOnce();
+  });
+
+  it("五条互动各送一条命令、网络项唤起主窗：不写盘也不惊动 quiet/tuck 收口", () => {
+    const service = makeService({ quietUntil: null, tuckEnabled: true });
+    const { template, onPetCommand, openNetworkPanel, onQuietStateChange, onTuckStateChange } = rightClick(service);
+    const cases: Array<[string, string]> = [
+      ["摸摸头", "pet"],
+      ["喂小鱼干", "feed"],
+      ["陪它玩", "play"],
+      ["哄它睡觉", "toggle-sleep"],
+      ["它现在怎么样", "status"],
+    ];
+    for (const [label, command] of cases) itemByLabel(template, label).click?.();
+    expect(onPetCommand.mock.calls).toEqual(cases.map(([, command]) => [command]));
+    itemByLabel(template, "打开网络面板").click?.();
+    expect(openNetworkPanel).toHaveBeenCalledOnce();
+    // 互动只是转发意图：菜单不持有宠物状态，更不许顺手改安静/藏身。
+    expect(onQuietStateChange).not.toHaveBeenCalled();
+    expect(onTuckStateChange).not.toHaveBeenCalled();
+    expect(service.writes).toEqual([]);
+    expect(service.tuckWrites).toEqual([]);
+  });
+
+  it("隐藏/退出不误发宠物命令，也不打开网络面板", () => {
+    const quit = vi.fn();
+    const { template, win, onPetCommand, openNetworkPanel } = rightClick(
+      makeService({ quietUntil: null, tuckEnabled: false }), quit,
+    );
+    (win as unknown as { hide: unknown }).hide = vi.fn();
+    itemByLabel(template, "隐藏").click?.();
+    itemByLabel(template, "退出").click?.();
+    expect(onPetCommand).not.toHaveBeenCalled();
+    expect(openNetworkPanel).not.toHaveBeenCalled();
+    expect(quit).toHaveBeenCalledOnce();
   });
 
   it("quiet 收口只认 quiet：点藏身/隐藏/退出不惊动它，也不顺手写 quiet 的盘", () => {

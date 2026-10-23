@@ -27,6 +27,8 @@ export class ClickThroughController {
   private rafId: number | null = null;
   private pendingPoint: { x: number; y: number } | null = null;
   private currentState: boolean | null = null;
+  /** 最后已知的光标屏幕位：窗口自己挪动时，用它重判「现在光标下面是什么」。 */
+  private lastPoint: { x: number; y: number } | null = null;
   private paused = false;
   private disposed = false;
 
@@ -41,6 +43,7 @@ export class ClickThroughController {
     this.onInteractive = options.onInteractive;
 
     canvas.addEventListener("pointermove", this.handleMove);
+    canvas.addEventListener("pointerleave", this.handleLeave);
   }
 
   pause(): void {
@@ -51,8 +54,24 @@ export class ClickThroughController {
   resume(): void {
     if (this.disposed) return;
     this.paused = false;
-    // 复位状态缓存：下一次 move 必须重新判定，而不是短路在过期的「已经可交互」上。
+    // 复位状态缓存：恢复判定而不是短路在过期的「已经可交互」上。
     this.currentState = null;
+    // 拖拽结束时窗口已被搬走、光标却还没动过：按最后光标点补判一次，
+    // 否则松手到下一次 move 之间，猫身上是穿透的。
+    this.refreshAfterWindowMove();
+  }
+
+  /**
+   * 漫游/气泡展开/拖拽把窗口在光标底下挪走之后调用：同一屏幕点按新窗口坐标重判。
+   * rAF 合帧——一次动画里连发多帧 PET_RESIZE 也只算一次。
+   */
+  refreshAfterWindowMove(): void {
+    if (this.disposed || this.paused) return;
+    if (!this.lastPoint) return;
+    this.pendingPoint = { ...this.lastPoint };
+    if (this.rafId === null) {
+      this.rafId = requestAnimationFrame(this.flush);
+    }
   }
 
   dispose(): void {
@@ -60,14 +79,24 @@ export class ClickThroughController {
     this.disposed = true;
     this.cancelPending();
     this.canvas.removeEventListener("pointermove", this.handleMove);
+    this.canvas.removeEventListener("pointerleave", this.handleLeave);
   }
 
   private handleMove = (event: PointerEvent): void => {
-    if (this.disposed || this.paused) return;
-    this.pendingPoint = { x: event.clientX, y: event.clientY };
+    if (this.disposed) return;
+    // 拖拽暂停期间也记位置：松手后的补判要用拖到的那个点，而不是起手点。
+    this.lastPoint = { x: event.clientX, y: event.clientY };
+    if (this.paused) return;
+    this.pendingPoint = { ...this.lastPoint };
     if (this.rafId === null) {
       this.rafId = requestAnimationFrame(this.flush);
     }
+  };
+
+  private handleLeave = (): void => {
+    // 光标出窗：窗口再动与它无关，不许拿旧点把命中状态翻回来。
+    this.lastPoint = null;
+    this.cancelPending();
   };
 
   private flush = (): void => {

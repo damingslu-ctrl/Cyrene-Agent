@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildCapsuleOps, buildCatOps, layerKinds, fmtSpeed, fmtSpeedOpt, SPOKEN_CAP } from "./art";
+import {
+  buildBubbleOps, buildCapsuleOps, buildCatOps, bubbleBoxRect, layerKinds,
+  fmtSpeed, fmtSpeedOpt, SPOKEN_CAP, wrapBubbleText,
+} from "./art";
 import { opsBounds, type DrawOp } from "./ops";
-import { INK, INK_SOFT, PAPER, parse, withAlpha } from "../../shared/pet-tokens";
+import { INK, INK_SOFT, PAPER, PET_PRIVATE, parse, withAlpha } from "../../shared/pet-tokens";
 import { CAT_COATS } from "../../shared/cat-coats";
 
 const S = (37 * 2) / 120; // u=37 档的 s（art.ts 的 `s = u*2/VB`）
@@ -158,6 +161,94 @@ describe("buildCatOps 层序", () => {
     // 第一枚 ph=0：锚点与半径就是 ui.rs:1116-1133 的原式
     expect(lobes[0].cy).toBeCloseTo(43 - 41 * S - 0.42 * (3 * S * 1.7), 6);
     expect(lobes[0].rx).toBeCloseTo(0.56 * 3 * S * 1.7, 6);
+  });
+});
+
+describe("comanion 姿态：朝向 / 走路 / 落地压扁", () => {
+  it("facing=-1 把整只猫镜像到中心左侧，且所有椭圆半径仍为正（负 rx 会让 ctx.ellipse 抛错）", () => {
+    const right = opsBounds(of(buildCatOps({ ...base, facing: 1 }), "tail"))!;
+    const left = opsBounds(of(buildCatOps({ ...base, facing: -1 }), "tail"))!;
+    expect(right.x).toBeGreaterThan(base.center.x);
+    expect(left.x + left.width).toBeLessThan(base.center.x);
+    for (const op of buildCatOps({ ...base, facing: -1 })) {
+      if (op.kind === "fillEllipse" || op.kind === "strokeEllipse") {
+        expect(op.rx).toBeGreaterThan(0);
+        expect(op.ry).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("走路：两只前爪交替抬起，身体整体起伏（影子留在原地）", () => {
+    const still = of(buildCatOps(base), "paws").filter(isEllipse);
+    expect(still[0].cy).toBeCloseTo(still[1].cy, 6);
+    const walking = of(buildCatOps({ ...base, pose: { ...base.pose, walk: Math.PI / 2 } }), "paws").filter(isEllipse);
+    expect(Math.abs(walking[0].cy - walking[1].cy)).toBeGreaterThan(0.5);
+    const bodyStill = opsBounds(of(buildCatOps(base), "body"))!;
+    const bodyWalk = opsBounds(of(buildCatOps({ ...base, pose: { ...base.pose, walk: Math.PI / 2 } }), "body"))!;
+    expect(bodyWalk.y).toBeLessThan(bodyStill.y);
+    // 影子不吃走路起伏：lift 只看跳跃，走路时脚没离地。
+    const shStill = opsBounds(of(buildCatOps(base), "ground_shadow"))!;
+    const shWalk = opsBounds(of(buildCatOps({ ...base, pose: { ...base.pose, walk: Math.PI / 2 } }), "ground_shadow"))!;
+    expect(shWalk).toEqual(shStill);
+  });
+
+  it("落地压扁绕脚部支点：眼睛向下、身体变矮", () => {
+    const upright = eyeWhites(buildCatOps(base));
+    const squashed = eyeWhites(buildCatOps({ ...base, pose: { ...base.pose, squash: 1 } }));
+    expect(squashed[0].cy).toBeGreaterThan(upright[0].cy + 0.5);
+    const hUp = opsBounds(of(buildCatOps(base), "body"))!.height;
+    const hDown = opsBounds(of(buildCatOps({ ...base, pose: { ...base.pose, squash: 1 } }), "body"))!.height;
+    expect(hDown).toBeLessThan(hUp);
+  });
+});
+
+describe("buildBubbleOps 对话气泡", () => {
+  const input = (over: Partial<Parameters<typeof buildBubbleOps>[0]> = {}) => ({
+    rectWidth: 172, rectHeight: 108, growLeft: false, text: "我在这儿呢", be: 1, ...over,
+  });
+
+  it("盒子贴着猫的对侧、整只落进 172×108，且近猫一侧有一个小尖角", () => {
+    const right = bubbleBoxRect(172, false, "我在这儿呢");
+    expect(right.x).toBeGreaterThan(60); // 猫在左半边，气泡在右
+    expect(right.x + right.w).toBeLessThanOrEqual(172);
+    expect(right.y).toBeGreaterThanOrEqual(0);
+    expect(right.y + right.h).toBeLessThanOrEqual(108);
+    const left = bubbleBoxRect(172, true, "我在这儿呢");
+    expect(left.x).toBeLessThan(40);
+    expect(left.x + left.w).toBeLessThan(90); // 不压到右移后的猫身
+    const ops = buildBubbleOps(input());
+    expect(of(ops, "bubble").map((op) => op.kind)).toEqual(["fillRoundRect", "fillPath", "text"]);
+  });
+
+  it("底是实色墨盒、字是墨白：气泡画在用户桌布上，半透底会读不出字", () => {
+    const ops = of(buildBubbleOps(input()), "bubble");
+    const box = ops[0] as RoundRect;
+    expect(box.fill).toBe(PET_PRIVATE.HUD_BOX);
+    const text = ops.filter(isText)[0];
+    expect(text.color).toBe(PET_PRIVATE.HUD_INK);
+    expect(text.text).toBe("我在这儿呢");
+    // 展开中淡入：be<1 时整块带 alpha，be=1 时是实色。
+    const half = of(buildBubbleOps(input({ be: 0.5 })), "bubble")[0] as RoundRect;
+    expect(half.fill).not.toBe(PET_PRIVATE.HUD_BOX);
+    expect(rgba(half).a).toBeCloseTo(0.5, 6);
+  });
+
+  it("长句按可用宽度换行：状态三件套至少两行，每一行都不超宽", () => {
+    const text = "亲密度 80% · 饱腹 90% · 精力 70%";
+    const lines = wrapBubbleText(text, 78, 9);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const width = (line: string) => [...line].reduce(
+      (sum, ch) => sum + (ch.charCodeAt(0) > 0x2e80 ? 9 : ch === " " ? 2.9 : 5.2),
+      0,
+    );
+    for (const line of lines) expect(width(line)).toBeLessThanOrEqual(78 + 1e-6);
+    expect(lines.join(" ").replace(/\s+/g, " ")).toBe(text);
+    const ops = buildBubbleOps(input({ text }));
+    expect(of(ops, "bubble").filter(isText)).toHaveLength(lines.length);
+  });
+
+  it("be=0 一个字节都不画：窗口还没长开时气泡不许先出屏", () => {
+    expect(buildBubbleOps(input({ be: 0 }))).toHaveLength(0);
   });
 });
 

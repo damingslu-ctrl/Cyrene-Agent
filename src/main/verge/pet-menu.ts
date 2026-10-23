@@ -9,7 +9,7 @@
  * 菜单纯动作：`params.x/y` 对宠物窗用不上，也不弹「拷贝图片」这类内容项。
  */
 import { Menu, type BrowserWindow, type MenuItemConstructorOptions } from "electron";
-import { IPC } from "../../shared/ipc-channels";
+import type { PetCommand } from "../../shared/pet-commands";
 import { armQuiet, isQuietNow, quietRemainingMinutes } from "./quiet-clock";
 import type { VergeService } from "./verge-service";
 
@@ -17,6 +17,8 @@ export interface MenuItemInit {
   label: string;
   enabled?: boolean;
   checked?: boolean;
+  /** 这一项前面插一条分隔线（只在需要的那一项上置真，避免重复插）。 */
+  separatorBefore?: boolean;
   action?: () => void;
 }
 
@@ -33,32 +35,45 @@ export interface PetMenuActions {
   quiet: () => void;
   cancelQuiet: () => void;
   toggleTuck: () => void;
+  pet: () => void;
+  feed: () => void;
+  play: () => void;
+  toggleSleep: () => void;
+  status: () => void;
+  openNetwork: () => void;
   hide: () => void;
   quit: () => void;
 }
 
 /**
- * 六条菜单项：安静半小时 / 安静中·剩 N 分（禁用）/ 取消安静 / 贴边藏身（勾）/ 隐藏 / 退出。
- * 安静期第一项换成「安静中 · 剩 N 分」且禁用，第二项「取消安静」亮起——仍点第一项 = 没有这回事。
+ * 互动 + 安静 + 窗口动作。前三条（安静/取消/藏身）位置保持不变：
+ * 旧习惯与旧验收都按这个顺序认；互动动作接在它们后面，窗口动作另起一段。
  */
 export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenuActions>): MenuItemInit[] {
   const quietOn = isQuietNow(input.quietUntil, input.now);
+  const bind = (action: (() => void) | undefined) => (action ? { action } : {});
   return [
     quietOn
       ? {
           label: `安静中 · 剩 ${quietRemainingMinutes(input.quietUntil!, input.now)} 分`,
           enabled: false,
-          ...(actions?.quiet ? { action: actions.quiet } : {}),
+          ...bind(actions?.quiet),
         }
       : {
           label: "安静半小时",
           enabled: true,
-          ...(actions?.quiet ? { action: actions.quiet } : {}),
+          ...bind(actions?.quiet),
         },
-    { label: "取消安静", enabled: quietOn, ...(actions?.cancelQuiet ? { action: actions.cancelQuiet } : {}) },
-    { label: "贴边藏身", enabled: true, checked: input.tuckEnabled, ...(actions?.toggleTuck ? { action: actions.toggleTuck } : {}) },
-    { label: "隐藏", enabled: true, ...(actions?.hide ? { action: actions.hide } : {}) },
-    { label: "退出", enabled: true, ...(actions?.quit ? { action: actions.quit } : {}) },
+    { label: "取消安静", enabled: quietOn, ...bind(actions?.cancelQuiet) },
+    { label: "贴边藏身", enabled: true, checked: input.tuckEnabled, ...bind(actions?.toggleTuck) },
+    { label: "摸摸头", enabled: true, ...bind(actions?.pet) },
+    { label: "喂小鱼干", enabled: true, ...bind(actions?.feed) },
+    { label: "陪它玩", enabled: true, ...bind(actions?.play) },
+    { label: "哄它睡觉", enabled: true, ...bind(actions?.toggleSleep) },
+    { label: "它现在怎么样", enabled: true, ...bind(actions?.status) },
+    { label: "打开网络面板", enabled: true, ...bind(actions?.openNetwork) },
+    { label: "隐藏", enabled: true, separatorBefore: true, ...bind(actions?.hide) },
+    { label: "退出", enabled: true, ...bind(actions?.quit) },
   ];
 }
 
@@ -82,6 +97,13 @@ export interface PetContextMenuInput {
    * 传达；菜单若绕过它，猫会一直藏到下次重启（VERGE_SET_TUCK 与此共用同一个函数）。
    */
   onTuckStateChange(enabled: boolean): void;
+  /**
+   * 互动动作发给宠物窗（摸摸/喂食/玩耍/睡觉/状态）。菜单不持有宠物状态，
+   * 只负责把意图送达；执行与落盘都在渲染端。
+   */
+  onPetCommand(command: PetCommand): void;
+  /** 「打开网络面板」：唤起主窗并让它切到网络页。 */
+  openNetworkPanel(): void;
 }
 
 /**
@@ -93,7 +115,7 @@ export interface PetContextMenuInput {
  * 不能缓存一份在挂载时算好的 items。
  */
 export function attachPetContextMenu(input: PetContextMenuInput): void {
-  const { window, service, quit, onQuietStateChange, onTuckStateChange } = input;
+  const { window, service, quit, onQuietStateChange, onTuckStateChange, onPetCommand, openNetworkPanel } = input;
   window.webContents.on("context-menu", (_event, _params) => {
     if (window.isDestroyed()) return;
     const now = Date.now();
@@ -120,6 +142,12 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
           // 落盘 + 广播同一个收口（Task 11 quiet 的先例）：两处各写各的就会有一处漏上行。
           onTuckStateChange(next);
         },
+        pet: () => onPetCommand("pet"),
+        feed: () => onPetCommand("feed"),
+        play: () => onPetCommand("play"),
+        toggleSleep: () => onPetCommand("toggle-sleep"),
+        status: () => onPetCommand("status"),
+        openNetwork: () => openNetworkPanel(),
         hide: () => {
           if (!window.isDestroyed()) window.hide();
         },
@@ -136,37 +164,24 @@ export function toElectronTemplate(
   window: BrowserWindow,
 ): MenuItemConstructorOptions[] {
   const template: MenuItemConstructorOptions[] = [];
-  items.forEach((item, index) => {
-    if (index > 0 && (item.label === "隐藏" || item.label === "退出")) {
-      // 放在「隐藏」前面这条分界线把「性格动作」与「窗口动作」分开（native 托盘同类分法）。
-      if (!template.some((entry) => entry.type === "separator")) {
-        // 只在藏身后插一次：上面 forEach 到 hide/quit 时前面的项都已经收好，
-        // 用 findIndex 判而不是每次都 push，避免「隐藏→退出」两条各插一条。
-        template.push({ type: "separator" });
-      }
-    }
+  for (const item of items) {
+    if (item.separatorBefore) template.push({ type: "separator" });
+    const click = () => {
+      if (window.isDestroyed()) return;
+      item.action?.();
+    };
     if (item.checked === undefined) {
-      template.push({
-        label: item.label,
-        enabled: item.enabled,
-        click: () => {
-          if (window.isDestroyed()) return;
-          item.action?.();
-        },
-      });
-      return;
+      template.push({ label: item.label, enabled: item.enabled, click });
+      continue;
     }
     template.push({
       label: item.label,
       type: "checkbox",
       checked: item.checked,
       enabled: item.enabled,
-      click: () => {
-        if (window.isDestroyed()) return;
-        item.action?.();
-      },
+      click,
     });
-  });
+  }
   return template;
 }
 

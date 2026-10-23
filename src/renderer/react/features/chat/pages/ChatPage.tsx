@@ -175,6 +175,11 @@ export function ChatPage({ onOpenSettings, scheduledTasksNavigation = 0 }: { onO
   useEffect(() => {
     if (scheduledTasksNavigation > 0) setActivePanel("scheduledTasks");
   }, [scheduledTasksNavigation]);
+  // 桌宠右键菜单的「打开网络面板」落在同一页，不另开窗口。
+  useEffect(() => {
+    const unsubscribe = window.verge?.onOpenNetworkPanel(() => setActivePanel("network"));
+    return () => unsubscribe?.();
+  }, []);
   /** 右侧面板已打开的 diff 标签，ID 规范 diff:<runId>:<文件路径>，同 ID 只激活不重开 */
   const [diffTabs, setDiffTabs] = useState<
     { id: string; runId: string; fileIndex: number; filePath: string }[]

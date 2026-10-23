@@ -10,7 +10,7 @@ export type PetLayer =
   | "bib" | "bib_ao" | "paws" | "paws_up"
   | "eyes" | "nose" | "mouth" | "blush"
   | "zzz" | "quiet_mark" | "heart" | "stars" | "badge"
-  | "capsule" | "unread";
+  | "capsule" | "unread" | "bubble";
 
 export type DrawOp =
   | { kind: "fillPath"; fill: string; points: Point2[]; layer?: PetLayer }

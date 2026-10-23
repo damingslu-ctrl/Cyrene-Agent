@@ -26,6 +26,15 @@ import type { SidebarOrganizationDraft, SidebarOrganizationResult, SidebarOrgani
 import type { ToastItem, ToastPushPayload } from "../shared/toast-types";
 import type { BrowserElementSelection, BrowserPanelBounds, BrowserPanelResult, BrowserPanelState } from "../shared/browser-panel-types";
 import type { LearnExamAnswerValue, LearnExamChangedEvent, LearnExamCreatedEvent, LearnExamView } from "../shared/learn-exam";
+import type {
+  NetworkActionResult,
+  NetworkAutoSelectResult,
+  NetworkSnapshot,
+  NetworkTestResult,
+  NetworkUpdate,
+  ProxyMode,
+} from "../shared/network-types";
+import type { PetCommand } from "../shared/pet-commands";
 
 // 渲染目标标识：preload 每次加载（即每次页面初始化/重新加载）生成一次，
 // 随活动会话一并上报主进程；同一页面内切换会话不改变该标识。
@@ -1090,5 +1099,40 @@ const vergeApi = {
   },
   /** 渲染端 → main：第一次藏身开口说过 TUCK_HINT，落盘 tuckHinted，不再重说。 */
   tuckHinted: () => ipcRenderer.send(IPC.VERGE_TUCK_HINTED),
+
+  // —— 网络页（主窗侧边栏）与桌宠互动 ——
+  network: {
+    get: () => ipcRenderer.invoke(IPC.VERGE_NETWORK_GET) as Promise<NetworkSnapshot>,
+    refresh: () => ipcRenderer.invoke(IPC.VERGE_NETWORK_REFRESH) as Promise<NetworkSnapshot>,
+    setMode: (mode: ProxyMode) =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_SET_MODE, mode) as Promise<NetworkActionResult>,
+    selectNode: (group: string, node: string) =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_SELECT_NODE, group, node) as Promise<NetworkActionResult>,
+    testGroup: (group: string) =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_TEST_GROUP, group) as Promise<NetworkTestResult>,
+    autoSelect: (group: string) =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_AUTO_SELECT, group) as Promise<NetworkAutoSelectResult>,
+    /** main → 渲染端：完整快照（10s）或单帧流量（1.5s）。 */
+    onUpdate: (callback: (update: NetworkUpdate) => void) => {
+      const listener = (_e: unknown, update: NetworkUpdate) => callback(update);
+      ipcRenderer.on(IPC.VERGE_NETWORK_UPDATE, listener);
+      return () => ipcRenderer.off(IPC.VERGE_NETWORK_UPDATE, listener);
+    },
+  },
+  /** main → 宠物窗：右键菜单选的互动动作。 */
+  onPetCommand: (callback: (command: PetCommand) => void) => {
+    const listener = (_e: unknown, command: PetCommand) => callback(command);
+    ipcRenderer.on(IPC.VERGE_PET_COMMAND, listener);
+    return () => ipcRenderer.off(IPC.VERGE_PET_COMMAND, listener);
+  },
+  /** 渲染端 → main：漫游/投掷落定后记一次位置（拖动走 setDragging，不重复写盘）。 */
+  settlePetPosition: (position: { x: number; y: number }) =>
+    ipcRenderer.send(IPC.VERGE_PET_POSITION_SETTLED, position),
+  /** main → 主窗：打开「网络」页（宠物右键菜单的入口）。 */
+  onOpenNetworkPanel: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(IPC.CYRENE_OPEN_NETWORK_PANEL, listener);
+    return () => ipcRenderer.off(IPC.CYRENE_OPEN_NETWORK_PANEL, listener);
+  },
 };
 contextBridge.exposeInMainWorld("verge", vergeApi);

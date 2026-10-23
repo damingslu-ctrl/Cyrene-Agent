@@ -36,6 +36,10 @@ export interface Pose {
   sprawl?: number;
   /** 蓬起量 0..1：横向炸开、尾幅加宽、耳外八。R-D8——「炸毛」近似。 */
   puff?: number;
+  /** 走路相位（弧度）：身体起伏 + 两只前爪交替抬落；0 = 站定。 */
+  walk?: number;
+  /** 落地压扁 0..1：绕脚部支点纵向压缩、横向摊开，影子跟着摊。 */
+  squash?: number;
   /** 日程/告警的「在意程度」0..1，供调度器用；draw_cat 本身不消费（native 同理）。 */
   engagement: number;
 }
@@ -52,6 +56,8 @@ export interface CatInput {
   pet: number;     // 摸头亲密度 0..1
   pose: Pose;
   quiet: boolean;  // 免打扰
+  /** 朝向：1 = 朝右（原画），-1 = 朝左（整只猫镜像）。省略 = 1。 */
+  facing?: 1 | -1;
   /** 花色；省略＝`INK_COAT`，也就是移植时照抄 native 的那套墨青猫。 */
   coat?: CatCoat;
 }
@@ -97,10 +103,13 @@ function xfGrad(xf: Xf, layer: PetLayer, cTop: string, cBot: string, y0: number,
   };
 }
 
-/** 对 `ellipse`（ui.rs:468-474）：半径带 `xf.s * xf.sx/sy`，中心过 xf。 */
+/**
+ * 对 `ellipse`（ui.rs:468-474）：半径带 `xf.s * xf.sx/sy`，中心过 xf。
+ * ⚠️ 半径取绝对值：朝向镜像用负 `sx` 实现，负半径会让 `ctx.ellipse` 抛 IndexSizeError。
+ */
 function xfEllipse(xf: Xf, layer: PetLayer, fill: string, cx: number, cy: number, rx: number, ry: number): DrawOp {
   const [x, y] = xf.map([cx, cy]);
-  return { kind: "fillEllipse", fill, cx: x, cy: y, rx: rx * xf.s * xf.sx, ry: ry * xf.s * xf.sy, layer };
+  return { kind: "fillEllipse", fill, cx: x, cy: y, rx: rx * xf.s * Math.abs(xf.sx), ry: ry * xf.s * Math.abs(xf.sy), layer };
 }
 
 /** 对 `circle`（ui.rs:476-478）：双轴同半径的高光用这个，不要拿 ry 当半径。 */
@@ -207,6 +216,7 @@ function bendPoly(poly: Point2[], dx: number, dy: number, deg: number, cx: numbe
 export function buildCatOps(input: CatInput): DrawOp[] {
   const { center, u, mood, t, energy, mouse, blink, jumpY, pet, pose, quiet } = input;
   const c = input.coat ?? INK_COAT;
+  const facing = input.facing ?? 1;
   const sleep = mood === "sleep" ? 1 : 0;
   const s = (u * 2.0) / VB;
 
@@ -218,19 +228,23 @@ export function buildCatOps(input: CatInput): DrawOp[] {
   const rot_deg = Math.sin(t * 0.4) * 3.0 * (1.0 - sleep) * settle;
   const sprawl = Math.max(0, Math.min(1, pose.sprawl ?? 0));
   const puff = Math.max(0, Math.min(1, pose.puff ?? 0));
-  const sx_all = (1.0 + 0.055 * pose.stretch + 0.30 * sprawl + 0.14 * puff) * (1 + 0.05 * puff);
-  const sy_all = sy_body * (1.0 - 0.075 * pose.stretch - 0.34 * sprawl) * (1 + 0.07 * puff);
+  const squash = Math.max(0, Math.min(1, pose.squash ?? 0));
+  const walk = pose.walk ?? 0;
+  // 走路起伏只抬身子（dy 取负=向上），影子留在地面：脚没离地。
+  const walkLift = Math.max(0, Math.sin(walk)) * 1.6;
+  const sx_all = (1.0 + 0.055 * pose.stretch + 0.30 * sprawl + 0.14 * puff) * (1 + 0.05 * puff) * (1 + 0.12 * squash);
+  const sy_all = sy_body * (1.0 - 0.075 * pose.stretch - 0.34 * sprawl) * (1 + 0.07 * puff) * (1 - 0.18 * squash);
 
-  // 身体变换 xf（整只猫）
+  // 身体变换 xf（整只猫）：朝向镜像走负 sx，绕脚部支点 (60,100) 翻。
   const xf = new Xf();
   xf.s = s; xf.ox = center.x - 60 * s; xf.oy = center.y - 70 * s;
-  xf.sx = sx_all; xf.sy = sy_all; xf.dy = dy_total;
+  xf.sx = sx_all * facing; xf.sy = sy_all; xf.dy = dy_total - walkLift;
   xf.rot = rot_deg * (Math.PI / 180); xf.px = 60; xf.py = 100;
 
   // 影子变换 sh（比身体右下各偏 3s/5s）
   const sh = new Xf();
   sh.s = s; sh.ox = xf.ox + 3 * s; sh.oy = xf.oy + 5 * s;
-  sh.sx = sx_all; sh.sy = sy_all; sh.dy = dy_total; sh.rot = xf.rot; sh.px = 60; sh.py = 100;
+  sh.sx = sx_all * facing; sh.sy = sy_all; sh.dy = dy_total; sh.rot = xf.rot; sh.px = 60; sh.py = 100;
 
   // 脸部变换 fx（歪头）
   const fx = new Xf();
@@ -294,10 +308,12 @@ export function buildCatOps(input: CatInput): DrawOp[] {
 
   // —— 前爪（白手套）ui.rs:761-781 ——
   const push = pose.stretch;
-  for (const [pxBase, raised] of [[43, pose.paw > 0.02], [77, false]] as [number, boolean][]) {
-    if (raised) continue;
+  for (const [i, pxBase] of ([43, 77] as const).entries()) {
+    if (i === 0 && pose.paw > 0.02) continue;
+    // 走路：两只前爪反相抬落（walk 是相位，不是幅度）。
+    const step = Math.max(0, Math.sin(walk + i * Math.PI)) * 1.8;
     const cx = pxBase + (pxBase - 60) * 0.12 * push;
-    const cy = 99 + 3.4 * push;
+    const cy = 99 + 3.4 * push - step;
     byLayer.paws.push(xfEllipse(xf, "paws", c.light, cx, cy, 7.4 + 1.2 * push, 5.6 - 1.6 * push));
     byLayer.paws.push(xfArc(xf, "paws", withAlpha(c.shade, 0.95), 2.2, cx - 5.5, cy + 1.5, cx, cy + 5.5, cx + 5.5, cy + 1.5));
   }
@@ -313,6 +329,8 @@ export function buildCatOps(input: CatInput): DrawOp[] {
   } else {
     pupil = [Math.sin(t * 0.6) * 0.9, Math.cos(t * 0.3) * 0.5];
   }
+  // 视线在屏幕空间算，瞳孔却画在 viewBox 里：镜像后不翻符号，猫会「看着相反方向」。
+  if (facing < 0) pupil = [-pupil[0], pupil[1]];
   const blinkEff = Math.max(blink, sleep, 0.62 * pet, 0.92 * pose.yawn, quiet ? 0.82 : 0);
   const lid_a = Math.max(0, Math.min(1, (blinkEff - 0.55) / 0.45));
   const open = Math.max(0.08, 1.0 - 0.92 * blinkEff);
@@ -414,7 +432,7 @@ export function buildCatOps(input: CatInput): DrawOp[] {
   if (sleep > 0.5 && !quiet) {
     for (let i = 0; i < 3; i++) {
       const ph = (t * 0.45 + i / 3) % 1.0;
-      const zx = center.x + (26 + 16 * ph) * s;
+      const zx = center.x + facing * (26 + 16 * ph) * s;
       const zy = center.y - (52 + 30 * ph) * s;
       const a = Math.max(0, Math.min(1, (1 - ph) * (sleep - 0.5) * 2));
       const fs = (9 + 7 * ph) * s * 1.6;
@@ -428,7 +446,7 @@ export function buildCatOps(input: CatInput): DrawOp[] {
 
   // —— 免打扰月牙：两耳中间的空档挂一弯 ui.rs:1094-1114（屏幕坐标，不走 Xf）——
   if (quiet) {
-    const mc: Point2 = [center.x + 6.5 * s, center.y - 51.5 * s];
+    const mc: Point2 = [center.x + facing * 6.5 * s, center.y - 51.5 * s];
     const rr = 1.28 * 9 * s;
     byLayer.quiet_mark.push({ kind: "crescent", fill: INK, cx: mc[0], cy: mc[1], r: rr, dx: 0.42 * rr, dy: -0.30 * rr, cut: 0.92 * rr, layer: "quiet_mark" });
     const r2 = 9 * s;
@@ -439,7 +457,7 @@ export function buildCatOps(input: CatInput): DrawOp[] {
   if (pet > 0.12) {
     for (let i = 0; i < 3; i++) {
       const ph = (t * 0.55 + i / 3) % 1.0;
-      const hx = center.x + (14 + 11 * ph) * s + Math.sin(ph * 6 + i) * 3 * s;
+      const hx = center.x + facing * ((14 + 11 * ph) * s + Math.sin(ph * 6 + i) * 3 * s);
       const hy = center.y - (41 + 18 * ph) * s;
       const a = Math.max(0, Math.min(1, (1 - ph) * (pet - 0.12) / 0.88));
       const r = (3 + 2.4 * ph) * s * 1.7;
@@ -457,7 +475,7 @@ export function buildCatOps(input: CatInput): DrawOp[] {
       const ox = i === 0 ? -54 : 58, oy = i === 0 ? -46 : -58;
       const ph = Math.max(0, Math.sin(t * 1.6 + i * 1.9));
       if (ph < 0.05) continue;
-      const sx2 = center.x + ox * s, sy2 = center.y + oy * s - 8 * ph * s;
+      const sx2 = center.x + facing * ox * s, sy2 = center.y + oy * s - 8 * ph * s;
       const rr = (2 + 2.2 * ph) * s * 1.6;
       const col = withAlpha(c.light, ph * 0.7);
       byLayer.stars.push({ kind: "strokePath", stroke: col, width: 1.2, points: [[sx2 - rr, sy2], [sx2 + rr, sy2]], layer: "stars" });
@@ -572,6 +590,94 @@ export function fmtSpeed(b: number): string {
 /** 未连接时胶囊显示 "--"，不是 "0 B/s"——「没连上」和「连着但没流量」是两件事。 */
 export function fmtSpeedOpt(b: number | null): string {
   return b === null ? "--" : fmtSpeed(b);
+}
+
+// ===========================================================================
+// 对话气泡（companion 的嘴）：跟猫并排、贴窗口对侧，整块落进 172×108
+// ===========================================================================
+
+/**
+ * 气泡盒的几何。`w` 是硬上限：growLeft 档左缘 = 2、右缘 = 2+86 = 88，
+ * 必须停在 90 以内，否则会压到右移 90px 后的猫身（BUB_W 172 = 82+90）。
+ */
+export const BUBBLE = { w: 86, margin: 2, padX: 4, padY: 6, lineH: 12, font: 9, r: 8, y: 8 } as const;
+
+/**
+ * 按可用宽度贪心换行。字宽取近似排印值（CJK 1em、空格 0.32em、其余 0.58em）——
+ * 只用来决定断行，不参与合成；合成由 Chromium 自己量。
+ */
+export function wrapBubbleText(text: string, maxWidth: number, fontSize: number): string[] {
+  const charWidth = (ch: string): number => {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp > 0x2e80) return fontSize;
+    if (ch === " ") return fontSize * (2.9 / 9);
+    return fontSize * (5.2 / 9);
+  };
+  const widthOf = (line: string): number => [...line].reduce((sum, ch) => sum + charWidth(ch), 0);
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [""];
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (widthOf(next) <= maxWidth) { line = next; continue; }
+    if (line) lines.push(line);
+    if (widthOf(word) <= maxWidth) { line = word; continue; }
+    // 一个词（常见：整句中文不带空格）比整行还宽：按字硬切，宁可多一行也不出盒。
+    let chunk = "";
+    for (const ch of [...word]) {
+      if (chunk && widthOf(chunk + ch) > maxWidth) { lines.push(chunk); chunk = ""; }
+      chunk += ch;
+    }
+    line = chunk;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+export interface BubbleBox { x: number; y: number; w: number; h: number }
+
+export function bubbleBoxRect(rectWidth: number, growLeft: boolean, text: string): BubbleBox {
+  const lines = wrapBubbleText(text, BUBBLE.w - BUBBLE.padX * 2, BUBBLE.font);
+  const h = BUBBLE.padY * 2 + BUBBLE.lineH * Math.max(1, lines.length);
+  const x = growLeft ? BUBBLE.margin : rectWidth - BUBBLE.margin - BUBBLE.w;
+  return { x, y: BUBBLE.y, w: BUBBLE.w, h };
+}
+
+export interface BubbleInput {
+  rectWidth: number;
+  rectHeight: number;
+  growLeft: boolean;
+  text: string;
+  /** 展开进度 0..1（窗口还没长开时是 0：一个字节都不画）。 */
+  be: number;
+}
+
+export function buildBubbleOps(input: BubbleInput): DrawOp[] {
+  const be = Math.max(0, Math.min(1, input.be));
+  if (be <= 0) return [];
+  const box = bubbleBoxRect(input.rectWidth, input.growLeft, input.text);
+  // 气泡压在用户桌布上：底必须不透明（PET_PRIVATE.HUD_BOX），半透底会读不出字。
+  const boxFill = be >= 1 ? HUD_BOX : withAlpha(HUD_BOX, be);
+  const ink = be >= 1 ? HUD_INK : withAlpha(HUD_INK, be);
+  // 近猫一侧的小尖角：growLeft 档猫在右边，尖角朝右。
+  const tip: Point2[] = input.growLeft
+    ? [[box.x + box.w, box.y + 10], [box.x + box.w + 5, box.y + 15], [box.x + box.w, box.y + 20]]
+    : [[box.x, box.y + 10], [box.x - 5, box.y + 15], [box.x, box.y + 20]];
+  const ops: DrawOp[] = [
+    { kind: "fillRoundRect", fill: boxFill, x: box.x, y: box.y, w: box.w, h: box.h, r: BUBBLE.r, layer: "bubble" },
+    { kind: "fillPath", fill: boxFill, points: tip, layer: "bubble" },
+  ];
+  const lines = wrapBubbleText(input.text, BUBBLE.w - BUBBLE.padX * 2, BUBBLE.font);
+  lines.forEach((line, i) => {
+    ops.push({
+      kind: "text", text: line,
+      x: box.x + BUBBLE.padX,
+      y: box.y + BUBBLE.padY + BUBBLE.lineH * i + BUBBLE.lineH / 2,
+      size: BUBBLE.font, color: ink, align: "left", layer: "bubble",
+    });
+  });
+  return ops;
 }
 
 export function buildCapsuleOps(input: CapsuleInput): DrawOp[] {
