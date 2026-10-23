@@ -185,23 +185,32 @@ export function GeneralSettingsPanel() {
 
         <section className="cy-settings-section">
           <Card>
-            <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong><Info size={16} /> {t("settingsPage.general.about")}</strong><span>{t("settingsPage.general.aboutDescription")} · {versionLabel}{versionTitleKey && ` · ${t(versionTitleKey)}`}</span></div></div>
-            {/* 版本信息三行只读：没有「检查更新」按钮，也没有任何可以点出失败的动作 */}
+            <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong><Info size={16} /> {t("settingsPage.general.about")}</strong><span>{t("settingsPage.general.aboutDescription")}</span></div></div>
+            {/* 版本信息只读：没有「检查更新」按钮，也没有任何可以点出失败的动作 */}
             <div className="cy-settings-row">
               <div className="cy-settings-row__copy">
                 <strong>{t("ui.version.menuEntry")}</strong>
-                <span>{t(appInfoView?.noteKey ?? "appUpdate.localBuild")}</span>
+                <span>{versionLabel}{versionTitleKey && ` · ${t(versionTitleKey)}`}</span>
               </div>
             </div>
             <div className="cy-settings-row">
               <div className="cy-settings-row__copy">
-                <strong>{t("settingsPage.general.dataDir")}</strong>
-                <span>{appInfo?.dataDirName ?? "—"}</span>
-              </div>
-              <div className="cy-settings-row__control">
-                <Button icon={<FolderOpen size={14} />} onClick={() => void openDataDir()}>{t("settingsPage.general.openDataDir")}</Button>
+                <strong>{t("settingsPage.general.buildChannel")}</strong>
+                <span>{t(appInfoView?.noteKey ?? "appUpdate.localBuild")}</span>
               </div>
             </div>
+            {dataDir && (
+              <div className="cy-settings-row">
+                <div className="cy-settings-row__copy">
+                  <strong>{t("settingsPage.general.dataDir")}</strong>
+                  <span>{t("settingsPage.general.dataDirDescription")}</span>
+                  <span className="cy-settings-general__path" data-testid="settings-data-dir">{dataDir}</span>
+                </div>
+                <div className="cy-settings-row__control">
+                  <Button icon={<FolderOpen size={14} />} onClick={() => void openDataDir()}>{t("settingsPage.general.openDataDir")}</Button>
+                </div>
+              </div>
+            )}
           </Card>
         </section>
 

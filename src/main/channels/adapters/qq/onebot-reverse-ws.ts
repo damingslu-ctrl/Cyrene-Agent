@@ -47,7 +47,7 @@ export function resolveOneBotListenHost(
 
   // 网卡枚举（uv_interface_addresses）在受限环境（部分 Linux 容器/沙箱）会抛
   // ERR_SYSTEM_ERROR，而 loopback/custom 不依赖网卡——枚举必须停留在只有
-  // wsl/auto 才会到达的位置，不能作为参数默认值提前求值（#218）。
+  // wsl/auto 才会到达的位置，不能作为参数默认值提前求值（issue 218）。
   const available = interfaces ?? networkInterfaces();
   const wslAddress = Object.entries(available)
     .filter(([name]) => /wsl/i.test(name))

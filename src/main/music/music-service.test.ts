@@ -591,7 +591,7 @@ describe("MusicService (M3 OpenAPI)", () => {
       expect(download).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: ENC2, name: "selected" }), "https://example.test/selected.mp3");
       await downloader.getDownloadPromise(ENC2);
       if (selectedCached) expect(fetchMock).not.toHaveBeenCalled();
-      else expect(fetchMock).toHaveBeenCalledExactlyOnceWith("https://example.test/selected.mp3");
+      else expect(fetchMock).toHaveBeenCalledExactlyOnceWith("https://example.test/selected.mp3", { redirect: "manual" });
 
       const reopened = new CacheDownloader(dir);
       await reopened.initialize();

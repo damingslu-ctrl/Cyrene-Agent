@@ -899,6 +899,8 @@
       "viewportModeCustom": "Custom",
       "viewportModeAutoDescription": "When the panel is narrow, sites are opened as a phone would (Baidu, Bing and others show their mobile layout); wider panels switch back to desktop.",
       "viewportModeCustomDescription": "Always open sites as a desktop browser.",
+      "retry": "Retry",
+      "clearCookies": "Clear cookies",
       "clearCookiesDescription": "Remove sign-in cookies saved by the embedded browser. The current page reloads afterward.",
       "confirmTitle": "Clear browser cookies?",
       "confirmDescription": "Websites may sign you out. Cache, history, and system Edge cookies are not cleared.",

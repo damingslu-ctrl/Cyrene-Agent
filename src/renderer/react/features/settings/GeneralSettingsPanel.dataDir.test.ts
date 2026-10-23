@@ -95,7 +95,8 @@ describe("通用设置：数据目录", () => {
 
     expect(host.querySelector("[data-testid='settings-data-dir']")).toBeNull();
     expect(buttonByText(host, "打开文件夹")).toBeUndefined();
-    expect(host.textContent).toContain("软件更新");
+    // 更新器已随 P4 摘除，这里改用始终存在的「构建方式」证明其余设置没被拖垮
+    expect(host.textContent).toContain("构建方式");
   });
 
   it("旧版 preload 没有该接口时不报错，也不显示该行", async () => {
@@ -103,6 +104,6 @@ describe("通用设置：数据目录", () => {
     const host = await renderPanel();
 
     expect(host.querySelector("[data-testid='settings-data-dir']")).toBeNull();
-    expect(host.textContent).toContain("软件更新");
+    expect(host.textContent).toContain("构建方式");
   });
 });
