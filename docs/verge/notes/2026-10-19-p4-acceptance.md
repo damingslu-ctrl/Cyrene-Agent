@@ -3,8 +3,12 @@
 - 计划：[docs/verge/plans/2026-10-19-p4-personalization-mochi.md](../plans/2026-10-19-p4-personalization-mochi.md)
 - Spec：[docs/verge/specs/2026-10-19-mochi-personalization-design.md](../specs/2026-10-19-mochi-personalization-design.md)
 - 分支 `verge`；**代码收口**提交 `f65cc73d`，本文件随文档收口提交 `ef0db71c` 落库；
-  之后又跑了**终审修复轮** `21a18032…8a4bcfb0`（7 笔，见 §8）。
-  `master..HEAD` 共 **107** 个提交（截至 `8a4bcfb0`；本文档随后的文档提交不计入该数），
+  之后又跑了**终审修复轮**：**8 笔修复提交** `21a18032…3469cfda`（见 §8），
+  另有 3 笔文档提交（`7cd91857` / `1c09c6be` / `bf6830a8`）；
+  `ef0db71c..3469cfda` 共 **11 个提交**，其中复审射程是前 10 个，
+  第 11 个 `3469cfda` 是复审后的修复。
+  `master..HEAD` 截至 `3469cfda` 为 **109** 个提交；本节落库后总数为 **110**
+  （`git rev-list --count master..HEAD` 可复验）。
   修复轮结束时 `git status --short` 为空。
 - 机器：Windows 11 / Git Bash / Node v24.18.0 / Electron 44.4.3，账号**不在** Administrators 组。
 - 证据根目录 `D:\cyrene-p4-accept\`（截图 / 报告 / 日志），**全部在仓外**，不进 git。
@@ -19,14 +23,16 @@
 
 | 门 | 命令 | 结果 |
 | --- | --- | --- |
-| 类型（主进程） | `npx tsc -p tsconfig.main.json --noEmit` | **exit 0** |
-| 类型（preload） | `npx tsc -p tsconfig.preload.json --noEmit` | **exit 0** |
-| 类型（renderer） | `npx tsc -p tsconfig.renderer.json` | **exit 0**（该项目**没有** `noEmit`，不是本期的改动，按 R-D6 不动） |
+| 类型（主进程） | `npx tsc -p tsconfig.main.json --noEmit` | **exit 0**（B-5～B-7 后复跑，日志 `D:\cyrene-p4-accept\fix3-tsc-main.log`） |
+| 类型（preload） | `npx tsc -p tsconfig.preload.json --noEmit` | **exit 0**（日志 `fix3-tsc-preload.log`） |
+| 类型（renderer） | `npx tsc -p tsconfig.renderer.json` | **exit 0**（该项目**没有** `noEmit`，不是本期的改动，按 R-D6 不动；日志 `fix3-tsc-renderer.log`） |
 | 全量测试 | `CI=true npx vitest run` | **Test Files 593 passed (593) · Tests 5677 passed \| 1 skipped (5678) · Duration 162.43s · exit 0**（日志 `D:\cyrene-p4-accept\final-vitest.log`） |
-| 全量测试（修复轮终验） | `CI=true npx vitest run > D:/cyrene-p4-accept/fix2-vitest.log 2>&1; echo "exit=$?"` | **Test Files 596 passed (596) · Tests 5722 passed \| 1 skipped (5723) · 188.58s · exit 0**（B-4 逐跳重定向之后） |
+| 全量测试（B-4 后） | `CI=true npx vitest run > D:/cyrene-p4-accept/fix2-vitest.log 2>&1; echo "exit=$?"` | **Test Files 596 passed (596) · Tests 5722 passed \| 1 skipped (5723) · 188.58s · exit 0** |
+| 全量测试（B-5～B-7 后终验） | `CI=true npx vitest run > D:/cyrene-p4-accept/fix3-vitest.log 2>&1; echo "exit=$?"` | **Test Files 597 passed (597) · Tests 5766 passed \| 1 skipped (5767) · 186.01s · exit 0** |
 | 资产像素尺 | `node scripts/build/cat-sprites.mjs --check` | `checked 198 targets · 12 只猫 × 6 档 + 25 档散点 + 17 张非角色 + 52 张表情` / **all clear** · exit 0 |
-| 出口静态锁 | `CI=true npx vitest run src/main/egress` | **8 files / 61 tests passed**（修复轮终验；收口时为 43 条，A2/A6/A7/A8 与 `safe-fetch` 单测共同补到 61） |
-| 终审修复轮定向回归 | `CI=true npx vitest run src/main/egress/ src/main/browser/ src/main/orchestrator/tools/builtin-tools/ src/renderer/react/features/chat/components/svg-sanitize.test.ts` | **23 files / 182 tests passed** |
+| 出口静态锁 | `CI=true npx vitest run src/main/egress` | **8 files / 73 tests passed**（B-5～B-7 后复跑；日志 `fix3-egress.log`。收口时为 43 条，A2/A6/A7/A8 与 `safe-fetch` 单测共同补到该数） |
+| 终审修复轮定向回归（B-4 后） | `CI=true npx vitest run src/main/egress/ src/main/browser/ src/main/orchestrator/tools/builtin-tools/ src/renderer/react/features/chat/components/svg-sanitize.test.ts` | **23 files / 182 tests passed** |
+| 终审修复轮定向回归（B-5～B-7 后） | `CI=true npx vitest run src/main/egress src/main/music src/main/orchestrator/tools/builtin-tools src/renderer/react/features/chat/components src/shared/upstream-hosts.test.ts` | **96 files / 845 tests passed · 64.44s**（日志 `fix3-targeted.log`） |
 | 运行时出口 | `npx electron . --user-data-dir=D:\cyrene-p4-accept\profile7 --egress-probe=20000` | stdout 末行 `[egress-probe] external=0 -> …\profile7\egress-probe.json`，**退出码 0**；JSON 里 `"external": []`（键名是 `external`，计划里写的 `entries` 是笔误，见落地记录） |
 
 **关于「全绿」的诚实补充**：出口尺的 `external=0` 一开始是**假绿**（探针档排完尺就 `return`，量的是一个空转进程，R-31-3）。
@@ -216,12 +222,20 @@ min / p50 / max 三项与台账**逐位相同**。差异只在总量那一行的
 - **A8 的射程只到 `fetch_url` / `download_file`**（R-F8）：逐跳闸门修的是这两把工具；新增的主进程外呼
   （`net.fetch`、第三方 SDK 自带下载器等）必须自己接 `fetchWithoutUpstreamRedirects()` 并补锁，
   **「有 A8」不等于「所有外呼都逐跳校验」**。
+- **OneBot 附件下载仍是裸 `fetch`**（`src/main/channels/adapters/qq/onebot-media.ts:260`）：
+  附件 URL 由用户自建的 OneBot 实现给出，客户端只做 `http(s)` 协议检查，**没有过上游闸门**。
+  它不在 P4 的「客户端主动访问上游」口径内（地址不来自品牌/更新链路），但若对方把 URL 指向上游，
+  这个出口会真的发请求。下期接 `fetchWithoutUpstreamRedirects()` 并补一条单测即可。
+- **A7 / A8 是文本匹配，不是语义分析**：正则只看源码里有没有调用形状，把调用**注释掉**仍可能满足。
+  它们的作用是「防止整段被删/被换回 `follow`」的绊线，不能替代各入口的行为单测。
+- **内置浏览器控制器的七个入口没有各自的行为单测**：`browser-navigation.test.ts` 证明闸门本身、
+  A7 证明控制器还在调用它；但「某个入口漏传/传错 URL」只能靠代码审查兜底，下期补入口级测试。
 
 ---
 
 ## 6. 尺子坏过几次（不是产品坏了，但必须记）
 
-数出来的：**11 处**，前 9 处在 Task 31 的第二层与第三层，第 10、11 处在终审修复轮（§8），坏的全是尺。
+数出来的：**14 处**，前 9 处在 Task 31 的第二层与第三层，第 10～14 处在终审修复轮（§8），坏的全是尺。
 
 - **R-31-1**：`--egress-probe` 第一次真跑就弹模态 Error 框，进程不退出也不落盘。
   根因：探针档的 userData 已在卷根下一层，`path.dirname(userData)` 就是 `D:\`，
@@ -247,6 +261,17 @@ min / p50 / max 三项与台账**逐位相同**。差异只在总量那一行的
 - **R-F9**：全量的退出码被管道吃掉。`CI=true npx vitest run 2>&1 | tail -12` 报的是 **`tail` 的 0**，
   而那一轮实际是 `1 failed | 594 passed`——失败被读到成了通过。
   固定写法：先 `> 日志 2>&1`，再 `echo "exit=$?"`，最后看日志尾；**`| tail` 永远不许当退出码判据**。
+- **R-F10**：域名闸门把尾点当成主机名的一部分。`new URL("https://github.com./x").hostname`
+  是 `github.com.`，与黑名单 `github.com` 不相等，于是**整条闸门被一个点绕过**；
+  原单测只测无尾点写法，尺子从头到尾没照过这个面。修法是比较前 `.replace(/\.+$/, "")`，
+  并用 `upstream-hosts.test.ts` 的 25 条把尾点、大小写、仿冒域名（`notgithub.com` 等）钉住。
+- **R-F11**：SVG 样式的尺把「过了 DOMPurify」当成「外链已断」。DOMPurify 不解析 `<style>` 里的
+  `url()`，`@import` 还能用 `/**/` 分隔或十六进制转义（`@im\70 ort`）躲开正则。
+  修法：先剥 CSS 注释、解 CSS 转义再匹配；上游 `url()` 换成 `url("data:,")`；
+  表现属性/`style` 属性另加 `uponSanitizeAttribute` hook。
+- **R-F12**：A6 的正则写成 `installEgressWatchdog(?:Everywhere)?\(` ——
+  **退回「只挂 defaultSession」也照样通过**，静态锁没有牙。收紧为 `installEgressWatchdogEverywhere\(` 后，
+  把组合根改回旧调用，A6 当场红（§8 变异 M4）。
 
 ---
 
@@ -266,8 +291,11 @@ node scripts/build/sync-brand.mjs --check
 # 运行时出口（探针档必须真的启动应用）
 npx electron . --user-data-dir=D:\cyrene-p4-accept\profile7 --egress-probe=20000
 
-# 终审修复轮定向回归（出口 / 内置浏览器 / 两个抓取工具 / SVG 消毒）
+# 终审修复轮定向回归（B-4 后）：出口 / 内置浏览器 / 两个抓取工具 / SVG 消毒
 CI=true npx vitest run src/main/egress/ src/main/browser/ src/main/orchestrator/tools/builtin-tools/ src/renderer/react/features/chat/components/svg-sanitize.test.ts
+
+# 终审修复轮定向回归（B-5～B-7 后）：出口 / 音乐缓存 / 内置工具 / SVG 消毒 / 域名判定
+CI=true npx vitest run src/main/egress src/main/music src/main/orchestrator/tools/builtin-tools src/renderer/react/features/chat/components src/shared/upstream-hosts.test.ts
 
 # 视觉
 node scripts/verify/p4-visual-oracle.mjs D:\cyrene-p4-accept\shots
@@ -281,12 +309,13 @@ node scripts/verify/p4-visual-oracle.mjs D:\cyrene-p4-accept\shots
 ## 8. 终审修复轮（2026-10-23）
 
 Task 32 冻结后做整分支终审，又扫出三处「上游仍可访问」的洞、两片锁的盲区和一条空转测试；
-收口前复看两把联网工具，又发现一个**重定向旁路**（B-4）。
-修复轮共 7 笔提交：`21a18032`（TS/TSX 上游粉）、`72cacbb7`（派生锁 `var()` 间接层）、
+收口前复看两把联网工具，又发现一个**重定向旁路**（B-4）；
+`ef0db71c..bf6830a8` 的 scoped 复审再扫出三处出口洞（B-5～B-7）与一片静态锁的假牙（A6）。
+修复轮共 **8 笔修复提交**：`21a18032`（TS/TSX 上游粉）、`72cacbb7`（派生锁 `var()` 间接层）、
 `9b9cbea7`（颜色锁 hsl + TS/TSX）、`d92f541f`（扫描扩展名 / 标题锁 / CI）、
 `d1e8644c`（B-1/B-2/B-3）、`ed693cd6`（模型可见快照 + `install_mcp` 指引）、
-`8a4bcfb0`（B-4 重定向逐跳）。
-本节只记「修了什么、证据是什么、还剩什么」。
+`8a4bcfb0`（B-4 重定向逐跳）、`3469cfda`（B-5/B-6/B-7 + A6 收紧）；
+另有 3 笔文档提交。本节只记「修了什么、证据是什么、还剩什么」。
 
 | 发现 | 修复 | 证据 |
 | --- | --- | --- |
@@ -294,6 +323,10 @@ Task 32 冻结后做整分支终审，又扫出三处「上游仍可访问」的
 | **B-2** 出口尺只挂 `defaultSession` | `installEgressWatchdogEverywhere()` 挂 `defaultSession` + `session-created` 的所有 partition；探针 JSON 加 `scope.webRequestSessions` 与 `scope.excludes` | 多 session 记账 / 去重 / 注销测试；探针源锁断言组合根用 Everywhere |
 | **B-3** SVG 的 `@import` 只挡了字体域 | `stripStyleImports` 在 DOMPurify 前后各剥一次：`url()` 带不带引号、裸字符串、媒体查询尾巴都删；`@media` / `@keyframes` 保留 | `svg-sanitize.test.ts` 任意宿主四种写法 + 保留规则正对照 |
 | **B-4** 两把抓取工具 `redirect:"follow"`，入口闸门只看第一跳 | 新增 `src/main/egress/safe-fetch.ts`：手动跟重定向，**每一跳**过 `isUpstreamUrl`，命中即抛 `UpstreamRedirectBlockedError` 且不对上游发请求；`fetch_url` / `download_file` 全改走它；A8 静态锁钉住两份文件的调用形状 | `safe-fetch.test.ts` 10 条（6 个上游 host 各自在跟跳前拒绝 + 三跳正对照 + ftp 拒绝 + 上限）；两把工具各一条「只请求短链一次、不落盘」；变异短路闸门 8 条当场红 |
+| **B-5** 尾点域名绕过整条闸门（`https://github.com./x`） | `isUpstreamHost` 比较前去掉尾部点号；新建 `upstream-hosts.test.ts` 把尾点、大小写、子域与仿冒域名的边界钉住 | 25 条新单测；`safe-fetch` 的上游重定向集合补 `github.com.` / `raw.githubusercontent.com.` / 官方站尾点；变异去掉归一化，**15 条当场红**（M1） |
+| **B-6** SVG 的样式外链仍可发出（注释/转义拆开的 `@import`；`style` 块与表现属性里的上游 `url()`） | 匹配前先把 CSS 注释换空格、解十六进制转义；`@import` 删到规则结束；上游 `url()` 换 `url("data:,")`；表现属性/`style` 属性另加 DOMPurify `uponSanitizeAttribute` hook；`read_image_url` 在缓存/模型调用前拒绝上游 URL | `svg-sanitize.test.ts` 共 15 条（新增注释+转义、四种 `@import` 写法、`#`/`data:` 正对照、非上游外链正对照）；`read-image-url-tool.test.ts` 4 条；变异恒等化归一化/URL 清洗各红 1 条（M2/M3），`read_image_url` 删闸门红 1 条（M5） |
+| **B-7** 重定向 helper 自己留下两个洞：命中上游时不取消响应体；301/302/303 未按语义改写方法 | 每次抛错/跟跳前 `body.cancel()`；301/302 的 POST 与 303 一律改 GET 并去掉 `content-length`/`content-type`，307/308 保留方法与 body；3xx 无 `Location` 原样返回 | `safe-fetch.test.ts` 共 21 条（新增取消响应体可观测、入口上游零请求、无 Location 返回 302、方法改写 `it.each`、307/308 正对照）；音乐缓存改走 helper 并补「上游地址不落盘」；变异退回裸 `fetch` 红 1 条（M6） |
+| **A6 收紧** 旧正则 `installEgressWatchdog(?:Everywhere)?\(` 允许退回 `defaultSession` | 收紧为 `installEgressWatchdogEverywhere\(` | 把组合根改回旧调用，A6 当场红（M4） |
 | **A-2** 出口扫描器漏 `.js/.cjs/.py/.ps1` | 补扩展名并加正对照，钉住四个真实文件 | `upstream-off.test.ts` 的扫描集合断言 |
 | **A-3** 标题锁手抄五份 html | 改目录派生 + 白名单；表情包窗口的「表情包管理」正是手抄漏掉的；title 并进 `sync-brand.mjs` | `brand-consistency.test.ts` |
 | **A-1 / C-1 / C-2** | 派生锁解 `var()` 间接层并回写 6 处不一致；TS/TSX 七处上游粉改猫板派生；颜色锁补 hsl 与 `.ts/.tsx`，清掉考试页裸 HSL 上游粉 | 各自提交 + 变异自检 |
@@ -302,11 +335,14 @@ Task 32 冻结后做整分支终审，又扫出三处「上游仍可访问」的
 
 | 门 | 结果 |
 | --- | --- |
-| 定向回归（上述四片） | **23 files / 182 tests passed**（B-4 后复跑 2026-10-23） |
-| 出口静态锁 | **8 files / 61 tests passed**（A1–A8；A8 与 `safe-fetch` 单测是 B-4 新增） |
+| 定向回归（B-4 后） | **23 files / 182 tests passed**（2026-10-23） |
+| 定向回归（B-5～B-7 后） | **96 files / 845 tests passed · 64.44s**（日志 `D:\cyrene-p4-accept\fix3-targeted.log`） |
+| 定向聚焦（7 个改动文件） | **7 files / 101 tests passed**（日志 `fix3-focused-restored.log`；还原变异后复跑） |
+| 出口静态锁 | **8 files / 73 tests passed**（A1–A8；日志 `fix3-egress.log`） |
 | 全量测试（B-4 前） | **Test Files 595 passed (595) · Tests 5708 passed \| 1 skipped (5709) · 156.0s · exit 0**（日志 `D:\cyrene-p4-accept\fix-vitest.log`） |
-| 全量测试（B-4 后终验） | **Test Files 596 passed (596) · Tests 5722 passed \| 1 skipped (5723) · 188.58s · exit 0**（日志 `D:\cyrene-p4-accept\fix2-vitest.log`） |
-| 类型 main / preload / renderer | 三条 `tsc -p … --noEmit` **全部 exit 0** |
+| 全量测试（B-4 后） | **Test Files 596 passed (596) · Tests 5722 passed \| 1 skipped (5723) · 188.58s · exit 0**（日志 `fix2-vitest.log`） |
+| 全量测试（B-5～B-7 后终验） | **Test Files 597 passed (597) · Tests 5766 passed \| 1 skipped (5767) · 186.01s · exit 0**（日志 `fix3-vitest.log`） |
+| 类型 main / preload / renderer | 三条 `tsc -p … --noEmit` **全部 exit 0**（日志 `fix3-tsc-main.log` / `fix3-tsc-preload.log` / `fix3-tsc-renderer.log`） |
 
 **变异自检**：把三处实现故意改坏（`fetch_url` 闸门短路、`stripStyleImports` 恒等、
 watchdog 只挂第一个 session），**11 条测试当场变红**；从 `D:/cyrene-p4-accept/mutation-backup/`
@@ -314,6 +350,21 @@ watchdog 只挂第一个 session），**11 条测试当场变红**；从 `D:/cyr
 B-4 另做一次：把 `safe-fetch` 的逐跳闸门短路（`if (false && isUpstreamUrl(…))`），
 **8 条测试当场变红**（6 个 host + 两把工具各 1 条）；逐字节还原后
 `md5 = d04c3ffb148509670a6e332f20e567d3` 与变异前一致，`false &&` 计数 0。
+
+B-5～B-7 再做 **7 处变异**（备份在 `D:/cyrene-p4-accept/mutation-backup3/`，
+每处都用 `cp` 逐字节还原并核对 md5）：
+
+| # | 故意改坏 | 结果 | 日志 |
+| --- | --- | --- | --- |
+| M1 | `isUpstreamHost` 去掉尾点归一化 | **15 failed / 31 passed**（`upstream-hosts` + `safe-fetch`） | `mutation3-M1.log` |
+| M2 | `normalizeCss` 恒等（不剥注释、不解转义） | **1 failed / 14 passed**（注释+转义的 `@import`） | `mutation3-M2.log` |
+| M3 | `stripUpstreamUrlsFromCss` 恒等 | **1 failed / 14 passed**（`style` 块上游 `url()`） | `mutation3-M3.log` |
+| M4 | 组合根改回 `installEgressWatchdog()` | **A6 红（1 failed / 9 passed）** | `mutation3-M4.log` |
+| M5 | `read_image_url` 删上游闸门 | **1 failed / 3 passed** | `mutation3-M5.log` |
+| M6 | 音乐缓存退回裸 `fetch(playUrl)` | **1 failed / 13 passed** | `mutation3-M6.log` |
+| M7 | `bindSessionCreated` 的 listener 不 `attach` | **1 failed / 11 passed** | `mutation3-M7.log` |
+
+还原后六个文件的 md5 与备份逐一相同，定向聚焦复跑 **7 files / 101 tests 全绿**。
 
 **新增裁决**（完整版在计划「落地记录」§4）：
 
@@ -327,7 +378,16 @@ B-4 另做一次：把 `safe-fetch` 的逐跳闸门短路（`if (false && isUpst
   入口检查、缓存拒绝、A7 调用形状全都绕过去。修法是 `fetchWithoutUpstreamRedirects()`：
   手动逐跳、每跳 `isUpstreamUrl`、命中即抛且不向上游发请求；A8 钉住两把工具都走它。
 - **R-F9**：全量的退出码不能从管道尾巴读（见 §6）。
+- **R-F10**：`URL.hostname` 会保留绝对域名的尾点，域名闸门必须自己归一化；
+  「`github.com.` 只是 DNS 细节」是错的，它是**绕过整条闸门的一个字符**（见 §6）。
+- **R-F11**：SVG 的样式消毒不能只靠 DOMPurify 或只挡 `@import` 的字面写法；
+  CSS 注释是分隔符、十六进制转义在浏览器里合法，必须在**归一化之后**再匹配，
+  且 `style` 块 / 表现属性里的 `url()` 是另一条出口（见 §6）。
+- **R-F12**：静态锁的正则不许带「可选的更强写法」——`(?:Everywhere)?` 等于给回归留门。
+  锁要么钉死当前唯一正确的调用形状，要么不算锁（见 §6）。
 
-**这一轮的边界**：A7/A8 证明闸门还在被调用，不证明调用后真的拒绝（后者由单测证明）；
-`external=0` 只覆盖 Chromium 的请求；内置浏览器里第三方页面自发的上游子资源仍会发出。
-三条都写进 §5.3，**下一个人不许把它们读成「已经全封死」**。
+**这一轮的边界**：A7/A8 证明闸门还在被调用，不证明调用后真的拒绝（后者由单测证明），
+而且它们是**文本匹配**——把调用注释掉也可能满足；内置浏览器控制器的七个入口没有逐入口行为单测；
+OneBot 附件下载仍是裸 `fetch`；`external=0` 只覆盖 Chromium 的请求；
+内置浏览器里第三方页面自发的上游子资源仍会发出。
+全部写进 §5.3，**下一个人不许把它们读成「已经全封死」**。

@@ -6590,7 +6590,7 @@ Expected：工作区干净；提交数与任务数同量级。
 | 像素尺用 Task 22 的 `decodePng` 读截图 | **不能用**：产品解码器只支持 8bit RGBA，CDP 截图是 8bit **RGB**（color type 2）+ 自适应行过滤 + 4 KB IDAT，直接 `RangeError`。尺子自带标准 PNG 解码（type 0/2/3/4/6、五种过滤、tRNS、CRC 校验），并先拿产品 `encodePng` 的产物做字节级自检。 |
 | 肉眼看「图标是猫」 | 三段量法：装机 exe 图标 vs 同次构建 `win-unpacked` → **MAD 0**；`icon.ico` **原生 256 帧** vs `assets/mochi-icon.png` → **MAD 0**；vs 通用 Electron 图标 → **MAD 267.9**（反对照有牙）。统一白底合成——`ExtractAssociatedIcon` 永远只给 32×32 且丢 alpha，不能用它判小图同一性。 |
 | CDP 量托盘菜单 | 量不到：托盘是 `Menu.buildFromTemplate` 的原生窗口，不在 page target 里。改**替代证据链**：装机 `app.asar`（282,909,676 B）字节盘点 `麻糬`×100 / `Mochi`×152 / `dev.damin.mochi`×4，116 处 `Cyrene` 逐处取上下文归类，**全部是标识符**，零用户可见文案。 |
-| 32 个任务 | **105 个提交**（`master..HEAD`，截至 `ed693cd6`）。一条任务常要拆成「先落锁」「再实现」「修复轮」「受控构建镜像」几笔；其中 **6 笔是 Task 32 之后的终审修复轮**（§4）。 |
+| 32 个任务 | **109 个提交**（`master..HEAD`，截至 `3469cfda`；本文档提交后为 110）。一条任务常要拆成「先落锁」「再实现」「修复轮」「受控构建镜像」几笔；其中 **8 笔修复提交是 Task 32 之后的终审修复轮**（§4），另有 3 笔文档提交。 |
 
 ### 2. 计划里写错、被实测推翻的地方
 
@@ -6702,8 +6702,10 @@ Expected：工作区干净；提交数与任务数同量级。
 ### 4. 终审修复轮（验收后新增，2026-10-23）
 
 这一轮**不在原计划里**：Task 32 冻结后做整分支终审，扫出三处「上游仍可访问」的洞、两片锁的盲区
-和一条空转测试；收口前复看两把联网工具，又扫出一个重定向旁路（B-4）。
-修复共 7 笔（`21a18032` / `72cacbb7` / `9b9cbea7` / `d92f541f` / `d1e8644c` / `ed693cd6` / `8a4bcfb0`）。
+和一条空转测试；收口前复看两把联网工具，又扫出一个重定向旁路（B-4）；
+`ef0db71c..HEAD` 的 scoped 复审再扫出三处出口洞（B-5～B-7）与 A6 的可选写法假牙。
+修复共 **8 笔**（`21a18032` / `72cacbb7` / `9b9cbea7` / `d92f541f` / `d1e8644c` / `ed693cd6` /
+`8a4bcfb0` / `3469cfda`），另有 3 笔文档提交。
 下面按 §1–§3 的同一口径记，不重述流水。
 
 **4.1 实际改了计划的地方**
@@ -6720,6 +6722,11 @@ Expected：工作区干净；提交数与任务数同量级。
 | 窗口标题锁 | 从手抄五份 html 改成**目录派生 + 白名单**；表情包窗口的「表情包管理」正是手抄漏掉的；title 并进 `sync-brand.mjs` 生成器 | 手抄清单每新增一个窗口就漏一次 |
 | 派生锁 / 颜色锁 | 派生锁逐层解开 `var()` 间接层并回写表与 CSS 的 6 处不一致；TS/TSX 七处上游粉改走猫板派生；颜色锁补 hsl 与 `.ts/.tsx` 两片盲区，清掉考试页的裸 HSL 上游粉 | 原锁对 `var()` 一律豁免、只认 hex/rgb，也只看 CSS |
 | 重定向闸门 | 新增 `src/main/egress/safe-fetch.ts`：`fetchWithoutUpstreamRedirects()` 手动逐跳，每跳 `isUpstreamUrl`，命中抛 `UpstreamRedirectBlockedError` 且不向上游发请求；两把抓取工具全改走它 | 计划只设计「入口拒绝上游 URL」，没设计「非上游 URL 302 到上游」这条路径；`redirect:"follow"` 让入口闸门只看得到第一跳 |
+| 域名归一化 | `isUpstreamHost` 比较前 `.replace(/\.+$/, "")`；新增 `src/shared/upstream-hosts.test.ts`（25 条），把尾点、大小写、子域、仿冒域名四类边界钉死 | 计划把「域名匹配」当成已解决的小节，没写 FQDN 尾点；`URL.hostname` 保留尾点，`github.com.` 能整条绕过 |
+| SVG 样式外链 | 匹配前剥 CSS 注释、解十六进制转义；`@import` 删到规则结束；上游 `url()` 换 `url("data:,")`；表现属性 / `style` 属性加 DOMPurify `uponSanitizeAttribute` hook；`read_image_url` 在缓存与模型调用前拒绝上游 | B-3 只把 `@import` 的字面写法补全，没考虑注释分隔（`@import/**/`）、CSS 转义（`@im\70 ort`）与 `style` 里的 `url()`——DOMPurify 不解析 CSS |
+| 重定向报文体与方法 | 每次抛错/跟跳前 `body.cancel()`；301/302 的 POST 与 303 改 GET 并去掉 `content-length`/`content-type`；307/308 保留方法与 body；3xx 无 `Location` 原样返回 | 计划只要求「逐跳校验」，没写「响应体要取消」与「重定向的方法语义」；前者漏连接，后者把 POST 语义带错 |
+| 看门狗静态锁收紧 | A6 正则由 `installEgressWatchdog(?:Everywhere)?\(` 收紧为 `installEgressWatchdogEverywhere\(` | 旧写法给「退回 defaultSession-only」留了合法通道，静态锁等于没牙 |
+| 音乐缓存出口 | `cache-downloader` 从裸 `fetch(playUrl)` 改走 `fetchWithoutUpstreamRedirects()`，并补「上游地址不落盘、不发请求」单测 | 计划的上游出口清单只列了模型可见工具与内置浏览器，漏了播放地址下载这条后台外呼 |
 
 **4.2 被实测推翻的地方**
 
@@ -6734,6 +6741,11 @@ Expected：工作区干净；提交数与任务数同量级。
 | 「定向回归绿 = 改动收口」 | 改了 `fetch_url` 的模型可见描述，`built-in-tools.snapshot.test.ts` 不在定向集合里 → 首轮全量 **1 failed / 594 passed**，红的正是模型可见字段快照 | 更新快照，并改掉 `install_mcp_server` 里「先用 `fetch_url` 读 README」的失效指引（上游 README 已取不到）→ 复跑 **595 passed / 5708 passed / 1 skipped / exit 0**（`D:\cyrene-p4-accept\fix-vitest.log`）。**定向集合是省时，不是收口判据。** |
 | 「入口拒绝上游 URL = 这条外呼路径封死了」 | `fetch_url` / `download_file` 用 `redirect:"follow"`：入口检查只看得见第一跳，非上游短链 302 到 GitHub raw 时请求照发。这是终审 freeze 之后才被复看抓到的 | `safe-fetch.test.ts` 6 个上游 host 各自在跟跳前拒绝（`fetch` 只调用一次）；两把工具各加「只请求短链一次、不落盘」；变异短路逐跳闸门 → **8 条当场红**（R-F8） |
 | 「`CI=true npx vitest run 2>&1 \| tail` 的退出码可信」 | 读到的是 **`tail` 的 0**：那一轮实际 `1 failed \| 594 passed`，失败被读成通过 | 改落日志再取 `echo "exit=$?"`；以后全量一律 `> 日志 2>&1` 后单独读退出码（R-F9，验收记录 §6） |
+| 「`github.com.` 只是 DNS 细节，不影响域名判定」 | `new URL("https://github.com./x").hostname` 原样返回 `github.com.`，与黑名单不相等——**一个尾点绕过整条闸门**；原单测全用无尾点写法，尺子从没照过这个面 | `upstream-hosts.test.ts` 25 条补上尾点/大小写/仿冒域；变异去掉归一化 → **15 条红**（M1，`fix3` 轮） |
+| 「过了 DOMPurify，SVG 的外链就断了」 | DOMPurify 不解析 `<style>` 里的 `url()`；`@import` 还能用 `/**/` 分隔或十六进制转义躲开正则。B-3 的「前后各剥一次」只补了字面写法 | 注释+转义、`style` 块、表现属性三组单测；变异归一化/URL 清洗 → 各红 1 条（M2/M3） |
+| 「手动逐跳 = 重定向语义完整」 | 命中上游时没取消这一跳的响应体；301/302 的 POST 与 303 没改 GET，`content-length` 还带着旧 body 的长度 | `safe-fetch.test.ts` 21 条：取消响应体可观测、无 `Location` 返回 302、方法改写 `it.each`、307/308 正对照 |
+| 「A6 已经把看门狗锁在 Everywhere 上」 | 正则写成 `installEgressWatchdog(?:Everywhere)?\(`，**退回 defaultSession-only 也照样绿** | 收紧后把组合根改回旧调用 → A6 当场红（M4）；`R-F12`：静态锁不许带「可选的更强写法」 |
+| 「上游出口清单已经列全（模型工具 + 内置浏览器）」 | 音乐缓存下载用裸 `fetch(playUrl)`，既不逐跳也不拒绝上游；它不在模型可见工具里，但确实是客户端主动发出的请求 | 改走 `fetchWithoutUpstreamRedirects()` 并补「上游地址不发请求、不落盘、不写索引」；变异退回裸 `fetch` → 红 1 条（M6） |
 
 **4.3 明确移到下一期**
 
@@ -6742,4 +6754,7 @@ Expected：工作区干净；提交数与任务数同量级。
 24. **`session-created` 的射程边界**：它只覆盖装尺之后创建的 partition。今天所有 partition 都在 ready 后创建（组合根在 `application.start()` 之前装尺），所以够用；若未来出现 pre-ready session，要改成显式登记，不能假设事件一定到。
 25. **A7 只钉调用形状**：它证明闸门还在被调用，不证明调用后真的拒绝（那由各入口的单测证明）。静态锁与单测是两条腿，缺一条都别读成全绿。
 26. **A8 的射程只到这两把工具**：`fetchWithoutUpstreamRedirects()` 修的是 `fetch_url` / `download_file`。以后新增任何主进程外呼（`net.fetch`、第三方 SDK 自带下载器等），必须自己接逐跳闸门并补锁；**「有 A8」不等于「所有外呼都逐跳校验」**。（R-F8）
+27. **OneBot 附件下载仍是裸 `fetch`**：`src/main/channels/adapters/qq/onebot-media.ts:260` 只检查 `http(s)`，没有过上游闸门。附件 URL 由用户自建的 OneBot 实现给出，不在「客户端主动访问上游」口径内，但对方若把地址指向上游，这个出口会真的发请求。下期接 `fetchWithoutUpstreamRedirects()` 并补单测。
+28. **A7 / A8 是文本匹配，不是语义分析**：把调用注释掉仍可能满足正则。它们只能当「防止整段被删 / 被换回 `follow`」的绊线，不能替代入口行为单测；下期若要加固，先剥注释再匹配（或改 AST）。
+29. **内置浏览器控制器的七个入口没有逐入口行为单测**：`browser-navigation.test.ts` 证明闸门本身、A7 证明控制器还在调用它；但「某个入口漏传或传错 URL」目前只能靠代码审查兜底。下期补地址栏 / 页内导航 / 重定向 / 弹窗 / 右键 / favicon / 会话恢复各自的入口级测试。
 
