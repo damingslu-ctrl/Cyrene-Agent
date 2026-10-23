@@ -1,5 +1,9 @@
 appId: dev.damin.mochi
 productName: Mochi
+# 显式 null＝没有发布源。不要删：没有 publish 配置时 electron-builder 会读 .git/config 的
+# [remote "origin"] 推断 GitHub 发布源（CI 的 actions/checkout 会建 origin），从而产出
+# latest.yml 被 verify:installer 判红；显式 null 让判定与本地/CI 的远端名无关。
+publish: null
 directories:
   output: release
 asar: true
