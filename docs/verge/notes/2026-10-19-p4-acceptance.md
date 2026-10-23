@@ -525,7 +525,8 @@ Task 14–19（C2–C5）在台账里都已记「交付」，四把配色锁与 
 **CI 首个红（run 39988192428）**：`verify:installer` 发现 CI 产物多出 `latest.yml`。根因是
 electron-builder 26 在无 publish 配置时从 `.git/config` 的 `[remote "origin"]` 推断 GitHub 发布源
 （CI checkout 建了 `origin`，本地只有 `fork`/`upstream`）。修法：`electron-builder.yml` 显式
-`publish: null`（`d7c39d92`），run 39989819464 重跑验证。
+`publish: null`（`d7c39d92`），run 39989819464 在该提交上重跑 **success**（15 步全过，
+含 `verify:installer`）。
 
 **发布**：GitHub Release v1.3.5（非草稿）已发布，资产 `Mochi-Setup-1.3.5.exe` 上传完成
 （289,746,294 B，远端 `digest` 与本地 SHA-256 一致）。tag 仍指向 `2b69d0ca`；`d7c39d92` 只改
