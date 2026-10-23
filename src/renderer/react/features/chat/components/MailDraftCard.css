@@ -4,7 +4,7 @@
   max-width: min(760px, 100%);
   border: 1px solid var(--rb-border-default);
   border-radius: 16px;
-  background: var(--rb-surface-raised, var(--rb-surface-default));
+  background: var(--rb-surface-elevated);
   color: var(--rb-text-primary);
 }
 

@@ -45,13 +45,13 @@
 .cy-modal__title {
   margin: 0;
   color: var(--rb-text-strong);
-  font: var(--rb-text-em);
+  font: var(--rb-text-title);
 }
 
 .cy-modal__body {
   margin: 0 0 18px;
   color: rgba(235, 229, 245, 0.76);
-  font: var(--rb-text);
+  font: var(--rb-text-body);
   line-height: 1.65;
 }
 

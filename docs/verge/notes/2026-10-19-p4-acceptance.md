@@ -9,6 +9,7 @@
   第 11 个 `3469cfda` 是复审后的修复。
   `master..HEAD` 截至 `3469cfda` 为 **109** 个提交；本节落库后总数为 **110**；10-23 发布包补记后为 **111**
   （`git rev-list --count master..HEAD` 可复验）。
+  之后又有 **C 轨复审轮**（配色统一 #109 收口，见 §9）：修 5 处悬空着色引用 + 加一把常驻锁。
   修复轮结束时 `git status --short` 为空。
 - 机器：Windows 11 / Git Bash / Node v24.18.0 / Electron 44.4.3，账号**不在** Administrators 组。
 - 证据根目录 `D:\cyrene-p4-accept\`（截图 / 报告 / 日志），**全部在仓外**，不进 git。
@@ -29,6 +30,9 @@
 | 全量测试 | `CI=true npx vitest run` | **Test Files 593 passed (593) · Tests 5677 passed \| 1 skipped (5678) · Duration 162.43s · exit 0**（日志 `D:\cyrene-p4-accept\final-vitest.log`） |
 | 全量测试（B-4 后） | `CI=true npx vitest run > D:/cyrene-p4-accept/fix2-vitest.log 2>&1; echo "exit=$?"` | **Test Files 596 passed (596) · Tests 5722 passed \| 1 skipped (5723) · 188.58s · exit 0** |
 | 全量测试（B-5～B-7 后终验） | `CI=true npx vitest run > D:/cyrene-p4-accept/fix3-vitest.log 2>&1; echo "exit=$?"` | **Test Files 597 passed (597) · Tests 5766 passed \| 1 skipped (5767) · 186.01s · exit 0** |
+| 配色五锁（C 轨复审轮） | `CI=true npx vitest run src/renderer/ui/color-token-resolution.test.ts src/renderer/ui/theme-palette-derivation.test.ts src/renderer/ui/brand-color-migration.test.ts src/renderer/ui/hardcoded-color-ratchet.test.ts src/shared/palette-from-cat.test.ts` | **5 files / 34 tests passed**（新增第 5 把：着色令牌可解析锁） |
+| 配色两条门（C 轨复审轮） | `node scripts/build/apply-theme-palette.mjs --check` / `node scripts/build/apply-color-migration.mjs --check` | **exit 0 / exit 0**（后者打印「无漂移」） |
+| 全量测试（C 轨复审轮） | `CI=true npx vitest run > D:/cyrene-p4-accept/tmp/full-test-colorlock.log 2>&1; echo "exit=$?"` | **Test Files 613 passed (613) · Tests 5975 passed \| 1 skipped (5976) · 173.07s · exit 0** |
 | 资产像素尺 | `node scripts/build/cat-sprites.mjs --check` | `checked 198 targets · 12 只猫 × 6 档 + 25 档散点 + 17 张非角色 + 52 张表情` / **all clear** · exit 0 |
 | 出口静态锁 | `CI=true npx vitest run src/main/egress` | **8 files / 73 tests passed**（B-5～B-7 后复跑；日志 `fix3-egress.log`。收口时为 43 条，A2/A6/A7/A8 与 `safe-fetch` 单测共同补到该数） |
 | 终审修复轮定向回归（B-4 后） | `CI=true npx vitest run src/main/egress/ src/main/browser/ src/main/orchestrator/tools/builtin-tools/ src/renderer/react/features/chat/components/svg-sanitize.test.ts` | **23 files / 182 tests passed** |
@@ -241,12 +245,21 @@ asar 字节串命中 `UpstreamRedirectBlockedError` / `fetchWithoutUpstreamRedir
   它们的作用是「防止整段被删/被换回 `follow`」的绊线，不能替代各入口的行为单测。
 - **内置浏览器控制器的七个入口没有各自的行为单测**：`browser-navigation.test.ts` 证明闸门本身、
   A7 证明控制器还在调用它；但「某个入口漏传/传错 URL」只能靠代码审查兜底，下期补入口级测试。
+- **着色令牌可解析锁只管「有没有值」，不管「在当前作用域有没有值」**（C 轨复审轮新增，见 §9）：
+  某个令牌只在深色主题里声明、却被浅色主题的组件引用（Task 19 的 R-19-2 记过
+  `--cy-pill-bg/-border/-status` 只在深色档声明），新锁看不见——那仍是派生锁的层叠职责。
+  **两把锁互补，不互相顶替。**
+- **着色令牌可解析锁只覆盖着色族**（`--rb-*` / `--md-*` / `--cy-*`）：非着色族令牌
+  （`--top-height`、`--radix-*`、`--size` 等）仍可能是悬空的，本期不扩射程。
+- **着色令牌可解析锁认「运行时注入」是过近似**：TSX 内联样式以 `"--name":` 认作注入源，
+  对象里恰好有个同名键也会被当成注入源。多算比少算安全——少算会把好代码误判成坏。
 
 ---
 
 ## 6. 尺子坏过几次（不是产品坏了，但必须记）
 
-数出来的：**14 处**，前 9 处在 Task 31 的第二层与第三层，第 10～14 处在终审修复轮（§8），坏的全是尺。
+数出来的：**16 处**，前 9 处在 Task 31 的第二层与第三层，第 10～14 处在终审修复轮（§8），
+第 15～16 处在 C 轨复审轮（§9），坏的全是尺。
 
 - **R-31-1**：`--egress-probe` 第一次真跑就弹模态 Error 框，进程不退出也不落盘。
   根因：探针档的 userData 已在卷根下一层，`path.dirname(userData)` 就是 `D:\`，
@@ -283,6 +296,18 @@ asar 字节串命中 `UpstreamRedirectBlockedError` / `fetchWithoutUpstreamRedir
 - **R-F12**：A6 的正则写成 `installEgressWatchdog(?:Everywhere)?\(` ——
   **退回「只挂 defaultSession」也照样通过**，静态锁没有牙。收紧为 `installEgressWatchdogEverywhere\(` 后，
   把组合根改回旧调用，A6 当场红（§8 变异 M4）。
+- **R-F13**：**变异「没红」不等于尺子没牙，也可能等于变异本身站不住。**
+  C 轨复审轮第一版 M3 砍的是 `--rb-text-title`，可它有**两处**声明（`tokens.css:126` +
+  `AppearanceSettingsPage.css:4`，后者是设置页自己的 400 字重覆盖，有契约测试钉着）——
+  砍一处，锁当然还绿。**如果当时不核对就直接写「锁有牙」，那就是拿假绿当证据。**
+  修法：变异必须先确认「被改的那个名字只有这一处声明」（脚本化查声明点分布），
+  再看红不红。改砍全仓只声明一次的 `--rb-text-body` → 锁当场红并点名 `modal.css:54`。
+- **R-F14**：**变异的前提会过期。** 第一版 M6 指望 `ChannelsSettingsPanel.css:66` 还引用
+  `--rb-border`，可那条在修复前就已经改成 `--rb-border-default` 了——于是「往测试文件塞个声明
+  看锁会不会放行」这个实验**根本测不到它想测的东西**，锁绿得毫无意义。
+  修法：每个变异都要先断言「前提此刻成立」（引用的名字确实换了 / 夹具确实落在射程内），
+  再读它的红绿。M6 改成「M1 的改动 + 一份测试夹具声明 `--rb-border`」后，
+  锁报红点名 `ChannelsSettingsPanel.css:66`——**证明「测试文件不是运行时」不是 loophole**。
 
 ---
 
@@ -402,3 +427,80 @@ B-5～B-7 再做 **7 处变异**（备份在 `D:/cyrene-p4-accept/mutation-backu
 OneBot 附件下载仍是裸 `fetch`；`external=0` 只覆盖 Chromium 的请求；
 内置浏览器里第三方页面自发的上游子资源仍会发出。
 全部写进 §5.3，**下一个人不许把它们读成「已经全封死」**。
+
+---
+
+## 9. C 轨复审轮（2026-10-23，#109 配色统一收口）
+
+Task 14–19（C2–C5）在台账里都已记「交付」，四把配色锁与 `palette:*` 两条门也都是绿的，
+但 #109 一直没被翻成 completed。本轮**不凭台账的字翻勾**——按 Phase C 的判据回到树上复审，
+结果扫出一类**四把锁都看不见的坏**：
+
+> 规则里的 `var(--rb-*)` 指向一个**从来没被声明过**的令牌。浏览器在 computed-value 阶段
+> 把整条声明丢掉——边框不存在、背景不存在、字体退回继承——而没有一盏红灯。
+
+四把既有锁各自的射程（**没有一把问「这个令牌到底存不存在」**）：
+
+| 锁 | 射程 | 看不见什么 |
+| --- | --- | --- |
+| `theme-palette-derivation.test.ts` | 主题级**声明** | 规则里的引用 |
+| `brand-color-migration.test.ts` | **色值字面量** | 引用一个不存在的令牌（没有字面量可看） |
+| `hardcoded-color-ratchet.test.ts` | **带色行数** | 悬空引用照样只占一行 |
+| `palette-from-cat.test.ts` | 派生表**结构** | 表与规则之间的引用关系 |
+
+**五处坏声明（全部已修）**
+
+| 位置 | 原写法 | 改成 | 屏幕上的后果 |
+| --- | --- | --- | --- |
+| `src/renderer/ui/modal.css:48` | `font: var(--rb-text-em);` | `font: var(--rb-text-title);` | 弹窗标题退回继承字体（h3 不再是标题样） |
+| `src/renderer/ui/modal.css:54` | `font: var(--rb-text);` | `font: var(--rb-text-body);` | 弹窗正文退回继承字体 |
+| `.../settings/ChannelsSettingsPanel.css:66` | `... var(--rb-accent) 42%, var(--rb-border));` | `... var(--rb-accent) 42%, var(--rb-border-default));` | provider 卡片悬停时边框不换色 |
+| `.../settings/ChannelsSettingsPanel.css:127` | `border: 1px solid var(--rb-border);` | `border: 1px solid var(--rb-border-default);` | 二维码框没有边框 |
+| `.../chat/components/MailDraftCard.css:7` | `background: var(--rb-surface-raised, var(--rb-surface-default));` | `background: var(--rb-surface-elevated);` | 邮件草稿卡没有底色 |
+
+**成因（`git log --all -S` 全空）**：`--rb-text-em:` / `--rb-text:` / `--rb-border:` /
+`--rb-surface-raised:` / `--rb-surface-default:` 的**历史提交数都是 0** —— 它们从来没被声明过，
+是**上游遗留缺陷，不是配色迁移引入的回归**。台账 R-19-1 的事实清单是对的（它点了其中四个的名），
+缺的是下一步：**知道它存在之后，它有没有在伤屏幕**。查消费者：前四处里
+`ChannelsSettingsPanel` 挂在 `AppearanceSettingsPage.tsx:292`、`MailDraftCard` 由
+`ChatMessageList.tsx:51` import、`:1169` 渲染，都是**活路径**；只有 `modal.css` 两条的消费者
+（`src/renderer/ui/modal.ts` 的 `showModal`）是零引用，但 CSS 仍随包发布，照修。
+
+**新增常驻锁** `src/renderer/ui/color-token-resolution.test.ts`：着色族（`--rb-*` / `--md-*` /
+`--cy-*`）的每一条 `var()` 引用，必须能解析到 ①任一 CSS 文件里声明过的令牌 ②运行时注入的令牌
+（TSX 内联样式 `"--name":` / `setProperty("--name", …)`）③**终止于字面量**的兜底链。
+**兜底链终止于另一个也没声明的令牌不算数**——`var(--rb-surface-raised, var(--rb-surface-default))`
+两个名字都没有，那条背景等于没有。测试文件（`*.test.*` / `*.spec.*`，不限扩展名）既不算引用
+也不算声明。
+
+实测：生产源着色族引用 **2992** 条 → **2987** 条可解析到已声明令牌（含 3 条经兜底链转到已声明令牌）
++ **5** 条兜底终止于字面量 + **0** 条悬空；已声明着色令牌 **176** 枚。
+
+**变异自检（7 处，全部逐字节还原）**——脚本 `D:/cyrene-p4-accept/probe/mutate-color-lock.mjs`：
+
+| # | 故意改坏 | 结果 |
+| --- | --- | --- |
+| M1 | 规则级悬空（`--rb-border-default` → `--rb-border`） | **红**，点名 `ChannelsSettingsPanel.css:66` |
+| M2 | 兜底链断在另一个没声明的令牌 | **红**，点名 `MailDraftCard.css:7` |
+| M3 | 砍掉唯一的声明点（`--rb-text-body`） | **红**，点名 `modal.css:54` |
+| M4 | 解析器恒返回 null（尺自己崩） | **红**，点名「没声明又没兜底的引用被判成能解析」 |
+| M5 | glob 匹配不到任何文件（扫描器塌） | **红**，点名「一个着色令牌都没扫到」 |
+| M6 | M1 的改动 **加上** 一份测试夹具声明 `--rb-border` | **红** —— 证明「测试文件不是运行时」不是 loophole |
+| M7 | 删掉 `setProperty("--cy-msg-size")`（运行时注入源） | **红**，点名 `--cy-msg-size` |
+
+还原后 7 个文件 md5 与备份逐一相同，定向复跑全绿。
+**两次「变异没红」记在 §6（R-F13 / R-F14）：不是尺子没牙，是变异的前提站不住。**
+
+**门（本轮实测）**
+
+| 门 | 结果 |
+| --- | --- |
+| 配色五锁 | **5 files / 34 tests passed** |
+| `palette:check` / `palette:migrate:check` | **exit 0 / exit 0** |
+| 类型 main / preload / renderer | 三条 `tsc -p … --noEmit` **全部 exit 0** |
+| 全量测试 | **Test Files 613 passed (613) · Tests 5975 passed \| 1 skipped (5976) · 173.07s · exit 0**（日志 `D:\cyrene-p4-accept\tmp\full-test-colorlock.log`） |
+| 棘轮两条腿 | CSS **711/711**、TS **22/22**（五处改动都不含色值字面量，带色行数不变） |
+| `git diff --numstat` | `1/1` + `2/2` + `2/2`，无 EOL 幻影 |
+
+**这一轮的边界**（同 §5.3，不许读成「配色已经全对」）：新锁只管「有没有值」，不管「在当前作用域
+有没有值」；只覆盖着色族，非着色族令牌仍可能是悬空的；认「运行时注入」是过近似。
