@@ -17,6 +17,7 @@ import { testVendorConnection } from "../orchestrator/vendors/test-connection";
 import { getAdapterForConfig } from "../orchestrator/vendors";
 import type { VendorConfig } from "../orchestrator/vendors";
 import { normalizeModelSettings, getPublicModelConfig, listSavedModelProfiles, saveModelProfile, setDefaultModelProfile, saveModelSettings } from "./model-settings";
+import { syncMagpieModels } from "./magpie-sync";
 import type { ModelSettings } from "./model-settings";
 import { getTimeoutSettings, saveTimeoutSettings } from "../timeout-manager";
 import type { syncVolcanoSearchMcp } from "./general-settings-lifecycle";
@@ -113,6 +114,21 @@ export function registerSettingsIpc(deps: SettingsIpcDependencies): void {
     const saved = setDefaultModelProfile(id);
     broadcastModelConfigChanged(saved);
     return { profiles: listSavedModelProfiles(saved), defaultModelProfileId: saved.defaultModelProfileId };
+  });
+  ipc.handle(IPC.SETTINGS_MAGPIE_SYNC, async () => {
+    const result = await syncMagpieModels();
+    if (result.changed) broadcastModelConfigChanged();
+    return result;
+  });
+
+  // 启动时静默识别一次：Magpie 在线则自动导入/刷新模型；不在线不打扰启动。
+  void syncMagpieModels().then((result) => {
+    if (result.changed) {
+      console.log(CONSOLE_PREFIX + " magpie models imported:", result.importedModels);
+      broadcastModelConfigChanged();
+    }
+  }).catch((error) => {
+    console.log(CONSOLE_PREFIX + " magpie sync skipped:", error instanceof Error ? error.message : String(error));
   });
 
   ipc.handle(IPC.SETTINGS_GET_GENERAL, () => getGeneralSettings());

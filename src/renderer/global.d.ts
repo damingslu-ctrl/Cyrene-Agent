@@ -116,6 +116,7 @@ interface SettingsWindowApi {
   }) => Promise<{ added: boolean; profiles: unknown[]; defaultModelProfileId?: string }>;
   deleteModelProfile: (id: string) => Promise<unknown>;
   setDefaultModelProfile: (id: string) => Promise<unknown>;
+  syncMagpieModels: () => Promise<{ available: boolean; changed: boolean; gatewayUrl?: string; importedModels: number; profileId?: string; error?: string }>;
   getConfig: () => Promise<{
     memoryMode?: "vector" | "summary" | "wiki" | "off";
     vision?: { baseUrl: string; apiKey: string; model: string };

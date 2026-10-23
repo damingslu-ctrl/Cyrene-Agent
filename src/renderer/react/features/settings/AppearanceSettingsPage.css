@@ -823,6 +823,7 @@
 .cy-model-editor__title-copy p { margin: 0; color: var(--rb-text-secondary); font: var(--rb-text-caption); }
 
 .cy-model-card { background: var(--rb-surface-elevated); }
+.cy-model-magpie { margin-bottom: 12px; }
 .cy-model-card__section { padding: 16px; }
 .cy-model-card__section + .cy-model-card__section { border-top: 1px solid var(--rb-border-subtle); }
 

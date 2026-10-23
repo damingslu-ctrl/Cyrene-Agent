@@ -20,6 +20,7 @@ import type { CustomStyleConfig } from "../../../shared/style-sampling";
 import type { BuiltinProviderId } from "../../../shared/vendor-registry";
 import type { CustomEndpointMode } from "../custom-endpoint-state";
 import type { TimeoutSettings } from "../../../shared/timeout-types";
+import type { MagpieSyncResult } from "../../../shared/magpie";
 
 /**
  * 预设与厂商注册表的静态关联键：真实厂商用注册表推导的 BuiltinProviderId
@@ -27,7 +28,7 @@ import type { TimeoutSettings } from "../../../shared/timeout-types";
  * import type 纯类型引入，零运行时开销。过渡态：用户已保存配置的存储键
  * 仍是 displayName（providerName），本类型只用于 presets 静态数据关联。
  */
-export type ModelPresetProviderId = BuiltinProviderId | "custom-cloud" | "custom-local";
+export type ModelPresetProviderId = BuiltinProviderId | "magpie" | "custom-cloud" | "custom-local";
 
 export interface ProviderProfile {
   baseUrl: string;
@@ -264,6 +265,7 @@ export interface SettingsApi {
     imageGeneration?: { enabled: boolean; model: string }; modelOptions?: Record<string, { contextWindowTokens?: number; multimodal?: boolean }>; models?: string[] }) => Promise<{ added: boolean; profiles: unknown[]; defaultModelProfileId?: string }>;
   deleteModelProfile?: (id: string) => Promise<unknown>;
   setDefaultModelProfile?: (id: string) => Promise<unknown>;
+  syncMagpieModels?: () => Promise<MagpieSyncResult>;
   getGeneral: () => Promise<GeneralSettings>;
   saveGeneral: (config: Partial<GeneralSettings>) => Promise<GeneralSettings>;
   openCustomStylePrompt?: () => Promise<{ ok: boolean; filePath?: string; error?: string }>;

@@ -39,6 +39,15 @@ export const MODEL_PRESETS: ModelPreset[] = [
     };
   }),
 {
+    providerName: "Magpie",
+    providerId: "magpie",
+    shortName: "Magpie",
+    baseUrl: "http://127.0.0.1:3425/v1",
+    transport: "openai",
+    mainModels: [],
+    iconUrl: "../icons/providers/custom-endpoint.svg",
+  },
+{
     providerName: CUSTOM_ENDPOINT_PROVIDERS.cloud,
     providerId: "custom-cloud",
     shortName: "自定义",

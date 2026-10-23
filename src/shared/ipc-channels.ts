@@ -126,6 +126,7 @@ export const IPC = {
   SETTINGS_MODEL_PROFILE_SAVE: "settings:model-profiles:save",
   SETTINGS_MODEL_PROFILE_DELETE: "settings:model-profiles:delete",
   SETTINGS_MODEL_PROFILE_SET_DEFAULT: "settings:model-profiles:set-default",
+  SETTINGS_MAGPIE_SYNC: "settings:magpie:sync",
   SETTINGS_TEST_CONNECTION: "settings:test-connection",
   SETTINGS_PREVIEW_REASONING: "settings:preview-reasoning",
   SETTINGS_TEST_VISION: "settings:test-vision",
