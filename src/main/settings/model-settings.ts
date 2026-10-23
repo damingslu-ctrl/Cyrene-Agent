@@ -17,6 +17,11 @@ import {
 } from "../../shared/session-model";
 import { addModelProfile, resolveDefaultModelProfile, updateModelProfile, type SavedModelProfile } from "./model-catalog";
 import { normalizeMemoryMode, type MemoryMode } from "../memory/memory-mode";
+import {
+  DEFAULT_LOCAL_EMBEDDING_MODEL,
+  resolveLocalEmbeddingModelKey,
+  type LocalEmbeddingModelKey,
+} from "../../shared/local-models";
 
 /**
  * 统一模型配置入口：所有模块（包括 Code 模式）必须通过此函数读取。
@@ -167,7 +172,8 @@ export interface ModelSettings {
   /** CITA 结构化输出重试总预算（秒）。4-30，默认 8。 */
   citaRepairBudgetSec: number;
   rerankerMode: "standard" | "none";
-  embeddingModel: "bgem3";
+  /** 本机 embedding 模型；脏值在 normalizer 里回落到默认档。 */
+  embeddingModel: LocalEmbeddingModelKey;
   /**
    * Embedding 维度（可选，仅 cloud 模式有效）。
    * 留空 = 首次请求自动探测；填写 = 作为严格声明并与实际响应校验。
@@ -212,7 +218,7 @@ const DEFAULT_MODEL_SETTINGS: ModelSettings = {
   modelRequestMaxRetries: 5,
   citaRepairBudgetSec: 8,
   rerankerMode: "standard",
-  embeddingModel: "bgem3",
+  embeddingModel: DEFAULT_LOCAL_EMBEDDING_MODEL,
   multimodal: true,
   contextWindowTokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
 };
@@ -456,7 +462,7 @@ export function normalizeModelSettings(input: Partial<ModelSettings> | null | un
       ? Math.max(4, Math.min(30, Math.round(input.citaRepairBudgetSec)))
       : 8,
     rerankerMode: input?.rerankerMode === "none" ? "none" : "standard",
-    embeddingModel: "bgem3",
+    embeddingModel: resolveLocalEmbeddingModelKey(input?.embeddingModel),
     embeddingDimensions: typeof input?.embeddingDimensions === "number"
       && Number.isFinite(input.embeddingDimensions)
       && input.embeddingDimensions > 0

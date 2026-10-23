@@ -4,13 +4,17 @@ import * as path from "path";
 
 // vi.hoisted runs before mocks are installed, so we compute paths using
 // process.env / require("path") instead of importing "os" or "path".
-const { ISOLATED_ROOT, ISOLATED_HOME } = vi.hoisted(() => {
+const { ISOLATED_ROOT, ISOLATED_HOME, ISOLATED_USERDATA } = vi.hoisted(() => {
   const pathMod = require("path") as typeof import("path");
   const root = pathMod.join(
     process.env.TEMP || process.env.TMP || "/tmp",
     `cyrene-model-status-test-${process.pid}`,
   );
-  return { ISOLATED_ROOT: root, ISOLATED_HOME: pathMod.join(root, "home") };
+  return {
+    ISOLATED_ROOT: root,
+    ISOLATED_HOME: pathMod.join(root, "home"),
+    ISOLATED_USERDATA: pathMod.join(root, "userdata"),
+  };
 });
 
 vi.mock("os", async () => {
@@ -24,6 +28,10 @@ vi.mock("os", async () => {
 vi.mock("electron", () => ({
   app: {
     getAppPath: () => ISOLATED_ROOT,
+    getPath: (name: string) => {
+      if (name === "userData") return ISOLATED_USERDATA;
+      throw new Error(`unexpected app.getPath(${name})`);
+    },
   },
 }));
 
@@ -32,18 +40,20 @@ import {
   getProjectModelsDirCandidates,
   getProjectModelBaseDir,
   getModelInstallStatusDetail,
-  getModelInstallStatus,
+  listInstalledEmbeddingModels,
   checkEmbeddingModelInstalled,
   checkRerankerModelInstalled,
 } from "./model-status";
 
-// checkRerankerModelInstalled now takes no arguments (only "standard" exists)
-void checkRerankerModelInstalled;
-
 const REQUIRED_FILES = ["tokenizer.json", "config.json", "onnx/model_quantized.onnx"];
 
 function ensureFakeDir(...parts: string[]): string {
-  const dir = path.join(ISOLATED_ROOT, ...parts);
+  return ensureFakeDirAt(ISOLATED_ROOT, ...parts);
+}
+
+/** Same as ensureFakeDir but rooted at an explicit base dir (e.g. <userData>). */
+function ensureFakeDirAt(baseDir: string, ...parts: string[]): string {
+  const dir = path.join(baseDir, ...parts);
   fs.mkdirSync(dir, { recursive: true });
   for (const file of REQUIRED_FILES) {
     const filePath = path.join(dir, file);
@@ -132,6 +142,67 @@ describe("model-status: getProjectModelsDirCandidates priority", () => {
     ensureFakeDir("models", "Xenova", "bge-m3");
 
     expect(getProjectModelBaseDir("embedding", "bgem3")).toBe(path.join(ISOLATED_ROOT, "models"));
+  });
+
+  it("lists <userData>/models as an app-discovered model location", () => {
+    expect(getProjectModelsDirCandidates()).toContain(path.join(ISOLATED_USERDATA, "models"));
+  });
+
+  it("keeps executable-adjacent models ahead of <userData>/models", () => {
+    const dirs = getProjectModelsDirCandidates();
+    const exe = dirs.indexOf(path.join(path.dirname(process.execPath), "models"));
+    const userData = dirs.indexOf(path.join(ISOLATED_USERDATA, "models"));
+    expect(exe).toBeGreaterThanOrEqual(0);
+    expect(userData).toBeGreaterThan(exe);
+  });
+});
+
+describe("model-status: bge-base-zh-v1.5 layout", () => {
+  it("detects models/Xenova/bge-base-zh-v1.5 under key bgeBaseZh", () => {
+    ensureFakeDir("models", "Xenova", "bge-base-zh-v1.5");
+    const detail = getModelInstallStatusDetail("embedding", "bgeBaseZh");
+    expect(detail.installed).toBe(true);
+    expect(detail.source).toBe("project");
+    expect(detail.matchedAt).toBe(path.join(ISOLATED_ROOT, "models", "Xenova", "bge-base-zh-v1.5"));
+    expect(detail.modelId).toBe("embedding-bgeBaseZh");
+  });
+
+  it("resolves the base dir for bgeBaseZh independently of bgem3", () => {
+    ensureFakeDir("models", "Xenova", "bge-base-zh-v1.5");
+    expect(getProjectModelBaseDir("embedding", "bgeBaseZh")).toBe(path.join(ISOLATED_ROOT, "models"));
+    expect(getProjectModelBaseDir("embedding", "bgem3")).toBeNull();
+    expect(checkEmbeddingModelInstalled("bgeBaseZh")).toBe(true);
+    expect(checkEmbeddingModelInstalled("bgem3")).toBe(false);
+  });
+
+  it("falls back to the HF cache dir Xenova/bge-base-zh-v1.5", () => {
+    fs.mkdirSync(path.join(ISOLATED_ROOT, "models"), { recursive: true });
+    ensureHfCache("bge-base-zh-v1.5");
+    const detail = getModelInstallStatusDetail("embedding", "bgeBaseZh");
+    expect(detail.installed).toBe(true);
+    expect(detail.source).toBe("hf-cache");
+  });
+
+  it("finds a model installed under <userData>/models when nothing else has it", () => {
+    ensureFakeDirAt(path.join(ISOLATED_USERDATA, "models"), "Xenova", "bge-base-zh-v1.5");
+    const detail = getModelInstallStatusDetail("embedding", "bgeBaseZh");
+    expect(detail.installed).toBe(true);
+    expect(detail.source).toBe("project");
+    expect(detail.matchedAt).toBe(
+      path.join(ISOLATED_USERDATA, "models", "Xenova", "bge-base-zh-v1.5"),
+    );
+  });
+
+  it("reports both embedding keys in the installed list", () => {
+    ensureFakeDir("models", "Xenova", "bge-base-zh-v1.5");
+    expect(listInstalledEmbeddingModels()).toEqual(["bgeBaseZh"]);
+    expect(checkEmbeddingModelInstalled("bgem3")).toBe(false);
+  });
+
+  it("keeps the two embedding keys independent when both are installed", () => {
+    ensureFakeDir("models", "Xenova", "bge-base-zh-v1.5");
+    ensureFakeDir("models", "Xenova", "bge-m3");
+    expect(listInstalledEmbeddingModels()).toEqual(["bgeBaseZh", "bgem3"]);
   });
 });
 
@@ -229,29 +300,26 @@ describe("model-status: HF cache fallback semantics", () => {
   });
 });
 
-describe("model-status: getModelInstallStatus aggregate", () => {
-  it("returns true for bgem3 when only HF cache has it but project models/ is empty", () => {
+describe("model-status: installed listing across sources", () => {
+  it("lists bgem3 when only HF cache has it but project models/ is empty", () => {
     fs.mkdirSync(path.join(ISOLATED_ROOT, "models"), { recursive: true });
     ensureHfCache("bge-m3");
 
-    const status = getModelInstallStatus();
-    expect(status.embedding.bgem3).toBe(true);
+    expect(listInstalledEmbeddingModels()).toContain("bgem3");
   });
 
-  it("returns false for bgem3 when project models/Xenova/bge-m3 is incomplete (HF cache suppressed)", () => {
+  it("omits bgem3 when project models/Xenova/bge-m3 is incomplete (HF cache suppressed)", () => {
     ensurePartialFakeDir("models", "Xenova", "bge-m3");
     ensureHfCache("bge-m3");
 
-    const status = getModelInstallStatus();
-    expect(status.embedding.bgem3).toBe(false);
+    expect(listInstalledEmbeddingModels()).not.toContain("bgem3");
   });
 
-  it("returns mixed installed/not-installed based on actual disk state", () => {
+  it("reports embedding and reranker independently from actual disk state", () => {
     ensureFakeDir("models", "Xenova", "bge-m3");
     ensureFakeDir("models", "bge-reranker-base");
 
-    const status = getModelInstallStatus();
-    expect(status.embedding.bgem3).toBe(true);
-    expect(status.reranker.standard).toBe(true);
+    expect(listInstalledEmbeddingModels()).toContain("bgem3");
+    expect(checkRerankerModelInstalled()).toBe(true);
   });
 });

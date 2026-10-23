@@ -347,6 +347,14 @@ const settingsApi = {
   stickerPickFile: () => ipcRenderer.invoke(IPC.STICKERS_PICK_FILE),
   stickerAdd: (payload: { sourcePath: string; id: string; description: string; phrases: string[] }) => ipcRenderer.invoke(IPC.STICKERS_ADD, payload),
   embeddingSetModel: (model: string) => ipcRenderer.invoke(IPC.EMBEDDING_SET_MODEL, model),
+  getModelInstallList: () => ipcRenderer.invoke(IPC.MODEL_INSTALL_LIST),
+  modelInstallRun: (modelKey: string) => ipcRenderer.invoke(IPC.MODEL_INSTALL_RUN, modelKey),
+  modelInstallCancel: () => ipcRenderer.invoke(IPC.MODEL_INSTALL_CANCEL),
+  onModelInstallProgress: (callback: (progress: unknown) => void) => {
+    const listener = (_e: unknown, progress: unknown) => callback(progress);
+    ipcRenderer.on(IPC.MODEL_INSTALL_PROGRESS, listener);
+    return () => ipcRenderer.off(IPC.MODEL_INSTALL_PROGRESS, listener);
+  },
   rerankerSetMode: (mode: string) => ipcRenderer.invoke(IPC.RERANKER_SET_MODE, mode),
   getRerankerStatus: (): Promise<{ light: boolean; standard: boolean }> => ipcRenderer.invoke(IPC.RERANKER_GET_STATUS),
   setToolEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke(IPC.TOOL_SET_ENABLED, { id, enabled }),
@@ -563,7 +571,6 @@ contextBridge.exposeInMainWorld("stickerManager", stickerManagerApi);
 
 const modelConfigApi = {
   get: () => ipcRenderer.invoke(IPC.MODEL_CONFIG_GET),
-  getModelInstallStatus: () => ipcRenderer.invoke(IPC.MODEL_GET_INSTALL_STATUS),
   onChanged: (callback: (config: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, config: unknown) => callback(config);
     ipcRenderer.on(IPC.MODEL_CONFIG_CHANGED, listener);

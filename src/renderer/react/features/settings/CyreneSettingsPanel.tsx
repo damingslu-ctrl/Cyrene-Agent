@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Alert, Button, Input, Modal, Radio, Spin } from "antd";
 import { BookOpen, Heart, Images } from "lucide-react";
-import type { ModelSettings, SettingsApi } from "../../../settings/shared/types";
+import type { LocalModelInstallView, ModelInstallProgressView, ModelSettings, SettingsApi } from "../../../settings/shared/types";
 import { useTranslation } from "../../i18n";
 import { SettingsInput, SettingsSlider, SettingsSwitch } from "../../components/ui/SettingsControls";
 import { StickerManagerModal } from "./StickerManagerModal";
@@ -14,6 +14,11 @@ type Notice = { type: "success" | "error" | "info"; text: string };
 type ExtendedSettingsApi = SettingsApi & { getRerankerStatus?: () => Promise<{ light: boolean; standard: boolean }> };
 
 const defaults: Values = { runtimeSync: "off", stickerEnabled: true, stickerSize: "standard", stickerSimilarityThreshold: 0.55 };
+
+/** 字节数按 MiB 取整显示：清单本身是精确字节，UI 只关心量级。 */
+function formatMb(bytes: number): string {
+  return (bytes / 1048576).toFixed(0);
+}
 
 function settingsApi(): ExtendedSettingsApi | undefined {
   return window.settings as unknown as ExtendedSettingsApi | undefined;
@@ -36,9 +41,14 @@ export function CyreneSettingsPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [embeddingInstalled, setEmbeddingInstalled] = useState<boolean | null>(null);
+  const [models, setModels] = useState<LocalModelInstallView[]>([]);
+  const [currentModelKey, setCurrentModelKey] = useState("");
+  const [installing, setInstalling] = useState<{ modelKey: string; progress: ModelInstallProgressView | null } | null>(null);
+  const [switchingKey, setSwitchingKey] = useState<string | null>(null);
   const [rerankerInstalled, setRerankerInstalled] = useState<boolean | null>(null);
-  const [rerankerMode, setRerankerMode] = useState(() => localStorage.getItem("cyrene.reranker.mode") === "none" ? "none" : "standard");
+  // 档位以主进程设置为准：降级发生在主进程（模型缺失时 standard 实际按 none 跑），
+  // 本地再存一份只会让按钮显示成一个值、真正跑的是另一个值。
+  const [rerankerMode, setRerankerMode] = useState<"standard" | "none">("standard");
   const [addOpen, setAddOpen] = useState(false);
   const [stickerManagerOpen, setStickerManagerOpen] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
@@ -52,11 +62,26 @@ export function CyreneSettingsPanel() {
     let active = true;
     const api = settingsApi();
     if (!api) { setNotice({ type: "error", text: t("settingsPage.cyrene.unavailable") }); setLoading(false); return; }
-    void api.getConfig().then((config) => { if (active) { setValues(readValues(config)); setMemoryMode(config.memoryMode === "summary" || config.memoryMode === "wiki" || config.memoryMode === "off" ? config.memoryMode : "vector"); setLoading(false); } }).catch(() => { if (active) { setNotice({ type: "error", text: t("settingsPage.cyrene.loadFailed") }); setLoading(false); } });
+    void api.getConfig().then((config) => { if (active) { setValues(readValues(config)); setMemoryMode(config.memoryMode === "summary" || config.memoryMode === "wiki" || config.memoryMode === "off" ? config.memoryMode : "vector"); setRerankerMode(config.rerankerMode === "none" ? "none" : "standard"); setLoading(false); } }).catch(() => { if (active) { setNotice({ type: "error", text: t("settingsPage.cyrene.loadFailed") }); setLoading(false); } });
     void api.getRerankerStatus?.().then((status) => { if (active) setRerankerInstalled(status.standard); }).catch(() => {});
-    const modelConfig = (window as Window & { modelConfig?: { getModelInstallStatus?: () => Promise<{ embedding?: { bgem3?: boolean } }> } }).modelConfig;
-    void modelConfig?.getModelInstallStatus?.().then((status) => { if (active) setEmbeddingInstalled(Boolean(status.embedding?.bgem3)); }).catch(() => {});
-    return () => { active = false; };
+    void api.getModelInstallList?.().then((list) => {
+      if (!active || !list) return;
+      setModels(list.models);
+      setCurrentModelKey(list.currentModelKey);
+    }).catch(() => {});
+    // 下载进度只在本页挂载期间订阅；收尾事件顺手刷新清单，让按钮翻成「启用」。
+    const offProgress = api.onModelInstallProgress?.((progress) => {
+      if (!active) return;
+      setInstalling((current) => (current && current.modelKey === progress.modelKey ? { ...current, progress } : current));
+      if (progress.phase === "done" || progress.phase === "cancelled" || progress.phase === "error") {
+        void api.getModelInstallList?.().then((list) => {
+          if (!active || !list) return;
+          setModels(list.models);
+          setCurrentModelKey(list.currentModelKey);
+        }).catch(() => {});
+      }
+    });
+    return () => { active = false; offProgress?.(); };
   }, [t]);
 
   function update<K extends keyof Values>(key: K, value: Values[K]) {
@@ -132,20 +157,69 @@ export function CyreneSettingsPanel() {
     try {
       const okay = await api.rerankerSetMode(mode);
       if (!okay) throw new Error("Reranker switch failed");
-      localStorage.setItem("cyrene.reranker.mode", mode);
       setRerankerMode(mode);
     } catch { setNotice({ type: "error", text: t("settingsPage.cyrene.rerankerFailed") }); }
   }
 
-  async function selectEmbedding() {
+  function labelOf(modelKey: string): string {
+    return models.find((model) => model.modelKey === modelKey)?.label ?? modelKey;
+  }
+
+  async function refreshModelList(): Promise<void> {
+    const list = await settingsApi()?.getModelInstallList?.();
+    if (!list) return;
+    setModels(list.models);
+    setCurrentModelKey(list.currentModelKey);
+  }
+
+  async function selectEmbedding(modelKey: string) {
     const api = settingsApi();
-    if (!api?.embeddingSetModel) return;
+    if (!api?.embeddingSetModel || switchingKey) return;
+    setSwitchingKey(modelKey);
+    setNotice(null);
     try {
-      const result = await api.embeddingSetModel("bgem3");
-      if (!result.ok) throw new Error(result.error);
-      localStorage.setItem("cyrene.rag.model", "bgem3");
-      setNotice({ type: "success", text: t("settingsPage.cyrene.embeddingSelected") });
-    } catch { setNotice({ type: "error", text: t("settingsPage.cyrene.embeddingFailed") }); }
+      const result = await api.embeddingSetModel(modelKey);
+      if (!result.ok) throw new Error(result.error ?? "");
+      setCurrentModelKey(modelKey);
+      setNotice({ type: "success", text: t("settingsPage.cyrene.switchDone", { label: labelOf(modelKey) }) });
+      await refreshModelList();
+    } catch {
+      setNotice({ type: "error", text: t("settingsPage.cyrene.embeddingFailed") });
+    } finally {
+      setSwitchingKey(null);
+    }
+  }
+
+  async function installModel(modelKey: string) {
+    const api = settingsApi();
+    if (!api?.modelInstallRun || installing) return;
+    setInstalling({ modelKey, progress: null });
+    setNotice(null);
+    try {
+      const result = await api.modelInstallRun(modelKey);
+      if (!result.ok) throw new Error(result.error ?? "");
+      setNotice({
+        type: "success",
+        text: result.alreadyInstalled
+          ? t("settingsPage.cyrene.installAlready", { label: labelOf(modelKey) })
+          : t("settingsPage.cyrene.installDone", { label: labelOf(modelKey) }),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setNotice({
+        type: "error",
+        text: message.includes("E_MODEL_INSTALL_CANCELLED")
+          ? t("settingsPage.cyrene.installCancelled")
+          : t("settingsPage.cyrene.installFailed", { error: message }),
+      });
+    } finally {
+      setInstalling(null);
+      await refreshModelList();
+    }
+  }
+
+  async function cancelInstall() {
+    await settingsApi()?.modelInstallCancel?.();
   }
 
   return <>
@@ -165,9 +239,38 @@ export function CyreneSettingsPanel() {
       </section>
       {memoryMode === "vector" && <section className="cy-settings-section"><div className="cy-settings-section__heading"><h2><BookOpen size={18} />{t("settingsPage.cyrene.retrievalTitle")}</h2><p>{t("settingsPage.cyrene.retrievalDescription")}</p></div>
         <Card>
-            <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.cyrene.embeddingModel")}</strong><span>{t("settingsPage.cyrene.embeddingHint")}</span></div><Button className="cy-cyrene-model-choice" onClick={() => void selectEmbedding()}>BGE-M3 · {embeddingInstalled === null ? t("settingsPage.cyrene.unknown") : embeddingInstalled ? t("settingsPage.cyrene.installed") : t("settingsPage.cyrene.notInstalled")}</Button></div>
+            <div className="cy-settings-row cy-cyrene-models">
+              <div className="cy-settings-row__copy"><strong>{t("settingsPage.cyrene.embeddingModel")}</strong><span>{t("settingsPage.cyrene.embeddingHint")}</span></div>
+              <div className="cy-cyrene-model-list">
+                {models.length === 0 && <span className="cy-cyrene-model-empty">{t("settingsPage.cyrene.modelListUnavailable")}</span>}
+                {models.map((model) => {
+                  const isCurrent = model.modelKey === currentModelKey;
+                  const task = installing?.modelKey === model.modelKey ? installing : null;
+                  const percent = task?.progress && task.progress.bytesTotal > 0
+                    ? Math.min(100, Math.round((task.progress.bytesDone / task.progress.bytesTotal) * 100))
+                    : 0;
+                  return <div className={isCurrent ? "cy-cyrene-model cy-cyrene-model--current" : "cy-cyrene-model"} key={model.modelKey}>
+                    <div className="cy-cyrene-model__copy">
+                      <strong>{model.label}</strong>
+                      <span>{t("settingsPage.cyrene.modelSpecs", { dims: model.dims, mb: formatMb(model.bytesTotal) })} · {model.installed ? t("settingsPage.cyrene.installed") : t("settingsPage.cyrene.notInstalled")}{isCurrent ? ` · ${t("settingsPage.cyrene.modelCurrent")}` : ""}</span>
+                    </div>
+                    <div className="cy-cyrene-model__actions">
+                      {!model.installed && <Button size="small" loading={Boolean(task)} disabled={Boolean(installing) && !task} onClick={() => void installModel(model.modelKey)}>{t("settingsPage.cyrene.modelInstall")}</Button>}
+                      {model.installed && !isCurrent && <Button size="small" loading={switchingKey === model.modelKey} disabled={Boolean(switchingKey)} onClick={() => void selectEmbedding(model.modelKey)}>{t("settingsPage.cyrene.modelUse")}</Button>}
+                    </div>
+                    {task && <div className="cy-cyrene-install">
+                      <div className="cy-cyrene-install__bar"><span style={{ width: `${percent}%` }} /></div>
+                      <div className="cy-cyrene-install__meta">
+                        <span>{percent}%{task.progress?.file ? ` · ${t("settingsPage.cyrene.modelFile", { index: task.progress.fileIndex, total: task.progress.fileCount })}` : ""}</span>
+                        <Button size="small" onClick={() => void cancelInstall()}>{t("settingsPage.cyrene.cancel")}</Button>
+                      </div>
+                    </div>}
+                  </div>;
+                })}
+              </div>
+            </div>
             <div className="cy-settings-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.cyrene.embeddingDimensions")}</strong><span>{t("settingsPage.cyrene.embeddingDimensionsHint")}</span></div><SettingsInput className="cy-cyrene-dimensions" type="number" min={1} max={65536} value={values.embeddingDimensions ?? ""} placeholder={t("settingsPage.cyrene.autoDetect")} aria-label={t("settingsPage.cyrene.embeddingDimensions")} onChange={(event) => update("embeddingDimensions", event.target.value ? Number(event.target.value) : undefined)} /></div>
-            <div className="cy-settings-row cy-cyrene-radio-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.cyrene.reranker")}</strong><span>{rerankerInstalled === null ? t("settingsPage.cyrene.unknown") : rerankerInstalled ? t("settingsPage.cyrene.installed") : t("settingsPage.cyrene.notInstalled")}</span></div><Radio.Group value={rerankerMode} optionType="button" buttonStyle="solid" onChange={(event) => void selectReranker(event.target.value as "standard" | "none")}><Radio.Button value="standard">bge-reranker-base</Radio.Button><Radio.Button value="none">{t("settingsPage.cyrene.off")}</Radio.Button></Radio.Group></div>
+            <div className="cy-settings-row cy-cyrene-radio-row"><div className="cy-settings-row__copy"><strong>{t("settingsPage.cyrene.reranker")}</strong><span>{rerankerInstalled === null ? t("settingsPage.cyrene.unknown") : rerankerInstalled ? t("settingsPage.cyrene.installed") : t("settingsPage.cyrene.notInstalled")}{rerankerInstalled === false && rerankerMode === "standard" ? t("settingsPage.cyrene.rerankerDowngraded") : ""}</span></div><Radio.Group value={rerankerMode} optionType="button" buttonStyle="solid" onChange={(event) => void selectReranker(event.target.value as "standard" | "none")}><Radio.Button value="standard">bge-reranker-base</Radio.Button><Radio.Button value="none">{t("settingsPage.cyrene.off")}</Radio.Button></Radio.Group></div>
         </Card>
       </section>}
       <div className="cy-settings-form-footer"><Button type="primary" loading={saving} onClick={() => void save()}>{t("settingsPage.cyrene.save")}</Button></div>

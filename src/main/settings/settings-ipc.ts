@@ -1,4 +1,5 @@
 import { CONSOLE_PREFIX } from "../../shared/brand";
+import { resolveLocalEmbeddingModelKey } from "../../shared/local-models";
 import { app, BrowserWindow, shell } from "electron";
 import { IPC } from "../../shared/ipc-channels";
 import { isUpstreamUrl } from "../../shared/upstream-hosts";
@@ -13,6 +14,16 @@ import {
 import type { RuntimeStateService } from "../orchestrator/runtime-state-service";
 import { initReranker, getRerankerInstallStatus, resetReranker } from "../rag/reranker";
 import { switchEmbeddingModel } from "../rag";
+import { getCurrentModelKey } from "../rag/embedding";
+import { checkEmbeddingModelInstalled } from "../rag/model-status";
+import {
+  cancelLocalModelInstall,
+  describeModelInstall,
+  installLocalEmbeddingModel,
+  isModelInstallRunning,
+  type ModelInstallProgress,
+} from "../rag/model-install";
+import { LOCAL_EMBEDDING_MODEL_KEYS } from "../../shared/local-models";
 import { testVendorConnection } from "../orchestrator/vendors/test-connection";
 import { getAdapterForConfig } from "../orchestrator/vendors";
 import type { VendorConfig } from "../orchestrator/vendors";
@@ -279,7 +290,7 @@ export function registerSettingsIpc(deps: SettingsIpcDependencies): void {
       const result = await switchEmbeddingModel(modelKey);
       if (result.ok) {
         await reconcileUserMemoryIndex();
-        saveModelSettings({ embeddingModel: "bgem3" });
+        saveModelSettings({ embeddingModel: resolveLocalEmbeddingModelKey(modelKey) });
         broadcastModelConfigChanged();
       }
       return result;
@@ -301,10 +312,40 @@ export function registerSettingsIpc(deps: SettingsIpcDependencies): void {
 
   ipc.handle(IPC.RERANKER_GET_STATUS, () => getRerankerInstallStatus());
 
-  ipc.handle(IPC.MODEL_GET_INSTALL_STATUS, () => {
-    const { getModelInstallStatus } = require("../rag/model-status");
-    return getModelInstallStatus();
+  // ── 应用内检索模型下载 ──
+  // 设置页要回答三个问题：有哪些档、每个档装没装、当前用的是哪个。
+  // 清单（大小/文件数/落位目录）来自 shared 注册表，渲染进程不自己拼路径。
+  ipc.handle(IPC.MODEL_INSTALL_LIST, () => {
+    return {
+      models: LOCAL_EMBEDDING_MODEL_KEYS.map((key) => describeModelInstall(key)).filter(Boolean),
+      currentModelKey: getCurrentModelKey(),
+      installing: isModelInstallRunning(),
+    };
   });
+
+  ipc.handle(IPC.MODEL_INSTALL_RUN, async (_event, modelKey: string) => {
+    const emit = (progress: ModelInstallProgress) =>
+      deps.windowManager?.broadcast(IPC.MODEL_INSTALL_PROGRESS, progress);
+    console.log(CONSOLE_PREFIX + " local model install requested:", modelKey);
+    const result = await installLocalEmbeddingModel(modelKey, { onProgress: emit });
+    if (result.ok) {
+      // 下完 ≠ 生效：只有当前档本身还没装上时才把它切过去。
+      // 用户补下第二个模型不该被悄悄换掉向量维度——那会让索引整个失配。
+      const current = getModelSettings().embeddingModel;
+      if (!checkEmbeddingModelInstalled(current)) {
+        const switched = await switchEmbeddingModel(modelKey);
+        if (switched.ok) {
+          saveModelSettings({ embeddingModel: resolveLocalEmbeddingModelKey(modelKey) });
+          broadcastModelConfigChanged();
+        }
+      }
+    } else {
+      console.warn(CONSOLE_PREFIX + " local model install failed:", result.error);
+    }
+    return result;
+  });
+
+  ipc.handle(IPC.MODEL_INSTALL_CANCEL, () => cancelLocalModelInstall());
 
   ipc.handle(IPC.OPEN_EXTERNAL, async (_event, url: string) => {
     // 放行 http(s) 与 mailto:（后者交给系统默认邮件客户端）；其余协议一律拒绝。

@@ -77,6 +77,10 @@ export interface ModelSettings {
   };
   /** Embedding 维度（可选，仅 cloud 模式）。留空 = 自动探测。 */
   embeddingDimensions?: number;
+  /** 本机检索模型档位（`bgeBaseZh` / `bgem3`）。脏值由主进程回落到默认档。 */
+  embeddingModel?: string;
+  /** 重排档：`standard` 用 bge-reranker-base，`none` 不重排。 */
+  rerankerMode?: "standard" | "none";
   multimodal: boolean;
   thinkingOverride?: -1 | 0 | 1;
   /** 禁用 max_tokens 注入。仅对自定义端点生效（与主进程 model-settings.ts 对齐）。 */
@@ -254,6 +258,31 @@ export interface McpServerConfigView {
   headers?: Record<string, string>;
 }
 
+/** 本机检索模型的一行清单（体积/维度/是否已装/落位目录），来自主进程注册表。 */
+export interface LocalModelInstallView {
+  modelKey: string;
+  label: string;
+  dims: number;
+  /** 项目侧相对目录，例如 `Xenova/bge-base-zh-v1.5`。 */
+  dirName: string;
+  bytesTotal: number;
+  files: number;
+  installed: boolean;
+  targetDir: string | null;
+}
+
+/** 下载进度事件。`phase` 为 done/cancelled/error 时 `file` 是 null。 */
+export interface ModelInstallProgressView {
+  modelKey: string;
+  phase: "downloading" | "progress" | "done" | "cancelled" | "error";
+  file: string | null;
+  /** 1-based。 */
+  fileIndex: number;
+  fileCount: number;
+  bytesTotal: number;
+  bytesDone: number;
+}
+
 export interface SettingsApi {
   minimize: () => void;
   close: () => void;
@@ -284,6 +313,21 @@ export interface SettingsApi {
   stickerPickFile?: () => Promise<string | null>;
   stickerAdd?: (payload: { sourcePath: string; id: string; description: string; phrases: string[] }) => Promise<unknown>;
   embeddingSetModel?: (model: string) => Promise<{ ok: boolean; clearedEntries?: number; error?: string }>;
+  /** 本机检索模型清单：注册表驱动，含安装状态、体积与当前生效档。 */
+  getModelInstallList?: () => Promise<{
+    models: LocalModelInstallView[];
+    currentModelKey: string;
+    installing: boolean;
+  }>;
+  modelInstallRun?: (modelKey: string) => Promise<{
+    ok: boolean;
+    modelKey: string;
+    modelDir?: string;
+    alreadyInstalled?: boolean;
+    error?: string;
+  }>;
+  modelInstallCancel?: () => Promise<boolean>;
+  onModelInstallProgress?: (callback: (progress: ModelInstallProgressView) => void) => () => void;
   rerankerSetMode?: (mode: string) => Promise<boolean>;
   setToolEnabled?: (id: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
   getToolEnabled?: () => Promise<Record<string, boolean>>;

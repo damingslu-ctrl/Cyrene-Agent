@@ -285,8 +285,12 @@ export const IPC = {
   EMBEDDING_SET_MODEL: "embedding:set-model",
   RERANKER_SET_MODE: "reranker:set-mode",
   RERANKER_GET_STATUS: "reranker:get-status",
-  // unified model install status
-  MODEL_GET_INSTALL_STATUS: "model:get-install-status",
+  // 应用内检索模型下载（<userData>/models）；清单是唯一状态源
+  MODEL_INSTALL_LIST: "model:install-list",
+  MODEL_INSTALL_RUN: "model:install-run",
+  MODEL_INSTALL_CANCEL: "model:install-cancel",
+  /** 主进程 → 渲染进程：下载进度推流 */
+  MODEL_INSTALL_PROGRESS: "model:install-progress",
   // shell external URL
   OPEN_EXTERNAL: "shell:open-external",
   // user profile

@@ -188,8 +188,8 @@ export async function switchEmbeddingModel(modelKey: string): Promise<{ ok: bool
   if (!isMemoryEnabled()) return { ok: false, clearedEntries: 0, error: "记忆模式已关闭" };
   try {
     // Switch the embedding pipeline first
-    switchModel(modelKey);
-    const newProvider = getEmbeddingProvider("auto", undefined, undefined, modelKey);
+    const switched = switchModel(modelKey);
+    const newProvider = switched ? getEmbeddingProvider("auto", undefined, undefined, modelKey) : null;
 
     // 模型不存在时无法切换 — 输出详细诊断帮助排查"放到 models/ 却检测不到"
     if (!newProvider) {
