@@ -453,3 +453,61 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
 
 **授权项**：合并／推送／发布（沿用你既有的「直接发布」令，走 fork 与 7896 通路）；
 不涉及新依赖、不碰 `%APPDATA%\Cyrene`、不装系统组件、不改本机防火墙。
+
+---
+
+## 14. v1.5.0 实施记录与口径差回写（2026-10-24）
+
+> 本节由 Task 28 回写。实现与实施计划见
+> `docs/verge/plans/2026-10-24-catgirl-form-and-motion.md` 与 `docs/verge/notes/progress.md`。
+
+### 14.1 口径差台账（①–⑱）
+
+| # | spec 原文 | 实现 | 理由 |
+|---|---|---|---|
+| ① | `Map2` 只有 `map` | 另有 `scaleX/scaleY/k` | 绘图助手要椭圆半径与线宽；只给 `map` 等于把 `sx/sy` 泄回助手层 |
+| ② | `Joint` 用 `dx/dy` | 用全局落点 `(gx,gy)` | 骨架要能直接说「肩在 (47,66)」，增量表达不了 |
+| ③ | `buildPetOps(form, input)` | `buildPetOps(input)` 从 `input.form` 取 | `PetInput` 本来就有 `form`，两处给就要另定「谁赢」 |
+| ④ | 四层合成取代 `applyCompanionPose` | 拆成 `applyCatPose` + `applyLayerPose` 按 form 分派 | R-D2：四足姿态的唯一生产者不能中途换，否则 P2 就红 |
+| ⑤ | 复用 `character-status-moods` 的六档 | 不接管：两套词汇、两条码路 | 那套只在 run 结束后写、且广播永远到不了猫窗 |
+| ⑥ | 提醒的起止＝`publishAskCard`→`resolveAskCardSubmission` | 订阅下游总线，覆盖 timeout/unavailable/cancelled | 按函数名挂钩会漏掉一半真实提醒 |
+| ⑦ | 载荷发 `profileFor(...)` | 只发 `{ form, tier }` 两个字符串 | `PetProfile` 带 `catScale` 方法，structured clone 当场抛 |
+| ⑧ | `Clip.bubbleKey` | 撤掉 | 猫窗没有 i18n 运行时，表里写 key 零读者＝假契约 |
+| ⑨ | 已处理＝happy＋星星 | `star` 通道偏置到 `excited` 才出星 | Task 9 的差分表里 happy 的 star 是 0 |
+| ⑩ | 提醒深链沿用 `tab_hint` | 改为 `revealAskWorkStatus()`（第五通道） | `tab_hint` 在本 fork 0 命中，是 native 版的东西 |
+| ⑪ | #74 从生产入口灌 AGUI 事件 | 探针走 `WorkStatusService.feed` 的公开面 | 不出网、无模型凭据，只能从服务入口造事件 |
+| ⑫ | 手势种子 6 条 | 本任务落 9 条（补 typeCode/peek/shiver） | Task 14/18 的测试与演出表要用；缺一条 `gestureClip` 当场抛 |
+| ⑬ | 粒子是第四层 | `MotionLayer` 保持 body/gesture/face 三档 | 粒子不吃骨架；`sweat/tear/star` 在 `FaceParams`，其余由 overlay 承载 |
+| ⑭ | 加权表取代 `IDLE_ACTIVITIES` | 新增 `pickRoll` 按 form 分派，四足平表退役另计 | 四足行为与 RNG 消耗被既有 18 条测试钉死 |
+| ⑮ | 触摸六类形态无关 | 登记与合并共用，**反应只长在 girl** | 五档反馈都是猫娘 clip；四足单击仍走 `handleCommand("pet")` |
+| ⑯ | 重推 `CAT_CROPS` 与覆盖带 | 加 `GIRL_CROPS` 与 `CROP_CRITERIA_BY_FORM` 第二套，CAT 保留 | 图标支路 5 件仍是四足（§9 没点名换），CAT 表仍有消费方 |
+| ⑰ | 猫娘为默认 | `DEFAULT_VERGE_STATE` 翻 girl/large；`defaultProfile()` 仍 cat/standard | 前者是产品默认，后者是屏幕尺参照系；翻它等于重钉 ~70 把尺 |
+| ⑱ | #71 只读画布 | 顺带修活 `getHitAreaDefs` 并把 `hitRect/form/tier` 加进诊断口 | 那个方法此前钉死 `PIN/e:0` 且零消费方；诊断口是测试面，不进 UI |
+
+### 14.2 尺 #71–#74 落账
+
+| # | 脚本/测试 | 判据 | 变异验牙 | 本期状态 |
+|---|---|---|---|---|
+| #71 | `src/renderer/pet/hit-iou.test.ts`（离线层，进 CI）＋ `scripts/verify/pet-hit-cdp.mjs`（真窗） | 六组 form×tier 的 IoU ≥ 0.55、头部中线一列有可点像素 | ④ 把 `hitAspect.height` 写回 1.85 → IoU 掉下去 | 离线层绿；**CDP 版未跑** |
+| #72 | `src/renderer/pet/face-distinguishability.test.ts` | 16×15 对像素差全部 ≥ `MIN_PIXEL_DIFF` | 把 wink 写成 happy → 该对 0% 必红 | 绿（贴脸 104×104 栅格化） |
+| #73 | `src/renderer/pet/motion-clips.test.ts` | 每条 clip 的 p=0/p=1 都落回 rest；rest 键集==tracks 键集 | ② 删某条 rest 项 → 点名该 clip | 绿（30 条，1e−12 容差） |
+| #74 | `scripts/verify/work-status-cdp.mjs` | 六档至少 4 档、内部标识零泄漏 | ⑤ 注掉一档触发源 → 该档缺席必红 | **未实现**（见 14.3） |
+
+### 14.3 本期未完成 / 延后
+
+- **#74 的屏幕半条链与第五通道 `VERGE_PET_REVEAL_ASK`**：`workStatus` 六档服务与演出表已落
+  （`work-status.test.ts` 10 条、`work-status-presentation.test.ts` 5 条），但「真跑一次工具调用
+  与 ask-card、逐档截屏」的 CDP 探针与点气泡唤卡的第五通道本期没有实现。
+- **#71 的真窗 CDP 版**：脚本已写、判据已定，本轮未跑（需起 Electron + D 盘一次性 profile）。
+  离线层已量到同一套几何并反钉了 `FORM_GEOMETRY.girl`。
+- **形态与 workStatus 的接线**：`composeChannels` 目前只按活动选 body、按显式手势选 gesture，
+  `workStatus` 的六档演出表尚未接进去（仍走 mood 级联的脸）。这是 v1.5.1 的第一件事。
+- 原延后清单继续有效，另加：图标支路 5 件猫娘版、四足 `IDLE_ACTIVITIES` 退役、
+  `ACTIVITY_GESTURE` 收敛、`renderer.test.ts` 四段 harness 各带一份的工程账、猫窗气泡文案 i18n。
+
+### 14.4 实测记录（2026-10-24）
+
+- 资产：`cat-sprites --measure` 的 girl 五组覆盖度为 square 0.150–0.157 / bust 0.180–0.192 /
+  full 0.091–0.118 / round 0.136–0.142 / wide 0.058（n=83/30/17/15/1）；146 张重出 1267.3 KB。
+- 命中：girl 墨 bbox 三档 1.56/1.32/1.09u 宽、2.19/2.00/1.79u 高，中心在钉位下方 0.40–0.59u。
+- 表情：`MIN_PIXEL_DIFF` 按形态分列（cat 0.5%、girl 0.15%）；撞车的 5 对 mood 已改姿态拉开。
