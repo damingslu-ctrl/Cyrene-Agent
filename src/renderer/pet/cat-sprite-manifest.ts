@@ -1,3 +1,4 @@
+export { MIN_PIXEL_DIFF, pixelDiffRatio } from "../../shared/min-pixel-diff";
 /**
  * 位图资产全表：129 条「画什么、画多大、用哪个取景与姿态」。
  *

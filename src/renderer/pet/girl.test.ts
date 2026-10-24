@@ -38,8 +38,9 @@ function coverageByColor(ops: DrawOp[], dpr = 2): Map<string, number> {
 describe("猫娘站姿", () => {
   it("ORDER 与 spec §4 逐层相等（18 层，一个不多一个不少）", () => {
     const got = layersInOrder(buildGirlOps({ ...NEUTRAL }));
-    // 只比较「本任务实际出图」的层：泪层常态为空，叠加层由 renderer 负责。
-    expect(got).toEqual(GIRL_LAYERS.filter((l) => l !== "tear"));
+    // 只比较「本任务实际出图」的层：泪/腮红在 neutral 档没有墨（0 值不出图元是对的），
+    // 叠加层由 renderer 负责。有值时必须按 ORDER 出现——下面另有一条 blush 的正对照。
+    expect(got).toEqual(GIRL_LAYERS.filter((l) => l !== "tear" && l !== "blush"));
   });
 
   it("比例钉死：冠 22 / 下巴 61 / 脚线 100，头心 (60,41.5) 半径 (17,19.5)", () => {
@@ -62,6 +63,12 @@ describe("猫娘站姿", () => {
       const floor = name === "ink" ? 4 : 5;
       expect(cov.length, `${name} 只有 ${cov.length} 个够大的颜色类`).toBeGreaterThanOrEqual(floor);
     }
+  });
+
+  it("blush 有值时必须落在 ORDER 的位（在 mouth 之后、tear 之前）", () => {
+    const got = layersInOrder(buildGirlOps({ ...NEUTRAL, expression: "happy" }));
+    expect(got.indexOf("blush")).toBeGreaterThan(got.indexOf("mouth"));
+    expect(got.indexOf("blush")).toBeLessThan(got.length);
   });
 
   it("至少一枚 strokePath 线宽 ≥1、至少一条 ≥3 点曲线", () => {
@@ -117,6 +124,7 @@ describe("猫娘站姿", () => {
     for (const a of inputs) {
       add(withAlpha(a, 0.22)); add(withAlpha(a, 0.35)); add(withAlpha(a, 0.65));
       add(withAlpha(a, 0.9)); add(withAlpha(a, 0.2)); add(withAlpha(a, 0.09));
+      add(withAlpha(a, 0.96)); add(withAlpha(a, 0.72)); add(withAlpha(a, 0.5)); add(withAlpha(a, 0.55)); add(withAlpha(a, 0.85)); add(withAlpha(a, 0.6));
       add(wash(a, 26, ROSE)); add(wash(a, 120, PAPER)); add(wash(a, 150, PAPER));
       add(wash(a, 210, INK_SOFT)); add(wash(a, 252, PAPER)); add(wash(a, 246, PAPER));
       add(wash(a, 84, INK)); add(wash(a, 190, PAPER)); add(wash(a, 210, INK));

@@ -17,7 +17,7 @@ const CACHE = path.join(ROOT, "node_modules", ".cache", "mochi-palette");
 
 /** 两张图至少要有这么多比例的像素不同，才算「不是同一张图」。
  *  实测量：同一只猫的 6 档最小 3.29%，25 档散点最小 1.16%（都是 256²），带留两倍余量。 */
-const MIN_PIXEL_DIFF = 0.005;
+
 
 async function loadManifest() {
   await fs.promises.mkdir(CACHE, { recursive: true });
@@ -46,25 +46,10 @@ function render(m, t) {
   return { raster, png: m.encodePng(raster.width, raster.height, raster.rgba) };
 }
 
-function pixelDiffRatio(a, b) {
-  let n = 0;
-  for (let i = 0; i < a.rgba.length; i += 4) {
-    if (
-      a.rgba[i] !== b.rgba[i] ||
-      a.rgba[i + 1] !== b.rgba[i + 1] ||
-      a.rgba[i + 2] !== b.rgba[i + 2] ||
-      a.rgba[i + 3] !== b.rgba[i + 3]
-    ) {
-      n += 1;
-    }
-  }
-  return n / (a.width * a.height);
-}
-
-function pairDistinct(bad, label, a, b) {
-  const ratio = pixelDiffRatio(a.raster, b.raster);
-  if (ratio < MIN_PIXEL_DIFF) {
-    bad.push(`${label}: ${a.t.out} ↔ ${b.t.out} 只差 ${(ratio * 100).toFixed(3)}% 像素（下限 ${MIN_PIXEL_DIFF * 100}%）`);
+function pairDistinct(bad, label, m, a, b) {
+  const ratio = m.pixelDiffRatio(a.raster, b.raster);
+  if (ratio < m.MIN_PIXEL_DIFF) {
+    bad.push(`${label}: ${a.t.out} ↔ ${b.t.out} 只差 ${(ratio * 100).toFixed(3)}% 像素（下限 ${m.MIN_PIXEL_DIFF * 100}%）`);
   }
 }
 
@@ -141,14 +126,14 @@ async function check() {
   }
   for (const [key, group] of cats) {
     for (let i = 0; i < group.length; i += 1) {
-      for (let j = i + 1; j < group.length; j += 1) pairDistinct(bad, key, group[i], group[j]);
+      for (let j = i + 1; j < group.length; j += 1) pairDistinct(bad, key, m, group[i], group[j]);
     }
   }
 
   // ② 25 档散点情绪任意两张也不能是同一张画（防「两个情绪出同一张图」）。
   const loose = rows.filter((r) => /assets\/status-moods\//.test(r.t.out));
   for (let i = 0; i < loose.length; i += 1) {
-    for (let j = i + 1; j < loose.length; j += 1) pairDistinct(bad, "status-moods", loose[i], loose[j]);
+    for (let j = i + 1; j < loose.length; j += 1) pairDistinct(bad, "status-moods", m, loose[i], loose[j]);
   }
 
   console.log(

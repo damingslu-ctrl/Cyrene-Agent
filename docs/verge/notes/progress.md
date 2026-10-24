@@ -54,3 +54,13 @@
 - 落点：`verge-store`（`form`/`tier` + 默认 **girl/large**）、`verge-service`（`setForm`/`setTier`）、`pet-menu`（形态 2 + 身形 3 项、`onProfileStateChange` 收口）、`default-dependencies`（`applyProfileState` 广播两个字符串）、`ipc-channels`（`VERGE_PROFILE_GET/UPDATE`）、`verge-ipc`（GET handle）、preload（`getProfile`/`onProfileUpdate`）。
 - 验了：`verge-store` 4 条、`pet-menu` 8 条、`pet-menu-attach`（16 项 + 两分隔线 + 收口两条字符串）、`ipc-contract` 8 条；全仓绿。
 - 计划侧修正：`DEFAULT_PROFILE`（几何兜底）**不翻**，只有 `DEFAULT_VERGE_STATE` 翻——两层刻意分开（口径差⑰）。
+
+## Task 9–11 — 16 档表情、buildFaceOps、尺 #72
+
+- 落点：`src/renderer/pet/face.ts`（`Expression`/`FaceParams`/`FaceCtx`/`FACE_REST`/`TABLE`/`faceOf`/`MOOD_TO_EXPRESSION`/`buildFaceOps`）、`src/shared/min-pixel-diff.ts`（阈值与差度量单一来源）、`src/renderer/pet/face-distinguishability.test.ts`（尺 #72）。
+- 验了：`face.test.ts` 8 条（16 名单、纯函数、≥3 通道、闭眼/wink、泪汗、blink 只压 lid、gaze、mood 归属）；`min-pixel-diff` 4 条；尺 #72 三条（16×15 全过、同图零差正对照、变异靶心）；`check:sprites` 仍 all clear（阈值搬移的等价证明）。
+- 计划侧修正：
+  1. 尺 #72 的画布从「整窗 164×216」改成「贴脸 104×104」并用手工头阵：整窗分母让所有表情差 <0.5%，那不是表情不可分辨，是尺把空白算进了分母。
+  2. `girl.ts` 的脸部改为调用 `buildFaceOps`（单一来源），`GirlSpriteInput` 加 `expression`；`buildFaceOps` 的 `head` 在运行时由 `matRoot` 给，测试里用恒等阵。
+  3. `MIN_PIXEL_DIFF`/`pixelDiffRatio` 移入 `src/shared/min-pixel-diff.ts`，`cat-sprites.mjs` 改读 bundle 出口，`cat-sprite-manifest.ts` re-export。
+- 推后：`buildFaceOps` 的 `s`/`u` 参数暂未参与半径（眼睛按 head 阵缩放），Task 14 接通道时再统一。

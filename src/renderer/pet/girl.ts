@@ -2,6 +2,7 @@ import type { CatInput } from "./art";
 import { INK_COAT } from "../../shared/cat-coats";
 import { arc, cubicTo } from "./xf";
 import { matRoot, toMap2, type Map2 } from "./rig";
+import { buildFaceOps, faceOf, type Expression } from "./face";
 import type { DrawOp, PetLayer, Point2 } from "../../shared/draw-ops";
 import { ACCENT, INK, INK_SOFT, PAPER, PAPER_SHADE, ROSE, wash, withAlpha } from "../../shared/pet-tokens";
 import type { CatCoat } from "../../shared/cat-coats";
@@ -108,7 +109,12 @@ function blob(start: Point2, segments: Array<[Point2, Point2, Point2]>): Point2[
  * 站姿 ops。`input.blink` 只压眼睛、`input.quiet`/`mood` 等叠加层由调用方（renderer）
  * 用 `buildOverlayOps` 叠在同一个 center 上——本函数只管**长在身上的**那 18 层。
  */
-export function buildGirlOps(input: CatInput): DrawOp[] {
+export interface GirlSpriteInput extends CatInput {
+  /** 表情档（缺省 neutral）。P1 站姿只有静态脸；P2 的 channles 由 Task 14 接。 */
+  expression?: Expression;
+}
+
+export function buildGirlOps(input: GirlSpriteInput): DrawOp[] {
   const P = GIRL_PROPORTION;
   const coat = input.coat ?? INK_COAT;
   const p = girlPalette(coat);
@@ -235,31 +241,10 @@ export function buildGirlOps(input: CatInput): DrawOp[] {
   // —— 呆毛 ——
   out.push(line(c, "ahoge", p.hairTop, 1.6, arc(60 - 1, P.crown + 1, 60 + 4.5, P.crown - 8, 60 + 7, P.crown - 2)));
 
-  // —— 眉毛 ——
-  for (const side of [-1, 1] as const) {
-    const cx = side < 0 ? P.eyeLx : P.eyeRx;
-    out.push(line(c, "brows", p.hairEdge, 1.4, arc(cx - 4, P.eyeY - 8.5, cx, P.eyeY - 10.5, cx + 4, P.eyeY - 8.5)));
-  }
-
-  // —— 眼睛：沿用四足的半径比（5.9 × 6.6）与高光 0.30/0.15；blink 只压眼高 ——
-  {
-    const lid = Math.max(0, Math.min(1, input.blink));
-    for (const cx of [P.eyeLx, P.eyeRx] as const) {
-      out.push(ell(c, "eyes", p.eyeWhite, cx, P.eyeY, P.eyeRr, P.eyeRy * (1 - 0.9 * lid)));
-      out.push(ell(c, "eyes", p.eye, cx, P.eyeY, P.eyeRr * 0.66, P.eyeRy * 0.78 * (1 - 0.9 * lid)));
-      if (lid < 0.6) {
-        out.push(ell(c, "eyes", withAlpha(PAPER, 0.9), cx + P.eyeRr * 0.30, P.eyeY - P.eyeRy * 0.32, P.eyeRr * 0.30, P.eyeRr * 0.30));
-        out.push(ell(c, "eyes", withAlpha(PAPER, 0.65), cx - P.eyeRr * 0.28, P.eyeY + P.eyeRy * 0.20, P.eyeRr * 0.15, P.eyeRr * 0.15));
-      }
-      out.push(line(c, "eyes", p.eye, 1.5, arc(cx - P.eyeRr, P.eyeY - 1, cx, P.eyeY - P.eyeRy - 1.2, cx + P.eyeRr, P.eyeY - 1)));
-    }
-  }
-
-  // —— 鼻子 / 嘴 / 腮红 ——
-  out.push(line(c, "nose", p.nose, 1.2, [[59.4, P.eyeY + 7.2], [60.6, P.eyeY + 7.2]]));
-  out.push(line(c, "mouth", p.eye, 1.2, arc(58.4, P.eyeY + 9.6, 60, P.eyeY + 11.4, 61.6, P.eyeY + 9.6)));
-  out.push(ell(c, "blush", withAlpha(p.cheek, 0.35), P.eyeLx - 3.5, P.eyeY + 5.6, 3.4, 2.0));
-  out.push(ell(c, "blush", withAlpha(p.cheek, 0.35), P.eyeRx + 3.5, P.eyeY + 5.6, 3.4, 2.0));
+  // —— 脸：眉/眼/鼻/嘴/腮红/泪/汗/星全交给 buildFaceOps（单一来源，16 档差分在那边） ——
+  out.push(...buildFaceOps(faceOf(input.expression ?? "neutral", {
+    t: 0, blink: input.blink, mouse: null, energy: input.energy, speaking: false,
+  }), m, (input.u * 2) / 120, coat, input.u));
 
   // 泪层常态不画：Task 14 的表情层有值时才会往里推（本函数保持空层不出图元）。
 
