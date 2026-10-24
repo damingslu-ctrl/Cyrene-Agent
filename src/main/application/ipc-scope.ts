@@ -5,6 +5,7 @@
  */
 
 import { ipcMain } from "electron";
+import { windowKindOf, type WindowKind } from "./window-kind";
 
 export interface IpcScope {
   handle(channel: string, listener: (...args: any[]) => unknown): void;
@@ -24,9 +25,41 @@ type TrackedRegistration =
   | { kind: "handle"; channel: string; listener: (...args: any[]) => unknown }
   | { kind: "on"; channel: string; listener: (...args: any[]) => void };
 
-export function createIpcScope(main: IpcScopeMainLike = ipcMain as IpcScopeMainLike): IpcScope {
+export interface IpcScopeOptions {
+  senderPolicy?: Readonly<Record<string, readonly WindowKind[]>>;
+  classify?: (webContentsId: number) => WindowKind;
+}
+
+/**
+ * 发送方闸门：**只对表里列出的通道生效**。表外通道照旧（328 处调用点零改动）。
+ * 判据是 sender 的 webContents.id，不是 URL（dev/prod 的 URL 都分不出窗口）。
+ *
+ * 默认**不过闸**：只有生产组合根显式传 `senderPolicy` 才启用。理由是单测与
+ * 纯函数级 fixture 里没有真实 sender，默认开闸会把「没登记窗口类别」误判成攻击。
+ */
+function makeSenderGate(options: IpcScopeOptions): ((channel: string, event: unknown) => void) | null {
+  const policy = options.senderPolicy;
+  if (!policy) return null;
+  const classify = options.classify ?? windowKindOf;
+  return (channel, event) => {
+    const allowed = policy[channel];
+    if (!allowed) return;
+    const sender = (event as { sender?: { id?: number } } | null)?.sender;
+    const id = sender?.id;
+    const kind = typeof id === "number" ? classify(id) : "unknown";
+    if (!allowed.includes(kind)) {
+      throw new Error(`IPC sender denied: channel=${channel} kind=${kind}`);
+    }
+  };
+}
+
+export function createIpcScope(
+  main: IpcScopeMainLike = ipcMain as IpcScopeMainLike,
+  options: IpcScopeOptions = {},
+): IpcScope {
   const registrations: TrackedRegistration[] = [];
   const handledChannels = new Set<string>();
+  const gate = makeSenderGate(options);
   let disposed = false;
 
   function assertActive(): void {
@@ -38,12 +71,19 @@ export function createIpcScope(main: IpcScopeMainLike = ipcMain as IpcScopeMainL
   return {
     handle(channel, listener) {
       assertActive();
+      // 没配 policy ＝ 零包装：listener 原样转发（既有单测与 328 处调用点的形状都不变）。
+      const gated: typeof listener = gate
+        ? (event, ...args) => {
+            gate(channel, event);
+            return listener(event, ...args);
+          }
+        : listener;
       if (handledChannels.has(channel)) {
         throw new Error(`IPC channel already registered: ${channel}`);
       }
       handledChannels.add(channel);
-      registrations.push({ kind: "handle", channel, listener });
-      main.handle(channel, listener);
+      registrations.push({ kind: "handle", channel, listener: gated });
+      main.handle(channel, gated);
     },
 
     removeHandler(channel) {
@@ -58,8 +98,14 @@ export function createIpcScope(main: IpcScopeMainLike = ipcMain as IpcScopeMainL
 
     on(channel, listener) {
       assertActive();
-      registrations.push({ kind: "on", channel, listener });
-      main.on(channel, listener);
+      const gated: typeof listener = gate
+        ? (event, ...args) => {
+            gate(channel, event);
+            listener(event, ...args);
+          }
+        : listener;
+      registrations.push({ kind: "on", channel, listener: gated });
+      main.on(channel, gated);
     },
 
     dispose() {

@@ -1101,6 +1101,16 @@ const vergeApi = {
   tuckHinted: () => ipcRenderer.send(IPC.VERGE_TUCK_HINTED),
   /** 宠物窗 → main：boot 读形态/档位（只回 { form, tier } 两个字符串）。 */
   getProfile: () => ipcRenderer.invoke(IPC.VERGE_PROFILE_GET) as Promise<{ form: "cat" | "girl"; tier: "small" | "standard" | "large" }>,
+  /** 宠物窗 → main：boot 读工作状态（不在档时 null）。 */
+  getWorkStatus: () => ipcRenderer.invoke(IPC.VERGE_WORK_STATUS_GET) as Promise<
+    { tier: string; source: string; since: number; detail?: string } | null
+  >,
+  /** main → 宠物窗：工作状态变更。 */
+  onWorkStatus: (callback: (payload: { tier: string; source: string; since: number; detail?: string } | null) => void) => {
+    const listener = (_e: unknown, payload: { tier: string; source: string; since: number; detail?: string } | null) => callback(payload);
+    ipcRenderer.on(IPC.VERGE_WORK_STATUS_UPDATE, listener);
+    return () => ipcRenderer.off(IPC.VERGE_WORK_STATUS_UPDATE, listener);
+  },
   /** main → 宠物窗：形态/档位变更（载荷 { form, tier }，结构化克隆安全）。 */
   onProfileUpdate: (callback: (payload: { form: "cat" | "girl"; tier: "small" | "standard" | "large" }) => void) => {
     const listener = (_e: unknown, payload: { form: "cat" | "girl"; tier: "small" | "standard" | "large" }) => callback(payload);

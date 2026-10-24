@@ -143,6 +143,8 @@ import { revealStartupWindows } from "../startup/startup-window-reveal";
 import { bootstrapMusicService } from "../music/bootstrap";
 import { createVergeService } from "../verge/verge-service";
 import { registerVergeIpc } from "../verge/verge-ipc";
+import { createWorkStatusService } from "../pet/work-status";
+import { registerWorkStatusIpc } from "../pet/work-status-ipc";
 import { attachPetContextMenu } from "../verge/pet-menu";
 import { discoverConfigRoot } from "../verge/controller-config";
 import { createNetworkService } from "../verge/network-service";
@@ -166,6 +168,7 @@ import { registerGmailIpc } from "../email/gmail-ipc";
 import { MailAttachmentStore } from "../email/mail-attachment-store";
 
 import { createIpcScope } from "./ipc-scope";
+import { IPC_SENDER_POLICY } from "./ipc-sender-policy";
 import { createShutdownCoordinator } from "./shutdown";
 import { createStartupReadiness } from "./readiness";
 import { createWindowActivationBroker } from "./window-activation";
@@ -379,7 +382,8 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         process.stdout.write("\n" + renderBanner() + "\n\n");
         logger.info(LogTag.Runtime, `starting ${BRAND.productName} Agent`);
       },
-      createIpcScope: () => createIpcScope(),
+      // 生产组合根：这里才打开 R-D11 的发送方闸门（单测默认不开，见 ipc-scope 注释）。
+      createIpcScope: () => createIpcScope(undefined, { senderPolicy: IPC_SENDER_POLICY }),
       createSplashWindow: (options) => createSplashWindow({ isDev, onShown: options.onShown }),
       createWindowManager: () => createWindowManager({
         getCurrentAppIconPath,
@@ -814,6 +818,13 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         // Verge 内建模块骨架：IPC 注册到 shell.ipc（IpcScope.dispose 时自动清除处理器）
         const removeVergeIpc = registerVergeIpc(ipc, services.verge);
 
+        // v1.5.0 工作状态：六档单一权威 + 两条下行（只在宠物窗收 UPDATE）。
+        const workStatusService = createWorkStatusService();
+        const removeWorkStatusIpc = registerWorkStatusIpc(ipc, {
+          service: workStatusService,
+          sendToPetWindow: (channel, payload) => shell.windowManager.sendToPetWindow(channel, payload),
+        });
+
         // v1.4.0 网络页：服务订阅 → 全窗广播；动作失败回原因码，页面据此给文案。
         const removeNetworkIpc = registerNetworkIpc(ipc, {
           service: services.network,
@@ -891,7 +902,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         shutdown.register({
           id: "verge-module",
           phase: "flushPersistence",
-          dispose: async () => { removeVergeIpc(); },
+          dispose: async () => { removeVergeIpc(); removeWorkStatusIpc(); workStatusService.dispose(); },
         });
         // 本机版本信息与 Verge 快照同属一条读通道，注销也挂在同一处。
         shutdown.register({

@@ -621,5 +621,9 @@ export const IPC = {
   VERGE_PROFILE_GET: "verge:profile:get",
   /** main → 宠物窗：形态/档位变更（载荷 { form, tier }，structured-clone 安全）。 */
   VERGE_PROFILE_UPDATE: "verge:profile:update",
+  /** 宠物窗 → main：boot 读当前工作状态（不在档时回 null）。 */
+  VERGE_WORK_STATUS_GET: "verge:work-status:get",
+  /** main → 宠物窗：工作状态变更（载荷 WorkStatus | null）。 */
+  VERGE_WORK_STATUS_UPDATE: "verge:work-status:update",
 
 } as const;

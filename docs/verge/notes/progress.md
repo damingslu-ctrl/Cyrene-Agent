@@ -74,3 +74,13 @@
   2. `girl.ts` 的部件改为通道驱动（root 阵吃 lean/hop/squash/headBob，头阵吃 headPitch/headYaw，手臂各绕肩转 armL/armR，裙摆吃 hem，尾巴吃 tail）；`buildGirlOps` 的 `expression` 交给 `buildFaceOps`。
   3. 手势槽位「一次性片没新片时留到演完」——直接删槽会让连播四帧在第一帧后消失，也让 fps 判据读不到进度。
   4. `buildFaceOps` 的 `s`/`u` 参数暂未参与（眼睛按 head 阵缩放），保留签名给 Task 27 的三档端到端。
+
+## Task 15–18 — 发送方闸门、workStatus 六档、两条通道、演出表
+
+- 落点：`src/main/application/window-kind.ts`（id→类别登记簿）、`ipc-sender-policy.ts`（channel→类别）、`ipc-scope.ts`（可选闸门）、`src/shared/work-status-types.ts`、`src/main/pet/work-status.ts`（六档服务 + 8s 空洞回落 + 未知工具代称）、`work-status-ipc.ts`（GET/UPDATE 两条）、`work-status-presentation.ts`（六档演出表）、preload 两条入口、`default-dependencies` 装配 + `VERGE_PROFILE_GET` handle。
+- 验了：`ipc-sender-gate.test.ts` 4 条（pet/chat 放行与拒绝、on 也过闸、表外零改动、无 sender 按 unknown）、`work-status.test.ts` 10 条（事件序、中断/成功、未知工具不泄漏、细节只挂两档、8s 回落、nextTickAt、订阅/退订、get 副本、dispose）、`work-status-presentation.test.ts` 5 条；`ipc-contract` 8 条；全仓 652 文件 / 6904 条绿。
+- 计划侧修正：
+  1. 闸门默认**不启用**，只由生产组合根注入 `senderPolicy`：单测与 fixture 没有真实 sender，默认开闸会把 window-system-ipc 那批既有测试全判成攻击。
+  2. 没配 policy 时**零包装**（listener 原样转发），保住了 `ipc-scope.test.ts` 那两条「转发的是原函数」的形状断言。
+  3. workStatus 的 8s 空洞回落到 `null`（空闲），不是「已处理」——后者会让 UI 假报「做完啦」。
+- 推后：`VERGE_PET_REVEAL_ASK` 第五通道（点气泡唤卡）与 #74 真窗探针留到 P5 的 Task 28 一起收（当前 `revealAskWorkStatus` 未接）。
