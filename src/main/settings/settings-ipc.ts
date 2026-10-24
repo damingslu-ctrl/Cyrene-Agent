@@ -55,6 +55,13 @@ export interface SettingsIpcDependencies {
   syncFilesystemMcp: typeof syncFilesystemMcp;
   /** 传入共享 scope 以便退出时统一注销；缺省时使用独立 scope。 */
   ipc?: IpcScope;
+  /** v1.5.0 形态/身形：读当前值、写库、广播（写路径复用装配层的 applyProfileState）。 */
+  vergeService?: {
+    getState(): { form: "cat" | "girl"; tier: "small" | "standard" | "large" };
+    setForm(form: "cat" | "girl"): void;
+    setTier(tier: "small" | "standard" | "large"): void;
+  };
+  applyProfileState?: (form: "cat" | "girl", tier: "small" | "standard" | "large") => void;
 }
 
 const VISION_TEST_IMAGE_BASE64 =
@@ -222,6 +229,21 @@ export function registerSettingsIpc(deps: SettingsIpcDependencies): void {
   ipc.on(IPC.SETTINGS_SET_PET_ZOOM, (_event, value: number) => {
     const saved = saveGeneralSettings({ ...getGeneralSettings(), petZoom: Number(value) });
     deps.windowManager?.applyPetWindowZoom(saved.petZoom);
+  });
+
+  // v1.5.0：设置页的形态/身形选择器。写库与广播只走装配层的 applyProfileState。
+  ipc.handle(IPC.SETTINGS_GET_PET_PROFILE, () => {
+    const s = deps.vergeService?.getState();
+    return { form: s?.form ?? "cat", tier: s?.tier ?? "standard" };
+  });
+  ipc.on(IPC.SETTINGS_SET_PET_PROFILE, (_event, value: unknown) => {
+    const v = (value ?? {}) as { form?: unknown; tier?: unknown };
+    const form = v.form === "cat" || v.form === "girl" ? v.form : null;
+    const tier = v.tier === "small" || v.tier === "standard" || v.tier === "large" ? v.tier : null;
+    if (!form || !tier) return;
+    deps.vergeService?.setForm(form);
+    deps.vergeService?.setTier(tier);
+    deps.applyProfileState?.(form, tier);
   });
 
   ipc.handle(IPC.MODEL_CONFIG_GET, () => getPublicModelConfig());

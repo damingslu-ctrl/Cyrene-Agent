@@ -113,6 +113,8 @@ function SettingsNavItem({ section, currentSection, icon, label, onSelect }: Set
 
 export function AppearanceSettingsPage({ section, onSelectSection, onBackToWorkspace, musicSettingsNavigation = 0 }: AppearanceSettingsPageProps) {
   const { t } = useTranslation();
+  const [petForm, setPetForm] = useState<"cat" | "girl">("girl");
+  const [petTier, setPetTier] = useState<"small" | "standard" | "large">("large");
   const [values, setValues] = useState(defaults);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -132,6 +134,13 @@ export function AppearanceSettingsPage({ section, onSelectSection, onBackToWorks
       setLoading(false);
       return;
     }
+
+    // 形态/身形不在 GeneralSettings 里（它们在 verge/state.json），单独读一次。
+    void settingsApi.getPetProfile?.().then((ref) => {
+      if (disposed || !ref) return;
+      setPetForm(ref.form);
+      setPetTier(ref.tier);
+    }).catch(() => { /* 读不到就停在默认 girl/large（与产品默认一致） */ });
 
     void settingsApi.getGeneral()
       .then((config) => {
@@ -377,6 +386,39 @@ export function AppearanceSettingsPage({ section, onSelectSection, onBackToWorks
                       <SettingsSlider min={0.5} max={2} step={0.1} value={values.petZoom} ariaLabel={t("settingsPage.petZoom")} onChange={(value) => updateNumber("petZoom", value)} onChangeComplete={(zoom) => { window.settings?.setPetZoom(zoom); setStatus(t("settingsPage.applied")); }} />
                       <span>{Math.round(values.petZoom * 100)}%</span>
                     </div>
+                  </div>
+                  <div className="cy-settings-row">
+                    <div className="cy-settings-row__copy"><strong>{t("settingsPage.petForm")}</strong><span>{t("settingsPage.petFormDescription")}</span></div>
+                    <SettingsSegmented
+                      value={petForm}
+                      onChange={(value) => {
+                        const form = value as "cat" | "girl";
+                        setPetForm(form);
+                        window.settings?.setPetProfile({ form, tier: petTier });
+                        setStatus(t("settingsPage.applied"));
+                      }}
+                      options={[
+                        { label: t("settingsPage.petFormCat"), value: "cat" },
+                        { label: t("settingsPage.petFormGirl"), value: "girl" },
+                      ]}
+                    />
+                  </div>
+                  <div className="cy-settings-row">
+                    <div className="cy-settings-row__copy"><strong>{t("settingsPage.petTier")}</strong><span>{t("settingsPage.petTierDescription")}</span></div>
+                    <SettingsSegmented
+                      value={petTier}
+                      onChange={(value) => {
+                        const tier = value as "small" | "standard" | "large";
+                        setPetTier(tier);
+                        window.settings?.setPetProfile({ form: petForm, tier });
+                        setStatus(t("settingsPage.applied"));
+                      }}
+                      options={[
+                        { label: t("settingsPage.petTierSmall"), value: "small" },
+                        { label: t("settingsPage.petTierStandard"), value: "standard" },
+                        { label: t("settingsPage.petTierLarge"), value: "large" },
+                      ]}
+                    />
                   </div>
                 </Card>
               </section>

@@ -28,7 +28,7 @@ import { blinkAt, bodyClip, gestureClip, mixPose, sampleClip, type Slots } from 
 import { faceOf, MOOD_TO_EXPRESSION, type Expression } from "./face";
 import { CompanionEngine, type CompanionSnapshot, type TouchKind } from "./companion";
 import type { PetCommand } from "../../shared/pet-commands";
-import type { PetForm } from "../../shared/pet-profile";
+import { profileFor, type PetForm } from "../../shared/pet-profile";
 
 export interface HitAreaDef {
   name: string;
@@ -392,7 +392,7 @@ export class PixelPetRenderer {
     if (Math.abs(this.peekDx) > 0.5) return false;
     if (this.tuckEnabled) {
       const right = this.workArea.x + this.workArea.width;
-      const nearRight = right - (this.catOrigin.x + PET_W) < EDGE_NEAR_PX;
+      const nearRight = right - (this.catOrigin.x + this.profileForHit.base.width) < EDGE_NEAR_PX;
       const nearLeft = this.catOrigin.x - this.workArea.x < EDGE_NEAR_PX;
       if (nearRight || nearLeft) return false;
     }
@@ -412,7 +412,7 @@ export class PixelPetRenderer {
     const snapshot = engine.update(now, {
       workArea: this.workArea,
       // 漫游夹的是「窗口」不是「猫」：catOrigin 是窗口原点，尺寸含 zoom。
-      size: { width: PET_W * this.zoom, height: PET_H * this.zoom },
+      size: { width: this.profileForHit.base.width * this.zoom, height: this.profileForHit.base.height * this.zoom },
       canRoam: this.canRoam(),
     });
 
@@ -441,7 +441,8 @@ export class PixelPetRenderer {
       this.bubbleExpand = Math.max(target, this.bubbleExpand - step);
     }
 
-    const rectW = PET_W + (BUB_W - PET_W) * this.bubbleExpand;
+    const baseW = this.profileForHit.base.width;
+    const rectW = baseW + (this.profileForHit.bubbleWidth - baseW) * this.bubbleExpand;
     this.bubbleBox = bubble && this.bubbleExpand > 0
       ? bubbleBoxRect(rectW, this.bubbleGrowLeft, bubble.text)
       : null;
@@ -460,7 +461,29 @@ export class PixelPetRenderer {
    * 才对得上放大窗（对位 readAlpha 的 css 坐标也要走同一系数）。
    */
   getHitAreaDefs(): HitAreaDef[] {
-    return [{ name: "cat", rect: computeCatRect({ pinInWin: { x: PIN.x, y: PIN.y }, e: 0 }) }];
+    return [{ name: this.form, rect: this.getHitRect() }];
+  }
+
+  /**
+   * 当前命中矩形（css px，窗口内坐标）：吃**活的** pinInWin/e/profile。
+   * 此前 getHitAreaDefs 钉死 PIN/e:0 且零消费方；尺 #71 是它第一个真读者。
+   */
+  getHitRect(): { x: number; y: number; width: number; height: number } {
+    return computeCatRect({
+      pinInWin: this.lastSent?.pinInWin ?? { x: PIN.x, y: PIN.y },
+      e: this.lastSent?.e ?? 0,
+      profile: this.profileForHit,
+    });
+  }
+
+  /** 形态×档位给命中几何用；P1–P4 恒缺省，Task 27 由 setProfile 顶正。 */
+  private profileForHit = profileFor("cat", "standard");
+
+  /** 形态/档位入口（Task 27 接 boot 读与下行）。 */
+  setProfile(ref: { form: PetForm; tier: "small" | "standard" | "large" }): void {
+    this.profileForHit = profileFor(ref.form, ref.tier);
+    this.setForm(ref.form);
+    if (!this.paused) this.draw(performance.now());
   }
 
   /** CSS 坐标 → 设备像素的单点 alpha 采样，点击穿透的判据源。越界返回 0（= 穿透）。 */
@@ -555,7 +578,7 @@ export class PixelPetRenderer {
     const clamped = clampRestoreOrigin({
       saved: this.catOrigin,
       workArea: this.workArea,
-      size: { width: PET_W, height: PET_H },
+      size: { width: this.profileForHit.base.width, height: this.profileForHit.base.height },
     });
     if (Math.hypot(clamped.x - this.catOrigin.x, clamped.y - this.catOrigin.y) > 0.5) {
       this.catOrigin = clamped;
@@ -574,7 +597,7 @@ export class PixelPetRenderer {
       bubbleOpen: this.bubbleActive || this.bubbleExpand > 0.001,
     })) {
       // 贴边判定看基准位（含 peek 会翻转目标、边缘来回抖，:4934-4935）。
-      const rightGap = this.workArea.x + this.workArea.width - (this.catOrigin.x + PET_W);
+      const rightGap = this.workArea.x + this.workArea.width - (this.catOrigin.x + this.profileForHit.base.width);
       const leftGap = this.catOrigin.x - this.workArea.x;
       if (Math.abs(rightGap) < EDGE_NEAR_PX) {
         this.peekSign = 1;
@@ -679,8 +702,8 @@ export class PixelPetRenderer {
     this.cat.quiet = this.quiet;
 
     // 变换里已折 zoom，clear/气泡都要拿到 zoom 归一后的基址几何。
-    const w = (this.opts.canvas.clientWidth || PET_W) / this.zoom;
-    const h = (this.opts.canvas.clientHeight || PET_H) / this.zoom;
+    const w = (this.opts.canvas.clientWidth || this.profileForHit.base.width) / this.zoom;
+    const h = (this.opts.canvas.clientHeight || this.profileForHit.base.height) / this.zoom;
     this.ctx.clearRect(0, 0, w, h);
     let extra: { channels?: Partial<Record<string, number>>; expression?: Expression; blink?: number } = {};
     if (this.form === "girl") {

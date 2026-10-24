@@ -70,10 +70,11 @@ describe("形态几何轴", () => {
     expect(g.hitAspect.height / g.hitAspect.width)
       .toBeGreaterThan(FORM_GEOMETRY.cat.hitAspect.height / FORM_GEOMETRY.cat.hitAspect.width);
     expect(g.hitAspect.height).toBeGreaterThan(g.hitAspect.width);
-    // 命中框中心在钉位上方：1.55u 高的框，中心上移 45.75 个 s＝0.75u 略多，
-    // 于是框顶 ≈ pin − 46.5s − 45.75s ≈ 脚线上方 92s，viewBox y≈8.5 正是耳尖。
-    expect(g.hitCenter.dy).toBeLessThan(0);
-    expect(Math.abs(g.hitCenter.dy)).toBeGreaterThan(0);
+    // 实测反钉（Task 26）：猫娘的墨中心在**钉位下方** 0.49u（约 29.4s）——
+    // 钉位在脚线上，头在它上面，但墨的**面积重心**被裙摆与大头发拽到了脚下半程，
+    // 所以框心相对钉位是正的。这与暂行值「整体上移 45.75s」方向相反，实测推翻了它。
+    expect(g.hitCenter.dy).toBeGreaterThan(0);
+    expect(g.hitCenter.dy / (60 / 45)).toBeLessThan(40);
     // 身体轴回窗口中线：猫娘的 dx 必须是 0，猫是 -17（给尾巴让位）
     expect(g.centerOffset).toEqual({ dx: 0.0, dy: 79.0 });
   });

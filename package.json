@@ -43,6 +43,7 @@
     "prepare:skills": "node scripts/packaging/build-skills-snapshot.mjs",
     "verify:mpv": "node scripts/verify/mpv-helper.mjs resources/bin/mpv/mpv.exe",
     "verify:installer": "node scripts/verify/installer-artifacts.mjs",
+    "verify:pet-hit": "node scripts/verify/pet-hit-cdp.mjs",
     "verify:embedding": "node scripts/verify/embedding-inference-smoke.mjs",
     "seed:usage": "node scripts/seed-usage-stats.mjs",
     "build:music-component": "node scripts/packaging/build-music-component.mjs",

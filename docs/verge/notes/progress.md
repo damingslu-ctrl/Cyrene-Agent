@@ -105,3 +105,14 @@
   2. 撞车的 mood 改姿态（治愈→happy、温柔→tilt、陪伴中→peek、开心→stretch、学习/担心→prone、难过→lie、激动→peek），五对 0.000%/0.07%/0.12%/0.22%/0.35% 全部拉开到 0.15% 以上。
   3. 正对照从 full→square 换成 full→bust：girl 的 full（0.091–0.118）与 square（0.150–0.157）重带后已能分辨但不再跨界，full 图量 bust 仍红（0.118 < 0.13）。
   4. `GIRL_CROPS` 从暂行值放大（bust/square/round 窗口都加宽）：猫娘的头比猫宽，原窗口会把耳朵切出画布。
+
+## Task 26–27 — 尺 #71 命中实测反钉、默认翻转与设置页
+
+- 落点：`renderer.ts`（`getHitRect` 活读数 + `setProfile` + 6 处基址收进 profile）、`main.ts`（`getPetDiagnostics` 加 `hitRect/form/tier`；boot 读 + `onProfileUpdate` 先订后读）、`scripts/verify/pet-hit-cdp.mjs`（真窗 CDP 版，只读不点）、`src/renderer/pet/hit-iou.test.ts`（离线层，进 CI）、`settings-ipc.ts`/`preload`/`global.d.ts`/`types.ts`（两条 settings 通道）、`AppearanceSettingsPage.tsx`（形态/身形两行选择器）、三语九键。
+- 验了：`hit-iou.test.ts` 2 条（六组 IoU ≥0.55 + 头部中线有墨；变异④写回 1.85 时 IoU 掉下去）、`renderer.test.ts` 22 条（含 4 条 hitRect/getHitAreaDefs）、`resources.test.ts` 4 条（三语 parity）、全仓 654 文件 / 6943 条；八道脚本门（main/preload/renderer/brand/roster/palette×2/sprites）全绿。
+- **实测反钉（尺 #71 的成果）**：`FORM_GEOMETRY.girl` 从暂行 `{0.86, 1.55, dy −45.75s}` 改成 **`{1.32, 2.00, dy +29.4s}`**。实测：猫娘墨 bbox 在 standard 档是 1.32u×2.00u、中心在钉位**下方** 0.49u（三档实测 1.09–1.56 宽 / 1.79–2.19 高）。暂行值窄 35%、矮 28%，IoU 只有 0.09–0.15——「点头顶点不中」的根因就是它。
+- 计划侧修正：
+  1. 尺 #71 拆两层：`hit-iou.test.ts`（离线、进 CI、本轮已绿）+ `pet-hit-cdp.mjs`（真窗、手动跑）。CDP 版本轮未跑（需起 Electron + D 盘 profile，数分钟）——**这一条未验，必须明说**。
+  2. 旧断言「猫娘命中框整体上移」被实测推翻（改为在钉位下方）；这是实测纠正暂行值，不是尺让步。
+  3. 设置页走 `settings:get/set-pet-profile` 两条新通道（不比 `verge:profile:get` 的 `["pet"]` 白名单），写路径复用装配层收口。
+- 推后：CDP 版 #71 的真窗跑一次（Task 28 发版前）；#74 的 `verify:work-status` 与 `VERGE_PET_REVEAL_ASK` 第五通道仍缺。

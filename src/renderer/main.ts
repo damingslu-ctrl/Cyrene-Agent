@@ -41,6 +41,7 @@ let quietChangedOff: (() => void) | null = null;
 let tuckChangedOff: (() => void) | null = null;
 let geometryChangedOff: (() => void) | null = null;
 let petCommandOff: (() => void) | null = null;
+let profileOff: (() => void) | null = null;
 let petVisible = true;
 const disposers: Array<() => void> = [];
 
@@ -129,6 +130,16 @@ const renderer = new PixelPetRenderer({
       renderer.handleCommand(command);
     }) ?? null;
 
+    // —— v1.5.0 形态与档位：boot 读 + 下行订阅（先订后读，boot 不盖掉已到的下行）——
+    let profilePushed = false;
+    profileOff = window.verge?.onProfileUpdate((ref) => {
+      profilePushed = true;
+      renderer.setProfile(ref);
+    }) ?? null;
+    void window.verge?.getProfile().then((ref) => {
+      if (ref && !profilePushed) renderer.setProfile(ref);
+    }).catch(() => { /* 读不到就停在 cat/standard：猫照画 */ });
+
     (window as unknown as { __cyrene: unknown }).__cyrene = {
       renderer,
       clickThrough,
@@ -136,6 +147,10 @@ const renderer = new PixelPetRenderer({
         paused: renderer.isPaused(),
         petVisible,
         isDragging,
+        // 尺 #71 / #74 的读数口：命中矩形、形态、档位。这三个键从此不许静默改名。
+        hitRect: renderer.getHitRect(),
+        form: (renderer as unknown as { form: string }).form,
+        tier: (renderer as unknown as { profileForHit?: { tier: string } }).profileForHit?.tier ?? "standard",
       }),
     };
   },
@@ -167,6 +182,8 @@ window.addEventListener("beforeunload", () => {
   geometryChangedOff = null;
   petCommandOff?.();
   petCommandOff = null;
+  profileOff?.();
+  profileOff = null;
   renderer.dispose();
   for (const off of disposers) off();
   disposers.length = 0;

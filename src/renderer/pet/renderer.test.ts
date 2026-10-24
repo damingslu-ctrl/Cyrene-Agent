@@ -580,3 +580,64 @@ describe("四层合成 (Task 14)", () => {
     r.dispose();
   });
 });
+
+// ===========================================================================
+// Task 26：命中矩形读数（尺 #71 的 renderer 侧）
+// ===========================================================================
+describe("hitRect 读数 (Task 26)", () => {
+  const geom = {
+    bounds: { x: 100, y: 300, width: 82, height: 108 },
+    workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+    tuckEnabled: false, tuckHinted: true, tuckLimit: 6,
+  };
+  async function make() {
+    vi.spyOn(performance, "now").mockImplementation(() => 10_000);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    (window as unknown as { verge: unknown }).verge = {
+      resizePetWindow: vi.fn(), tuckHinted: vi.fn(), settlePetPosition: vi.fn(),
+    };
+    const r = new PixelPetRenderer({ canvas: makeCanvas(), width: 82, height: 108, onLoad: vi.fn(), onError: vi.fn() });
+    await r.init();
+    r.syncGeometry(geom as never);
+    return r;
+  }
+  afterEach(() => { delete (window as unknown as { verge?: unknown }).verge; });
+
+  it("cat/standard：hitRect 与 computeCatRect 的默认 profile 逐字段相等", async () => {
+    const r = await make();
+    const d = r.getHitRect();
+    const expectRect = computeCatRect({ pinInWin: { x: 41, y: 39 }, e: 0 });
+    expect(d.width).toBeCloseTo(expectRect.width, 6);
+    expect(d.height).toBeCloseTo(expectRect.height, 6);
+    r.dispose();
+  });
+
+  it("girl 的 hitRect 比 cat 窄且高（FORM_GEOMETRY 的运行时证据）", async () => {
+    const r = await make();
+    const catRect = r.getHitRect();
+    r.setProfile({ form: "girl", tier: "standard" });
+    const girlRect = r.getHitRect();
+    expect(girlRect.width).toBeLessThan(catRect.width);
+    expect(girlRect.height / girlRect.width).toBeGreaterThan(catRect.height / catRect.width);
+    r.dispose();
+  });
+
+  it("三档 k 落在 hitRect 上：large/standard = 1.22", async () => {
+    const r = await make();
+    r.setProfile({ form: "girl", tier: "standard" });
+    const s = r.getHitRect();
+    r.setProfile({ form: "girl", tier: "large" });
+    const l = r.getHitRect();
+    expect(l.width / s.width).toBeCloseTo(1.22, 6);
+    expect(l.height / s.height).toBeCloseTo(1.22, 6);
+    r.dispose();
+  });
+
+  it("getHitAreaDefs 跟着 form 走（不再是钉死的 cat）", async () => {
+    const r = await make();
+    expect(r.getHitAreaDefs()[0].name).toBe("cat");
+    r.setProfile({ form: "girl", tier: "large" });
+    expect(r.getHitAreaDefs()[0].name).toBe("girl");
+    r.dispose();
+  });
+});

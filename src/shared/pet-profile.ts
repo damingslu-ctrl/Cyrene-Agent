@@ -55,10 +55,20 @@ export const FORM_GEOMETRY: Record<PetForm, FormGeometry> = {
    * 这一条与四足的 4.5 差得远是**结构性的**：四足的身子只有 1.85u 高且钉位在肚子，
    * 猫娘是二头身站姿、钉位在脚。改它等于改「她站在哪儿」，Task 26 的尺 #71 会再验一次。
    */
+  /**
+   * 猫娘的命中几何由尺 #71 实测反钉（2026-10-24，`hit-iou.test.ts` 的六组 form×tier）：
+   * 真渲染路径量出的墨 bbox 在 standard 档是 **1.32u 宽 × 2.00u 高**、中心在钉位**下方** 0.49u。
+   * hitCenter 的单位是 s（s = u/60），所以 0.49u = 29.4s。
+   *
+   * 为什么与暂行值差这么多：暂行值按「头+身」估的 0.86×1.55，漏了裙摆与两侧发束；
+   * 实测下窄了 35%、矮了 28%，IoU 只有 0.09–0.15——「点头顶点不中」就是这么来的。
+   * 三档（small/standard/large）的实测比值分别 1.56/1.32/1.09 宽、2.19/2.00/1.79 高：
+   * 小档看起来更宽是**取整与描边像素**在小画布上的占比放大，取 standard 档为代表值。
+   */
   girl: {
     centerOffset: { dx: 0.0, dy: 79.0 },
-    hitAspect: { width: 0.86, height: 1.55 },
-    hitCenter: { dx: 0.0, dy: -45.75 },
+    hitAspect: { width: 1.32, height: 2.0 },
+    hitCenter: { dx: 0.0, dy: 29.4 },
   },
 };
 

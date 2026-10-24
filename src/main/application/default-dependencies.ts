@@ -801,6 +801,13 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         registerSettingsIpc({
           ipc,
           windowManager: shell.windowManager,
+          vergeService: services.verge,
+          // 与 attachVergePetMenu 的收口同形：两个字符串广播给所有窗，结构化克隆安全。
+          applyProfileState: (form, tier) => {
+            for (const win of BrowserWindow.getAllWindows()) {
+              if (!win.isDestroyed()) win.webContents.send(IPC.VERGE_PROFILE_UPDATE, { form, tier });
+            }
+          },
           getGeneralSettings: loadGeneralSettings,
           saveGeneralSettings,
           getModelSettings: loadModelSettings,

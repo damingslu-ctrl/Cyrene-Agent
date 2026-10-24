@@ -85,6 +85,8 @@ interface SettingsWindowApi {
   setPetAlwaysOnTop: (value: boolean) => void;
   setPetVisible: (value: boolean) => void;
   setPetZoom: (value: number) => void;
+    getPetProfile: () => Promise<{ form: "cat" | "girl"; tier: "small" | "standard" | "large" }>;
+    setPetProfile: (value: { form: "cat" | "girl"; tier: "small" | "standard" | "large" }) => void;
   listModelProfiles: () => Promise<{ profiles: Array<{
     id: string;
     provider: string;
