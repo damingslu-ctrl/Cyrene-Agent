@@ -1,9 +1,10 @@
 // src/shared/pet-geometry.test.ts
 import { describe, expect, it } from "vitest";
 import {
-  BUB_W, EDGE_MARGIN, OPEN_H, OPEN_W, PET_H, PET_W, PIN,
+  BUB_W, DEFAULT_PROFILE, EDGE_MARGIN, OPEN_H, OPEN_W, PET_H, PET_W, PIN,
   clampBoundsToWorkArea, clampRestoreOrigin, computeCatRect, computePetLayout, resolveGrowthDirection, scaleFor,
 } from "./pet-geometry";
+import { profileFor } from "./pet-profile";
 
 const wa = { x: 0, y: 0, width: 1920, height: 1040 };
 
@@ -133,6 +134,36 @@ describe("computeCatRect", () => {
     expect(rect.width).toBeCloseTo(74, 6);
     expect(rect.height).toBeCloseTo(68.45, 2);
     expect(rect.y + rect.height).toBeLessThanOrEqual(108 - 32 + 0.5);
+  });
+
+  it("四个数与 v1.4 的实现逐字段相等（换 profile 实现之后不许漂）", () => {
+    const s = 37 / 60;
+    const rect = computeCatRect({ pinInWin: { x: 41, y: 39 }, e: 0 });
+    // 旧式：center = (pin.x − 17s + 17s, pin.y + 4.5s − 6s)、w = 2u、h = 1.85u。
+    expect(rect.x).toBeCloseTo(41 - 37, 9);
+    expect(rect.y).toBeCloseTo(39 - 1.5 * s - (37 * 1.85) / 2, 9);
+    expect(rect.width).toBeCloseTo(74, 9);
+    expect(rect.height).toBeCloseTo(37 * 1.85, 9);
+  });
+
+  it("显式传入 DEFAULT_PROFILE 与不传逐字段相等（Task 3 的兜底等价条）", () => {
+    expect(computeCatRect({ pinInWin: { x: 41, y: 39 }, e: 0.4 }))
+      .toEqual(computeCatRect({ pinInWin: { x: 41, y: 39 }, e: 0.4, profile: DEFAULT_PROFILE }));
+  });
+
+  it("girl 的命中框更窄更高、整体上移（Task 26 之前只钉方向）", () => {
+    const cat = computeCatRect({ pinInWin: { x: 50, y: 48 }, e: 0 });
+    const girl = computeCatRect({ pinInWin: { x: 50, y: 48 }, e: 0, profile: profileFor("girl", "large") });
+    expect(girl.width).toBeLessThan(cat.width);
+    expect(girl.height / girl.width).toBeGreaterThan(cat.height / cat.width);
+    expect(girl.y).toBeLessThan(cat.y);
+  });
+
+  it("三档命中框按 k 线性缩放（large/standard = 1.22）", () => {
+    const std = computeCatRect({ pinInWin: { x: 41, y: 39 }, e: 0, profile: profileFor("cat", "standard") });
+    const large = computeCatRect({ pinInWin: { x: 41, y: 39 }, e: 0, profile: profileFor("cat", "large") });
+    expect(large.width / std.width).toBeCloseTo(1.22, 10);
+    expect(large.height / std.height).toBeCloseTo(1.22, 10);
   });
 });
 

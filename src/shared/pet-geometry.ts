@@ -4,7 +4,13 @@
  * 逐位对应 native `main.rs` 的展开协议（:4241-4306）与绘制中心反推（:4377-4409）。
  * 这些数字不是审美选择：所有屏幕尺都按它们量，改一个数等于作废一批验收器。
  * 单位为 DIP（Electron 逻辑像素），与 native 的 egui 逻辑像素同一坐标系。
+ *
+ * v1.5.0（Task 3）：三个布局函数收可选的 `profile`（形态×身形档），**缺省值就是今天的常量**，
+ * 所以不传参的既有调用与全部旧屏幕尺继续逐字节不变。`DEFAULT_PROFILE` 从
+ * `./pet-profile` 取——pet-profile 只依赖本文件的常量，两个模块之间没有运行期循环
+ * （pet-profile 的顶层字面量不读本文件，只有函数体读）。
  */
+import { formGeometry, profileFor, type PetProfile } from "./pet-profile";
 
 export const PET_W = 82.0;
 export const PET_H = 108.0;
@@ -32,6 +38,8 @@ export interface PetLayoutInput {
   workArea: WorkArea;
   /** 贴边藏身的窥视偏移，只进绘制偏移。 */
   peekDx: number;
+  /** 形态×档位；缺省＝今天的四足标准档（v1.5.0 Task 3，所有旧调用一字不改）。 */
+  profile?: PetProfile;
 }
 
 export interface PetLayout {
@@ -56,6 +64,14 @@ export interface PetLayout {
   g: number;
 }
 
+/**
+ * 几何兜底：今天的四足标准档。它是**参照系**，不是产品默认（产品默认在 verge-store，
+ * 见计划口径差⑰）。定义在这里而不是 pet-profile.ts，是因为 pet-profile 要 import 本文件的常量，
+ * 反过来在本文件顶层求值会在两个模块之间绕一个环；函数声明 `profileFor` 只在调用时才读常量，
+ * 所以这一行放哪儿都不会 TDZ，但**放在常量之后**是必须的——别往上挪。
+ */
+export const DEFAULT_PROFILE: PetProfile = profileFor("cat", "standard");
+
 export function scaleFor(e: number): { u: number; s: number } {
   const u = 37.0 + (32.0 - 37.0) * e;
   return { u, s: u / 60.0 };
@@ -79,20 +95,22 @@ export function clampBoundsToWorkArea(bounds: Rect, workArea: WorkArea): Rect {
 
 export function computePetLayout(input: PetLayoutInput): PetLayout {
   const { catOrigin, e, be, growLeft, growUp, workArea, peekDx } = input;
+  const profile = input.profile ?? DEFAULT_PROFILE;
+  const { base, pin: profilePin, panel, bubbleWidth } = profile;
 
   const usingPanel = e > 0.001;
-  const targetW = usingPanel ? OPEN_W : BUB_W;
-  const targetH = usingPanel ? OPEN_H : PET_H;
+  const targetW = usingPanel ? panel.width : bubbleWidth;
+  const targetH = usingPanel ? panel.height : base.height;
   const g = usingPanel ? e : be;
 
   const anchor: Point = usingPanel
     ? {
-        x: growLeft ? OPEN_W - PIN.x : PIN.x,
-        y: growUp ? OPEN_H - EDGE_MARGIN - 51.5 * (29.0 / 60.0) : PIN.y,
+        x: growLeft ? panel.width - profilePin.x : profilePin.x,
+        y: growUp ? panel.height - EDGE_MARGIN - 51.5 * (29.0 / 60.0) : profilePin.y,
       }
-    : { x: growLeft ? BUB_W - PIN.x : PIN.x, y: PIN.y };
+    : { x: growLeft ? bubbleWidth - profilePin.x : profilePin.x, y: profilePin.y };
 
-  const pinScreen = { x: catOrigin.x + PIN.x, y: catOrigin.y + PIN.y };
+  const pinScreen = { x: catOrigin.x + profilePin.x, y: catOrigin.y + profilePin.y };
   const unclamped = { x: pinScreen.x - anchor.x, y: pinScreen.y - anchor.y };
   const clamped = {
     x: clamp(unclamped.x, workArea.x, workArea.x + workArea.width - targetW),
@@ -101,10 +119,10 @@ export function computePetLayout(input: PetLayoutInput): PetLayout {
   const clampDelta = { x: clamped.x - unclamped.x, y: clamped.y - unclamped.y };
 
   const pin = { x: pinScreen.x + clampDelta.x * g, y: pinScreen.y + clampDelta.y * g };
-  const catInWin = { x: PIN.x + (anchor.x - PIN.x) * g, y: PIN.y + (anchor.y - PIN.y) * g };
+  const catInWin = { x: profilePin.x + (anchor.x - profilePin.x) * g, y: profilePin.y + (anchor.y - profilePin.y) * g };
   const size = {
-    width: PET_W + (targetW - PET_W) * g,
-    height: PET_H + (targetH - PET_H) * g,
+    width: base.width + (targetW - base.width) * g,
+    height: base.height + (targetH - base.height) * g,
   };
 
   const rawPos = { x: pin.x - catInWin.x, y: pin.y - catInWin.y };
@@ -165,23 +183,34 @@ export function clampRestoreOrigin(input: RestoreOriginInput): Point {
 export interface CatRectInput {
   pinInWin: Point;
   e: number;
+  /** 形态×档位；缺省＝今天的四足标准档。 */
+  profile?: PetProfile;
 }
 
-/** 交互区：贴猫体，中点在绘制中心右 ~17s / 上 ~6s。 */
+/**
+ * 交互区：以钉位点为基准的矩形。
+ * 猫：中心 (pin.x, pin.y − 1.5s)、宽 2u、高 1.85u——与 v1.4 的四个数逐字节相等；
+ * 猫娘：中心 (pin.x, pin.y − 45.75s)、宽 0.86u、高 1.55u（Task 26 的尺 #71 实测反钉）。
+ */
 export function computeCatRect(input: CatRectInput): Rect {
-  const { u, s } = scaleFor(input.e);
-  const center = { x: input.pinInWin.x - 17.0 * s, y: input.pinInWin.y + 4.5 * s };
-  const cx = center.x + 17.0 * s;
-  const cy = center.y - 6.0 * s;
-  return { x: cx - u, y: cy - (u * 1.85) / 2, width: u * 2.0, height: u * 1.85 };
+  const profile = input.profile ?? DEFAULT_PROFILE;
+  const g = formGeometry(profile.form);
+  const { u, s } = profile.catScale(input.e);
+  const cx = input.pinInWin.x + g.hitCenter.dx * s;
+  const cy = input.pinInWin.y + g.hitCenter.dy * s;
+  const width = u * g.hitAspect.width;
+  const height = u * g.hitAspect.height;
+  return { x: cx - width / 2, y: cy - height / 2, width, height };
 }
 
 export interface GrowthInput {
   catOrigin: Point;
   workArea: WorkArea;
   current: { growUp: boolean; growLeft: boolean };
-  /** 判据用的目标宽度：面板档 248，气泡档 172（native 分两次判）。 */
+  /** 判据用的目标宽度：面板档 248，气泡档 172（native 分两次判）。缺省取 profile.panel/bubble。 */
   targetWidth?: number;
+  /** 形态×档位；缺省＝今天的四足标准档。 */
+  profile?: PetProfile;
 }
 
 /**
@@ -197,30 +226,34 @@ function resolveAxis(current: boolean, fitsTrue: boolean, fitsFalse: boolean, fa
 
 export function resolveGrowthDirection(input: GrowthInput): { growUp: boolean; growLeft: boolean } {
   const { catOrigin, workArea, current } = input;
+  const profile = input.profile ?? DEFAULT_PROFILE;
+  const baseW = profile.base.width;
+  const baseH = profile.base.height;
+  const panelH = profile.panel.height;
   const top = workArea.y;
   const bottom = workArea.y + workArea.height;
   const left = workArea.x;
   const right = workArea.x + workArea.width;
 
-  const fitsDown = catOrigin.y + OPEN_H <= bottom - EDGE_MARGIN;
-  const fitsUp = catOrigin.y + PET_H - OPEN_H >= top + EDGE_MARGIN;
+  const fitsDown = catOrigin.y + panelH <= bottom - EDGE_MARGIN;
+  const fitsUp = catOrigin.y + baseH - panelH >= top + EDGE_MARGIN;
   const growUp = resolveAxis(
     current.growUp,
     fitsUp,
     fitsDown,
     // native :4199：上方空间（到猫底）> 下方空间（到猫顶）时向上长。
-    catOrigin.y + PET_H - top > bottom - catOrigin.y,
+    catOrigin.y + baseH - top > bottom - catOrigin.y,
   );
 
-  const targetWidth = input.targetWidth ?? OPEN_W;
-  const fitsRight = catOrigin.x + PET_W + (targetWidth - PET_W) <= right - EDGE_MARGIN;
-  const fitsLeft = catOrigin.x + PET_W - targetWidth >= left + EDGE_MARGIN;
+  const targetWidth = input.targetWidth ?? profile.panel.width;
+  const fitsRight = catOrigin.x + baseW + (targetWidth - baseW) <= right - EDGE_MARGIN;
+  const fitsLeft = catOrigin.x + baseW - targetWidth >= left + EDGE_MARGIN;
   const growLeft = resolveAxis(
     current.growLeft,
     // fitsTrue 这一格对应该轴的「native 第二分支能放下的一侧」= 能向左翻。
     fitsLeft,
     fitsRight,
-    catOrigin.x + PET_W - left > right - catOrigin.x,
+    catOrigin.x + baseW - left > right - catOrigin.x,
   );
 
   return { growUp, growLeft };
