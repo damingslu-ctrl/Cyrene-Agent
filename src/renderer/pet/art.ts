@@ -20,6 +20,7 @@ import {
 import { INK_COAT, type CatCoat } from "../../shared/cat-coats";
 import type { Mood } from "../../shared/cat-types";
 import { ribbon, cubicTo, arc, Xf } from "./xf";
+import { map2OfXf, type Map2 } from "./rig";
 
 // ===========================================================================
 // 类型别名（对应 ui.rs）
@@ -83,7 +84,7 @@ const BADGE_INK = PET_PRIVATE.BADGE_INK; // ui.rs:1205 Color32::WHITE
 // ===========================================================================
 
 /** 对 `fill_solid`：viewBox 点列 → 过 xf → 闭合填充。 */
-function xfFill(xf: Xf, layer: PetLayer, fill: string, poly: Point2[]): DrawOp {
+function xfFill(xf: Map2, layer: PetLayer, fill: string, poly: Point2[]): DrawOp {
   return { kind: "fillPath", fill, points: poly.map((p) => xf.map(p)), layer };
 }
 
@@ -92,7 +93,7 @@ function xfFill(xf: Xf, layer: PetLayer, fill: string, poly: Point2[]): DrawOp {
  * 再把每条弦过 xf。这里用同一条轴线的线性渐变近似——**不搬 scanline**（#68），
  * 轴取 viewBox 的 x=60 那条竖线，映射后与 native 的染色方向一致。
  */
-function xfGrad(xf: Xf, layer: PetLayer, cTop: string, cBot: string, y0: number, y1: number, poly: Point2[]): DrawOp {
+function xfGrad(xf: Map2, layer: PetLayer, cTop: string, cBot: string, y0: number, y1: number, poly: Point2[]): DrawOp {
   return {
     kind: "gradPath",
     from: xf.map([60, y0]),
@@ -107,24 +108,24 @@ function xfGrad(xf: Xf, layer: PetLayer, cTop: string, cBot: string, y0: number,
  * 对 `ellipse`（ui.rs:468-474）：半径带 `xf.s * xf.sx/sy`，中心过 xf。
  * ⚠️ 半径取绝对值：朝向镜像用负 `sx` 实现，负半径会让 `ctx.ellipse` 抛 IndexSizeError。
  */
-function xfEllipse(xf: Xf, layer: PetLayer, fill: string, cx: number, cy: number, rx: number, ry: number): DrawOp {
+function xfEllipse(xf: Map2, layer: PetLayer, fill: string, cx: number, cy: number, rx: number, ry: number): DrawOp {
   const [x, y] = xf.map([cx, cy]);
-  return { kind: "fillEllipse", fill, cx: x, cy: y, rx: rx * xf.s * Math.abs(xf.sx), ry: ry * xf.s * Math.abs(xf.sy), layer };
+  return { kind: "fillEllipse", fill, cx: x, cy: y, rx: rx * xf.scaleX(), ry: ry * xf.scaleY(), layer };
 }
 
 /** 对 `circle`（ui.rs:476-478）：双轴同半径的高光用这个，不要拿 ry 当半径。 */
-function xfCircle(xf: Xf, layer: PetLayer, fill: string, cx: number, cy: number, r: number): DrawOp {
+function xfCircle(xf: Map2, layer: PetLayer, fill: string, cx: number, cy: number, r: number): DrawOp {
   return xfEllipse(xf, layer, fill, cx, cy, r, r);
 }
 
 /** 对 `stroke_poly(&arc(...), xf, w, c)`：viewBox 弧线，宽度乘 `xf.s`，**不闭合**。 */
-function xfArc(xf: Xf, layer: PetLayer, stroke: string, width: number, x0: number, y0: number, cx: number, cy: number, x1: number, y1: number): DrawOp {
+function xfArc(xf: Map2, layer: PetLayer, stroke: string, width: number, x0: number, y0: number, cx: number, cy: number, x1: number, y1: number): DrawOp {
   return xfPoly(xf, layer, stroke, width, arc(x0, y0, cx, cy, x1, y1));
 }
 
 /** 对 `stroke_poly(poly, xf, w, c)`：poly 必须是**未映射**的 viewBox 点（ui.rs:1185-1190 的教训）。 */
-function xfPoly(xf: Xf, layer: PetLayer, stroke: string, width: number, poly: Point2[]): DrawOp {
-  return { kind: "strokePath", stroke, width: width * xf.s, points: poly.map((p) => xf.map(p)), layer };
+function xfPoly(xf: Map2, layer: PetLayer, stroke: string, width: number, poly: Point2[]): DrawOp {
+  return { kind: "strokePath", stroke, width: width * xf.k(), points: poly.map((p) => xf.map(p)), layer };
 }
 
 // ===========================================================================
@@ -213,14 +214,21 @@ function bendPoly(poly: Point2[], dx: number, dy: number, deg: number, cx: numbe
 // 按 ui.rs::draw_cat 的层序收集 ops，最后统一 emit
 // ===========================================================================
 
-export function buildCatOps(input: CatInput): DrawOp[] {
-  const { center, u, mood, t, energy, mouse, blink, jumpY, pet, pose, quiet } = input;
-  const c = input.coat ?? INK_COAT;
+/**
+ * 四足的身体变换三件套（身体/影子/脸）与派生量。
+ * overlay 段要复用同一枚徽章阵（徽章继承身体的 sx/sy/dy，但不吃 rot），
+ * 所以这段不能留在 buildCatOps 里自己算。
+ */
+function catRigFor(input: CatInput): {
+  s: number; xf: Xf; sh: Xf; fx: Xf; xfn: Xf;
+  puff: number; sleep: number; facing: number; settle: number; sprawl: number;
+  squash: number; walk: number;
+} {
+  const { center, u, mood, t, jumpY, pose } = input;
   const facing = input.facing ?? 1;
   const sleep = mood === "sleep" ? 1 : 0;
   const s = (u * 2.0) / VB;
 
-  // 呼吸
   const settle = 1.0 - 0.9 * Math.max(pose.paw, pose.yawn, pose.stretch, Math.min(Math.abs(pose.tilt) / TILT_DEG, 1));
   const breathe = (0.02 + 0.035 * sleep) * Math.sin(t * (1.5 - 0.7 * sleep)) * settle;
   const sy_body = 1.0 + breathe;
@@ -235,21 +243,150 @@ export function buildCatOps(input: CatInput): DrawOp[] {
   const sx_all = (1.0 + 0.055 * pose.stretch + 0.30 * sprawl + 0.14 * puff) * (1 + 0.05 * puff) * (1 + 0.12 * squash);
   const sy_all = sy_body * (1.0 - 0.075 * pose.stretch - 0.34 * sprawl) * (1 + 0.07 * puff) * (1 - 0.18 * squash);
 
-  // 身体变换 xf（整只猫）：朝向镜像走负 sx，绕脚部支点 (60,100) 翻。
   const xf = new Xf();
   xf.s = s; xf.ox = center.x - 60 * s; xf.oy = center.y - 70 * s;
   xf.sx = sx_all * facing; xf.sy = sy_all; xf.dy = dy_total - walkLift;
   xf.rot = rot_deg * (Math.PI / 180); xf.px = 60; xf.py = 100;
 
-  // 影子变换 sh（比身体右下各偏 3s/5s）
   const sh = new Xf();
   sh.s = s; sh.ox = xf.ox + 3 * s; sh.oy = xf.oy + 5 * s;
   sh.sx = sx_all * facing; sh.sy = sy_all; sh.dy = dy_total; sh.rot = xf.rot; sh.px = 60; sh.py = 100;
 
-  // 脸部变换 fx（歪头）
   const fx = new Xf();
   fx.s = xf.s; fx.ox = xf.ox; fx.oy = xf.oy; fx.sx = xf.sx; fx.sy = xf.sy; fx.dy = xf.dy;
   fx.rot = xf.rot + pose.tilt * (Math.PI / 180); fx.px = 60; fx.py = 66;
+
+  // 徽章阵：继承身体全部字段，但 rot=0（不跟歪头转）。
+  const xfn = new Xf();
+  xfn.s = xf.s; xfn.ox = xf.ox; xfn.oy = xf.oy; xfn.sx = xf.sx; xfn.sy = xf.sy; xfn.dy = xf.dy;
+  xfn.rot = 0; xfn.px = xf.px; xfn.py = xf.py;
+
+  return { s, xf, sh, fx, xfn, puff, sleep, facing, settle, sprawl, squash, walk };
+}
+
+/**
+ * 屏幕空间记号：Zzz / 免打扰月牙 / 摸头爱心 / 开心星星 / 状态徽章。
+ * 这些层不跟身体骨架转，所以从 buildCatOps 拆出来：猫娘复用同一批记号、
+ * 只换一枚钉位阵（badgeMap）。返回顺序与拆之前完全相同（四足的表征锁盯着这一点）。
+ */
+export function buildOverlayOps(input: CatInput, badgeMap: Map2): DrawOp[] {
+  const { center, mood, t, pet, quiet } = input;
+  const c = input.coat ?? INK_COAT;
+  const { s, facing, sleep } = catRigFor(input);
+  const ov = {
+    zzz: [] as DrawOp[], quiet_mark: [] as DrawOp[], heart: [] as DrawOp[], stars: [] as DrawOp[], badge: [] as DrawOp[],
+  };
+  // —— 睡觉 Zzz：三枚错相上浮、渐隐、渐大 ui.rs:1066-1092 ——
+  // ⚠️ 双色：先四向描一圈奶油光边再压墨字。Zzz 落在**透明窗外**，背景是别人的桌布；
+  // 旧版只有一笔软墨，混出来 ≈(68,76,88)，而深绿桌布自己就在 66~78 之间晃——
+  // 「它睡着了」在那张桌布上等于没画（native #69）。
+  if (sleep > 0.5 && !quiet) {
+    for (let i = 0; i < 3; i++) {
+      const ph = (t * 0.45 + i / 3) % 1.0;
+      const zx = center.x + facing * (26 + 16 * ph) * s;
+      const zy = center.y - (52 + 30 * ph) * s;
+      const a = Math.max(0, Math.min(1, (1 - ph) * (sleep - 0.5) * 2));
+      const fs = (9 + 7 * ph) * s * 1.6;
+      const rim = fs * 0.13;
+      for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as [number, number][]) {
+        ov.zzz.push({ kind: "text", text: "Z", x: zx + dx * rim, y: zy + dy * rim, size: fs, color: withAlpha(c.light, a * 0.8), align: "center", layer: "zzz" });
+      }
+      ov.zzz.push({ kind: "text", text: "Z", x: zx, y: zy, size: fs, color: withAlpha(INK_SOFT, a * 0.9), align: "center", layer: "zzz" });
+    }
+  }
+
+  // —— 免打扰月牙：两耳中间的空档挂一弯 ui.rs:1094-1114（屏幕坐标，不走 Xf）——
+  if (quiet) {
+    const mc: Point2 = [center.x + facing * 6.5 * s, center.y - 51.5 * s];
+    const rr = 1.28 * 9 * s;
+    ov.quiet_mark.push({ kind: "crescent", fill: INK, cx: mc[0], cy: mc[1], r: rr, dx: 0.42 * rr, dy: -0.30 * rr, cut: 0.92 * rr, layer: "quiet_mark" });
+    const r2 = 9 * s;
+    ov.quiet_mark.push({ kind: "crescent", fill: PAPER, cx: mc[0], cy: mc[1], r: r2, dx: 0.42 * r2, dy: -0.30 * r2, cut: 0.92 * r2, layer: "quiet_mark" });
+  }
+
+  // —— 摸头爱心：三枚错相上浮 ui.rs:1116-1133（屏幕坐标）——
+  if (pet > 0.12) {
+    for (let i = 0; i < 3; i++) {
+      const ph = (t * 0.55 + i / 3) % 1.0;
+      const hx = center.x + facing * ((14 + 11 * ph) * s + Math.sin(ph * 6 + i) * 3 * s);
+      const hy = center.y - (41 + 18 * ph) * s;
+      const a = Math.max(0, Math.min(1, (1 - ph) * (pet - 0.12) / 0.88));
+      const r = (3 + 2.4 * ph) * s * 1.7;
+      const col = withAlpha(c.blush, a * 0.92);
+      for (const sx of [-0.52, 0.52]) {
+        ov.heart.push({ kind: "fillEllipse", fill: col, cx: hx + r * sx, cy: hy - r * 0.42, rx: r * 0.56, ry: r * 0.56, layer: "heart" });
+      }
+      ov.heart.push({ kind: "fillPath", fill: col, points: [[hx - r * 0.95, hy - r * 0.12], [hx + r * 0.95, hy - r * 0.12], [hx, hy + r]], layer: "heart" });
+    }
+  }
+
+  // —— 开心小星星：两枚十字星光错相闪烁 ui.rs:1135-1155（屏幕线宽固定 1.2，不乘 s）——
+  if (mood === "happy" && sleep < 0.3) {
+    for (let i = 0; i < 2; i++) {
+      const ox = i === 0 ? -54 : 58, oy = i === 0 ? -46 : -58;
+      const ph = Math.max(0, Math.sin(t * 1.6 + i * 1.9));
+      if (ph < 0.05) continue;
+      const sx2 = center.x + facing * ox * s, sy2 = center.y + oy * s - 8 * ph * s;
+      const rr = (2 + 2.2 * ph) * s * 1.6;
+      const col = withAlpha(c.light, ph * 0.7);
+      ov.stars.push({ kind: "strokePath", stroke: col, width: 1.2, points: [[sx2 - rr, sy2], [sx2 + rr, sy2]], layer: "stars" });
+      ov.stars.push({ kind: "strokePath", stroke: col, width: 1.2, points: [[sx2, sy2 - rr], [sx2, sy2 + rr]], layer: "stars" });
+    }
+  }
+
+  // —— 状态徽章 ui.rs:1161-1250 ——
+  if (mood !== "idle" && mood !== "sleep") {
+    const BADGE_VB: Point2 = [103, 28];
+    const [fill, sc] = (() => {
+      switch (mood) {
+        case "grumpy": return [WARN, 1.0 + 0.06 * Math.max(0, Math.sin(t * 2.5))] as const;
+        case "thinking": return [ACCENT, 1.0 + 0.08 * Math.max(0, Math.sin(t * 3.0))] as const;
+        case "happy": return [GREEN, 1.0 + 0.10 * Math.max(0, Math.sin(t * 3.5))] as const;
+        default: return [WARN, 1.0] as const;
+      }
+    })();
+    const bp = (dx: number, dy: number): Point2 => badgeMap.map([BADGE_VB[0] + dx * sc, BADGE_VB[1] + dy * sc]);
+    const bg = (dx: number, dy: number): Point2 => [BADGE_VB[0] + dx * sc, BADGE_VB[1] + dy * sc];
+    // 底盘圆在 native 里直接 `EllipseShape::filled(vec2(11*xfn.s, 11*xfn.s))`，
+    // 绕过 `ellipse()` 助手 → **不吃 sx/sy**，这里保持同一口径。
+    const [bcx, bcy] = bp(0, 0);
+    ov.badge.push({ kind: "fillEllipse", fill, cx: bcx, cy: bcy, rx: 11 * badgeMap.k(), ry: 11 * badgeMap.k(), layer: "badge" });
+    switch (mood) {
+      case "grumpy": {
+        ov.badge.push(xfPoly(badgeMap, "badge", BADGE_INK, 2.4, [bg(0, -6), bg(0, 1)]));
+        const [b1x, b1y] = bp(0, 5);
+        ov.badge.push({ kind: "fillEllipse", fill: BADGE_INK, cx: b1x, cy: b1y, rx: 1.5 * badgeMap.k(), ry: 1.5 * badgeMap.k(), layer: "badge" });
+        break;
+      }
+      case "thinking": {
+        ov.badge.push(xfArc(badgeMap, "badge", BADGE_INK, 2.0, BADGE_VB[0] - 3, BADGE_VB[1], BADGE_VB[0], BADGE_VB[1] - 3, BADGE_VB[0] + 3, BADGE_VB[1]));
+        const [b2x, b2y] = bp(0, 4.5);
+        ov.badge.push({ kind: "fillEllipse", fill: BADGE_INK, cx: b2x, cy: b2y, rx: 1.2 * badgeMap.k(), ry: 1.2 * badgeMap.k(), layer: "badge" });
+        break;
+      }
+      case "happy": {
+        ov.badge.push(xfPoly(badgeMap, "badge", BADGE_INK, 2.4, [bg(-5, 0), bg(-1, 4), bg(5, -4)]));
+        break;
+      }
+    }
+  }
+
+
+  return [...ov.zzz, ...ov.quiet_mark, ...ov.heart, ...ov.stars, ...ov.badge];
+}
+
+export function buildCatOps(input: CatInput): DrawOp[] {
+  const { center, mood, t, energy, mouse, blink, jumpY, pet, pose, quiet } = input;
+  const c = input.coat ?? INK_COAT;
+  const facing = input.facing ?? 1;
+  const sleep = mood === "sleep" ? 1 : 0;
+
+  const rig = catRigFor(input);
+  const { s, xf, sh, fx, puff, settle, sprawl, squash, walk } = rig;
+  // 助手层只认 Map2（Task 4）。四足这边 map2OfXf 的半径/线宽与旧式逐字相等。
+  const mx = map2OfXf(xf);
+  const shx = map2OfXf(sh);
+  const fxx = map2OfXf(fx);
 
   // 按层收集 ops（ui.rs::draw_cat 层序）
   const byLayer = {} as Record<PetLayer, DrawOp[]>;
@@ -265,7 +402,7 @@ export function buildCatOps(input: CatInput): DrawOp[] {
   const fade = 1.0 - 0.55 * lift;
   const RINGS: Array<[number, number]> = [[1.00, 0.016], [0.86, 0.018], [0.70, 0.020], [0.52, 0.023], [0.30, 0.027]];
   for (const [f, a] of RINGS) {
-    byLayer.ground_shadow.push(xfEllipse(sh, "ground_shadow", withAlpha(SHADOW, a * fade), 60, 106,
+    byLayer.ground_shadow.push(xfEllipse(shx, "ground_shadow", withAlpha(SHADOW, a * fade), 60, 106,
       27.0 * (1 - 0.25 * lift) * f, 5.2 * (1 - 0.3 * lift) * f));
   }
 
@@ -275,11 +412,11 @@ export function buildCatOps(input: CatInput): DrawOp[] {
   const spine = tailSpine();
   const tail = bendPoly(ribbon(spine, 12.0 + 6.0 * puff, 7.5 + 4.0 * puff), 0, 0, wag, 90, 88);
   // 渐变范围必须和身体同一条（34..106）：光源是全局的，不是每条尾巴自己打一遍。
-  byLayer.tail.push(xfGrad(xf, "tail", BODY_TOP(mood, c), BODY_BOT(mood, c), 34, 106, tail));
+  byLayer.tail.push(xfGrad(mx, "tail", BODY_TOP(mood, c), BODY_BOT(mood, c), 34, 106, tail));
   // 白尾尖：染在尾巴**末端那一段**上，不是端点上一颗圆。
   const cut = Math.max(0, spine.length - 6);
   const tip = bendPoly(ribbon(spine.slice(cut), 8.4, 7.6), 0, 0, wag, 90, 88);
-  byLayer.tail_tip.push(xfFill(xf, "tail_tip", c.light, tip));
+  byLayer.tail_tip.push(xfFill(mx, "tail_tip", c.light, tip));
 
   // —— 耳朵（跟脸一起歪）ui.rs:714-724 ——
   const twitch = earTwitch(t, mood);
@@ -291,20 +428,20 @@ export function buildCatOps(input: CatInput): DrawOp[] {
   const l_in = bendPoly(earLInner(), 0, 0, lTw, 42, 38);
   const r_ear = bendPoly(earROuter(), 0, 0, rTw, 78, 38);
   const r_in = bendPoly(earRInner(), 0, 0, rTw, 78, 38);
-  byLayer.ears.push(xfFill(fx, "ears", BODY_COL(mood, c), l_ear));
-  byLayer.ears.push(xfFill(fx, "ears", BODY_COL(mood, c), r_ear));
-  byLayer.ears.push(xfFill(fx, "ears", INNER_EAR(mood, c), l_in));
-  byLayer.ears.push(xfFill(fx, "ears", INNER_EAR(mood, c), r_in));
+  byLayer.ears.push(xfFill(fxx, "ears", BODY_COL(mood, c), l_ear));
+  byLayer.ears.push(xfFill(fxx, "ears", BODY_COL(mood, c), r_ear));
+  byLayer.ears.push(xfFill(fxx, "ears", INNER_EAR(mood, c), l_in));
+  byLayer.ears.push(xfFill(fxx, "ears", INNER_EAR(mood, c), r_in));
 
   // —— 身体（渐变 + 底缘暗部 + 左半顶光）ui.rs:726-755 ——
-  byLayer.body.push(xfGrad(xf, "body", BODY_TOP(mood, c), BODY_BOT(mood, c), 34, 106, bodyPath()));
-  byLayer.body_light.push(xfEllipse(xf, "body_light", withAlpha(SHADOW, SHADOW_ALPHA(mood)), 60, 101, 25, 6.5));
-  byLayer.body_stroke.push(xfArc(xf, "body_stroke", withAlpha(c.light, 0.22), 2.6, 37.1, 47.4, 36.4, 44.75, 53.7, 37.5));
-  byLayer.body_stroke.push(xfArc(xf, "body_stroke", withAlpha(c.light, 0.18), 2.2, 31.0, 58.0, 27.5, 49.0, 33.0, 43.5));
+  byLayer.body.push(xfGrad(mx, "body", BODY_TOP(mood, c), BODY_BOT(mood, c), 34, 106, bodyPath()));
+  byLayer.body_light.push(xfEllipse(mx, "body_light", withAlpha(SHADOW, SHADOW_ALPHA(mood)), 60, 101, 25, 6.5));
+  byLayer.body_stroke.push(xfArc(mx, "body_stroke", withAlpha(c.light, 0.22), 2.6, 37.1, 47.4, 36.4, 44.75, 53.7, 37.5));
+  byLayer.body_stroke.push(xfArc(mx, "body_stroke", withAlpha(c.light, 0.18), 2.2, 31.0, 58.0, 27.5, 49.0, 33.0, 43.5));
 
   // —— 围兜 + 下巴 AO ui.rs:757-759 ——
-  byLayer.bib.push(xfGrad(xf, "bib", c.light, c.shade, 61, 104, bibPath()));
-  byLayer.bib_ao.push(xfEllipse(xf, "bib_ao", withAlpha(c.furEdge, 0.10), 60, 63.5, 10, 3.2));
+  byLayer.bib.push(xfGrad(mx, "bib", c.light, c.shade, 61, 104, bibPath()));
+  byLayer.bib_ao.push(xfEllipse(mx, "bib_ao", withAlpha(c.furEdge, 0.10), 60, 63.5, 10, 3.2));
 
   // —— 前爪（白手套）ui.rs:761-781 ——
   const push = pose.stretch;
@@ -314,8 +451,8 @@ export function buildCatOps(input: CatInput): DrawOp[] {
     const step = Math.max(0, Math.sin(walk + i * Math.PI)) * 1.8;
     const cx = pxBase + (pxBase - 60) * 0.12 * push;
     const cy = 99 + 3.4 * push - step;
-    byLayer.paws.push(xfEllipse(xf, "paws", c.light, cx, cy, 7.4 + 1.2 * push, 5.6 - 1.6 * push));
-    byLayer.paws.push(xfArc(xf, "paws", withAlpha(c.shade, 0.95), 2.2, cx - 5.5, cy + 1.5, cx, cy + 5.5, cx + 5.5, cy + 1.5));
+    byLayer.paws.push(xfEllipse(mx, "paws", c.light, cx, cy, 7.4 + 1.2 * push, 5.6 - 1.6 * push));
+    byLayer.paws.push(xfArc(mx, "paws", withAlpha(c.shade, 0.95), 2.2, cx - 5.5, cy + 1.5, cx, cy + 5.5, cx + 5.5, cy + 1.5));
   }
 
   // —— 眼睛 ui.rs:783-873 ——
@@ -337,71 +474,71 @@ export function buildCatOps(input: CatInput): DrawOp[] {
   const eyes: Point2[] = [[47, 54], [73, 54]];
   if (mood === "happy") {
     for (const [ex, ey] of eyes) {
-      byLayer.eyes.push(xfArc(fx, "eyes", c.light, 3.6, ex - 6.2, ey + 1.5, ex, ey - 7.5, ex + 6.2, ey + 1.5));
+      byLayer.eyes.push(xfArc(fxx, "eyes", c.light, 3.6, ex - 6.2, ey + 1.5, ex, ey - 7.5, ex + 6.2, ey + 1.5));
     }
   } else {
     for (const [ex, ey] of eyes) {
       const rx = Math.max(0.7, 5.9 * open);
       const ry = Math.max(0.6, 6.6 * open);
-      byLayer.eyes.push(xfEllipse(fx, "eyes", c.light, ex, ey, rx, ry));
+      byLayer.eyes.push(xfEllipse(fxx, "eyes", c.light, ex, ey, rx, ry));
       const px = ex + pupil[0];
       const py = ey + pupil[1] * 0.8;
-      byLayer.eyes.push(xfEllipse(fx, "eyes", c.eye, px, py, rx * 0.80, ry * 0.84));
+      byLayer.eyes.push(xfEllipse(fxx, "eyes", c.eye, px, py, rx * 0.80, ry * 0.84));
       // 两枚高光在 native 都是 `circle`（双轴同半径）：r = rx*0.30 / rx*0.15。
-      byLayer.eyes.push(xfCircle(fx, "eyes", withAlpha(c.light, 0.96), px - rx * 0.30, py - ry * 0.34, rx * 0.30));
-      byLayer.eyes.push(xfCircle(fx, "eyes", withAlpha(c.light, 0.72), px + rx * 0.34, py + ry * 0.30, rx * 0.15));
+      byLayer.eyes.push(xfCircle(fxx, "eyes", withAlpha(c.light, 0.96), px - rx * 0.30, py - ry * 0.34, rx * 0.30));
+      byLayer.eyes.push(xfCircle(fxx, "eyes", withAlpha(c.light, 0.72), px + rx * 0.34, py + ry * 0.30, rx * 0.15));
       if (lid_a > 0.01) {
-        byLayer.eyes.push(xfArc(fx, "eyes", withAlpha(c.light, lid_a), 2.6, ex - 5.2, ey, ex, ey + 5.0, ex + 5.2, ey));
+        byLayer.eyes.push(xfArc(fxx, "eyes", withAlpha(c.light, lid_a), 2.6, ex - 5.2, ey, ex, ey + 5.0, ex + 5.2, ey));
       }
     }
   }
 
   // —— 鼻子 ui.rs:877 ——
-  byLayer.nose.push(xfFill(fx, "nose", c.nose, nosePath()));
+  byLayer.nose.push(xfFill(fxx, "nose", c.nose, nosePath()));
 
   // —— 嘴 ui.rs:878-984 ——
   const mouth_ink = withAlpha(c.furEdge, 0.88);
   const stem = (y1: number): Point2[] => [[60, 70.5], [60, y1]];
   const moodFace = quiet ? null : mood;
   if (moodFace === null) {
-    byLayer.mouth.push(xfPoly(fx, "mouth", mouth_ink, 2.2, stem(73.5)));
-    byLayer.mouth.push(xfArc(fx, "mouth", mouth_ink, 2.4, 52.5, 75.4, 60, 76.3, 67.5, 75.4));
+    byLayer.mouth.push(xfPoly(fxx, "mouth", mouth_ink, 2.2, stem(73.5)));
+    byLayer.mouth.push(xfArc(fxx, "mouth", mouth_ink, 2.4, 52.5, 75.4, 60, 76.3, 67.5, 75.4));
   } else if (moodFace === "happy") {
-    byLayer.mouth.push(xfPoly(fx, "mouth", mouth_ink, 2.2, stem(73.0)));
-    byLayer.mouth.push(xfArc(fx, "mouth", mouth_ink, 2.4, 60, 73.0, 55, 79.5, 50, 74.0));
-    byLayer.mouth.push(xfArc(fx, "mouth", mouth_ink, 2.4, 60, 73.0, 65, 79.5, 70, 74.0));
+    byLayer.mouth.push(xfPoly(fxx, "mouth", mouth_ink, 2.2, stem(73.0)));
+    byLayer.mouth.push(xfArc(fxx, "mouth", mouth_ink, 2.4, 60, 73.0, 55, 79.5, 50, 74.0));
+    byLayer.mouth.push(xfArc(fxx, "mouth", mouth_ink, 2.4, 60, 73.0, 65, 79.5, 70, 74.0));
   } else if (moodFace === "thinking") {
-    byLayer.mouth.push(xfPoly(fx, "mouth", mouth_ink, 2.2, stem(74.2)));
-    byLayer.mouth.push(xfEllipse(fx, "mouth", mouth_ink, 60, 76.2, 3.2, 3.2));
+    byLayer.mouth.push(xfPoly(fxx, "mouth", mouth_ink, 2.2, stem(74.2)));
+    byLayer.mouth.push(xfEllipse(fxx, "mouth", mouth_ink, 60, 76.2, 3.2, 3.2));
   } else if (moodFace === "grumpy") {
-    byLayer.mouth.push(xfPoly(fx, "mouth", mouth_ink, 2.2, stem(73.5)));
-    byLayer.mouth.push(xfArc(fx, "mouth", mouth_ink, 2.4, 53.5, 78.0, 60, 73.5, 66.5, 78.0));
+    byLayer.mouth.push(xfPoly(fxx, "mouth", mouth_ink, 2.2, stem(73.5)));
+    byLayer.mouth.push(xfArc(fxx, "mouth", mouth_ink, 2.4, 53.5, 78.0, 60, 73.5, 66.5, 78.0));
   } else {
-    byLayer.mouth.push(xfPoly(fx, "mouth", mouth_ink, 2.2, stem(73.5)));
-    byLayer.mouth.push(xfArc(fx, "mouth", mouth_ink, 2.4, 60, 73.5, 56, 77.8, 52.5, 74.5));
-    byLayer.mouth.push(xfArc(fx, "mouth", mouth_ink, 2.4, 60, 73.5, 64, 77.8, 67.5, 74.5));
+    byLayer.mouth.push(xfPoly(fxx, "mouth", mouth_ink, 2.2, stem(73.5)));
+    byLayer.mouth.push(xfArc(fxx, "mouth", mouth_ink, 2.4, 60, 73.5, 56, 77.8, 52.5, 74.5));
+    byLayer.mouth.push(xfArc(fxx, "mouth", mouth_ink, 2.4, 60, 73.5, 64, 77.8, 67.5, 74.5));
   }
   // 哈欠：嘴张开成一颗会呼吸的竖椭圆，里面点一口玫瑰色（跟脸一起歪，用 fx）。
   if (pose.yawn > 0.02 && !quiet) {
     const y = pose.yawn;
-    byLayer.mouth.push(xfEllipse(fx, "mouth", mouth_ink, 60, 78.0 + 1.0 * y, 2.6 + 2.6 * y, 3.0 + 5.4 * y));
-    byLayer.mouth.push(xfEllipse(fx, "mouth", withAlpha(c.blush, 0.85 * y), 60, 78.6 + 1.0 * y, 1.2 + 1.3 * y, 1.4 + 3.0 * y));
+    byLayer.mouth.push(xfEllipse(fxx, "mouth", mouth_ink, 60, 78.0 + 1.0 * y, 2.6 + 2.6 * y, 3.0 + 5.4 * y));
+    byLayer.mouth.push(xfEllipse(fxx, "mouth", withAlpha(c.blush, 0.85 * y), 60, 78.6 + 1.0 * y, 1.2 + 1.3 * y, 1.4 + 3.0 * y));
   }
   // 睡着时换成随呼吸起伏的小圆嘴（盖过上面的常态嘴）
   if (sleep > 0.35) {
     const k = Math.abs(Math.sin(t * 1.1));
-    byLayer.mouth.push(xfEllipse(fx, "mouth", withAlpha(c.furEdge, 0.55 + 0.35 * sleep), 60, 76, 1.8 + 1.6 * k, 2.0 + 2.0 * k));
+    byLayer.mouth.push(xfEllipse(fxx, "mouth", withAlpha(c.furEdge, 0.55 + 0.35 * sleep), 60, 76, 1.8 + 1.6 * k, 2.0 + 2.0 * k));
   }
 
   // —— 腮红 + 胡须 ui.rs:986-1025 ——
   if (mood !== "grumpy") {
     for (const bx of [35.5, 84.5]) {
-      byLayer.blush.push(xfEllipse(fx, "blush", withAlpha(c.blush, 0.70), bx, 76, 6.4, 4.0));
+      byLayer.blush.push(xfEllipse(fxx, "blush", withAlpha(c.blush, 0.70), bx, 76, 6.4, 4.0));
     }
   }
   const whisk_c = withAlpha(c.light, 0.42);
   for (const w of [[50, 64, 39, 58.5, 29, 58], [50, 69, 38, 69.5, 28, 72], [70, 64, 81, 58.5, 91, 58], [70, 69, 82, 69.5, 92, 72]] as [number, number, number, number, number, number][]) {
-    byLayer.blush.push(xfArc(fx, "blush", whisk_c, 1.7, w[0], w[1], w[2], w[3], w[4], w[5]));
+    byLayer.blush.push(xfArc(fxx, "blush", whisk_c, 1.7, w[0], w[1], w[2], w[3], w[4], w[5]));
   }
 
   // —— 洗脸的左爪：抬起后**压在整张脸之上** ui.rs:1027-1064 ——
@@ -420,107 +557,14 @@ export function buildCatOps(input: CatInput): DrawOp[] {
       ]);
     }
     // 墨袖只取手臂靠身体那半段（native `arm[..7]`）；用差量 alpha，实色会在渐变身体上糊出死黑。
-    byLayer.paws_up.push(xfPoly(fx, "paws_up", withAlpha(c.furEdge, 0.95 * k), 6.2 * (0.4 + 0.6 * k), arm.slice(0, 7)));
-    byLayer.paws_up.push(xfEllipse(fx, "paws_up", c.light, tx, ty, 6.6, 5.4));
-    byLayer.paws_up.push(xfArc(fx, "paws_up", withAlpha(c.shade, 0.95), 2.0, tx - 4.8, ty + 1.6, tx, ty + 4.8, tx + 4.8, ty + 1.6));
+    byLayer.paws_up.push(xfPoly(fxx, "paws_up", withAlpha(c.furEdge, 0.95 * k), 6.2 * (0.4 + 0.6 * k), arm.slice(0, 7)));
+    byLayer.paws_up.push(xfEllipse(fxx, "paws_up", c.light, tx, ty, 6.6, 5.4));
+    byLayer.paws_up.push(xfArc(fxx, "paws_up", withAlpha(c.shade, 0.95), 2.0, tx - 4.8, ty + 1.6, tx, ty + 4.8, tx + 4.8, ty + 1.6));
   }
 
-  // —— 睡觉 Zzz：三枚错相上浮、渐隐、渐大 ui.rs:1066-1092 ——
-  // ⚠️ 双色：先四向描一圈奶油光边再压墨字。Zzz 落在**透明窗外**，背景是别人的桌布；
-  // 旧版只有一笔软墨，混出来 ≈(68,76,88)，而深绿桌布自己就在 66~78 之间晃——
-  // 「它睡着了」在那张桌布上等于没画（native #69）。
-  if (sleep > 0.5 && !quiet) {
-    for (let i = 0; i < 3; i++) {
-      const ph = (t * 0.45 + i / 3) % 1.0;
-      const zx = center.x + facing * (26 + 16 * ph) * s;
-      const zy = center.y - (52 + 30 * ph) * s;
-      const a = Math.max(0, Math.min(1, (1 - ph) * (sleep - 0.5) * 2));
-      const fs = (9 + 7 * ph) * s * 1.6;
-      const rim = fs * 0.13;
-      for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as [number, number][]) {
-        byLayer.zzz.push({ kind: "text", text: "Z", x: zx + dx * rim, y: zy + dy * rim, size: fs, color: withAlpha(c.light, a * 0.8), align: "center", layer: "zzz" });
-      }
-      byLayer.zzz.push({ kind: "text", text: "Z", x: zx, y: zy, size: fs, color: withAlpha(INK_SOFT, a * 0.9), align: "center", layer: "zzz" });
-    }
-  }
-
-  // —— 免打扰月牙：两耳中间的空档挂一弯 ui.rs:1094-1114（屏幕坐标，不走 Xf）——
-  if (quiet) {
-    const mc: Point2 = [center.x + facing * 6.5 * s, center.y - 51.5 * s];
-    const rr = 1.28 * 9 * s;
-    byLayer.quiet_mark.push({ kind: "crescent", fill: INK, cx: mc[0], cy: mc[1], r: rr, dx: 0.42 * rr, dy: -0.30 * rr, cut: 0.92 * rr, layer: "quiet_mark" });
-    const r2 = 9 * s;
-    byLayer.quiet_mark.push({ kind: "crescent", fill: PAPER, cx: mc[0], cy: mc[1], r: r2, dx: 0.42 * r2, dy: -0.30 * r2, cut: 0.92 * r2, layer: "quiet_mark" });
-  }
-
-  // —— 摸头爱心：三枚错相上浮 ui.rs:1116-1133（屏幕坐标）——
-  if (pet > 0.12) {
-    for (let i = 0; i < 3; i++) {
-      const ph = (t * 0.55 + i / 3) % 1.0;
-      const hx = center.x + facing * ((14 + 11 * ph) * s + Math.sin(ph * 6 + i) * 3 * s);
-      const hy = center.y - (41 + 18 * ph) * s;
-      const a = Math.max(0, Math.min(1, (1 - ph) * (pet - 0.12) / 0.88));
-      const r = (3 + 2.4 * ph) * s * 1.7;
-      const col = withAlpha(c.blush, a * 0.92);
-      for (const sx of [-0.52, 0.52]) {
-        byLayer.heart.push({ kind: "fillEllipse", fill: col, cx: hx + r * sx, cy: hy - r * 0.42, rx: r * 0.56, ry: r * 0.56, layer: "heart" });
-      }
-      byLayer.heart.push({ kind: "fillPath", fill: col, points: [[hx - r * 0.95, hy - r * 0.12], [hx + r * 0.95, hy - r * 0.12], [hx, hy + r]], layer: "heart" });
-    }
-  }
-
-  // —— 开心小星星：两枚十字星光错相闪烁 ui.rs:1135-1155（屏幕线宽固定 1.2，不乘 s）——
-  if (mood === "happy" && sleep < 0.3) {
-    for (let i = 0; i < 2; i++) {
-      const ox = i === 0 ? -54 : 58, oy = i === 0 ? -46 : -58;
-      const ph = Math.max(0, Math.sin(t * 1.6 + i * 1.9));
-      if (ph < 0.05) continue;
-      const sx2 = center.x + facing * ox * s, sy2 = center.y + oy * s - 8 * ph * s;
-      const rr = (2 + 2.2 * ph) * s * 1.6;
-      const col = withAlpha(c.light, ph * 0.7);
-      byLayer.stars.push({ kind: "strokePath", stroke: col, width: 1.2, points: [[sx2 - rr, sy2], [sx2 + rr, sy2]], layer: "stars" });
-      byLayer.stars.push({ kind: "strokePath", stroke: col, width: 1.2, points: [[sx2, sy2 - rr], [sx2, sy2 + rr]], layer: "stars" });
-    }
-  }
-
-  // —— 状态徽章 ui.rs:1161-1250 ——
-  if (mood !== "idle" && mood !== "sleep") {
-    const BADGE_VB: Point2 = [103, 28];
-    const [fill, sc] = (() => {
-      switch (mood) {
-        case "grumpy": return [WARN, 1.0 + 0.06 * Math.max(0, Math.sin(t * 2.5))] as const;
-        case "thinking": return [ACCENT, 1.0 + 0.08 * Math.max(0, Math.sin(t * 3.0))] as const;
-        case "happy": return [GREEN, 1.0 + 0.10 * Math.max(0, Math.sin(t * 3.5))] as const;
-        default: return [WARN, 1.0] as const;
-      }
-    })();
-    const xfn = new Xf();
-    xfn.s = xf.s; xfn.ox = xf.ox; xfn.oy = xf.oy; xfn.sx = xf.sx; xfn.sy = xf.sy; xfn.dy = xf.dy;
-    xfn.rot = 0; xfn.px = xf.px; xfn.py = xf.py;
-    const bp = (dx: number, dy: number): Point2 => xfn.map([BADGE_VB[0] + dx * sc, BADGE_VB[1] + dy * sc]);
-    const bg = (dx: number, dy: number): Point2 => [BADGE_VB[0] + dx * sc, BADGE_VB[1] + dy * sc];
-    // 底盘圆在 native 里直接 `EllipseShape::filled(vec2(11*xfn.s, 11*xfn.s))`，
-    // 绕过 `ellipse()` 助手 → **不吃 sx/sy**，这里保持同一口径。
-    const [bcx, bcy] = bp(0, 0);
-    byLayer.badge.push({ kind: "fillEllipse", fill, cx: bcx, cy: bcy, rx: 11 * xfn.s, ry: 11 * xfn.s, layer: "badge" });
-    switch (mood) {
-      case "grumpy": {
-        byLayer.badge.push(xfPoly(xfn, "badge", BADGE_INK, 2.4, [bg(0, -6), bg(0, 1)]));
-        const [b1x, b1y] = bp(0, 5);
-        byLayer.badge.push({ kind: "fillEllipse", fill: BADGE_INK, cx: b1x, cy: b1y, rx: 1.5 * xfn.s, ry: 1.5 * xfn.s, layer: "badge" });
-        break;
-      }
-      case "thinking": {
-        byLayer.badge.push(xfArc(xfn, "badge", BADGE_INK, 2.0, BADGE_VB[0] - 3, BADGE_VB[1], BADGE_VB[0], BADGE_VB[1] - 3, BADGE_VB[0] + 3, BADGE_VB[1]));
-        const [b2x, b2y] = bp(0, 4.5);
-        byLayer.badge.push({ kind: "fillEllipse", fill: BADGE_INK, cx: b2x, cy: b2y, rx: 1.2 * xfn.s, ry: 1.2 * xfn.s, layer: "badge" });
-        break;
-      }
-      case "happy": {
-        byLayer.badge.push(xfPoly(xfn, "badge", BADGE_INK, 2.4, [bg(-5, 0), bg(-1, 4), bg(5, -4)]));
-        break;
-      }
-    }
+  // —— 屏幕空间记号：与身体解耦，四足用原钉位阵 ——
+  for (const op of buildOverlayOps(input, map2OfXf(rig.xfn))) {
+    if (op.layer) byLayer[op.layer].push(op);
   }
 
   // 按层序 emit
