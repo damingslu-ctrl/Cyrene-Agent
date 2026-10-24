@@ -243,12 +243,22 @@ const CROP_CRITERIA_BY_FORM: Readonly<Record<PetForm, Readonly<Record<CropName, 
     round: { cov: [0.41, 0.73], off: 0.20 },
     wide: { cov: [0.12, 0.45], off: 0.12 },
   },
+  /**
+   * 2026-10-24 重画后按 `--measure` 重钉（旧带是按「头小身长」的旧图量的，全部作废）。
+   * 实测：full 0.298..0.306 / round 0.393..0.532 / bust 0.462..0.537 / square 0.470..0.629 / wide 0.192。
+   *
+   * 带宽取实测量程的两端各放 ~0.03：**这是「换一档花色/姿态仍装得下」的余量**，
+   * 不是「随便画什么都放行」。band 之间会重叠——round/bust/square 三档本来就该接近
+   * （它们只是裁切框不同，同一个人占画面的比例不该差一倍）；挡「两档取景等价」的
+   * 是 `cat-sprite-manifest.test` 的正对照（拿 full 的图去量 bust 必须判红），
+   * 不是这里的带宽。别为了「看起来整齐」把带宽收紧——那只会让换姿态时假红。
+   */
   girl: {
-    square: { cov: [0.11, 0.22], off: 0.17 },
-    bust: { cov: [0.13, 0.24], off: 0.22 },
-    full: { cov: [0.05, 0.16], off: 0.25 },
-    round: { cov: [0.09, 0.19], off: 0.17 },
-    wide: { cov: [0.03, 0.12], off: 0.14 },
+    square: { cov: [0.44, 0.64], off: 0.24 },
+    bust: { cov: [0.43, 0.56], off: 0.24 },
+    full: { cov: [0.27, 0.34], off: 0.24 },
+    round: { cov: [0.36, 0.57], off: 0.24 },
+    wide: { cov: [0.15, 0.25], off: 0.16 },
   },
 };
 /** 兼容旧读者：`CROP_CRITERIA` 仍指 cat 段。 */

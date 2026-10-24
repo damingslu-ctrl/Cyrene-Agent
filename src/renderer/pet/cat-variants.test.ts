@@ -136,14 +136,38 @@ describe("girl 资产轴 (Task 24)", () => {
     expect(cropsForForm("girl")).toBe(GIRL_CROPS);
   });
 
-  it("girl 五档取景都装得下（暂行 GIRL_CROPS 的最低门槛）", () => {
+  it("girl 五档取景：头部（发顶→下巴）永远完整在框内，且非圆图不压边", () => {
+    // 旧版这条要求「整只都在画布内」，那是按「五档其实一样大」的暂行取景写的。
+    // 2026-10-24 重画后五档真的分开了（full 0.34 ＜ round 0.55 ＜ bust 0.58 ＜ square 0.64），
+    // bust/square/round 按定义就要裁掉裙摆——再要求整体装下等于逼五档变回一张图。
+    //
+    // 真正不能破的是：**脸不许被裁**。所以判据改成
+    //   ① 头部（crown 到下巴，含猫耳与外圈白饰）在每一档都必须完整在框内；
+    //   ② 非圆图不许贴到左右边（压边会被读成画坏了）；
+    //   ③ `full` 与 `wide` 这两档的语义就是「全身」，仍然要求整只装下。
     for (const crop of ["full", "bust", "square", "round", "wide"] as const) {
       const size = crop === "wide" ? { w: 1280, h: 720 } : { w: 256, h: 256 };
-      const b = opsBounds(buildSpriteOps({ coat: "paper", pose: "sit", crop, form: "girl" }, size))!;
-      expect(b.x, crop).toBeGreaterThanOrEqual(-0.5);
-      expect(b.y, crop).toBeGreaterThanOrEqual(-0.5);
-      expect(b.x + b.width, crop).toBeLessThanOrEqual(size.w + 0.5);
-      expect(b.y + b.height, crop).toBeLessThanOrEqual(size.h + 0.5);
+      const ops = buildSpriteOps({ coat: "paper", pose: "sit", crop, form: "girl" }, size);
+      const b = opsBounds(ops)!;
+      // 头部：只取 y 在上半段的图元（头箍、耳、眼、脸都在这里）
+      const headOps = ops.filter((o) => {
+        const bb = opsBounds([o]);
+        return bb && bb.y + bb.height <= size.h * 0.72;
+      });
+      const hb = opsBounds(headOps)!;
+      // 头部的上沿必须 ≥ 0（发顶没被切）
+      expect(hb.y, `${crop}: 发顶被切`).toBeGreaterThanOrEqual(-0.5);
+      // 头部的左右必须在框内（头是最宽处，它装下＝整只装得下）
+      expect(hb.x, `${crop}: 头左侧被切`).toBeGreaterThanOrEqual(-0.5);
+      expect(hb.x + hb.width, `${crop}: 头右侧被切`).toBeLessThanOrEqual(size.w + 0.5);
+      if (crop !== "round" && crop !== "wide") {
+        expect(b.x, `${crop}: 压到左边`).toBeGreaterThan(1);
+        expect(b.x + b.width, `${crop}: 压到右边`).toBeLessThan(size.w - 1);
+      }
+      if (crop === "full" || crop === "wide") {
+        expect(b.y, `${crop}: 全身档不许裁顶`).toBeGreaterThanOrEqual(-0.5);
+        expect(b.y + b.height, `${crop}: 全身档不许裁脚`).toBeLessThanOrEqual(size.h + 0.5);
+      }
     }
   });
 });

@@ -129,9 +129,18 @@ const fill = (m: Map2, layer: PetLayer, color: string, pts: Point2[]): DrawOp =>
   ({ kind: "fillPath", fill: color, points: pts.map((p) => m.map(p)), layer });
 
 /**
- * 猫娘的脸（16 档差分 → 图元）。眼本体与四足 `art.ts:478-494` **同形**：
- * 眼白 5.9×6.6、瞳孔 0.80/0.84、高光 0.30/0.15，只是锚点换成 GIRL_PROPORTION 的眼位。
- * `eyeOpen` 只拉纵轴（横轴不动）——否则惊讶会读成斗鸡眼。
+ * 猫娘的脸（16 档差分 → 图元）。
+ *
+ * 眼本体与四足 `art.ts:478-494` **同一套比例**：眼白 1 : 1.15（横:纵）、
+ * 瞳孔 0.80/0.84、高光 0.30/0.15，只在锚点上换成了 `GIRL_PROPORTION` 的眼位。
+ * 尺 `girl.test.ts` 按这几条钉，改一处就要一起改（高光一大，深瞳会被冲成浅色）。
+ *
+ * 虹膜是猫娘独有的第三层：参考角色（dsh-pet）的眼睛是「深色虹膜 + 下半截更亮 +
+ * 一枚很小的白点」，不是四足那种纯黑豆。只画黑豆，64px 下两只眼会连成一副墨镜——
+ * 上一版就是这么糊的。`iris` 缺省时退回四足的黑豆画法。
+ *
+ * 脸的可见面积只有头宽的三分之一，所以**一切都按眼距缩放**：鼻、嘴、腮红
+ * 都从 eyeY 往下排，不写绝对值——脸一变窄，这些锚点要跟着走。
  */
 export function buildFaceOps(
   fp: FaceParams,
@@ -139,85 +148,96 @@ export function buildFaceOps(
   s: number,
   coat: CatCoat,
   u: number,
+  iris?: { base: string; light: string },
 ): DrawOp[] {
   void s; void u;
   const P = GIRL_PROPORTION;
   const out: DrawOp[] = [];
   const open = Math.max(0.05, fp.eyeOpen);
 
-  // —— 眉：两条弧，纵向随 brow、外侧端随 browTilt 摆 ——
+  // —— 眉：两条短弧，纵向随 brow、外侧端随 browTilt 摆 ——
+  // 位置在刘海下沿之上：刘海一旦压过它，16 档里靠眉分辨的那几档就全撞了。
   for (const side of [-1, 1] as const) {
     const cx = side < 0 ? P.eyeLx : P.eyeRx;
-    const y0 = P.eyeY - 9.0 - fp.brow * 3.2;
-    const yMid = y0 - 1.2 + fp.browTilt * side * 1.6;
-    out.push(stroke(head, "brows", coat.furEdge, 1.25, arc(cx - 4, y0, cx, yMid, cx + 4, y0)));
+    const y0 = P.eyeY - 7.4 - fp.brow * 2.6;
+    const yMid = y0 - 0.9 + fp.browTilt * side * 1.3;
+    out.push(stroke(head, "brows", withAlpha(coat.furEdge, 0.85), 1.1, arc(cx - 3.0, y0, cx, yMid, cx + 3.0, y0)));
   }
 
-  // —— 眼：白 → 瞳 → 两枚高光 → 上睫 → 闭眼线 ——
+  // —— 眼：白底 → 虹膜 → 下半截提亮 → 深瞳 → 两枚小高光 → 粗上睫 → 闭眼线 ——
   for (const cx of [P.eyeLx, P.eyeRx] as const) {
     const lid = cx === P.eyeLx ? fp.lidL : fp.lidR;
     const rx = Math.max(0.7, P.eyeRr * open);
     const ry = Math.max(0.6, P.eyeRy * open * (1 - 0.92 * lid));
     out.push(ell(head, "eyes", PAPER, cx, P.eyeY, rx, ry));
-    const px = cx + fp.pupil[0] * 1.6;
-    const py = P.eyeY + fp.pupil[1] * 1.3;
-    out.push(ell(head, "eyes", coat.eye, px, py, rx * 0.80, ry * 0.84));
-    if (lid < 0.6) {
-      out.push(ell(head, "eyes", withAlpha(PAPER, 0.96), px - rx * 0.30, py - ry * 0.34, rx * 0.30, rx * 0.30));
-      out.push(ell(head, "eyes", withAlpha(PAPER, 0.72), px + rx * 0.34, py + ry * 0.30, rx * 0.15, rx * 0.15));
+    const px = cx + fp.pupil[0] * 1.5;
+    const py = P.eyeY + fp.pupil[1] * 1.2;
+    if (iris) {
+      // 三层：虹膜底色 → 下半截提亮（参考角色的虹膜下缘是一道亮蓝）→ 大瞳孔。
+      // 瞳孔 0.66 而不是 0.44：瞳太小、虹膜太多，64px 下会读成「发直的眼神」。
+      out.push(ell(head, "eyes", iris.base, px, py, rx * 0.88, ry * 0.90));
+      out.push(ell(head, "eyes", iris.light, px, py + ry * 0.30, rx * 0.66, ry * 0.38));
+      out.push(ell(head, "eyes", coat.eye, px, py - ry * 0.04, rx * 0.66, ry * 0.66));
+    } else {
+      out.push(ell(head, "eyes", coat.eye, px, py, rx * 0.80, ry * 0.84));
     }
-    // 上睫线：一条弧压在眼白顶。
-    out.push(stroke(head, "eyes", coat.eye, 1.5, arc(cx - P.eyeRr, P.eyeY - 1.5, cx, P.eyeY - P.eyeRy - 1.6, cx + P.eyeRr, P.eyeY - 1.5)));
-    // 闭眼线：lid 深时横过眼位。
+    // 两枚高光都是**正圆**（与四足同一对 alpha：0.96 / 0.72）
+    out.push(ell(head, "eyes", withAlpha(PAPER, 0.96), px - rx * 0.30, py - ry * 0.34, rx * 0.30, rx * 0.30));
+    out.push(ell(head, "eyes", withAlpha(PAPER, 0.72), px + rx * 0.34, py + ry * 0.30, rx * 0.15, rx * 0.15));
+    // 上睫：粗一档（小尺寸下细线会消失），压在眼白顶并微微外挑
+    out.push(stroke(head, "eyes", coat.eye, 1.9,
+      arc(cx - P.eyeRr * 1.06, P.eyeY - 1.0, cx, P.eyeY - P.eyeRy - 1.4, cx + P.eyeRr * 1.06, P.eyeY - 1.0)));
+    // 闭眼线：lid 深时横过眼位（长度收到眼宽，防止在小脸上超出去）
     if (lid > 0.5) {
-      out.push(stroke(head, "eyes", coat.eye, 1.6, arc(cx - 4.4, P.eyeY, cx, P.eyeY + 1.8, cx + 4.4, P.eyeY)));
+      out.push(stroke(head, "eyes", coat.eye, 1.9,
+        arc(cx - P.eyeRr * 0.82, P.eyeY, cx, P.eyeY + 1.5, cx + P.eyeRr * 0.82, P.eyeY)));
     }
   }
 
   // —— 星（开心眼）：四角星用两条十字描边，star 为 0 时不画 ——
   if (fp.star > 0.02) {
-    const r = 4.2 * fp.star;
+    const r = 3.4 * fp.star;
     for (const cx of [P.eyeLx, P.eyeRx] as const) {
-      out.push(stroke(head, "eyes", withAlpha(coat.light, 0.9), 1.4, [[cx - r, P.eyeY], [cx + r, P.eyeY]]));
-      out.push(stroke(head, "eyes", withAlpha(coat.light, 0.9), 1.4, [[cx, P.eyeY - r], [cx, P.eyeY + r]]));
+      out.push(stroke(head, "eyes", withAlpha(coat.light, 0.9), 1.3, [[cx - r, P.eyeY], [cx + r, P.eyeY]]));
+      out.push(stroke(head, "eyes", withAlpha(coat.light, 0.9), 1.3, [[cx, P.eyeY - r], [cx, P.eyeY + r]]));
     }
   }
 
-  // —— 鼻 ——
-  out.push(stroke(head, "nose", coat.nose, 1.2, [[59.4, P.eyeY + 7.2], [60.6, P.eyeY + 7.2]]));
+  // —— 鼻：脸窄，只留一枚一像素宽的小点 ——
+  out.push(stroke(head, "nose", coat.nose, 1.1, [[59.4, P.eyeY + 5.6], [60.6, P.eyeY + 5.6]]));
 
   // —— 嘴：曲率决定向上/向下，宽度决定跨度 ——
   {
-    const half = 1.6 + fp.mouthWide * 2.2;
-    const curve = fp.mouth * 2.6;
-    out.push(stroke(head, "mouth", coat.eye, 1.3,
-      arc(60 - half, P.eyeY + 9.4 - curve * 0.3, 60, P.eyeY + 9.4 + curve, 60 + half, P.eyeY + 9.4 - curve * 0.3)));
+    const half = 1.2 + fp.mouthWide * 1.8;
+    const curve = fp.mouth * 2.2;
+    out.push(stroke(head, "mouth", coat.eye, 1.2,
+      arc(60 - half, P.eyeY + 7.6 - curve * 0.3, 60, P.eyeY + 7.6 + curve, 60 + half, P.eyeY + 7.6 - curve * 0.3)));
   }
 
-  // —— 腮红 ——
+  // —— 腮红：贴在眼下方、脸内缘（脸只有 26 宽，半径一大就糊到脸外） ——
   if (fp.blush > 0.02) {
-    for (const cx of [P.eyeLx - 3.6, P.eyeRx + 3.6] as const) {
-      out.push(ell(head, "blush", withAlpha(coat.blush, 0.5 * fp.blush), cx, P.eyeY + 5.6, 3.4, 2.0));
+    for (const cx of [P.eyeLx - 1.6, P.eyeRx + 1.6] as const) {
+      out.push(ell(head, "blush", withAlpha(coat.blush, 0.5 * fp.blush), cx, P.eyeY + 5.4, 2.7, 1.6));
     }
   }
 
   // —— 泪：双色（深芯 + 浅晕），画在脸上不是桌布上 ——
   if (fp.tear > 0.05) {
-    for (const cx of [P.eyeLx + 1.6, P.eyeRx - 1.6] as const) {
-      const y = P.eyeY + 6.6;
-      out.push(ell(head, "tear", withAlpha(wash(coat.light, 120, PAPER), 0.55 * fp.tear), cx, y + 1.4, 2.2, 3.0));
-      out.push(ell(head, "tear", withAlpha(wash(coat.eye, 170, PAPER), 0.85 * fp.tear), cx, y + 1.0, 1.1, 1.8));
+    for (const cx of [P.eyeLx + 1.2, P.eyeRx - 1.2] as const) {
+      const y = P.eyeY + 6.2;
+      out.push(ell(head, "tear", withAlpha(wash(coat.light, 120, PAPER), 0.55 * fp.tear), cx, y + 1.2, 1.9, 2.6));
+      out.push(ell(head, "tear", withAlpha(wash(coat.eye, 170, PAPER), 0.85 * fp.tear), cx, y + 0.9, 1.0, 1.6));
     }
   }
 
   // —— 汗：额角一滴，双色 ——
   if (fp.sweat > 0.05) {
-    const x = 60 + P.headRx + 2.5, y = P.crown + 5.5;
+    const x = 60 + P.faceRx + 3.0, y = P.crown + 9;
     out.push(fill(head, "tear", withAlpha(wash(coat.light, 140, PAPER), 0.6 * fp.sweat), [
-      [x, y - 3.0], [x + 2.0, y + 0.6], [x, y + 2.2], [x - 2.0, y + 0.6],
+      [x, y - 2.6], [x + 1.8, y + 0.5], [x, y + 1.9], [x - 1.8, y + 0.5],
     ]));
     out.push(fill(head, "tear", withAlpha(WARN, 0.85 * fp.sweat), [
-      [x, y - 1.8], [x + 1.2, y + 0.5], [x, y + 1.4], [x - 1.2, y + 0.5],
+      [x, y - 1.5], [x + 1.0, y + 0.4], [x, y + 1.2], [x - 1.0, y + 0.4],
     ]));
   }
 

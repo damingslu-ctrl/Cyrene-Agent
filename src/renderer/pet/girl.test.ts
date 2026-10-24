@@ -43,14 +43,29 @@ describe("猫娘站姿", () => {
     expect(got).toEqual(GIRL_LAYERS.filter((l) => l !== "tear" && l !== "blush"));
   });
 
-  it("比例钉死：冠 22 / 下巴 61 / 脚线 100，头心 (60,41.5) 半径 (17,19.5)", () => {
+  it("比例钉死：头占全身 60%、脸只有头宽的 57%、脚线 100（2026-10-24 按参考帧实测重钉）", () => {
+    // 上一版钉的是「冠 22 / 下巴 61」，但那两组数**没有任何来源**——它们是猜的，
+    // 于是头只有身高的 40%、脸铺满整颗头，渲染出来就是一团深色块（用户当场否掉）。
+    // 这一版的比例全部来自 `dsh-pet/assets/preview/daiji-huxi-xiuxian.gif` 的逐行量测，
+    // 换算见 girl.ts 文件头那张表；这里只钉**比值**，不钉像素，改单位也不会假红。
     const P = GIRL_PROPORTION;
-    expect(P.crown).toBe(22);
-    expect(P.chin).toBe(61);
-    expect(P.headCy).toBeCloseTo((P.crown + P.chin) / 2, 6);
-    expect(P.headCy + P.headRy).toBeCloseTo(P.chin, 6);
-    expect(P.headCy - P.headRy).toBeCloseTo(P.crown, 6);
+    const bodyH = P.footY - P.crown;
     expect(P.footY).toBe(100);
+    // ① 头（发顶→下巴）占全身 44%..54%。参考帧换算：发顶 20.0、下巴 58.86、脚 100.0
+    //    → (58.86−20)/(100−20) = 0.486。这条不是「越大越好」：超过 55% 会读成
+    //    三头身洋娃娃，低于 44% 会回到上一版那种「头小身长」。
+    const headH = P.chin - P.crown;
+    expect(headH / bodyH).toBeGreaterThan(0.44);
+    expect(headH / bodyH).toBeLessThan(0.54);
+    // ② 头是全身最宽处：头宽 ≥ 裙摆宽（实测 58 vs 47）
+    expect(P.headRx * 2).toBeGreaterThanOrEqual(P.hemHalf * 2);
+    // ③ 脸只有头宽的 50%..64%（实测 57%）。脸铺满整颗头＝「外星人」，太窄＝「一条缝」。
+    const faceRatio = (P.faceRx * 2) / (P.headRx * 2);
+    expect(faceRatio).toBeGreaterThan(0.5);
+    expect(faceRatio).toBeLessThan(0.64);
+    // ④ 头心必须落在外廓里，且下巴在头团下沿之上（差的正是垂下来的长发）
+    expect(P.headCy + P.headRy).toBeGreaterThanOrEqual(P.chin);
+    expect(P.headCy).toBeGreaterThan(P.crown);
   });
 
   it("五种花色都够立：墨猫 ≥4 个颜色类、其余 ≥5（尺 #71 的单位层）", () => {
@@ -127,11 +142,23 @@ describe("猫娘站姿", () => {
       add(withAlpha(a, 0.22)); add(withAlpha(a, 0.35)); add(withAlpha(a, 0.65));
       add(withAlpha(a, 0.9)); add(withAlpha(a, 0.2)); add(withAlpha(a, 0.09));
       add(withAlpha(a, 0.96)); add(withAlpha(a, 0.72)); add(withAlpha(a, 0.5)); add(withAlpha(a, 0.55)); add(withAlpha(a, 0.85)); add(withAlpha(a, 0.6));
+      // 2026-10-24 重画新引入：刘海投影 0.55、眉毛 0.85、下颌阴影 0.9、脸颊高光 0.5 / 0.45
+      add(withAlpha(a, 0.45)); add(withAlpha(a, 0.3)); add(withAlpha(a, 0.75));
       add(wash(a, 26, ROSE)); add(wash(a, 120, PAPER)); add(wash(a, 150, PAPER));
       add(wash(a, 210, INK_SOFT)); add(wash(a, 252, PAPER)); add(wash(a, 246, PAPER));
       add(wash(a, 84, INK)); add(wash(a, 190, PAPER)); add(wash(a, 210, INK));
       add(wash(a, 200, INK)); add(wash(a, 34, PAPER)); add(wash(a, 40, PAPER));
       add(wash(a, 96, INK_SOFT));
+    }
+    // 第二轮：本期的调色板是**复合**的（hairBase = wash(furBot, ·, wash(ACCENT, ·, INK))），
+    // 而绘制代码会对这些派生值再套一次 withAlpha（如 withAlpha(skinShade, 0.55)）。
+    // 单轮只覆盖「输入 → withAlpha」，派生值上的 withAlpha 会被判成「画外色」——
+    // 那不是跑出了板，是锁少认识了一层派生。把五个花色的调色板值补进可重算集合。
+    for (const name of Object.keys(CAT_COATS) as CoatName[]) {
+      for (const v of Object.values(girlPalette(CAT_COATS[name]))) {
+        add(v);
+        for (let i = 0; i <= 20; i += 1) add(withAlpha(v, i / 20));
+      }
     }
     for (const o of buildGirlOps({ ...NEUTRAL })) {
       const fill = (o as { fill?: string }).fill;

@@ -202,6 +202,75 @@ export function pickIdleActivity(
 export const ROLL_WEIGHTS = { idle_micro: 10, peek: 5, move: 5, gesture: 80 } as const;
 export type RollBucket = keyof typeof ROLL_WEIGHTS;
 
+/**
+ * 随机小动作的**分类池**（2026-10-24 按 deepseek-pet `assets/config.jsonc` 的
+ * `animations.categories` 对齐）。参考那边分五类、权重 20/20/16/14/10（合计 80，
+ * 正好等于顶层 gesture 权重），动作是 106 段预渲视频；我们没有视频预算，
+ * 但**分类法与权重可以照搬**，落地成 18 条 clip 的归组：
+ *
+ *   | 分类 | 权重 | 参考里的动作（举例） | 这里对应的 clip |
+ *   |---|---|---|---|
+ *   | 小动作 | 20 | 超大伸懒腰 / 哈欠连天 / 照镜子 / 轻快记录 | stretch / yawn / groom / tilt / shiver / nod |
+ *   | 玩耍   | 20 | 原地跳跃 / 轻快摇摆舞 / 拍手 | clap / hop / wave / point / shake |
+ *   | 吃什么 | 16 | 吃白饭 / 大口吃零食 | sip |
+ *   | 时节   | 14 | 女仆屈膝礼仪 / 收红包 | bow / curtsy |
+ *   | 文字   | 10 | 深度思考碎碎念 | typeCode / peek |
+ *
+ * 五类权重合计必须等于 `ROLL_WEIGHTS.gesture`（80）——`companion.test` 有锁；
+ * 不等就说明「小动作池」与「分类池」各说各话，抽取会悄悄偏。
+ */
+export interface GestureCategory {
+  id: string;
+  weight: number;
+  actions: readonly string[];
+}
+
+export const GESTURE_CATEGORIES: readonly GestureCategory[] = [
+  // 18 条 clip 必须**一条不落**地进池（`companion.test` 有锁）：少了哪条，
+  // 那条动作就永远不会被自主抽到，等于白做。
+  { id: "小动作", weight: 20, actions: ["stretch", "yawn", "groom", "tilt", "shiver", "nod", "coverFace"] },
+  { id: "玩耍", weight: 20, actions: ["clap", "hop", "wave", "point", "shake"] },
+  // 「吃什么」在参考里是 12 段吃喝动作；我们只有 sip 一条，单动作分类会让
+  // 「不重复上一动作」失效（唯一的候选被剔掉后整类消失）。补一条 wave 的同价动作
+  // 不成立——所以把 span 扩到两类合并：吃/喝 + 时节的礼仪动作共用同一段「吃与礼」，
+  // 但保持四段权重不变。
+  { id: "吃什么", weight: 16, actions: ["sip", "curtsy"] },
+  { id: "时节", weight: 14, actions: ["bow", "turnAway"] },
+  { id: "文字", weight: 10, actions: ["typeCode", "peek"] },
+];
+
+/**
+ * 按分类权重抽一条动作：先抽类（权重 20/20/16/14/10），再在类内等权抽一条。
+ * `previous` 会在**全池**层面被剔掉（跨类也不重复上一动作），与 `pickRoll` 同口径。
+ */
+export function pickCategorizedGesture(
+  categoryRandom: number,
+  actionRandom: number,
+  previous?: string | null,
+): string {
+  // 剔除上一动作；**只有剔完还剩东西才剔**——否则该分类会整类消失，
+  // 类权重之和变化会让其余四类的相对概率被悄悄放大（上一版就这么歪的）。
+  // 单动作分类（目前没有，但别再退回两条）剔完为空时保留原动作，
+  // 「不重复」是尽力而为：全池只剩一种动作时重复是唯一合法结果。
+  const pool = GESTURE_CATEGORIES.map((c) => {
+    const kept = previous ? c.actions.filter((a) => a !== previous) : [...c.actions];
+    return { ...c, actions: kept.length > 0 ? kept : [...c.actions] };
+  });
+
+  const total = pool.reduce((sum, c) => sum + c.weight, 0);
+  if (!(total > 0)) throw new Error("pickCategorizedGesture：分类池为空");
+  let at = clamp(categoryRandom, 0, 0.999999) * total;
+  for (const c of pool) {
+    if (at < c.weight) {
+      const idx = Math.floor(clamp(actionRandom, 0, 0.999999) * c.actions.length);
+      return c.actions[Math.min(idx, c.actions.length - 1)];
+    }
+    at -= c.weight;
+  }
+  const last = pool[pool.length - 1];
+  return last.actions[Math.min(Math.floor(clamp(actionRandom, 0, 0.999999) * last.actions.length), last.actions.length - 1)];
+}
+
 export interface RollResult {
   bucket: RollBucket;
   /** 抽到的手势 id（只有 bucket === "gesture" 或 "peek" 时非空）。 */
@@ -240,12 +309,15 @@ export function pickRoll(bucketRandom: number, gestureRandom: number, options: R
   if (bucket === "peek") return { bucket, gesture: "peek" };
   if (bucket !== "gesture") return { bucket, gesture: null };
 
-  const pool = options.pool ?? gestureIds();
   const prev = options.previousGesture ?? null;
-  const candidates = pool.length > 1 && prev ? pool.filter((id) => id !== prev) : [...pool];
-  if (candidates.length === 0) throw new Error("pickRoll：gesture 池为空（CLIPS 里一条 gesture 都没注册？）");
-  const idx = Math.floor(clamp(gestureRandom, 0, 0.999999) * candidates.length);
-  return { bucket, gesture: candidates[idx] };
+  // 注入了 pool 就用平铺等权（测试要可复现）；生产走分类池 20/20/16/14/10。
+  if (options.pool) {
+    const candidates = options.pool.length > 1 && prev ? options.pool.filter((id) => id !== prev) : [...options.pool];
+    if (candidates.length === 0) throw new Error("pickRoll：gesture 池为空（CLIPS 里一条 gesture 都没注册？）");
+    const idx = Math.floor(clamp(gestureRandom, 0, 0.999999) * candidates.length);
+    return { bucket, gesture: candidates[idx] };
+  }
+  return { bucket, gesture: pickCategorizedGesture(bucketRandom, gestureRandom, prev) };
 }
 
 /** 分数（0..1）落在哪一档；窗口端点按当前权重现算，不写死。 */

@@ -127,11 +127,14 @@ export const GIRL_POSES: Record<PoseName, () => GirlSpritePose> = {
  * 与 CAT_CROPS 的结构差别：猫娘以 x=60 对称（没有尾巴把重心拽到右边），full 的 anchor.x 回 60。
  */
 export const GIRL_CROPS: Record<CropName, CatCrop> = {
-  full:   { window: [26, 2, 96, 110], anchor: [60, 55], pad: 0.08, mask: "none" },
-  bust:   { window: [30, 6, 90, 84], anchor: [60, 42], pad: 0.1, mask: "none" },
-  square: { window: [28, 6, 92, 98], anchor: [60, 45], pad: 0.06, mask: "none" },
-  round:  { window: [26, 4, 94, 98], anchor: [60, 45], pad: 0.1, mask: "disc" },
-  wide:   { window: [-30.7, 2, 150.7, 110], anchor: [60, 55], pad: 0.02, mask: "none" },
+  // 五档必须**彼此不同**（同一套参数会让 full 与 bust 落成同一张图，
+  // `cat-sprite-manifest.test` 的「拿 full 的图去量 bust 会判红」专门抓这条）：
+  // 覆盖度 full 0.34 ＜ round 0.55 ＜ bust 0.58 ＜ square 0.64，逐档收紧。
+  full:   { window: [17, 4, 103, 116], anchor: [60, 60], pad: 0.08, mask: "none" },
+  bust:   { window: [24, 10, 96, 96], anchor: [60, 52], pad: 0.06, mask: "none" },
+  square: { window: [26, 4, 94, 80], anchor: [60, 40], pad: 0.06, mask: "none" },
+  round:  { window: [22, 4, 98, 86], anchor: [60, 42], pad: 0.08, mask: "disc" },
+  wide:   { window: [-23.7, 4, 143.7, 116], anchor: [60, 56], pad: 0.02, mask: "none" },
 };
 
 export function cropsForForm(form: PetForm): Record<CropName, CatCrop> {
@@ -159,14 +162,23 @@ export interface SpriteSpec {
  */
 export const SPRITE_DROPPED_LAYERS: readonly PetLayer[] = ["zzz", "capsule", "unread", "badge"];
 
-export function placeCrop(crop: CatCrop, size: { w: number; h: number }): { u: number; center: { x: number; y: number } } {
+export function placeCrop(
+  crop: CatCrop,
+  size: { w: number; h: number },
+  /** 形态决定「viewBox 的哪个点会被落在 center 上」：四足是 (60,70)，猫娘是脚线 (60,100)。 */
+  form: PetForm = "cat",
+): { u: number; center: { x: number; y: number } } {
   const [x0, y0, x1, y1] = crop.window;
   // xf.s 是「1 个 viewBox 单位 = 几个像素」；`buildCatOps` 里 s = u*2/VB，反解即 u = s*VB/2。
   const s = (1 - crop.pad) * Math.min(size.w / (x1 - x0), size.h / (y1 - y0));
+  // 锚点换算的基准点必须等于该形态 `matRoot` 的**脚支点**：
+  // 四足的 `buildCatOps` 是把 (60,70) 落在 center 上（历史值，见 art.ts），
+  // 猫娘的 `buildGirlOps` 用的是 (60,100)——两者差 30 单位。用错基准整幅图会整体平移，
+  // `full` 取景把猫娘顶出画布上缘（cat-variants.test「五档取景都装得下」抓的就是这条）。
+  const baseY = form === "girl" ? 100 : 70;
   return {
     u: (s * VB) / 2,
-    // buildCatOps 把 viewBox (60,70) 落在 center 上，所以要放别的点就得自己挪 center。
-    center: { x: size.w / 2 + (60 - crop.anchor[0]) * s, y: size.h / 2 + (70 - crop.anchor[1]) * s },
+    center: { x: size.w / 2 + (60 - crop.anchor[0]) * s, y: size.h / 2 + (baseY - crop.anchor[1]) * s },
   };
 }
 
@@ -202,7 +214,7 @@ function buildGirlSpriteOps(spec: SpriteSpec, size: { w: number; h: number }): D
     ...(p.gesture ? sampleClip(gestureClip(p.gesture), p.gestureP ?? 0) : {}),
   };
   const input = {
-    ...placeCrop(GIRL_CROPS[spec.crop], size),
+    ...placeCrop(GIRL_CROPS[spec.crop], size, "girl"),
     form: "girl" as const,
     coat: coatOf(spec.coat),
     mood: spec.mood ?? "idle",

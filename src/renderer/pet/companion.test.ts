@@ -9,6 +9,8 @@ import {
   TOUCH_MERGE_MS,
   bucketOf,
   clickKindFor,
+  GESTURE_CATEGORIES,
+  pickCategorizedGesture,
   pickRoll,
   IDLE_ACTIVITIES,
   decayVitals,
@@ -417,6 +419,55 @@ describe("pickRoll 四档加权", () => {
 // ===========================================================================
 // Task 22：触摸六类 + 2.5s 合并 + 点击反馈 5 变体
 // ===========================================================================
+describe("随机小动作分类池（对齐 deepseek-pet 的 categories）", () => {
+  it("五类权重 20/20/16/14/10，合计正好等于 gesture 档权重 80", () => {
+    // 参考 `assets/config.jsonc` 的注释原文：「所有分类 weight 合计应与 animationWeights
+    // 里顶层权重和的余量（100 − idle − turn − move）相等」。我们把 idle_micro+peek+move
+    // 折成 20，gesture 就是 80——分类池合计必须等于它，否则两层权重各说各话。
+    expect(GESTURE_CATEGORIES.map((c) => [c.id, c.weight])).toEqual([
+      ["小动作", 20], ["玩耍", 20], ["吃什么", 16], ["时节", 14], ["文字", 10],
+    ]);
+    const sum = GESTURE_CATEGORIES.reduce((n, c) => n + c.weight, 0);
+    expect(sum).toBe(ROLL_WEIGHTS.gesture);
+  });
+
+  it("每个动作名都查得到已注册的 gesture clip（写完不注册就是死条目）", () => {
+    const registered = new Set(gestureIds());
+    for (const c of GESTURE_CATEGORIES) {
+      for (const a of c.actions) {
+        expect(registered.has(a), `${c.id}: ${a} 不在 gestureIds() 里`).toBe(true);
+      }
+    }
+  });
+
+  it("生产抽取只产出分类池里的动作，且 0 / 0.999 分别落在首末类", () => {
+    const allowed = new Set(GESTURE_CATEGORIES.flatMap((c) => c.actions));
+    for (const r of [0, 0.05, 0.3, 0.55, 0.8, 0.95, 0.999]) {
+      const g = pickCategorizedGesture(r, r);
+      expect(allowed.has(g), `抽到了池外的 ${g}`).toBe(true);
+    }
+    // 类权重累加：0 → 小动作；0.999 → 文字
+    expect(GESTURE_CATEGORIES[0].actions).toContain(pickCategorizedGesture(0, 0.5));
+    expect(GESTURE_CATEGORIES[4].actions).toContain(pickCategorizedGesture(0.999, 0.5));
+  });
+
+  it("不重复上一动作（跨类也不重复）", () => {
+    for (const prev of GESTURE_CATEGORIES.flatMap((c) => c.actions)) {
+      for (const r of [0, 0.25, 0.5, 0.75, 0.999]) {
+        const g = pickCategorizedGesture(r, 0.42, prev);
+        expect(g, `上一动作 ${prev} 被重复抽到了`).not.toBe(prev);
+      }
+    }
+  });
+
+  it("分类池覆盖 18 条 clip 全部（spec §5 的手势清单一条不落）", () => {
+    const inPool = new Set(GESTURE_CATEGORIES.flatMap((c) => c.actions));
+    for (const id of gestureIds()) {
+      expect(inPool.has(id), `${id} 没进任何分类`).toBe(true);
+    }
+  });
+});
+
 describe("companion touch kinds", () => {
   const girlCtx: CompanionContext = { workArea, size, canRoam: true };
 

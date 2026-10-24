@@ -175,10 +175,31 @@ export function buildPetOps(form: PetForm, input: PetInput): DrawOp[];
 
 ## 4. 形态规格
 
-**比例（Coopanion 硬律）**：冠→下巴 ＝ 下巴→脚底，即二头身。viewBox 仍是 `VB = 120`
+**比例（2026-10-24 按参考帧实测重写，取代原「二头身」这一条手工律）**：viewBox 仍是 `VB = 120`
 （`art.ts:69`），脚支点沿用 `(60, 100)`——**这条不许改**，它是影子、月牙锚点、
-藏身分步（`pet-geometry.ts:112-126`）共同的基准。于是猫娘的墨占 y≈22..100、x≈45..75
-（窄高，尾巴把重心拽向朝背一侧，与四足同理）。
+藏身分步（`pet-geometry.ts:112-126`）共同的基准。
+
+比例的实际来源是 `dsh-pet/assets/preview/daiji-huxi-xiuxian.gif` 的逐行墨迹扫描
+（参考 220×124 画布、墨迹 73×93 px）。换算到 viewBox（crown=20、footY=100）：
+
+| 部位 | 参考（行号 / 宽） | 这里（viewBox） |
+|---|---|---|
+| 发顶（含呆毛） | 0 | `crown 22` |
+| 头最宽处 | 42 行、67 px | `headCy 46.5`、`headRx 29` → 58 宽 |
+| 可见皮肤 | 33..56 行、42 px | `faceTop 33`、`faceRx 16` → 32 宽（头宽的 55%） |
+| 眼 | 39..45 行、单眼 9 px、间距 7 px | `eyeY 44`、`±9.8`、`eyeRr 5.0`、`eyeRy 5.6` |
+| 下巴 | 56 行 | `chin 58.9` |
+| 肩 | 62 行 | `shoulderY 65.7` |
+| 裙摆最宽 | 82..84 行、53 px | `hemY 90.9`、`hemHalf 23.5`（与头同量级但略窄） |
+| 脚 | 92 行 | `footY 100` |
+
+由此得到三条**可判据**的结构（`girl.test.ts` 按比值钉，不钉像素）：
+① 头占全身 44%..54%（实测 0.486）；② 头是全身最宽处（`headRx*2 ≥ hemHalf*2`）；
+③ 脸占头宽 50%..64%（实测 55%）。
+
+⚠️ **v1.5.0 发出去的那一版漏了一件事**：头部矩阵没有挂到根矩阵上（`matMul`），
+头部的线性部分是纯旋转（缩放恒 1），而身子按 `s` 缩放——头比身子大约 1.62 倍。
+这就是「头小身更小、整只糊成一团」的根因，于 2026-10-24 连同配色一起修掉。
 
 **层序（girl 的 ORDER，锁要按它钉）**：
 
@@ -242,10 +263,24 @@ particle: heart stars zzz sweat tear note(延后)
 | 移动（walk / run 到工作区某点） | 5 | 沿用 55 px/s 与到达减速 |
 | 小动作池（18 个手势等权抽，每档 ≈4.4） | 80 | dsh-pet 的 `rest` 档语义 |
 
-四档相加＝100。抽中小动作池时，再在 18 个 gesture 内等权抽一次（两次抽都要能测：
-单测直接喂 `random`，沿用 `pickIdleActivity` 的注入式随机，`companion.ts:156`）。
+四档相加＝100。抽中小动作池后**不再 18 条等权**，而是照 dsh-pet
+`assets/config.jsonc` 的 `animations.categories` 分五类、按 20/20/16/14/10 抽
+（`GESTURE_CATEGORIES`，`companion.ts`）：
+
+| 分类 | 权重 | 参考里的动作（举例） | 这里对应的 clip |
+|---|---|---|---|
+| 小动作 | 20 | 超大伸懒腰 / 哈欠连天 / 照镜子 / 轻快记录 | stretch / yawn / groom / tilt / shiver / nod / coverFace |
+| 玩耍 | 20 | 原地跳跃 / 轻快摇摆舞 / 拍手 | clap / hop / wave / point / shake |
+| 吃什么 | 16 | 吃白饭 / 大口吃零食 / 吃冰淇淋 | sip / curtsy |
+| 时节 | 14 | 女仆屈膝礼仪 / 收红包 | bow / turnAway |
+| 文字 | 10 | 深度思考碎碎念 | typeCode / peek |
+
+与参考一致的两条**硬约束**（`companion.test` 有锁）：
+① 五类权重合计必须等于顶层 `gesture` 权重 80（参考 `config.jsonc` 原注释的要求）；
+② 18 条 clip 必须一条不落地进池——否则那条动作永远不会被自主抽到。
 
 不重复上一动作的规则保留（`pickIdleActivity` 的 `previous` 剔除，`companion.ts:167`），
+但**剔完为空的分类不整类消失**（否则类权重和变化会让其余四类的相对概率被悄悄放大）。
 夜间与低精力的放大／归零分支保留（`:169-177`）。
 
 **仲裁**：`workStatus` 的 `工作中`／`提醒` 期间，随机池只许投 `face` 与 `particle` 层，
