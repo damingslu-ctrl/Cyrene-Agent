@@ -1,6 +1,7 @@
 import "./ui/theme";
 import { CONSOLE_PREFIX } from "../shared/brand";
 import { PixelPetRenderer } from "./pet/renderer";
+import { clickKindFor } from "./pet/companion";
 import { ClickThroughController } from "./pet/click-through";
 
 const canvas = document.getElementById("pet-canvas") as HTMLCanvasElement;
@@ -166,7 +167,6 @@ window.addEventListener("beforeunload", () => {
   geometryChangedOff = null;
   petCommandOff?.();
   petCommandOff = null;
-  clearPetClickTimer();
   renderer.dispose();
   for (const off of disposers) off();
   disposers.length = 0;
@@ -184,35 +184,21 @@ let dragOverlayUrl: string | null = null;
 
 /** 按下后走满这个距离才算「拖」；以下都算「点」。 */
 const DRAG_THRESHOLD_PX = 4;
-/** 两次点头的合帧窗：窗内第二下升级成「玩」。 */
-const DOUBLE_CLICK_MS = 220;
 /** 投掷速度只取松手前这段轨迹，早年拖得多快不算。 */
 const VELOCITY_WINDOW_MS = 150;
 
 let pressPending = false;
 let pressStartX = 0;
 let pressStartY = 0;
-let petClickTimer: number | null = null;
+let pressAtMs = 0;
 let moveSamples: Array<{ x: number; y: number; t: number }> = [];
 
-function clearPetClickTimer(): void {
-  if (petClickTimer !== null) {
-    window.clearTimeout(petClickTimer);
-    petClickTimer = null;
-  }
-}
-
-/** 单点头 = 摸摸；220ms 内第二下 = 玩。拖拽起手会取消挂起的单点。 */
-function onCatClick(): void {
-  if (petClickTimer !== null) {
-    clearPetClickTimer();
-    renderer.handleCommand("play");
-    return;
-  }
-  petClickTimer = window.setTimeout(() => {
-    petClickTimer = null;
-    renderer.handleCommand("pet");
-  }, DOUBLE_CLICK_MS);
+/**
+ * 单点＝戳一下（poke），按住 ≥500ms 且没拖过 4px＝摩挲（pet）。
+ * 双击→玩 已退役：连点被引擎的 2.5s 合并窗收掉，「玩」仍有右键菜单直达（口径差⑮）。
+ */
+function reportTouch(heldMs: number): void {
+  renderer.touch(clickKindFor(heldMs));
 }
 
 function recordMoveSample(screenX: number, screenY: number, now: number): void {
@@ -365,8 +351,6 @@ function beginDragAt(event: PointerEvent): void {
   }
   isDragging = true;
   pressPending = false;
-  // 这一下已经走成拖拽：挂起的单点「摸摸」作废。
-  clearPetClickTimer();
   dragToken += 1;
   const token = dragToken;
   dragOffsetX = event.screenX - window.screenX;
@@ -423,6 +407,7 @@ addTrackedEventListener(canvas, "pointerdown", (e) => {
   pressPending = true;
   pressStartX = event.screenX;
   pressStartY = event.screenY;
+  pressAtMs = performance.now();
   moveSamples = [];
   recordMoveSample(event.screenX, event.screenY, performance.now());
   // 先按住 capture：4px 阈值内滑出窗也能收到 pointerup。
@@ -471,7 +456,7 @@ addTrackedEventListener(canvas, "pointerup", (e) => {
   if (pressPending) {
     pressPending = false;
     moveSamples = [];
-    onCatClick();
+    reportTouch(performance.now() - pressAtMs);
     try {
       (event.target as Element).releasePointerCapture(event.pointerId);
     } catch {}

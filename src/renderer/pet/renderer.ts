@@ -26,7 +26,7 @@ import { buildBubbleOps, bubbleBoxRect, type BubbleBox, type CatInput } from "./
 import { buildPetOps } from "./form";
 import { blinkAt, bodyClip, gestureClip, mixPose, sampleClip, type Slots } from "./motion";
 import { faceOf, MOOD_TO_EXPRESSION, type Expression } from "./face";
-import { CompanionEngine, type CompanionSnapshot } from "./companion";
+import { CompanionEngine, type CompanionSnapshot, type TouchKind } from "./companion";
 import type { PetCommand } from "../../shared/pet-commands";
 import type { PetForm } from "../../shared/pet-profile";
 
@@ -722,6 +722,11 @@ export class PixelPetRenderer {
 
   stopGesture(): void {
     this.explicitGesture = null;
+  }
+
+  /** 触摸六类（引擎在猫形恒 false；同一入口两形态共用，反应只长在猫娘上）。 */
+  touch(kind: TouchKind): void {
+    this.engine?.touch(kind);
   }
 
   /**

@@ -16,16 +16,16 @@ const roundMap = (c: Record<string, number | undefined>) => {
 };
 
 describe("尺 #73：clip 归零", () => {
-  it("CLIPS 至少 21 条且 id 唯一", () => {
-    expect(CLIPS.length).toBeGreaterThanOrEqual(21);
+  it("CLIPS 恰好 30 条（12 body + 18 gesture）且 id 唯一", () => {
+    expect(CLIPS.length).toBe(30);
     expect(new Set(CLIPS.map((c) => c.id)).size).toBe(CLIPS.length);
   });
 
-  it("workStatus 依赖的三条手势片已注册（typeCode/peek 为 lasting，shiver 为一次性）", () => {
+  it("18 个 GESTURE_IDS 全部注册（spec §5 :225-226 的清单一条不缺）", () => {
     const byId = new Map(CLIPS.filter((c) => c.layer === "gesture").map((c) => [c.id, c]));
-    expect([...byId.keys()].sort()).toEqual(
-      ["bow", "hop", "nod", "peek", "shake", "shiver", "tilt", "typeCode", "wave"].sort(),
-    );
+    expect([...byId.keys()].sort()).toEqual([...GESTURE_IDS].sort());
+    expect(byId.size).toBe(18);
+    // 这两条 lasting 是 Task 18 演出表的依赖；shiver 是一次性片。
     expect(byId.get("typeCode")?.lasting).toBe(true);
     expect(byId.get("peek")?.lasting).toBe(true);
     expect(byId.get("shiver")?.lasting).toBeUndefined();
@@ -64,7 +64,7 @@ describe("尺 #73：clip 归零", () => {
   it("gesture 非 lasting 片的 ms 落在 ACTION_MS 量级 1800..2400", () => {
     expect(GESTURE_IDS.length).toBe(18);
     const seeds = CLIPS.filter((c) => c.layer === "gesture" && !c.lasting);
-    expect(seeds.length).toBeGreaterThanOrEqual(6);
+    expect(seeds.length).toBe(16);
     for (const clip of seeds) {
       expect(clip.ms, `${clip.id} 的 ms 跳出 ACTION_MS 量级`).toBeGreaterThanOrEqual(1800);
       expect(clip.ms, `${clip.id} 的 ms 跳出 ACTION_MS 量级`).toBeLessThanOrEqual(2400);

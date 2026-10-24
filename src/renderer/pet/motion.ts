@@ -337,6 +337,92 @@ const GESTURE: Clip[] = [
       hem: (p) => 0.05 * Math.sin(2 * Math.PI * 8 * p),
       earL: (p) => 0.20 * Math.sin(2 * Math.PI * 7 * p), earR: (p) => -0.20 * Math.sin(2 * Math.PI * 7 * p),
     }, face: "sad" },
+  /** 伸懒腰：双臂过顶＋身体拉长（squash 取负＝拉）。 */
+  { id: "stretch", layer: "gesture", ms: 2200, priority: 0,
+    rest: { armL: 0, armR: 0, lean: 0, headPitch: 0, squash: 0, hem: 0 },
+    tracks: {
+      armL: (p, e) => -1.35 * e.pulse(p), armR: (p, e) => -1.35 * e.pulse(p),
+      lean: (p, e) => -0.06 * e.pulse(p),
+      headPitch: (p, e) => -0.12 * e.pulse(p),
+      squash: (p, e) => -0.10 * e.pulse(p),
+      hem: (p, e) => -0.08 * e.pulse(p),
+    }, face: "happy" },
+  /** 打哈欠：仰头＋右手背抬到嘴边。 */
+  { id: "yawn", layer: "gesture", ms: 2200, priority: 0,
+    rest: { headPitch: 0, headBob: 0, armR: 0, hand: 0, lean: 0 },
+    tracks: {
+      headPitch: (p, e) => -0.18 * e.pulse(p),
+      headBob: (p, e) => 1.2 * e.pulse(p),
+      armR: (p, e) => -0.70 * e.pulse(p),
+      hand: (p, e) => 0.45 * e.pulse(p),
+      lean: (p, e) => 0.03 * e.pulse(p),
+    }, face: "sleepy" },
+  /** 洗脸：右手在脸侧搓三次（cycles=3 的裸 sin，端点天然归零）。 */
+  { id: "groom", layer: "gesture", ms: 2400, priority: 0,
+    rest: { armR: -0.85, hand: 0.55, headPitch: 0, headYaw: 0 },
+    tracks: {
+      armR: (p) => -0.85 + 0.10 * Math.sin(2 * Math.PI * 3 * p),
+      hand: (p) => 0.55 + 0.25 * Math.sin(2 * Math.PI * 3 * p),
+      headPitch: (p, e) => 0.08 * e.pulse(p),
+      headYaw: (p) => 0.06 * Math.sin(2 * Math.PI * 3 * p),
+    }, face: "neutral" },
+  /** 屈膝礼：双腿下蹲＋双手提裙＋低头致意。 */
+  { id: "curtsy", layer: "gesture", ms: 2200, priority: 0,
+    rest: { legL: 0, legR: 0, hem: 0, armL: 0, armR: 0, headPitch: 0, lean: 0 },
+    tracks: {
+      legL: (p, e) => 0.55 * e.pulse(p), legR: (p, e) => 0.55 * e.pulse(p),
+      hem: (p, e) => 0.22 * e.pulse(p),
+      armL: (p, e) => -0.35 * e.pulse(p), armR: (p, e) => -0.35 * e.pulse(p),
+      headPitch: (p, e) => 0.14 * e.pulse(p),
+      lean: (p, e) => 0.10 * e.pulse(p),
+    }, face: "happy" },
+  /** 拍手：两臂以 −0.55 为轴反相开合三次。 */
+  { id: "clap", layer: "gesture", ms: 1800, priority: 0,
+    rest: { armL: -0.55, armR: -0.55, hand: 0, headBob: 0 },
+    tracks: {
+      armL: (p) => -0.55 - 0.30 * Math.sin(2 * Math.PI * 3 * p),
+      armR: (p) => -0.55 + 0.30 * Math.sin(2 * Math.PI * 3 * p),
+      hand: (p) => 0.5 * Math.abs(Math.sin(2 * Math.PI * 3 * p)),
+      headBob: (p, e) => -0.8 * e.pulse(p, 3),
+    }, face: "excited" },
+  /** 捂脸害羞（点击反馈档 2）：双手捂脸＋低头＋猫耳耷拉。 */
+  { id: "coverFace", layer: "gesture", ms: 2000, priority: 0,
+    rest: { armL: 0, armR: 0, hand: 0, headPitch: 0, lean: 0, earL: 0, earR: 0 },
+    tracks: {
+      armL: (p, e) => -0.95 * e.pulse(p), armR: (p, e) => -0.95 * e.pulse(p),
+      hand: (p, e) => 0.70 * e.pulse(p),
+      headPitch: (p, e) => 0.16 * e.pulse(p),
+      lean: (p, e) => -0.04 * e.pulse(p),
+      earL: (p, e) => -0.14 * e.pulse(p), earR: (p, e) => -0.14 * e.pulse(p),
+    }, face: "shy" },
+  /** 指向：只有右臂前伸（左臂无轨道是有意的）。 */
+  { id: "point", layer: "gesture", ms: 1800, priority: 0,
+    rest: { armR: 0, hand: 0, headYaw: 0, lean: 0 },
+    tracks: {
+      armR: (p, e) => -1.05 * e.pulse(p),
+      hand: (p, e) => 0.35 * e.pulse(p),
+      headYaw: (p, e) => 0.10 * e.pulse(p),
+      lean: (p, e) => 0.05 * e.pulse(p),
+    }, face: "smug" },
+  /** 啜饮：举杯到嘴边，啜两口。 */
+  { id: "sip", layer: "gesture", ms: 2400, priority: 0,
+    rest: { armR: 0, hand: 0, headPitch: 0, headBob: 0 },
+    tracks: {
+      armR: (p, e) => -0.80 * e.pulse(p),
+      hand: (p, e) => 0.55 * e.pulse(p),
+      headPitch: (p, e) => -0.10 * e.pulse(p, 2),
+      headBob: (p, e) => -0.5 * e.pulse(p, 2),
+    }, face: "happy" },
+  /** 傲娇转身（点击反馈档 3）：lean 与 headYaw 必须异号——同号读作歪头。 */
+  { id: "turnAway", layer: "gesture", ms: 2000, priority: 0,
+    rest: { lean: 0, headYaw: 0, armL: 0, armR: 0, earL: 0, earR: 0 },
+    tracks: {
+      lean: (p, e) => -0.14 * e.pulse(p),
+      headYaw: (p, e) => 0.26 * e.pulse(p),
+      armL: (p, e) => 0.30 * e.pulse(p), armR: (p, e) => 0.30 * e.pulse(p),
+      earL: (p, e) => -0.16 * e.pulse(p), earR: (p, e) => 0.16 * e.pulse(p),
+    }, face: "angry" },
+
 ];
 
 export const CLIPS: readonly Clip[] = [...BODY, ...GESTURE];

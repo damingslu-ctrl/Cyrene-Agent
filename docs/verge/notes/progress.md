@@ -84,3 +84,12 @@
   2. 没配 policy 时**零包装**（listener 原样转发），保住了 `ipc-scope.test.ts` 那两条「转发的是原函数」的形状断言。
   3. workStatus 的 8s 空洞回落到 `null`（空闲），不是「已处理」——后者会让 UI 假报「做完啦」。
 - 推后：`VERGE_PET_REVEAL_ASK` 第五通道（点气泡唤卡）与 #74 真窗探针留到 P5 的 Task 28 一起收（当前 `revealAskWorkStatus` 未接）。
+
+## Task 19–23 — pickRoll、18 手势、触摸六类、P4 门
+
+- 落点：`companion.ts`（`ROLL_WEIGHTS`/`pickRoll`/`bucketOf`/`stepIdleGirl` + `TOUCH_KINDS`/`touch`/`POKE_VARIANTS`/`clickKindFor`）、`motion.ts`（补 9 条手势，CLIPS=30）、`renderer.ts`（`touch`）、`main.ts`（`reportTouch` 取代双击定时器）、`main.test.ts`（接线文本锁）。
+- 验了：`companion.test.ts` 36 条（含四档权重窗口、夜间/力竭右移、previous 剔除、池空抛错、六类合并、猫形零消耗、五档变体、切形态清窗）、尺 #73 8 条（CLIPS=30、18 名全注册、16 条一次性片 ms 量级）；全仓 653 文件 / 6927 条绿。
+- 计划侧修正：
+  1. `pickRoll` 的窗口断言不写死端点：总重随昼夜/精力变（100 / 81.25 / 80.125），写死分数区间会在系数改动时变成哑尺——`bucketOf` 用绝对权重现算。
+  2. `main.ts` 的 `onCatClick` 改名 `reportTouch`：退役后它不再是「点击」语义，文本锁也据此钉住旧名不许回来。
+  3. Task 20 的仲裁（物理 > workStatus > activity）在 Task 14 的 `composeChannels` 里以「body 按活动、gesture 显式优先」实现；P3 的 workStatus 尚未接进 `composeChannels`（当前只走 mood 级联），这笔在 Task 27 的三档端到端里补。

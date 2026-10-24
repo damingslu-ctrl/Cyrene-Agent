@@ -2,11 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 import {
   BUBBLE_TTL_MS,
   CompanionEngine,
+  ROLL_WEIGHTS,
+  POKE_VARIANTS,
+  PET_HOLD_MS,
+  TOUCH_KINDS,
+  TOUCH_MERGE_MS,
+  bucketOf,
+  clickKindFor,
+  pickRoll,
   IDLE_ACTIVITIES,
   decayVitals,
   pickIdleActivity,
   type CompanionContext,
 } from "./companion";
+import { gestureClip, gestureIds } from "./motion";
 
 const T0 = 1_700_000_000_000;
 const workArea = { x: 0, y: 0, width: 1000, height: 700 };
@@ -340,5 +349,165 @@ describe("companion bubble slot", () => {
     expect(engine.getSnapshot().bubble?.text).toBe("我先说一句");
     engine.update(T0 + BUBBLE_TTL_MS + 1, ctx);
     expect(engine.getSnapshot().bubble).toBeNull();
+  });
+});
+
+// ===========================================================================
+// Task 19：四档加权永不停轮（girl 作用域）
+// ===========================================================================
+describe("pickRoll 四档加权", () => {
+  const DAY = { hour: 14, energy: 0.8 };
+  const POOL = ["nod", "shake", "wave", "bow", "hop", "shiver", "tilt", "typeCode", "peek"];
+
+  it("四档权重是 10/5/5/80（spec §5）", () => {
+    expect(ROLL_WEIGHTS).toEqual({ idle_micro: 10, peek: 5, move: 5, gesture: 80 });
+  });
+
+  it("白天满精力：分数窗口按绝对权重 —— 0.09 仍是 idle_micro，0.11 进 peek", () => {
+    const pool = POOL;
+    expect(pickRoll(0.05, 0.5, { ...DAY, pool }).bucket).toBe("idle_micro");
+    expect(pickRoll(0.12, 0.5, { ...DAY, pool }).bucket).toBe("peek");
+    expect(pickRoll(0.17, 0.5, { ...DAY, pool }).bucket).toBe("move");
+    expect(pickRoll(0.5, 0.5, { ...DAY, pool }).bucket).toBe("gesture");
+  });
+
+  it("夜里满精力：总重 81.25，peek 窗口右移（0.12 掉回 idle_micro）", () => {
+    const night = { hour: 23, energy: 0.8 };
+    expect(bucketOf(0.12, night)).toBe("idle_micro");
+    expect(bucketOf(0.14, night)).toBe("peek");
+  });
+
+  it("夜里+力竭：总重 80.125，peek 窗口再右移到 [0.1248, 0.1872)", () => {
+    const worst = { hour: 23, energy: 0.1 };
+    expect(bucketOf(0.12, worst)).toBe("idle_micro");
+    expect(bucketOf(0.15, worst)).toBe("peek");
+    expect(bucketOf(0.19, worst)).toBe("move");
+  });
+
+  it("peek 档直接给 peek 手势（与池里那条同名同源）", () => {
+    const r = pickRoll(0.12, 0.5, { ...DAY, pool: POOL });
+    expect(r).toEqual({ bucket: "peek", gesture: "peek" });
+  });
+
+  it("gesture 档在池内等权抽；0 与 0.999 抽到两端", () => {
+    const lo = pickRoll(0.5, 0, { ...DAY, pool: POOL });
+    const hi = pickRoll(0.5, 0.999, { ...DAY, pool: POOL });
+    expect(lo.gesture).toBe(POOL[0]);
+    expect(hi.gesture).toBe(POOL[POOL.length - 1]);
+  });
+
+  it("不重复上一手势（沿用 pickIdleActivity 的 previous 剔除）", () => {
+    const pool = ["a", "b", "c"];
+    for (let i = 0; i <= 100; i += 1) {
+      const r = pickRoll(0.5, i / 101, { ...DAY, pool, previousGesture: "a" });
+      expect(r.gesture).not.toBe("a");
+    }
+  });
+
+  it("池为空当场抛（不许静默退化成 idle）", () => {
+    expect(() => pickRoll(0.5, 0.5, { ...DAY, pool: [] })).toThrow(/池为空/);
+  });
+
+  it("生产池由 gestureIds() 现算：池里每条都能被抽到且查得到 clip", () => {
+    for (const id of gestureIds()) expect(() => gestureClip(id)).not.toThrow();
+    expect(gestureIds().length).toBeGreaterThanOrEqual(9);
+  });
+});
+
+// ===========================================================================
+// Task 22：触摸六类 + 2.5s 合并 + 点击反馈 5 变体
+// ===========================================================================
+describe("companion touch kinds", () => {
+  const girlCtx: CompanionContext = { workArea, size, canRoam: true };
+
+  it("六类名单与合并窗口钉死（spec §5 :255-257）", () => {
+    expect([...TOUCH_KINDS]).toEqual(["poke", "pet", "grab", "drop", "throw", "crash"]);
+    expect(TOUCH_MERGE_MS).toBe(2500);
+    expect(PET_HOLD_MS).toBe(500);
+  });
+
+  it("clickKindFor：500ms 是分界线", () => {
+    expect(clickKindFor(0)).toBe("poke");
+    expect(clickKindFor(499)).toBe("poke");
+    expect(clickKindFor(500)).toBe("pet");
+    expect(clickKindFor(10_000)).toBe("pet");
+  });
+
+  it("poke：五档变体按 random 选，��势与台词都落在那档", () => {
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => T0, random: seq([0.4, 0.5]) });
+    engine.setForm("girl");
+    expect(engine.touch("poke")).toBe(true);
+    const snap = engine.getSnapshot();
+    expect(snap.gesture).toBe("turnAway");     // 0.4×5 = 2 → 第 3 档
+    expect(["哼，别戳我", "转过去冷静一下"]).toContain(snap.bubble?.text);
+  });
+
+  it("同类 2.5s 内合并：第二下 false，RNG 不再消耗", () => {
+    let t = T0;
+    let draws = 0;
+    const engine = new CompanionEngine({
+      storage: makeStorage(), now: () => t,
+      random: () => { draws += 1; return 0.4; },
+    });
+    engine.setForm("girl");
+    expect(engine.touch("poke")).toBe(true);
+    const afterFirst = draws;
+    t += 1_000;
+    expect(engine.touch("poke")).toBe(false);
+    expect(draws, "合并掉的触摸不许再吃签").toBe(afterFirst);
+    t += TOUCH_MERGE_MS;
+    expect(engine.touch("poke")).toBe(true);
+    expect(draws).toBeGreaterThan(afterFirst);
+  });
+
+  it("合并按类记账：poke 之后立刻 pet 不合并", () => {
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => T0, random: seq([0.4, 0.5, 0.5]) });
+    engine.setForm("girl");
+    expect(engine.touch("poke")).toBe(true);
+    expect(engine.touch("pet")).toBe(true);
+    expect(engine.getSnapshot().activity).toBe("pet");
+  });
+
+  it("猫形六类全吞：返回 false、零台词、零 RNG 消耗（口径差⑮的对照）", () => {
+    let draws = 0;
+    const engine = new CompanionEngine({
+      storage: makeStorage(), now: () => T0,
+      random: () => { draws += 1; return 0.5; },
+    });
+    const before = draws;
+    for (const kind of TOUCH_KINDS) expect(engine.touch(kind)).toBe(false);
+    expect(draws, "猫形触摸一支签都不许吃").toBe(before);
+    expect(engine.getSnapshot().bubble).toBeNull();
+    expect(engine.getSnapshot().gesture).toBeNull();
+  });
+
+  it("切形态清空合并窗：切回 girl 后立刻能再摸", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.4, 0.5]) });
+    engine.setForm("girl");
+    expect(engine.touch("poke")).toBe(true);
+    engine.setForm("cat");
+    engine.setForm("girl");
+    t += 100;
+    expect(engine.touch("poke")).toBe(true);
+  });
+
+  it("五档变体都在池里且各不相同", () => {
+    expect(POKE_VARIANTS).toHaveLength(5);
+    const ids = POKE_VARIANTS.map((v) => v.gesture);
+    expect(new Set(ids).size).toBe(5);
+    for (const id of ids) expect(() => gestureClip(id)).not.toThrow();
+  });
+
+  it("物理四类各自有台词（同一词表形态），grab/drop/throw/crash 不合并到彼此", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    engine.setForm("girl");
+    for (const kind of ["grab", "drop", "throw", "crash"] as const) {
+      expect(engine.touch(kind), kind).toBe(true);
+      expect(engine.getSnapshot().bubble?.text, kind).toBeTruthy();
+      t += 60_000;
+    }
+    void girlCtx;
   });
 });

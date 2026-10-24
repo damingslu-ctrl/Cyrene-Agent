@@ -6,6 +6,8 @@
  * 翻译成 CatInput 与窗口几何；不碰 DOM、不碰 IPC，单测可在 node 里跑。
  */
 import type { Mood } from "../../shared/cat-types";
+import { gestureClip, gestureIds } from "./motion";
+import type { PetForm } from "../../shared/pet-profile";
 import type { Point, WorkArea } from "../../shared/pet-geometry";
 
 export const BUBBLE_TTL_MS = 6_000;
@@ -81,6 +83,10 @@ export interface CompanionSnapshot {
   vx: number;
   vy: number;
   bubble: CompanionBubble | null;
+  /**
+   * 猫娘自主抽到的手势 clip id；过期即 null。四足路径恒 null（R-D2：它读不到这条也照常演）。
+   */
+  gesture: string | null;
 }
 
 export interface CompanionOptions {
@@ -187,6 +193,113 @@ export function pickIdleActivity(
   return IDLE_ACTIVITIES[IDLE_ACTIVITIES.length - 1].activity;
 }
 
+
+// ===========================================================================
+// v1.5.0 P4 Task 19：猫娘的四档加权抽取（永不停轮）
+// ===========================================================================
+
+/** 四档权重（spec §5）：待机微动 10 / 张望 5 / 移动 5 / 小动作池 80。 */
+export const ROLL_WEIGHTS = { idle_micro: 10, peek: 5, move: 5, gesture: 80 } as const;
+export type RollBucket = keyof typeof ROLL_WEIGHTS;
+
+export interface RollResult {
+  bucket: RollBucket;
+  /** 抽到的手势 id（只有 bucket === "gesture" 或 "peek" 时非空）。 */
+  gesture: string | null;
+}
+
+export interface RollOptions {
+  previousGesture?: string | null;
+  hour?: number;
+  energy?: number;
+  /** 测试可注入固定池；生产由 `gestureIds()` 现算（CLIPS 补条自动长）。 */
+  pool?: readonly string[];
+}
+
+/**
+ * 两次抽取：先按四档权重抽桶，再在 gesture 池里等权抽一条。
+ *
+ * 昼夜/精力系数照 `pickIdleActivity:169-177` 搬：move×0.45 夜、×0.5 力竭；gesture×0.8 夜。
+ * 权重变化会移动**分数窗口**（总重变小→同一 random 落到更靠后的桶），所以
+ * `bucketOf` 用绝对权重累加，不写死区间端点。
+ */
+export function pickRoll(bucketRandom: number, gestureRandom: number, options: RollOptions = {}): RollResult {
+  const hour = options.hour ?? 14;
+  const energy = options.energy ?? 0.8;
+  const night = hour >= 22 || hour < 7;
+  const exhausted = energy < 0.25;
+  const weighted: Record<RollBucket, number> = {
+    idle_micro: ROLL_WEIGHTS.idle_micro,
+    peek: ROLL_WEIGHTS.peek,
+    move: ROLL_WEIGHTS.move * (night ? 0.45 : 1) * (exhausted ? 0.5 : 1),
+    gesture: ROLL_WEIGHTS.gesture * (night ? 0.8 : 1),
+  };
+  const total = weighted.idle_micro + weighted.peek + weighted.move + weighted.gesture;
+  const at = clamp(bucketRandom, 0, 0.999999) * total;
+  const bucket = bucketOf(at / total, options);
+  if (bucket === "peek") return { bucket, gesture: "peek" };
+  if (bucket !== "gesture") return { bucket, gesture: null };
+
+  const pool = options.pool ?? gestureIds();
+  const prev = options.previousGesture ?? null;
+  const candidates = pool.length > 1 && prev ? pool.filter((id) => id !== prev) : [...pool];
+  if (candidates.length === 0) throw new Error("pickRoll：gesture 池为空（CLIPS 里一条 gesture 都没注册？）");
+  const idx = Math.floor(clamp(gestureRandom, 0, 0.999999) * candidates.length);
+  return { bucket, gesture: candidates[idx] };
+}
+
+/** 分数（0..1）落在哪一档；窗口端点按当前权重现算，不写死。 */
+export function bucketOf(frac: number, options: Pick<RollOptions, "hour" | "energy"> = {}): RollBucket {
+  const hour = options.hour ?? 14;
+  const energy = options.energy ?? 0.8;
+  const night = hour >= 22 || hour < 7;
+  const exhausted = energy < 0.25;
+  const w = {
+    idle_micro: ROLL_WEIGHTS.idle_micro,
+    peek: ROLL_WEIGHTS.peek,
+    move: ROLL_WEIGHTS.move * (night ? 0.45 : 1) * (exhausted ? 0.5 : 1),
+    gesture: ROLL_WEIGHTS.gesture * (night ? 0.8 : 1),
+  };
+  const total = w.idle_micro + w.peek + w.move + w.gesture;
+  const at = clamp(frac, 0, 0.999999) * total;
+  if (at < w.idle_micro) return "idle_micro";
+  if (at < w.idle_micro + w.peek) return "peek";
+  if (at < w.idle_micro + w.peek + w.move) return "move";
+  return "gesture";
+}
+
+
+// ===========================================================================
+// v1.5.0 P4 Task 22：触摸六类 + 2.5s 合并 + 点击反馈 5 变体
+// ===========================================================================
+
+export const TOUCH_KINDS = ["poke", "pet", "grab", "drop", "throw", "crash"] as const;
+export type TouchKind = (typeof TOUCH_KINDS)[number];
+/** 同类触摸的合并窗：连点/连撞不灌队列（spec §5 :257）。 */
+export const TOUCH_MERGE_MS = 2_500;
+/** 按住超它且没拖过 4px 阈值＝摩挲；以下是戳一下。 */
+export const PET_HOLD_MS = 500;
+export function clickKindFor(heldMs: number): "poke" | "pet" {
+  return heldMs >= PET_HOLD_MS ? "pet" : "poke";
+}
+
+const SHY_LINES = ["呀——别看这边", "脸、脸红了啦"] as const;
+const ANGRY_LINES = ["哼，别戳我", "转过去冷静一下"] as const;
+const EXCITED_LINES = ["咯咯咯好痒", "再来再来！"] as const;
+const GRAB_LINES = ["哇——放我下来", "脚、脚够不到地啦"] as const;
+const DROP_LINES = ["稳稳落地", "谢、谢谢"] as const;
+const THROW_LINES = ["呜哇——！"] as const;
+const CRASH_LINES = ["痛…", "撞、撞到了"] as const;
+
+/** spec §6 点击反馈 5 变体，行序即表序。只服务 poke。 */
+export const POKE_VARIANTS: ReadonlyArray<{ gesture: string; lines: readonly string[] }> = [
+  { gesture: "hop", lines: PET_LINES },
+  { gesture: "coverFace", lines: SHY_LINES },
+  { gesture: "turnAway", lines: ANGRY_LINES },
+  { gesture: "shiver", lines: EXCITED_LINES },
+  { gesture: "wave", lines: PLAY_LINES },
+];
+
 export class CompanionEngine {
   private readonly random: () => number;
   private readonly now: () => number;
@@ -196,6 +309,12 @@ export class CompanionEngine {
   private readonly onSettle?: (position: Point) => void;
 
   private vitals: CompanionVitals = { affinity: 0.5, fullness: 0.7, energy: 0.8 };
+  /** 行为形态：cat 走 IDLE_ACTIVITIES 七行平表，girl 走四档加权（口径差⑭）。 */
+  private form: PetForm = "cat";
+  private ambientGesture: string | null = null;
+  private gestureUntil = 0;
+  private previousGesture: string | null = null;
+  private lastTouchAt = new Map<TouchKind, number>();
   private pos: Point = { x: 0, y: 0 };
   private activity: CompanionActivity = "idle";
   private previousActivity: CompanionActivity | null = null;
@@ -234,6 +353,47 @@ export class CompanionEngine {
 
   // —— 查询面 ——
 
+  /** 形态切换。切回猫时把猫娘侧的抽取残留清干净，否则切回来的瞬间会「自己演一遍」。 */
+  setForm(form: PetForm): void {
+    if (form === this.form) return;
+    this.form = form;
+    this.ambientGesture = null;
+    this.gestureUntil = 0;
+    this.previousGesture = null;
+    this.lastTouchAt.clear();
+  }
+
+  /**
+   * 触摸六类（spec §5）。同类 2.5s 内合并；**猫形恒 false**（口径差⑮：反应只长在猫娘上，
+   * 四足的单击仍走 main.ts → handleCommand("pet") 那条老路，一支签都不多吃）。
+   */
+  touch(kind: TouchKind, now = this.now()): boolean {
+    if (this.form !== "girl") return false;
+    const last = this.lastTouchAt.get(kind);
+    if (last !== undefined && now - last < TOUCH_MERGE_MS) return false;
+    this.lastTouchAt.set(kind, now);
+    switch (kind) {
+      case "poke": {
+        const v = POKE_VARIANTS[Math.min(4, Math.floor(this.random() * 5))];
+        this.ambientGesture = v.gesture;
+        this.gestureUntil = now + gestureClip(v.gesture).ms;
+        this.say(this.pickLine([...v.lines]), 1, now);
+        return true;
+      }
+      case "pet":
+        this.pet(now);
+        return true;
+      case "grab":
+        return this.say(this.pickLine([...GRAB_LINES]), 1, now);
+      case "drop":
+        return this.say(this.pickLine([...DROP_LINES]), 1, now);
+      case "throw":
+        return this.say(this.pickLine([...THROW_LINES]), 1, now);
+      case "crash":
+        return this.say(this.pickLine([...CRASH_LINES]), 1, now);
+    }
+  }
+
   getVitals(): CompanionVitals {
     return { ...this.vitals };
   }
@@ -254,6 +414,7 @@ export class CompanionEngine {
       vx: this.vx,
       vy: this.vy,
       bubble: this.bubble ? { ...this.bubble } : null,
+      gesture: this.ambientGesture && this.gestureUntil > this.now() ? this.ambientGesture : null,
     };
   }
 
@@ -547,6 +708,10 @@ export class CompanionEngine {
     // 时钟域：now 是行为秒表（performance.now），拿它 new Date 会落到 1970 年；
     // 昼夜权重必须读墙上时钟。
     const hour = new Date(this.wallNow()).getHours();
+    if (this.form === "girl") {
+      this.stepIdleGirl(now, context, hour);
+      return;
+    }
     const activity = pickIdleActivity(this.random(), this.previousActivity, { hour, energy: this.vitals.energy });
     this.previousActivity = activity;
     switch (activity) {
@@ -570,6 +735,41 @@ export class CompanionEngine {
         return;
       default:
         this.idleUntil = now + this.idleDelay();
+    }
+  }
+
+  /**
+   * 猫娘的一签落地（四档 → 引擎口）：
+   *   idle_micro → 什么都不做（待机微动由通道常数与 blinkAt 说话）；夜里力竭才转睡
+   *   peek       → lasting 的 peek 手势，到期自清
+   *   move       → startRoam（userActive 时不迈步，与四足同判据）
+   *   gesture    → 抽到的那条片，演完让位（renderer 侧靠槽位时钟，引擎只管过期）
+   */
+  private stepIdleGirl(now: number, context: CompanionContext, hour: number): void {
+    const night = hour >= 22 || hour < 7;
+    const roll = pickRoll(this.random(), this.random(), {
+      previousGesture: this.previousGesture,
+      hour,
+      energy: this.vitals.energy,
+    });
+    this.idleUntil = now + this.idleDelay();
+
+    if (roll.bucket === "move") {
+      if (this.userActive) return;
+      this.startRoam(context, now);
+      return;
+    }
+    if (roll.gesture) {
+      this.previousGesture = roll.gesture;
+      this.ambientGesture = roll.gesture;
+      this.gestureUntil = now + gestureClip(roll.gesture).ms;
+      return;
+    }
+    // idle_micro：夜里力竭才睡，睡法与四足共用一条 NAP 口。
+    if (night && this.vitals.energy < 0.5) {
+      this.activity = "sleep";
+      this.sleepManual = false;
+      this.sleepUntil = now + NAP_MIN_MS + this.random() * NAP_SPAN_MS;
     }
   }
 
