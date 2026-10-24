@@ -130,3 +130,16 @@
   「不是内部或外部命令」）。按「不新增依赖」的约束，版本与 CHANGELOG 手工升级（1.4.0 → 1.5.0）。
   这条记进台账：下一期要么补装该 devDependency，要么把 release 脚本换成仓库内实现。
 - 未推送、未建 GitHub Release：本轮只做到「本地构建 + 安装包校验通过」。
+
+### 发布（2026-10-24）
+
+- 推送：`master` → fork（`9adedb07..3fe6c05f`）、tag `v1.5.0` → fork（只推 fork，未推 upstream）。
+- CI：`gh workflow run package-windows.yml --repo damingslu-ctrl/Cyrene-Agent --ref v1.5.0`
+  → run [40085476244](https://github.com/damingslu-ctrl/Cyrene-Agent/actions/runs/40085476244) 全绿
+  （含 `Verify installer artifacts`）。
+- Release：[v1.5.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.5.0)，
+  资产 `Mochi-Setup-1.5.0.exe` **289,331,348 B**，
+  sha256 `ecbf006e8c1779861b05bd667003652c26dddd42950be7c442d097582a7434e1`（与 CI 下载件逐字节一致）。
+- 本地包 `release/Mochi-Setup-1.5.0.exe` 289,432,850 B / sha256 `889d2ac4…`：与 CI 包不同（构建环境差异），
+  **发布资产取 CI 包**，本地包只作 `verify:installer` 的本地证据。
+- `electron-builder.yml` 的 `publish: null` 未动。
