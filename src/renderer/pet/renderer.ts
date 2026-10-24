@@ -24,6 +24,8 @@ import {
 import { paintOps } from "./ops";
 import { buildBubbleOps, bubbleBoxRect, type BubbleBox, type CatInput } from "./art";
 import { buildPetOps } from "./form";
+import { blinkAt, bodyClip, gestureClip, mixPose, sampleClip, type Slots } from "./motion";
+import { faceOf, MOOD_TO_EXPRESSION, type Expression } from "./face";
 import { CompanionEngine, type CompanionSnapshot } from "./companion";
 import type { PetCommand } from "../../shared/pet-commands";
 import type { PetForm } from "../../shared/pet-profile";
@@ -65,8 +67,16 @@ const FPS_GATE_SLACK_MS = 2.5;
 export class PixelPetRenderer {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly cat: CatInput;
-  /** 形态：缺省 cat（R-D2）。P1 只读；Task 14 接 setForm。 */
+  /** 形态：缺省 cat（R-D2）。 */
   private form: PetForm = "cat";
+  /** 显式表情（workStatus/点击反馈覆盖用）；null＝跟 mood 级联走。 */
+  private expressionOverride: Expression | null = null;
+  /** 槽位时钟：每层「当前片 + 起点」（ms）。只存状态，采样在 draw 里按 now 算。 */
+  private slots: Partial<Record<"body" | "gesture", { id: string; startedAt: number }>> = {};
+  /** 手势层的显式片（playGesture/touch）；空则按活动映射。 */
+  private explicitGesture: { id: string; startedAt: number } | null = null;
+  /** 最近一帧的行为快照（composeChannels 要用；四足不读）。 */
+  private lastSnapshot: CompanionSnapshot | null = null;
   private zoom = 1;
   /** rAF 句柄。0 = 没在跑；拖窗期 pause() 冻结绘制，DWM 快照逐位不变（Task 5 尖峰）。 */
   private ticker = 0;
@@ -657,6 +667,7 @@ export class PixelPetRenderer {
     else if (peekAnimating || this.bubbleExpand > 0 || animating) this.fps = FPS_ACTIVE;
     else this.fps = FPS_IDLE;
 
+    this.lastSnapshot = snapshot ?? null;
     if (snapshot) this.applyCompanionPose(snapshot);
     // 免打扰在源头闸住「睡着」这条分支（native #53/#67）：月牙与 Zzz 屏幕互斥，
     // art.ts 里的 `!quiet` 条只压得掉 Zzz 的尾巴，压不掉已经躺下的 mood:"sleep" 本体。
@@ -671,7 +682,12 @@ export class PixelPetRenderer {
     const w = (this.opts.canvas.clientWidth || PET_W) / this.zoom;
     const h = (this.opts.canvas.clientHeight || PET_H) / this.zoom;
     this.ctx.clearRect(0, 0, w, h);
-    const ops = buildPetOps({ ...this.cat, form: this.form });
+    let extra: { channels?: Partial<Record<string, number>>; expression?: Expression; blink?: number } = {};
+    if (this.form === "girl") {
+      const composed = this.composeChannels(now, this.lastSnapshot);
+      extra = { channels: composed.channels, expression: composed.expression, blink: Math.max(this.cat.blink, composed.blink) };
+    }
+    const ops = buildPetOps({ ...this.cat, ...extra, form: this.form });
     // 流量胶囊不再常驻：猫说话时窗口横长，气泡占右半边；读数搬进了侧边栏「网络」页。
     if (this.bubbleExpand > 0 && this.bubbleText) {
       ops.push(...buildBubbleOps({
@@ -683,6 +699,92 @@ export class PixelPetRenderer {
       }));
     }
     paintOps(this.ctx, ops);
+  }
+
+  /** 形态切换（缺省 cat）。切形态清槽位：上一形算出的通道不许被下一形接着用。 */
+  setForm(form: PetForm): void {
+    if (form === this.form) return;
+    this.form = form;
+    this.slots = {};
+    this.explicitGesture = null;
+    if (!this.paused) this.draw(performance.now());
+  }
+
+  /** 显式表情（workStatus/点击反馈）；传 null 回到 mood 级联。 */
+  setExpression(expression: Expression | null): void {
+    this.expressionOverride = expression;
+  }
+
+  /** 显式手势（P4 的点击反馈与 workStatus 演出用它）。 */
+  playGesture(id: string, now = performance.now()): void {
+    this.explicitGesture = { id, startedAt: now };
+  }
+
+  stopGesture(): void {
+    this.explicitGesture = null;
+  }
+
+  /**
+   * 四层合成（Task 14）：body + gesture 两层按各自槽位采样，face 由表情档 + 眨眼算，
+   * 合成成一组 channels 交给 buildPetOps。cat 形态**不进这里**（R-D2：四足走原路）。
+   */
+  private composeChannels(nowMs: number, snapshot: CompanionSnapshot | null): {
+    channels: Partial<Record<string, number>>;
+    expression: Expression;
+    blink: number;
+  } {
+    const nowSec = nowMs / 1000;
+    const blink = blinkAt(nowSec);
+
+    // body 层：活动 → body clip（与四足同一张活动表，但取 clip 名）
+    const activity = snapshot?.activity ?? "idle";
+    const bodyId =
+      activity === "walk" ? "walk"
+      : activity === "drag" ? "drag"
+      : activity === "thrown" ? "thrown"
+      : activity === "sleep" ? "sleep"
+      : activity === "groom" || activity === "yawn" || activity === "stretch" ? "stand"
+      : "stand";
+    const cur = this.slots.body;
+    if (!cur || cur.id !== bodyId) this.slots.body = { id: bodyId, startedAt: nowMs };
+
+    // gesture 层：显式片优先；否则按 activity 映射（tilt 那条）
+    const mapped = activity === "tilt" ? "tilt" : null;
+    const wantGesture = this.explicitGesture?.id ?? mapped;
+    if (wantGesture) {
+      const curG = this.slots.gesture;
+      if (!curG || curG.id !== wantGesture || this.explicitGesture) {
+        this.slots.gesture = {
+          id: wantGesture,
+          startedAt: this.explicitGesture?.id === wantGesture ? this.explicitGesture.startedAt : nowMs,
+        };
+        this.explicitGesture = null;
+      }
+    } else if (this.slots.gesture) {
+      // 没有新片时槽位留到它自己演完（一次性片 p=1＝rest，画出来等于没有）；
+      // 直接删槽会让 fps 判据读不到真实进度，也会让「连播四帧」变成「第一帧后消失」。
+      const cur = gestureClip(this.slots.gesture.id);
+      const p = cur.lasting
+        ? ((nowMs - this.slots.gesture.startedAt) / cur.ms) % 1
+        : (nowMs - this.slots.gesture.startedAt) / cur.ms;
+      if (!cur.lasting && p >= 1) delete this.slots.gesture;
+    }
+
+    const slots: Slots = {};
+    const b = bodyClip(this.slots.body!.id);
+    slots.body = { clip: b, p: b.lasting ? ((nowMs - this.slots.body!.startedAt) / b.ms) % 1 : Math.min(1, (nowMs - this.slots.body!.startedAt) / b.ms) };
+    const g = this.slots.gesture ? gestureClip(this.slots.gesture.id) : null;
+    if (g && this.slots.gesture) {
+      slots.gesture = {
+        clip: g,
+        p: g.lasting ? ((nowMs - this.slots.gesture.startedAt) / g.ms) % 1 : Math.min(1, (nowMs - this.slots.gesture.startedAt) / g.ms),
+      };
+    }
+    const channels = mixPose(slots);
+    const expression = this.expressionOverride ?? (snapshot ? MOOD_TO_EXPRESSION[snapshot.mood] : "neutral");
+    // face 档里的眨眼/视线在 faceOf 里合（blink 只压 lid）
+    void faceOf(expression, { t: nowSec, blink, mouse: null, energy: this.cat.energy, speaking: false });
+    return { channels, expression, blink };
   }
 
   /** 行为快照 → 猫输入：动作进度只在这一个地方翻译，art.ts 不认识 companion。 */

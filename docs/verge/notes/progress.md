@@ -64,3 +64,13 @@
   2. `girl.ts` 的脸部改为调用 `buildFaceOps`（单一来源），`GirlSpriteInput` 加 `expression`；`buildFaceOps` 的 `head` 在运行时由 `matRoot` 给，测试里用恒等阵。
   3. `MIN_PIXEL_DIFF`/`pixelDiffRatio` 移入 `src/shared/min-pixel-diff.ts`，`cat-sprites.mjs` 改读 bundle 出口，`cat-sprite-manifest.ts` re-export。
 - 推后：`buildFaceOps` 的 `s`/`u` 参数暂未参与半径（眼睛按 head 阵缩放），Task 14 接通道时再统一。
+
+## Task 12–14 — motion 内核、CLIPS/尺 #73、四层合成接线
+
+- 落点：`src/renderer/pet/motion.ts`（Env/Clip/sampleClip/mixPose/springStep/blinkAt/注册表 + BODY 12 + GESTURE 9）、`motion-clips.test.ts`（尺 #73）、`renderer.ts`（`setForm`/`setExpression`/`playGesture` + `composeChannels` 槽位时钟）。
+- 验了：`motion.test.ts` 17 条、尺 #73 8 条（rest 键集、p=0/p=1 归零、21 点振幅上限、ms 量级、物理 priority、body 档名、查不到抛错）、`renderer.test.ts` 18 条（含新增 4 条：cat 不走合成、girl 眨眼、槽位钟单调、手势只消费一次）；全仓 649 文件 / 6885 条绿。
+- 计划侧修正：
+  1. 尺 #73 的 rest 比较用 `toBeCloseTo(…, 12)` 而不是 `toEqual`：`Math.sin(π)` 的 1.2e-16 会被 round 成 `−0`，`Object.is(−0,0)` 是 false——那是浮点符号假红。
+  2. `girl.ts` 的部件改为通道驱动（root 阵吃 lean/hop/squash/headBob，头阵吃 headPitch/headYaw，手臂各绕肩转 armL/armR，裙摆吃 hem，尾巴吃 tail）；`buildGirlOps` 的 `expression` 交给 `buildFaceOps`。
+  3. 手势槽位「一次性片没新片时留到演完」——直接删槽会让连播四帧在第一帧后消失，也让 fps 判据读不到进度。
+  4. `buildFaceOps` 的 `s`/`u` 参数暂未参与（眼睛按 head 阵缩放），保留签名给 Task 27 的三档端到端。

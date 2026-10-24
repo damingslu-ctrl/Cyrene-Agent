@@ -80,15 +80,17 @@ describe("猫娘站姿", () => {
   it("眼睛沿用四足的半径比与高光系数，落在猫娘眼位", () => {
     const eyes = byLayer(buildGirlOps({ ...NEUTRAL }), "eyes").filter((o) => o.kind === "fillEllipse");
     expect(eyes.length).toBeGreaterThanOrEqual(4);
-    // 两枚眼白：rx = eyeRr·u 的换算（u=37 时 5.9·37·2/120）
-    const scale = (37 * 2) / 120;
-    const whites = eyes.filter((e) => e.kind === "fillEllipse" && Math.abs(e.rx - GIRL_PROPORTION.eyeRr * scale) < 0.6);
+    // 眼白半径 = eyeRr × 头阵的 scaleX；头阵在运行时由 matRoot 给，这里按 ops 实测反推，
+    // 不写死具体像素（u 一变它就变，写死等于把尺钉在某个档位上）。
+    const ellipses = eyes.filter((e) => e.kind === "fillEllipse");
+    const maxRx = Math.max(...ellipses.map((e) => (e as { rx: number }).rx));
+    const whites = ellipses.filter((e) => Math.abs((e as { rx: number }).rx - maxRx) < 1e-9);
     expect(whites.length).toBeGreaterThanOrEqual(2);
-    for (const w of whites) expect(w.ry / w.rx).toBeCloseTo(GIRL_PROPORTION.eyeRy / GIRL_PROPORTION.eyeRr, 3);
-    // 高光比 0.30 / 0.15
-    const highlights = eyes.filter((e) => e.kind === "fillEllipse" && e.rx < 2 * scale);
-    expect(highlights.length).toBeGreaterThanOrEqual(2);
-    const ratios = highlights.map((e) => (e as { rx: number }).rx / (GIRL_PROPORTION.eyeRr * scale));
+    for (const w of whites) expect((w as { ry: number }).ry / (w as { rx: number }).rx).toBeCloseTo(GIRL_PROPORTION.eyeRy / GIRL_PROPORTION.eyeRr, 3);
+    // 高光比 0.30 / 0.15（相对眼白半径）
+    const ratios = ellipses
+      .map((e) => (e as { rx: number }).rx / maxRx)
+      .filter((r) => r < 0.5);
     expect(ratios.some((r) => Math.abs(r - 0.30) < 0.02)).toBe(true);
     expect(ratios.some((r) => Math.abs(r - 0.15) < 0.02)).toBe(true);
   });

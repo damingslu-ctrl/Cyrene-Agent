@@ -485,3 +485,98 @@ describe("PixelPetRenderer tuck (Task 12)", () => {
     r.dispose();
   });
 });
+
+// ===========================================================================
+// Task 14：四层合成接线（girl 走合成，cat 一字不变）
+// ===========================================================================
+describe("四层合成 (Task 14)", () => {
+  const base = {
+    bounds: { x: 100, y: 300, width: 82, height: 108 },
+    workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+    tuckEnabled: false, tuckHinted: true, tuckLimit: 6,
+  };
+
+  async function make(form: "cat" | "girl") {
+    const loop = makeLoopDriver();
+    const clock = { ms: 10_000 };
+    vi.spyOn(performance, "now").mockImplementation(() => clock.ms);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const verge = { resizePetWindow: vi.fn(), tuckHinted: vi.fn(), settlePetPosition: vi.fn() };
+    (window as unknown as { verge: unknown }).verge = verge;
+    const r = new PixelPetRenderer({
+      canvas: makeCanvas(), width: 82, height: 108, onLoad: vi.fn(), onError: vi.fn(),
+    });
+    await r.init();
+    r.syncGeometry({ ...base, tuckEnabled: false } as never);
+    r.setForm(form);
+    verge.resizePetWindow.mockClear();
+    return { r, loop, clock, verge };
+  }
+
+  afterEach(() => {
+    delete (window as unknown as { verge?: unknown }).verge;
+  });
+
+  it("cat 形态不进 composeChannels：lastSnapshot 与 channels 都不影响 ops", async () => {
+    const { r } = await make("cat");
+    const view = r as unknown as { composeChannels: unknown; form: string };
+    expect(view.form).toBe("cat");
+    // 猫形下 composeChannels 存在但**不会被 draw 调用**——用一次间接证据：
+    // 给 renderer 塞一个会炸的 composeChannels，猫形仍能正常画。
+    const orig = (r as unknown as { composeChannels: (n: number, s: unknown) => unknown }).composeChannels;
+    (r as unknown as { composeChannels: () => unknown }).composeChannels = () => {
+      throw new Error("cat 形态不许走四层合成");
+    };
+    expect(() => (r as unknown as { draw: (n: number) => void }).draw(10_000)).not.toThrow();
+    (r as unknown as { composeChannels: typeof orig }).composeChannels = orig;
+    r.dispose();
+  });
+
+  it("girl 形态走合成：composeChannels 产出 channels 且能算出眨眼", async () => {
+    const { r } = await make("girl");
+    const view = r as unknown as {
+      composeChannels: (n: number, s: unknown) => { channels: Record<string, number>; expression: string; blink: number };
+    };
+    const out = view.composeChannels(10_000, null);
+    expect(out.expression).toBe("neutral");
+    expect(out.channels).toBeTypeOf("object");
+    // 眨眼只在每 4.2s 的头 260ms 发生：扫一个完整周期，必须既有睁开也有闭上。
+    const vals: number[] = [];
+    for (let ms = 0; ms <= 4300; ms += 40) vals.push(view.composeChannels(ms, null).blink);
+    expect(Math.max(...vals)).toBeGreaterThan(0.5);
+    expect(Math.min(...vals)).toBeLessThan(0.05);
+    r.dispose();
+  });
+
+  it("girl 的槽位钟单调爬升：同一活动连画四帧，body 进度不回头", async () => {
+    const { r } = await make("girl");
+    const view = r as unknown as {
+      composeChannels: (n: number, s: unknown) => { channels: Record<string, number> };
+      slots: { body?: { id: string; startedAt: number } };
+    };
+    const ps: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const at = 10_000 + i * 250;
+      view.composeChannels(at, null);
+      const slot = view.slots.body!;
+      ps.push(((at - slot.startedAt) / 4200) % 1);
+    }
+    for (let i = 1; i < ps.length; i++) expect(ps[i]).toBeGreaterThan(ps[i - 1]);
+    r.dispose();
+  });
+
+  it("playGesture 进 gesture 层，且只消费一次（不每帧重放）", async () => {
+    const { r } = await make("girl");
+    const view = r as unknown as {
+      composeChannels: (n: number, s: unknown) => { channels: Record<string, number> };
+      slots: { gesture?: { id: string; startedAt: number } };
+    };
+    r.playGesture("wave", 10_000);
+    view.composeChannels(10_000, null);
+    expect(view.slots.gesture?.id).toBe("wave");
+    const started = view.slots.gesture!.startedAt;
+    view.composeChannels(10_250, null);
+    expect(view.slots.gesture!.startedAt, "槽位钟被重置＝每帧重放").toBe(started);
+    r.dispose();
+  });
+});

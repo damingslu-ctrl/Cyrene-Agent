@@ -110,17 +110,51 @@ function blob(start: Point2, segments: Array<[Point2, Point2, Point2]>): Point2[
  * 用 `buildOverlayOps` 叠在同一个 center 上——本函数只管**长在身上的**那 18 层。
  */
 export interface GirlSpriteInput extends CatInput {
-  /** 表情档（缺省 neutral）。P1 站姿只有静态脸；P2 的 channles 由 Task 14 接。 */
+  /** 表情档（缺省 neutral）。 */
   expression?: Expression;
+  /**
+   * 四层合成的采样结果（Task 12/14）。缺省＝全 0（P1 的静态站姿）。
+   * 每个通道的语义见 motion.ts 的通道表：弧度 / viewBox px / 无量纲三套单位不许混。
+   */
+  channels?: Partial<Record<string, number>>;
 }
+
+const ch = (input: GirlSpriteInput, key: string, fallback = 0): number => {
+  const v = input.channels?.[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+};
 
 export function buildGirlOps(input: GirlSpriteInput): DrawOp[] {
   const P = GIRL_PROPORTION;
   const coat = input.coat ?? INK_COAT;
   const p = girlPalette(coat);
-  const m = toMap2(matRoot(input.center, (input.u * 2) / 120));
+  const baseM = matRoot(input.center, (input.u * 2) / 120);
+  const lean = ch(input, "lean");
+  const hop = ch(input, "hop");
+  const squash = ch(input, "squash");
+  const headBob = ch(input, "headBob");
+  const sb = (input.u * 2) / 120;
+  // 根阵：绕脚线 (60,100) 前倾/侧倾 + 纵向位移 + 压扁。头/臂各自再挂子阵。
+  const rootM = {
+    a: baseM.a * Math.cos(lean), b: baseM.b * Math.cos(lean) + baseM.d * Math.sin(lean),
+    c: baseM.c * Math.cos(lean) - baseM.a * Math.sin(lean), d: baseM.d * Math.cos(lean),
+    e: baseM.e, f: baseM.f + (hop - headBob * 0.2) * sb * (1 - 0.2 * squash),
+  };
+  const m = toMap2(rootM);
   const c: Ctx = { m, p };
   const out: DrawOp[] = [];
+  // 头阵：绕脖子 (60, chin) 转 headYaw/headPitch + headBob
+  const headRot = ch(input, "headPitch") * 0.8;
+  const headYaw = ch(input, "headYaw");
+  const pivot: Point2 = [P.chin - 2, P.chin - 2];
+  const [pcx, pcy] = m.map(pivot);
+  const headMat = {
+    a: Math.cos(headRot), b: Math.sin(headRot),
+    c: -Math.sin(headRot) * Math.cos(headYaw), d: Math.cos(headRot) * Math.cos(headYaw),
+    e: pcx - (Math.cos(headRot) * pivot[0] - Math.sin(headRot) * Math.cos(headYaw) * pivot[1]),
+    f: pcy - (Math.sin(headRot) * pivot[0] + Math.cos(headRot) * Math.cos(headYaw) * pivot[1]) + headBob,
+  };
+  const hm = toMap2(headMat);
 
   // —— 投影：与四足同一条「脚线压扁、跳起收影」口径 ——
   {
@@ -140,7 +174,8 @@ export function buildGirlOps(input: GirlSpriteInput): DrawOp[] {
   // —— 尾巴：从裙后探出、向朝背一侧翘（spec：尾巴把重心拽向那一侧） ——
   {
     const spine: Point2[] = [[60, P.hemY]];
-    spine.push(...bez([60, P.hemY], [72, P.hemY + 4], [82, P.hemY - 2], [84, P.hemY - 11]));
+    const tailSway = ch(input, "tail");
+    spine.push(...bez([60, P.hemY], [72 + tailSway * 8, P.hemY + 4], [82 + tailSway * 10, P.hemY - 2], [84 + tailSway * 8, P.hemY - 11]));
     spine.push(...bez([84, P.hemY - 11], [85.5, P.hemY - 18], [81, P.hemY - 22], [76, P.hemY - 21]));
     out.push(line(c, "tail", p.hairTop, 5.6, spine));
     out.push(line(c, "tail", p.hairBot, 2.4, spine.slice(-7)));
@@ -182,13 +217,21 @@ export function buildGirlOps(input: GirlSpriteInput): DrawOp[] {
     out.push(line(c, "body", p.dressShade, 1.0, [[60 - 7, P.waistY - 0.5], [60 + 7, P.waistY - 0.5]]));
   }
 
-  // —— 手臂与手 ——
+  // —— 手臂与手：各绕自己的肩关节转（armL/armR），手跟着前臂走 ——
   for (const side of [-1, 1] as const) {
     const sx = 60 + side * P.shoulderDx;
     const shoulder: Point2 = [sx, P.shoulderY + 3];
-    const wrist: Point2 = [sx + side * 2.5, P.waistY + 5];
+    const swing = ch(input, side < 0 ? "armL" : "armR");
+    // 绕肩旋转：手腕相对肩的位移转 −swing（负＝向前抬）
+    const dx = side * 2.5;
+    const dy = P.waistY + 5 - shoulder[1];
+    const cos = Math.cos(-swing), sin = Math.sin(-swing);
+    const wrist: Point2 = [shoulder[0] + dx * cos - dy * sin, shoulder[1] + dx * sin + dy * cos];
     out.push(line(c, "arms", p.skin, 4.4, [shoulder, wrist]));
-    out.push(ell(c, "hands", p.skin, wrist[0] + side * 0.4, wrist[1] + 1.6, 2.6, 2.4));
+    // hand 通道：手再沿前臂方向伸一点（0..1）
+    const hx = wrist[0] + (wrist[0] - shoulder[0]) * 0.25 * ch(input, "hand");
+    const hy = wrist[1] + (wrist[1] - shoulder[1]) * 0.25 * ch(input, "hand");
+    out.push(ell(c, "hands", p.skin, hx, hy, 2.6, 2.4));
   }
 
   // —— 领口与蝴蝶结 ——
@@ -206,8 +249,8 @@ export function buildGirlOps(input: GirlSpriteInput): DrawOp[] {
   // —— 猫耳 ——
   for (const side of [-1, 1] as const) {
     const ox = side * 11;
-    out.push(poly(c, "ears", p.hairTop, [[60 + ox - 4.5, P.crown + 3], [60 + ox, P.crown - 4.5], [60 + ox + 5, P.crown + 4]]));
-    out.push(poly(c, "ears", p.earInner, [[60 + ox - 2.2, P.crown + 2.4], [60 + ox, P.crown - 1.6], [60 + ox + 2.6, P.crown + 2.8]]));
+    out.push(poly({ ...c, m: hm }, "ears", p.hairTop, [[60 + ox - 4.5, P.crown + 3], [60 + ox, P.crown - 4.5], [60 + ox + 5, P.crown + 4]]));
+    out.push(poly({ ...c, m: hm }, "ears", p.earInner, [[60 + ox - 2.2, P.crown + 2.4], [60 + ox, P.crown - 1.6], [60 + ox + 2.6, P.crown + 2.8]]));
   }
 
   // —— 头发：后发整块 → 前发（刘海＋两侧发束两块色阶） ——
@@ -217,7 +260,7 @@ export function buildGirlOps(input: GirlSpriteInput): DrawOp[] {
       [[60 + 8, P.chin + 10], [60 - 8, P.chin + 10], [60 - P.headRx - 2, P.chin + 6]],
       [[60 - P.headRx - 5, P.chin - 4], [60 - P.headRx - 4, P.crown + 4], [60, P.crown - 1]],
     ]);
-    out.push(poly(c, "hair_back", p.hairTop, back));
+    out.push(poly({ ...c, m: hm }, "hair_back", p.hairTop, back));
 
     const front = blob([60 - P.headRx + 1, P.crown + 8], [
       [[60 - 9, P.crown + 1], [60 + 9, P.crown + 1], [60 + P.headRx - 1, P.crown + 8]],
@@ -225,26 +268,26 @@ export function buildGirlOps(input: GirlSpriteInput): DrawOp[] {
       [[60 - 1, P.eyeY - 8], [60 - 5, P.eyeY - 8], [60 - 8, P.eyeY - 5]],
       [[60 - 11, P.crown + 12], [60 - 13, P.crown + 10], [60 - P.headRx + 1, P.crown + 8]],
     ]);
-    out.push(poly(c, "hair_front", p.hairBot, front));
+    out.push(poly({ ...c, m: hm }, "hair_front", p.hairBot, front));
 
-    out.push(poly(c, "hair_front", p.hairTop, [
+    out.push(poly({ ...c, m: hm }, "hair_front", p.hairTop, [
       [60 - P.headRx - 2, P.crown + 8], [60 - P.headRx - 5.5, P.chin + 4],
       [60 - P.headRx - 7, P.chin + 6], [60 - P.headRx - 4, P.crown + 12],
     ]));
-    out.push(poly(c, "hair_front", p.hairTop, [
+    out.push(poly({ ...c, m: hm }, "hair_front", p.hairTop, [
       [60 + P.headRx + 2, P.crown + 8], [60 + P.headRx + 5.5, P.chin + 4],
       [60 + P.headRx + 7, P.chin + 6], [60 + P.headRx + 4, P.crown + 12],
     ]));
-    out.push(line(c, "hair_front", p.hairEdge, 1.2, [[60 - 6, P.crown + 7], [60 - 2, P.crown + 9.5], [60 + 2, P.crown + 8]]));
+    out.push(line({ ...c, m: hm }, "hair_front", p.hairEdge, 1.2, [[60 - 6, P.crown + 7], [60 - 2, P.crown + 9.5], [60 + 2, P.crown + 8]]));
   }
 
   // —— 呆毛 ——
-  out.push(line(c, "ahoge", p.hairTop, 1.6, arc(60 - 1, P.crown + 1, 60 + 4.5, P.crown - 8, 60 + 7, P.crown - 2)));
+  out.push(line({ ...c, m: hm }, "ahoge", p.hairTop, 1.6, arc(60 - 1, P.crown + 1, 60 + 4.5, P.crown - 8, 60 + 7, P.crown - 2)));
 
   // —— 脸：眉/眼/鼻/嘴/腮红/泪/汗/星全交给 buildFaceOps（单一来源，16 档差分在那边） ——
   out.push(...buildFaceOps(faceOf(input.expression ?? "neutral", {
     t: 0, blink: input.blink, mouse: null, energy: input.energy, speaking: false,
-  }), m, (input.u * 2) / 120, coat, input.u));
+  }), hm, 1, coat, input.u));
 
   // 泪层常态不画：Task 14 的表情层有值时才会往里推（本函数保持空层不出图元）。
 
