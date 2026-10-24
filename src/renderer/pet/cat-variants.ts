@@ -11,6 +11,10 @@
 import { VB, buildCatOps, type CatInput, type Mood, type Pose } from "./art";
 import type { DrawOp, PetLayer } from "./ops";
 import { coatOf, type CoatName } from "../../shared/cat-coats";
+import type { PetForm } from "../../shared/pet-profile";
+import { buildGirlOps } from "./girl";
+import { MOOD_TO_EXPRESSION } from "./face";
+import { bodyClip, gestureClip, sampleClip } from "./motion";
 import type { CropName, PoseName } from "../../shared/cat-types";
 
 export type { CropName, PoseName } from "../../shared/cat-types";
@@ -88,10 +92,58 @@ export const CAT_CROPS: Record<CropName, CatCrop> = {
   wide: { window: [-34.2, 6, 154.2, 112], anchor: [60, 59], pad: 0.02, mask: "none" },
 };
 
+
+/**
+ * 12 个 PoseName 在猫娘上的重写（spec §9：卧→侧卧、趴→伏案、炸毛→发蓬＋生气；
+ * PoseName 联合不动）。取 clip 的「特征帧」出静帧，而不是 p=0 的 rest——
+ * peek 的 rest 是「收回来」的状态，立绘要探出去那一帧。
+ */
+export interface GirlSpritePose {
+  body: string;
+  gesture?: string;
+  p?: number;
+  gestureP?: number;
+  blink: number;
+  energy: number;
+}
+
+export const GIRL_POSES: Record<PoseName, () => GirlSpritePose> = {
+  sit:     () => ({ body: "sit", blink: 0, energy: 0.4 }),
+  lie:     () => ({ body: "sleep", blink: 0.35, energy: 0.3 }),
+  prone:   () => ({ body: "sit", gesture: "typeCode", blink: 0.2, energy: 0.5 }),
+  peek:    () => ({ body: "stand", gesture: "peek", gestureP: 0.5, blink: 0, energy: 0.6 }),
+  stretch: () => ({ body: "stand", gesture: "stretch", gestureP: 0.5, blink: 0, energy: 0.5 }),
+  wash:    () => ({ body: "stand", gesture: "groom", gestureP: 0.5, blink: 0, energy: 0.4 }),
+  yawn:    () => ({ body: "stand", gesture: "yawn", gestureP: 0.5, blink: 0.2, energy: 0.2 }),
+  tilt:    () => ({ body: "stand", gesture: "tilt", gestureP: 0.5, blink: 0, energy: 0.5 }),
+  sleep:   () => ({ body: "sleep", blink: 1, energy: 0.05 }),
+  puff:    () => ({ body: "stand", gesture: "shiver", gestureP: 0.3, blink: 0, energy: 1 }),
+  pout:    () => ({ body: "stand", blink: 0.55, energy: 0.2 }),
+  happy:   () => ({ body: "stand", gesture: "hop", gestureP: 0.5, blink: 0, energy: 0.8 }),
+};
+
+/**
+ * 猫娘的取景表（暂行值，Task 25 用 --measure 实测替换并写出处与日期）。
+ * 与 CAT_CROPS 的结构差别：猫娘以 x=60 对称（没有尾巴把重心拽到右边），full 的 anchor.x 回 60。
+ */
+export const GIRL_CROPS: Record<CropName, CatCrop> = {
+  full:   { window: [26, 2, 96, 110], anchor: [60, 55], pad: 0.08, mask: "none" },
+  bust:   { window: [30, 6, 90, 84], anchor: [60, 42], pad: 0.1, mask: "none" },
+  square: { window: [28, 6, 92, 98], anchor: [60, 45], pad: 0.06, mask: "none" },
+  round:  { window: [26, 4, 94, 98], anchor: [60, 45], pad: 0.1, mask: "disc" },
+  wide:   { window: [-30.7, 2, 150.7, 110], anchor: [60, 55], pad: 0.02, mask: "none" },
+};
+
+export function cropsForForm(form: PetForm): Record<CropName, CatCrop> {
+  return form === "girl" ? GIRL_CROPS : CAT_CROPS;
+}
+
 export interface SpriteSpec {
   coat: CoatName;
   pose: PoseName;
   crop: CropName;
+  /** 形态轴（v1.5.0 Task 24）：缺省 cat——146 张资产在 Task 25 才翻。 */
+  form?: PetForm;
   /** 逐张覆盖：省略时回落 `CAT_POSES[pose]()` 的基态。 */
   mood?: Mood;
   blink?: number;
@@ -120,6 +172,7 @@ export function placeCrop(crop: CatCrop, size: { w: number; h: number }): { u: n
 
 /** 位图管线唯一出口：取景 + 花色 + 姿态 → DrawOp[]，并按 R-D10 丢掉文字层。 */
 export function buildSpriteOps(spec: SpriteSpec, size: { w: number; h: number }): DrawOp[] {
+  if ((spec.form ?? "cat") === "girl") return buildGirlSpriteOps(spec, size);
   const base = CAT_POSES[spec.pose]();
   const p: SpritePose = {
     ...base,
@@ -136,4 +189,29 @@ export function buildSpriteOps(spec: SpriteSpec, size: { w: number; h: number })
   };
   const dropped = new Set<string>(SPRITE_DROPPED_LAYERS);
   return buildCatOps(input).filter((op) => op.layer === undefined || !dropped.has(op.layer));
+}
+
+/**
+ * 猫娘静帧：clip 的特征帧 → channels → buildGirlOps。
+ * 与 cat 路径共用 placeCrop/丢弃表/落点口径；脸走 MOOD_TO_EXPRESSION 级联。
+ */
+function buildGirlSpriteOps(spec: SpriteSpec, size: { w: number; h: number }): DrawOp[] {
+  const p = GIRL_POSES[spec.pose]();
+  const channels: Record<string, number> = {
+    ...sampleClip(bodyClip(p.body), p.p ?? 0),
+    ...(p.gesture ? sampleClip(gestureClip(p.gesture), p.gestureP ?? 0) : {}),
+  };
+  const input = {
+    ...placeCrop(GIRL_CROPS[spec.crop], size),
+    form: "girl" as const,
+    coat: coatOf(spec.coat),
+    mood: spec.mood ?? "idle",
+    t: 0, energy: spec.energy ?? p.energy, mouse: null,
+    blink: spec.blink ?? p.blink, jumpY: 0, pet: spec.pet ?? 0, quiet: false,
+    pose: { paw: 0, yawn: 0, stretch: 0, tilt: 0, engagement: 0 },
+    channels,
+    expression: MOOD_TO_EXPRESSION[spec.mood ?? "idle"],
+  };
+  const dropped = new Set<string>(SPRITE_DROPPED_LAYERS);
+  return buildGirlOps(input).filter((op) => op.layer === undefined || !dropped.has(op.layer));
 }

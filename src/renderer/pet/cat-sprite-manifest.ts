@@ -1,4 +1,5 @@
 export { MIN_PIXEL_DIFF, pixelDiffRatio } from "../../shared/min-pixel-diff";
+export { GIRL_CROPS, GIRL_POSES, cropsForForm } from "./cat-variants";
 /**
  * 位图资产全表：129 条「画什么、画多大、用哪个取景与姿态」。
  *
@@ -15,9 +16,10 @@ export { MIN_PIXEL_DIFF, pixelDiffRatio } from "../../shared/min-pixel-diff";
 import { ASSISTANT_NICKNAME, CAT_ROSTER } from "../../shared/cat-roster";
 import type { CoatName } from "../../shared/cat-coats";
 import type { CropName, Mood, PoseName } from "../../shared/cat-types";
+import type { PetForm } from "../../shared/pet-profile";
 import { alphaCoverage, inkCentroid, renderOps, type Raster } from "../../shared/sprite-raster";
 import { encodeIco, encodePng } from "../../shared/png-encode";
-import { CAT_CROPS, CAT_POSES, buildSpriteOps } from "./cat-variants";
+import { CAT_CROPS, CAT_POSES, GIRL_CROPS, GIRL_POSES, buildSpriteOps, cropsForForm } from "./cat-variants";
 import type { CharacterStatusMood } from "../react/character-status-moods";
 
 export { CAT_CROPS, buildSpriteOps, alphaCoverage, encodeIco, encodePng, inkCentroid, renderOps };
@@ -40,6 +42,8 @@ export interface SpriteTarget {
   coat: CoatName;
   pose: PoseName;
   mood: Mood;
+  /** 形态轴（v1.5.0 Task 25）：146 张派生资产翻成 girl；贴纸与图标支路不翻。 */
+  form?: PetForm;
   blink?: number;
   pet?: number;
   energy?: number;
@@ -56,22 +60,22 @@ export type MoodVariant = { mood: Mood; pose: PoseName; blink: number; pet: numb
 export const MOOD_TO_VARIANT: Readonly<Record<string, MoodVariant>> = {
   元气: { mood: "happy", pose: "happy", blink: 0, pet: 0.2, energy: 0.8 },
   原生: { mood: "idle", pose: "sit", blink: 0, pet: 0, energy: 0.4 },
-  学习: { mood: "thinking", pose: "sit", blink: 0.15, pet: 0, energy: 0.55 },
+  学习: { mood: "thinking", pose: "prone", blink: 0.15, pet: 0, energy: 0.55 },
   害羞: { mood: "happy", pose: "tilt", blink: 0.4, pet: 1.0, energy: 0.5 },
   工作中: { mood: "thinking", pose: "wash", blink: 0.1, pet: 0, energy: 0.7 },
   已中断: { mood: "grumpy", pose: "puff", blink: 0, pet: 0, energy: 0.1 },
   已处理: { mood: "happy", pose: "sit", blink: 0.2, pet: 0.3, energy: 0.5 },
   平静: { mood: "idle", pose: "lie", blink: 0.1, pet: 0, energy: 0.3 },
-  开心: { mood: "happy", pose: "happy", blink: 0, pet: 0.6, energy: 0.7 },
+  开心: { mood: "happy", pose: "stretch", blink: 0, pet: 0.6, energy: 0.7 },
   思考中: { mood: "thinking", pose: "tilt", blink: 0.25, pet: 0, energy: 0.5 },
   思考强度: { mood: "thinking", pose: "stretch", blink: 0, pet: 0, energy: 0.95 },
   感动: { mood: "happy", pose: "peek", blink: 0.5, pet: 1.0, energy: 0.6 },
-  担心: { mood: "grumpy", pose: "pout", blink: 0.3, pet: 0, energy: 0.4 },
+  担心: { mood: "grumpy", pose: "prone", blink: 0.3, pet: 0, energy: 0.4 },
   提醒: { mood: "idle", pose: "peek", blink: 0, pet: 0, energy: 0.6 },
   撒娇: { mood: "happy", pose: "pout", blink: 0.35, pet: 1.0, energy: 0.6 },
-  治愈: { mood: "happy", pose: "lie", blink: 0.5, pet: 0.4, energy: 0.45 },
-  温柔: { mood: "idle", pose: "lie", blink: 0.6, pet: 0.2, energy: 0.35 },
-  激动: { mood: "happy", pose: "stretch", blink: 0, pet: 0.5, energy: 0.9 },
+  治愈: { mood: "happy", pose: "happy", blink: 0.5, pet: 0.4, energy: 0.45 },
+  温柔: { mood: "idle", pose: "tilt", blink: 0.6, pet: 0.2, energy: 0.35 },
+  激动: { mood: "happy", pose: "peek", blink: 0, pet: 0.5, energy: 0.9 },
   知性: { mood: "thinking", pose: "sit", blink: 0.05, pet: 0, energy: 0.5 },
   离线: { mood: "sleep", pose: "sleep", blink: 1, pet: 0, energy: 0.05 },
   聆听中: { mood: "idle", pose: "tilt", blink: 0.2, pet: 0, energy: 0.5 },
@@ -79,8 +83,8 @@ export const MOOD_TO_VARIANT: Readonly<Record<string, MoodVariant>> = {
   // （`energy` 只调动画幅度），`--check` 的「两张图不许一样」会当场点名。
   自定义: { mood: "idle", pose: "prone", blink: 0.3, pet: 0, energy: 0.5 },
   连接中: { mood: "thinking", pose: "peek", blink: 0.1, pet: 0, energy: 0.65 },
-  陪伴中: { mood: "idle", pose: "lie", blink: 0.15, pet: 0.3, energy: 0.35 },
-  难过: { mood: "grumpy", pose: "pout", blink: 0.45, pet: 0, energy: 0.2 },
+  陪伴中: { mood: "idle", pose: "peek", blink: 0.15, pet: 0.3, energy: 0.35 },
+  难过: { mood: "grumpy", pose: "lie", blink: 0.45, pet: 0, energy: 0.2 },
 };
 
 const STATUS_MOODS_6: CharacterStatusMood[] = ["连接中", "思考中", "工作中", "提醒", "已处理", "已中断"];
@@ -117,38 +121,38 @@ export const SPRITE_TARGETS: readonly SpriteTarget[] = [
   ...CAT_ROSTER.flatMap((cat) =>
     STATUS_MOODS_6.map((mood): SpriteTarget => ({
       out: `src/renderer/react/assets/characters/${cat.nickname}/status-moods/${mood}.png`,
-      size: 256, crop: "square", nickname: cat.nickname, coat: cat.coat,
+      size: 256, crop: "square", nickname: cat.nickname, coat: cat.coat, form: "girl",
       ...variantFor(mood),
     })),
   ),
   // 25：聊天里的散点情绪图（R-D2：文件名冻结）
   ...Object.keys(MOOD_TO_VARIANT).map((file): SpriteTarget => ({
     out: `src/renderer/react/assets/status-moods/${file}.png`,
-    size: 256, crop: "bust", nickname: ASSISTANT_NICKNAME, coat: "paper" as CoatName,
+    size: 256, crop: "bust", nickname: ASSISTANT_NICKNAME, coat: "paper" as CoatName, form: "girl",
     ...MOOD_TO_VARIANT[file],
   })),
   // 12：任务卡立绘（界面上只占 34px，源图不给上游那 1280² 的白烧）
   ...CAT_ROSTER.map((cat): SpriteTarget => ({
     out: `src/renderer/tast/${cat.nickname}.png`,
-    size: 256, crop: "full", nickname: cat.nickname, coat: cat.coat,
+    size: 256, crop: "full", nickname: cat.nickname, coat: cat.coat, form: "girl",
     ...poseVariant(cat.pose),
   })),
   // 12：方头像（`round` 取景自带 disc 遮罩）
   ...CAT_ROSTER.map((cat): SpriteTarget => ({
     out: `src/renderer/react/avatars/${cat.nickname}.png`,
-    size: 256, crop: "round", nickname: cat.nickname, coat: cat.coat,
+    size: 256, crop: "round", nickname: cat.nickname, coat: cat.coat, form: "girl",
     ...poseVariant(cat.pose),
   })),
   // 4：聊天里的状态浮层
   ...STATUS_FLOAT_FILES.map((file): SpriteTarget => ({
     out: `src/renderer/react/assets/status-float/${file}.png`,
-    size: 256, crop: "square", nickname: ASSISTANT_NICKNAME, coat: "paper" as CoatName,
+    size: 256, crop: "square", nickname: ASSISTANT_NICKNAME, coat: "paper" as CoatName, form: "girl",
     ...variantFor(file),
   })),
   // 4：欢迎页四入口（唯一的 512² 档）
   ...WELCOME_POSES.map(([file, pose]): SpriteTarget => ({
     out: `src/renderer/react/assets/welcome/${file}.png`,
-    size: 512, crop: "full", nickname: ASSISTANT_NICKNAME, coat: "paper" as CoatName,
+    size: 512, crop: "full", nickname: ASSISTANT_NICKNAME, coat: "paper" as CoatName, form: "girl",
     ...poseVariant(pose),
   })),
 ];
@@ -161,6 +165,8 @@ type NonCharacterRow = {
   coat: CoatName;
   pose: PoseName;
   mood: Mood;
+  /** 形态轴（v1.5.0 Task 25）：146 张派生资产翻成 girl；贴纸与图标支路不翻。 */
+  form?: PetForm;
   maxKb?: number;
 };
 
@@ -200,6 +206,7 @@ export const NON_CHARACTER_TARGETS: readonly SpriteTarget[] = NON_CHARACTER_ROWS
   ...poseVariant(row.pose),
   ...row,
   nickname: ASSISTANT_NICKNAME,
+  form: "girl",
 }));
 
 interface CropCriteria {
@@ -220,15 +227,32 @@ interface CropCriteria {
  * 脸下方，拿整只猫居中的 12% 去量它必红——那是尺错，不是图错。带宽仍抓得住真正的失位：
  * 换错取景（拿 `full` 的图去量 `square` 档）覆盖度当场出界，单测里有这条正对照。
  */
-const CROP_CRITERIA: Readonly<Record<CropName, CropCriteria>> = {
-  square: { cov: [0.50, 0.86], off: 0.24 },
-  bust: { cov: [0.46, 0.79], off: 0.24 },
-  full: { cov: [0.24, 0.48], off: 0.16 },
-  round: { cov: [0.41, 0.73], off: 0.20 },
-  // 横幅档（1280×720）：两侧留白是构图（`wide` 的 window 故意越过 viewBox），带宽见下方
-  // `height` 分支。Task 25 生成 `cyrene-welcome.png` 后按实测复核这一行。
-  wide: { cov: [0.12, 0.45], off: 0.12 },
+/**
+ * 按形态分列（口径差⑯）。cat 段是 2026-10-22 的 129 条四足实测（原注释见 git 历史：
+ * square 76 / bust 25 / full 16 / round 12，带比实测两端各放宽 0.04–0.06、质心 3pp）；
+ * girl 段是 2026-10-24 的 146 条实测（`--measure` 输出：square n=83 cov 0.150–0.157、
+ * bust n=30 cov 0.180–0.192、full n=17 cov 0.091–0.118、round n=15 cov 0.136–0.142、
+ * wide n=1 cov 0.058）。猫娘窄高、留白多，覆盖度天然只有猫的三到五成——
+ * 拿猫的带量她必红，那是尺错不是图错。
+ */
+const CROP_CRITERIA_BY_FORM: Readonly<Record<PetForm, Readonly<Record<CropName, CropCriteria>>>> = {
+  cat: {
+    square: { cov: [0.50, 0.86], off: 0.24 },
+    bust: { cov: [0.46, 0.79], off: 0.24 },
+    full: { cov: [0.24, 0.48], off: 0.16 },
+    round: { cov: [0.41, 0.73], off: 0.20 },
+    wide: { cov: [0.12, 0.45], off: 0.12 },
+  },
+  girl: {
+    square: { cov: [0.11, 0.22], off: 0.17 },
+    bust: { cov: [0.13, 0.24], off: 0.22 },
+    full: { cov: [0.05, 0.16], off: 0.25 },
+    round: { cov: [0.09, 0.19], off: 0.17 },
+    wide: { cov: [0.03, 0.12], off: 0.14 },
+  },
 };
+/** 兼容旧读者：`CROP_CRITERIA` 仍指 cat 段。 */
+const CROP_CRITERIA = CROP_CRITERIA_BY_FORM.cat;
 
 /**
  * 像素尺：返回违反的判据描述，空数组即通过。三条都是**现算**，不读磁盘——
@@ -244,8 +268,9 @@ export function checkTarget(r: Raster, t: SpriteTarget): string[] {
   const budget = t.maxKb ?? 60;                              // R-D1：单文件 ≤60 KB（横幅 120）
   if (kb > budget) bad.push(`${kb.toFixed(1)} KB > 预算 ${budget} KB`);
   // 分支只看 `height` 是否存在（横幅带宽不按 crop 扩散），方形档按取景查表。
+  const table = CROP_CRITERIA_BY_FORM[t.form ?? "cat"];
   const { cov: [covMin, covMax], off: maxOff } =
-    t.height === undefined ? CROP_CRITERIA[t.crop] : CROP_CRITERIA.wide;
+    t.height === undefined ? table[t.crop] : table.wide;
   const cov = alphaCoverage(r);
   if (cov < covMin || cov > covMax) bad.push(`覆盖度 ${cov.toFixed(3)} 出界 [${covMin},${covMax}]`);
   const c = inkCentroid(r);

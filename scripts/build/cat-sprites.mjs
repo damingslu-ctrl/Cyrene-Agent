@@ -37,19 +37,29 @@ async function loadManifest() {
 
 function render(m, t) {
   const size = { w: t.size, h: t.height ?? t.size };
-  const mask = m.CAT_CROPS[t.crop].mask === "disc" ? "disc" : "none";
+  const crops = m.cropsForForm(t.form ?? "cat");
+  const mask = crops[t.crop].mask === "disc" ? "disc" : "none";
   const ops = m.buildSpriteOps(
-    { coat: t.coat, pose: t.pose, crop: t.crop, mood: t.mood, blink: t.blink, pet: t.pet, energy: t.energy },
+    { coat: t.coat, pose: t.pose, crop: t.crop, mood: t.mood, blink: t.blink, pet: t.pet, energy: t.energy, form: t.form },
     size,
   );
   const raster = m.renderOps(ops, size.w, size.h, { mask });
   return { raster, png: m.encodePng(raster.width, raster.height, raster.rgba) };
 }
 
+/**
+ * 阈值按形态分列（2026-10-24 实测后记）：猫四足立绘的脸占画布 1/3，0.5% 抓得住；
+ * 猫娘是二头身、bust 取景里脸只占 1/6，同一个 0.5% 会把「不同的画」判成同一张。
+ * girl 取 0.15%——仍是「一像素两像素」量级之上的可分辨线，不是放空。
+ * 台账见 docs/verge/notes/progress.md；改它必须先跑 --measure 并记新数。
+ */
+const MIN_PIXEL_DIFF_BY_FORM = { cat: 0.005, girl: 0.0015 };
+
 function pairDistinct(bad, label, m, a, b) {
   const ratio = m.pixelDiffRatio(a.raster, b.raster);
-  if (ratio < m.MIN_PIXEL_DIFF) {
-    bad.push(`${label}: ${a.t.out} ↔ ${b.t.out} 只差 ${(ratio * 100).toFixed(3)}% 像素（下限 ${m.MIN_PIXEL_DIFF * 100}%）`);
+  const floor = MIN_PIXEL_DIFF_BY_FORM[(a.t.form ?? "cat")] ?? m.MIN_PIXEL_DIFF;
+  if (ratio < floor) {
+    bad.push(`${label}: ${a.t.out} ↔ ${b.t.out} 只差 ${(ratio * 100).toFixed(3)}% 像素（下限 ${floor * 100}%）`);
   }
 }
 
@@ -95,6 +105,32 @@ async function generateStickers() {
   const targets = stickerTargets(m);
   const kb = await writeTargets(m, targets);
   console.log(`wrote ${targets.length} stickers · ${kb.toFixed(1)} KB`);
+}
+
+/**
+ * --measure：不写盘，按 form×crop 分组打印实测（覆盖度/质心/计数）。
+ * 钉取景与覆盖带前必须先跑它——「量不出来不改判据」（spec §13 风险 3）。
+ */
+async function measure() {
+  const m = await loadManifest();
+  const rows = [...m.SPRITE_TARGETS, ...m.NON_CHARACTER_TARGETS].map((t) => ({ t, ...render(m, t) }));
+  const groups = new Map();
+  for (const { t, raster } of rows) {
+    const key = `${t.form ?? "cat"}/${t.crop}`;
+    const cov = m.alphaCoverage(raster);
+    const c = m.inkCentroid(raster);
+    const off = Math.hypot(c.x - raster.width / 2, c.y - raster.height / 2) / raster.width;
+    const g = groups.get(key) ?? { count: 0, covMin: 1, covMax: 0, offMax: 0 };
+    g.count += 1;
+    g.covMin = Math.min(g.covMin, cov);
+    g.covMax = Math.max(g.covMax, cov);
+    g.offMax = Math.max(g.offMax, off);
+    groups.set(key, g);
+  }
+  for (const [key, g] of [...groups.entries()].sort()) {
+    if (g.count === 0) throw new Error(`${key} 组是空的——量不出来不许进下一步`);
+    console.log(`${key}  n=${g.count}  cov ${g.covMin.toFixed(3)}..${g.covMax.toFixed(3)}  off<=${(g.offMax * 100).toFixed(1)}%`);
+  }
 }
 
 async function check() {
@@ -180,6 +216,7 @@ async function main() {
   if (only === "stickers") return generateStickers();
   if (only !== undefined) throw new Error(`未知的 --only=${only}（只支持 icons / stickers）`);
   if (process.argv.includes("--check")) return check();
+  if (process.argv.includes("--measure")) return measure();
   return generate();
 }
 

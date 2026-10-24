@@ -93,3 +93,15 @@
   1. `pickRoll` 的窗口断言不写死端点：总重随昼夜/精力变（100 / 81.25 / 80.125），写死分数区间会在系数改动时变成哑尺——`bucketOf` 用绝对权重现算。
   2. `main.ts` 的 `onCatClick` 改名 `reportTouch`：退役后它不再是「点击」语义，文本锁也据此钉住旧名不许回来。
   3. Task 20 的仲裁（物理 > workStatus > activity）在 Task 14 的 `composeChannels` 里以「body 按活动、gesture 显式优先」实现；P3 的 workStatus 尚未接进 `composeChannels`（当前只走 mood 级联），这笔在 Task 27 的三档端到端里补。
+
+## Task 24–25 — 资产 form 轴、146 张重出、实测重钉
+
+- 落点：`cat-variants.ts`（`SpriteSpec.form`/`GIRL_POSES`/`GIRL_CROPS`/`cropsForForm` + `buildGirlSpriteOps`）、`cat-sprite-manifest.ts`（六处建表点 + 非角色 17 张加 `form: "girl"`；`CROP_CRITERIA` 改按 form 分列）、`cat-sprites.mjs`（`render()` 透传 form、新增 `--measure`、阈值按形态分列）。
+- 实测（2026-10-24 `--measure`）：girl square n=83 cov 0.150–0.157、bust n=30 cov 0.180–0.192、full n=17 cov 0.091–0.118、round n=15 cov 0.136–0.142、wide n=1 cov 0.058。猫娘覆盖度只有四足的三到五成（窄高、留白多），拿猫的带量她必红。
+- 验了：146 张全量重出 1267.3 KB，`check:sprites` all clear；`cat-variants.test.ts` 14 条、`cat-sprite-manifest.test.ts` 10 条；全仓 653 文件 / 6937 条绿。
+- 口径差⑯落地：`CROP_CRITERIA_BY_FORM` 分列（cat 段保留 2026-10-22 出处，girl 段记本期实测）；图标支路 5 件（`assets/mochi-icon.png`/`icon-presets`×2/`tray-icon.ico`/安装器源图）**不翻**，仍是四足。
+- 计划侧修正：
+  1. `MIN_PIXEL_DIFF` 按形态分列（cat 0.5%、girl 0.15%）：猫娘 bust 取景里脸只占画布 1/6，同一个 0.5% 会把不同的画判成同一张。这是「量不出更细的分辨率」的下限，不是放空——girl 段仍有 1.5‰ 的牙。
+  2. 撞车的 mood 改姿态（治愈→happy、温柔→tilt、陪伴中→peek、开心→stretch、学习/担心→prone、难过→lie、激动→peek），五对 0.000%/0.07%/0.12%/0.22%/0.35% 全部拉开到 0.15% 以上。
+  3. 正对照从 full→square 换成 full→bust：girl 的 full（0.091–0.118）与 square（0.150–0.157）重带后已能分辨但不再跨界，full 图量 bust 仍红（0.118 < 0.13）。
+  4. `GIRL_CROPS` 从暂行值放大（bust/square/round 窗口都加宽）：猫娘的头比猫宽，原窗口会把耳朵切出画布。

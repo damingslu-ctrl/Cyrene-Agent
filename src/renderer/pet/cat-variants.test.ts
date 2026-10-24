@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildCatOps, type CatInput } from "./art";
 import { opsBounds } from "./ops";
 import { CAT_COATS } from "../../shared/cat-coats";
-import {
-  CAT_CROPS, CAT_POSES, SPRITE_DROPPED_LAYERS, buildSpriteOps, placeCrop, type CropName, type PoseName,
-} from "./cat-variants";
+import { CAT_CROPS, CAT_POSES, SPRITE_DROPPED_LAYERS, buildSpriteOps, placeCrop, type CropName, type PoseName, GIRL_CROPS, GIRL_POSES, cropsForForm } from "./cat-variants";
 
 const POSES: PoseName[] = ["sit", "lie", "prone", "peek", "stretch", "wash", "yawn", "tilt",
   "sleep", "puff", "pout", "happy"];
@@ -92,5 +90,60 @@ describe("姿态与取景轴", () => {
     // 正对照：加了 sprawl 就必须不等
     const c = buildCatOps({ ...NEUTRAL, pose: { ...NEUTRAL.pose, sprawl: 0.6 } });
     expect(c).not.toEqual(a);
+  });
+});
+
+// ===========================================================================
+// Task 24：资产管线的 form 轴
+// ===========================================================================
+describe("girl 资产轴 (Task 24)", () => {
+  const GIRL_SPEC = (pose: PoseName): SpriteSpec => ({ coat: "ink", pose, crop: "full", form: "girl" });
+  const hash = (ops: unknown) => JSON.stringify(ops);
+
+  it("GIRL_POSES 恰好覆盖 12 个 PoseName（与 CAT_POSES 同一个联合）", () => {
+    expect(Object.keys(GIRL_POSES).sort()).toEqual(Object.keys(CAT_POSES).sort());
+  });
+
+  it("12 个 girl 姿态两两 ops 互异（spec §10 对 12 姿态哈希锁的重钉对象）", () => {
+    const hashes = (Object.keys(GIRL_POSES) as PoseName[]).map((pose) => hash(buildSpriteOps(GIRL_SPEC(pose), { w: 256, h: 256 })));
+    expect(new Set(hashes).size, "有两个人形立绘其实是同一张").toBe(12);
+  });
+
+  it("语义重写三处硬钉：趴→伏案、炸毛→生气、卧≠睡", () => {
+    expect(GIRL_POSES.prone().gesture, "趴→伏案：typeCode 的持片").toBe("typeCode");
+    expect(GIRL_POSES.puff().gesture, "炸毛→发蓬（shiver 的抖）").toBe("shiver");
+    expect(GIRL_POSES.lie().blink).not.toBe(GIRL_POSES.sleep().blink);
+  });
+
+  it("R-D10 两形态同锁：girl 位图无 text 层、无 SPRITE_DROPPED_LAYERS 成员", () => {
+    const dropped = new Set<string>(SPRITE_DROPPED_LAYERS);
+    for (const pose of Object.keys(GIRL_POSES) as PoseName[]) {
+      for (const op of buildSpriteOps(GIRL_SPEC(pose), { w: 256, h: 256 })) {
+        expect(op.kind, `${pose} 出了文本图元`).not.toBe("text");
+        if (op.layer) expect(dropped.has(op.layer), `${pose} 画了 ${op.layer}`).toBe(false);
+      }
+    }
+  });
+
+  it("form 缺省＝cat 且 cat 路径逐 op 不变（R-D2 正对照）", () => {
+    const base: SpriteSpec = { coat: "ink", pose: "sit", crop: "square" };
+    expect(buildSpriteOps({ ...base, form: "cat" }, { w: 256, h: 256 }))
+      .toEqual(buildSpriteOps(base, { w: 256, h: 256 }));
+  });
+
+  it("cropsForForm 两表分列：cat 拿到 CAT_CROPS 本体", () => {
+    expect(cropsForForm("cat")).toBe(CAT_CROPS);
+    expect(cropsForForm("girl")).toBe(GIRL_CROPS);
+  });
+
+  it("girl 五档取景都装得下（暂行 GIRL_CROPS 的最低门槛）", () => {
+    for (const crop of ["full", "bust", "square", "round", "wide"] as const) {
+      const size = crop === "wide" ? { w: 1280, h: 720 } : { w: 256, h: 256 };
+      const b = opsBounds(buildSpriteOps({ coat: "paper", pose: "sit", crop, form: "girl" }, size))!;
+      expect(b.x, crop).toBeGreaterThanOrEqual(-0.5);
+      expect(b.y, crop).toBeGreaterThanOrEqual(-0.5);
+      expect(b.x + b.width, crop).toBeLessThanOrEqual(size.w + 0.5);
+      expect(b.y + b.height, crop).toBeLessThanOrEqual(size.h + 0.5);
+    }
   });
 });
