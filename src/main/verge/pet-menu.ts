@@ -12,6 +12,7 @@ import { Menu, type BrowserWindow, type MenuItemConstructorOptions } from "elect
 import type { PetCommand } from "../../shared/pet-commands";
 import { armQuiet, isQuietNow, quietRemainingMinutes } from "./quiet-clock";
 import type { VergeService } from "./verge-service";
+import { PET_FORMS, SIZE_TIERS, profileFor, type PetForm, type SizeTier } from "../../shared/pet-profile";
 
 export interface MenuItemInit {
   label: string;
@@ -29,6 +30,9 @@ export interface PetMenuInput {
   now: number;
   /** 贴边藏身开关当前值：菜单勾选态来自它。 */
   tuckEnabled: boolean;
+  /** 形态与档位（v1.5.0）：菜单里两组单选。 */
+  form: PetForm;
+  tier: SizeTier;
 }
 
 export interface PetMenuActions {
@@ -41,6 +45,9 @@ export interface PetMenuActions {
   toggleSleep: () => void;
   status: () => void;
   openNetwork: () => void;
+  /** v1.5.0：形态与档位切换（落盘 + 广播在装配层，菜单只管发意图）。 */
+  setForm: (form: PetForm) => void;
+  setTier: (tier: SizeTier) => void;
   hide: () => void;
   quit: () => void;
 }
@@ -72,6 +79,20 @@ export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenu
     { label: "哄它睡觉", enabled: true, ...bind(actions?.toggleSleep) },
     { label: "它现在怎么样", enabled: true, ...bind(actions?.status) },
     { label: "打开网络面板", enabled: true, ...bind(actions?.openNetwork) },
+    // —— v1.5.0：形态两档 + 身形三档。尺寸数字从 profileFor 现算，不写字面量 ——
+    ...PET_FORMS.map((f) => ({
+      label: f === "cat" ? "形象：像素猫" : "形象：猫娘",
+      checked: input.form === f,
+      enabled: !!actions?.setForm,
+      separatorBefore: f === "cat",
+      action: () => actions?.setForm?.(f),
+    })),
+    ...SIZE_TIERS.map((t) => ({
+      label: `身形：${t === "small" ? "小巧" : t === "standard" ? "标准" : "大"} (${profileFor(input.form, t).base.width}×${profileFor(input.form, t).base.height})`,
+      checked: input.tier === t,
+      enabled: !!actions?.setTier,
+      action: () => actions?.setTier?.(t),
+    })),
     { label: "隐藏", enabled: true, separatorBefore: true, ...bind(actions?.hide) },
     { label: "退出", enabled: true, ...bind(actions?.quit) },
   ];
@@ -104,6 +125,11 @@ export interface PetContextMenuInput {
   onPetCommand(command: PetCommand): void;
   /** 「打开网络面板」：唤起主窗并让它切到网络页。 */
   openNetworkPanel(): void;
+  /**
+   * v1.5.0：形态/档位落盘后的唯一收口（与 onQuietStateChange/onTuckStateChange 同构）。
+   * 装配层负责向宠物窗广播 { form, tier } 两个字符串，并让渲染端按新基址重排。
+   */
+  onProfileStateChange(form: PetForm, tier: SizeTier): void;
 }
 
 /**
@@ -115,12 +141,18 @@ export interface PetContextMenuInput {
  * 不能缓存一份在挂载时算好的 items。
  */
 export function attachPetContextMenu(input: PetContextMenuInput): void {
-  const { window, service, quit, onQuietStateChange, onTuckStateChange, onPetCommand, openNetworkPanel } = input;
+  const { window, service, quit, onQuietStateChange, onTuckStateChange, onPetCommand, openNetworkPanel, onProfileStateChange } = input;
   window.webContents.on("context-menu", (_event, _params) => {
     if (window.isDestroyed()) return;
     const now = Date.now();
     const items = buildPetMenuItems(
-      { quietUntil: service.getState().quietUntil, now, tuckEnabled: service.getState().tuckEnabled },
+      {
+        quietUntil: service.getState().quietUntil,
+        now,
+        tuckEnabled: service.getState().tuckEnabled,
+        form: service.getState().form,
+        tier: service.getState().tier,
+      },
       {
         quiet: () => {
           const next = armQuiet({ current: service.getState().quietUntil, now: Date.now() });
@@ -148,6 +180,14 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
         toggleSleep: () => onPetCommand("toggle-sleep"),
         status: () => onPetCommand("status"),
         openNetwork: () => openNetworkPanel(),
+        setForm: (form) => {
+          service.setForm(form);
+          onProfileStateChange(form, service.getState().tier);
+        },
+        setTier: (tier) => {
+          service.setTier(tier);
+          onProfileStateChange(service.getState().form, tier);
+        },
         hide: () => {
           if (!window.isDestroyed()) window.hide();
         },

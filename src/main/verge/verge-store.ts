@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { renameWithRetrySync } from "../storage/rename-with-retry";
+import { PET_FORMS, SIZE_TIERS, type PetForm, type SizeTier } from "../../shared/pet-profile";
 
 export const VERGE_STATE_FILE = path.join("verge", "state.json");
 
@@ -11,12 +12,20 @@ export interface VergeState {
   tuckEnabled: boolean;
   /** 「第一次藏身先解释一句」的凭据，跨重启只说一次。 */
   tuckHinted: boolean;
+  /** 形态（v1.5.0）：存量盘里没有就读默认。 */
+  form: PetForm;
+  /** 身形档位（v1.5.0）：同上。 */
+  tier: SizeTier;
 }
 
+/** 产品默认（R-D1「猫娘为默认」＋ spec §2「猫娘默认大档」）。注意这里是**产品**默认，
+ *  几何兜底 `defaultProfile()` 仍是 cat/standard——两者刻意分层。 */
 export const DEFAULT_VERGE_STATE: VergeState = {
   quietUntil: null,
   tuckEnabled: true,
   tuckHinted: false,
+  form: "girl",
+  tier: "large",
 };
 
 function toState(raw: unknown): VergeState {
@@ -28,6 +37,8 @@ function toState(raw: unknown): VergeState {
       : null,
     tuckEnabled: typeof input.tuckEnabled === "boolean" ? input.tuckEnabled : DEFAULT_VERGE_STATE.tuckEnabled,
     tuckHinted: input.tuckHinted === true,
+    form: PET_FORMS.find((f) => f === input.form) ?? DEFAULT_VERGE_STATE.form,
+    tier: SIZE_TIERS.find((t) => t === input.tier) ?? DEFAULT_VERGE_STATE.tier,
   };
 }
 

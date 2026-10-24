@@ -1,6 +1,7 @@
 import path from "node:path";
 import { readVergeState, writeVergeState, VERGE_STATE_FILE, type VergeState } from "./verge-store";
 import type { VergeSnapshot } from "./types";
+import type { PetForm, SizeTier } from "../../shared/pet-profile";
 
 export interface VergeService {
   getSnapshot(): VergeSnapshot;
@@ -8,6 +9,9 @@ export interface VergeService {
   setQuietUntil(until: number | null): void;
   setTuckEnabled(enabled: boolean): void;
   markTuckHinted(): void;
+  /** v1.5.0：形态与档位（落盘；广播由装配层的 applyProfileState 收口）。 */
+  setForm(form: PetForm): void;
+  setTier(tier: SizeTier): void;
 }
 
 export function createVergeService(userDataDir: string): VergeService {
@@ -25,5 +29,7 @@ export function createVergeService(userDataDir: string): VergeService {
     setQuietUntil: (until) => { state = { ...state, quietUntil: until }; persist(); },
     setTuckEnabled: (enabled) => { state = { ...state, tuckEnabled: enabled }; persist(); },
     markTuckHinted: () => { state = { ...state, tuckHinted: true }; persist(); },
+    setForm: (form) => { state = { ...state, form }; persist(); },
+    setTier: (tier) => { state = { ...state, tier }; persist(); },
   };
 }

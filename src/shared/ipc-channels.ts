@@ -616,5 +616,10 @@ export const IPC = {
   VERGE_PET_POSITION_SETTLED: "verge:pet-position-settled",
   /** main → 主窗：从宠物菜单跳「网络」页。 */
   CYRENE_OPEN_NETWORK_PANEL: "cyrene:open-network-panel",
+  // —— v1.5.0 形态与档位 ——
+  /** 宠物窗 → main：boot 读当前形态/档位（只回 { form, tier } 两个字符串）。 */
+  VERGE_PROFILE_GET: "verge:profile:get",
+  /** main → 宠物窗：形态/档位变更（载荷 { form, tier }，structured-clone 安全）。 */
+  VERGE_PROFILE_UPDATE: "verge:profile:update",
 
 } as const;

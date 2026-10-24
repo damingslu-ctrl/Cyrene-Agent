@@ -43,7 +43,7 @@ function makeService(initial: { quietUntil: number | null; tuckEnabled: boolean 
 } {
   const writes: Array<{ quietUntil: number | null }> = [];
   const tuckWrites: boolean[] = [];
-  let state = { ...initial, tuckHinted: false };
+  let state = { ...initial, tuckHinted: false, form: "cat" as const, tier: "standard" as const };
   return {
     writes,
     tuckWrites,
@@ -58,6 +58,8 @@ function makeService(initial: { quietUntil: number | null; tuckEnabled: boolean 
       state = { ...state, tuckEnabled: enabled };
     }),
     markTuckHinted: vi.fn(),
+    setForm: vi.fn((form: "cat" | "girl") => { state = { ...state, form }; }),
+    setTier: vi.fn((tier: "small" | "standard" | "large") => { state = { ...state, tier }; }),
   } as never;
 }
 
@@ -69,6 +71,7 @@ function rightClick(
   onTuckStateChange = vi.fn(),
   onPetCommand = vi.fn(),
   openNetworkPanel = vi.fn(),
+  onProfileStateChange = vi.fn(),
 ) {
   const win = new BrowserWindow() as unknown as BrowserWindow & { isDestroyed: () => boolean };
   attachPetContextMenu({
@@ -79,6 +82,7 @@ function rightClick(
     onTuckStateChange,
     onPetCommand,
     openNetworkPanel,
+    onProfileStateChange,
   });
   const listener = mocks.contextMenuListeners.at(-1);
   if (!listener) throw new Error("context-menu listener was not registered");
@@ -108,19 +112,44 @@ beforeEach(() => {
 });
 
 describe("attachPetContextMenu", () => {
-  it("右键弹出互动 + 安静 + 窗口动作共 11 项（藏身前有分隔线）", () => {
+  it("右键弹出互动 + 安静 + 形态/身形 + 窗口动作共 16 项（两条分隔线）", () => {
     const { template, popup } = rightClick(makeService({ quietUntil: null, tuckEnabled: true }));
     const labels = template.filter((entry) => entry.type !== "separator").map((entry) => entry.label);
     expect(labels).toEqual([
       "安静半小时", "取消安静", "贴边藏身",
       "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样", "打开网络面板",
+      "形象：像素猫", "形象：猫娘",
+      "身形：小巧 (70×92)", "身形：标准 (82×108)", "身形：大 (100×132)",
       "隐藏", "退出",
     ]);
-    // 分隔线且只有一条，正好卡在「隐藏」前（性格动作 ⊖ 窗口动作的分界，native 托盘同类分法）。
+    // 两条分隔线：形态组之前（性格动作 ⊖ 外观设置）、「隐藏」之前（外观 ⊖ 窗口动作）。
     const hideIndex = template.findIndex((entry) => entry.label === "隐藏");
+    const formIndex = template.findIndex((entry) => entry.label === "形象：像素猫");
     expect(template[hideIndex - 1]).toMatchObject({ type: "separator" });
-    expect(template.filter((entry) => entry.type === "separator")).toHaveLength(1);
+    expect(template[formIndex - 1]).toMatchObject({ type: "separator" });
+    expect(template.filter((entry) => entry.type === "separator")).toHaveLength(2);
     expect(popup?.window).toBeInstanceOf(BrowserWindow);
+  });
+
+  it("菜单点形态/档位：落盘后走 onProfileStateChange 收口（两个字符串）", () => {
+    const service = makeService({ quietUntil: null, tuckEnabled: true });
+    const onProfileStateChange = vi.fn();
+    const { template } = rightClick(service, vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), onProfileStateChange);
+    itemByLabel(template, "形象：猫娘").click?.();
+    expect((service as unknown as { setForm: ReturnType<typeof vi.fn> }).setForm).toHaveBeenCalledWith("girl");
+    // 收口必须拿到**刚写入**的那一对（读 service 的当下值，不是闭包里的旧快照）。
+    const afterForm = onProfileStateChange.mock.calls.at(-1)!;
+    expect(afterForm[0]).toBe("girl");
+    itemByLabel(template, "身形：大 (100×132)").click?.();
+    expect((service as unknown as { setTier: ReturnType<typeof vi.fn> }).setTier).toHaveBeenCalledWith("large");
+    const afterTier = onProfileStateChange.mock.calls.at(-1)!;
+    expect(afterTier[1]).toBe("large");
+    // 前后两次都必须是两个字符串键（structured-clone 安全的形状）
+    for (const call of onProfileStateChange.mock.calls) {
+      expect(call).toHaveLength(2);
+      expect(typeof call[0]).toBe("string");
+      expect(typeof call[1]).toBe("string");
+    }
   });
 
   it("点「安静半小时」写盘半小时（落盘才算数，屏幕上的月牙只是影子）", () => {

@@ -75,7 +75,7 @@ describe("形态几何轴", () => {
     expect(g.hitCenter.dy).toBeLessThan(0);
     expect(Math.abs(g.hitCenter.dy)).toBeGreaterThan(0);
     // 身体轴回窗口中线：猫娘的 dx 必须是 0，猫是 -17（给尾巴让位）
-    expect(g.centerOffset).toEqual({ dx: 0.0, dy: 4.5 });
+    expect(g.centerOffset).toEqual({ dx: 0.0, dy: 79.0 });
   });
 
   it("未知形态名退回猫，不许抛错把猫清空", () => {

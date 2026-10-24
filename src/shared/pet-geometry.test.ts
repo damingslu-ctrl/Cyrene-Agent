@@ -1,7 +1,7 @@
 // src/shared/pet-geometry.test.ts
 import { describe, expect, it } from "vitest";
 import {
-  BUB_W, DEFAULT_PROFILE, EDGE_MARGIN, OPEN_H, OPEN_W, PET_H, PET_W, PIN,
+  BUB_W, defaultProfile, EDGE_MARGIN, OPEN_H, OPEN_W, PET_H, PET_W, PIN,
   clampBoundsToWorkArea, clampRestoreOrigin, computeCatRect, computePetLayout, resolveGrowthDirection, scaleFor,
 } from "./pet-geometry";
 import { profileFor } from "./pet-profile";
@@ -148,7 +148,7 @@ describe("computeCatRect", () => {
 
   it("显式传入 DEFAULT_PROFILE 与不传逐字段相等（Task 3 的兜底等价条）", () => {
     expect(computeCatRect({ pinInWin: { x: 41, y: 39 }, e: 0.4 }))
-      .toEqual(computeCatRect({ pinInWin: { x: 41, y: 39 }, e: 0.4, profile: DEFAULT_PROFILE }));
+      .toEqual(computeCatRect({ pinInWin: { x: 41, y: 39 }, e: 0.4, profile: defaultProfile() }));
   });
 
   it("girl 的命中框更窄更高、整体上移（Task 26 之前只钉方向）", () => {

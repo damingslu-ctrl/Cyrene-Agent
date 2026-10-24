@@ -22,9 +22,11 @@ import {
   unTuckForDrag,
 } from "../../main/verge/tuck-clock";
 import { paintOps } from "./ops";
-import { buildBubbleOps, buildCatOps, bubbleBoxRect, type BubbleBox, type CatInput } from "./art";
+import { buildBubbleOps, bubbleBoxRect, type BubbleBox, type CatInput } from "./art";
+import { buildPetOps } from "./form";
 import { CompanionEngine, type CompanionSnapshot } from "./companion";
 import type { PetCommand } from "../../shared/pet-commands";
+import type { PetForm } from "../../shared/pet-profile";
 
 export interface HitAreaDef {
   name: string;
@@ -63,6 +65,8 @@ const FPS_GATE_SLACK_MS = 2.5;
 export class PixelPetRenderer {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly cat: CatInput;
+  /** 形态：缺省 cat（R-D2）。P1 只读；Task 14 接 setForm。 */
+  private form: PetForm = "cat";
   private zoom = 1;
   /** rAF 句柄。0 = 没在跑；拖窗期 pause() 冻结绘制，DWM 快照逐位不变（Task 5 尖峰）。 */
   private ticker = 0;
@@ -667,7 +671,7 @@ export class PixelPetRenderer {
     const w = (this.opts.canvas.clientWidth || PET_W) / this.zoom;
     const h = (this.opts.canvas.clientHeight || PET_H) / this.zoom;
     this.ctx.clearRect(0, 0, w, h);
-    const ops = buildCatOps(this.cat);
+    const ops = buildPetOps({ ...this.cat, form: this.form });
     // 流量胶囊不再常驻：猫说话时窗口横长，气泡占右半边；读数搬进了侧边栏「网络」页。
     if (this.bubbleExpand > 0 && this.bubbleText) {
       ops.push(...buildBubbleOps({

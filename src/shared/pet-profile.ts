@@ -48,8 +48,15 @@ export const FORM_GEOMETRY: Record<PetForm, FormGeometry> = {
     hitAspect: { width: 2.0, height: 1.85 },
     hitCenter: { dx: 0.0, dy: -1.5 },
   },
+  /**
+   * 猫娘的绘制原点在钉位**下方**：她的墨占 viewBox y 22..100（78 单位高），
+   * large 档 s≈0.752 → 58.7px；窗口 132 高、钉位 y=48，要让 22..100 关于窗口垂直居中，
+   * 脚线得落在 y≈107.4，即钉位再下移 59.4px＝79·s → dy≈+79。
+   * 这一条与四足的 4.5 差得远是**结构性的**：四足的身子只有 1.85u 高且钉位在肚子，
+   * 猫娘是二头身站姿、钉位在脚。改它等于改「她站在哪儿」，Task 26 的尺 #71 会再验一次。
+   */
   girl: {
-    centerOffset: { dx: 0.0, dy: 4.5 },
+    centerOffset: { dx: 0.0, dy: 79.0 },
     hitAspect: { width: 0.86, height: 1.55 },
     hitCenter: { dx: 0.0, dy: -45.75 },
   },

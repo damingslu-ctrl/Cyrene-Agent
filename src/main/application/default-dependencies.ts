@@ -564,6 +564,14 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         // 启动即重排：盘上若躺着未来截止（含重启验收的 now+5000），进程一起来
         // 自醒钟就到位——不依赖下一次 toggle 才排上定时器。
         quietClock.rearm();
+        // 形态/档位的唯一收口（与 applyQuietState 同构）：载荷必须是两个字符串——
+        // profileFor(...) 带 catScale 方法，structured clone 会当场抛。
+        const applyProfileState = (form: "cat" | "girl", tier: "small" | "standard" | "large"): void => {
+          const payload = { form, tier };
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) win.webContents.send(IPC.VERGE_PROFILE_UPDATE, payload);
+          }
+        };
         attachVergePetMenu = (win) => {
           attachPetContextMenu({
             window: win,
@@ -571,6 +579,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
             quit: () => app.quit(),
             onQuietStateChange: applyQuietState,
             onTuckStateChange: (enabled) => onVergeTuckStateChange?.(enabled),
+            onProfileStateChange: (form, tier) => applyProfileState(form, tier),
             onPetCommand: (command) => {
               if (!win.isDestroyed()) win.webContents.send(IPC.VERGE_PET_COMMAND, command);
             },

@@ -65,12 +65,14 @@ export interface PetLayout {
 }
 
 /**
- * 几何兜底：今天的四足标准档。它是**参照系**，不是产品默认（产品默认在 verge-store，
- * 见计划口径差⑰）。定义在这里而不是 pet-profile.ts，是因为 pet-profile 要 import 本文件的常量，
- * 反过来在本文件顶层求值会在两个模块之间绕一个环；函数声明 `profileFor` 只在调用时才读常量，
- * 所以这一行放哪儿都不会 TDZ，但**放在常量之后**是必须的——别往上挪。
+ * 几何兜底：今天的四足标准档。它是**参照系**，不是产品默认（产品默认在 verge-store）。
+ * 必须是函数而不是顶层常量：pet-profile.ts 在它自己的顶层 import 本文件的常量，
+ * 两个模块成环时谁先求值不确定，顶层 `profileFor(...)` 会在另一半的 TC 里读到 undefined
+ * （TDZ 不是理论风险——girl.test 引入第三个 import 顺序时就当场炸过）。
  */
-export const DEFAULT_PROFILE: PetProfile = profileFor("cat", "standard");
+export function defaultProfile(): PetProfile {
+  return profileFor("cat", "standard");
+}
 
 export function scaleFor(e: number): { u: number; s: number } {
   const u = 37.0 + (32.0 - 37.0) * e;
@@ -95,7 +97,7 @@ export function clampBoundsToWorkArea(bounds: Rect, workArea: WorkArea): Rect {
 
 export function computePetLayout(input: PetLayoutInput): PetLayout {
   const { catOrigin, e, be, growLeft, growUp, workArea, peekDx } = input;
-  const profile = input.profile ?? DEFAULT_PROFILE;
+  const profile = input.profile ?? defaultProfile();
   const { base, pin: profilePin, panel, bubbleWidth } = profile;
 
   const usingPanel = e > 0.001;
@@ -193,7 +195,7 @@ export interface CatRectInput {
  * 猫娘：中心 (pin.x, pin.y − 45.75s)、宽 0.86u、高 1.55u（Task 26 的尺 #71 实测反钉）。
  */
 export function computeCatRect(input: CatRectInput): Rect {
-  const profile = input.profile ?? DEFAULT_PROFILE;
+  const profile = input.profile ?? defaultProfile();
   const g = formGeometry(profile.form);
   const { u, s } = profile.catScale(input.e);
   const cx = input.pinInWin.x + g.hitCenter.dx * s;
@@ -226,7 +228,7 @@ function resolveAxis(current: boolean, fitsTrue: boolean, fitsFalse: boolean, fa
 
 export function resolveGrowthDirection(input: GrowthInput): { growUp: boolean; growLeft: boolean } {
   const { catOrigin, workArea, current } = input;
-  const profile = input.profile ?? DEFAULT_PROFILE;
+  const profile = input.profile ?? defaultProfile();
   const baseW = profile.base.width;
   const baseH = profile.base.height;
   const panelH = profile.panel.height;

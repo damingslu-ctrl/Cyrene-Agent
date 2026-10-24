@@ -1099,6 +1099,14 @@ const vergeApi = {
   },
   /** 渲染端 → main：第一次藏身开口说过 TUCK_HINT，落盘 tuckHinted，不再重说。 */
   tuckHinted: () => ipcRenderer.send(IPC.VERGE_TUCK_HINTED),
+  /** 宠物窗 → main：boot 读形态/档位（只回 { form, tier } 两个字符串）。 */
+  getProfile: () => ipcRenderer.invoke(IPC.VERGE_PROFILE_GET) as Promise<{ form: "cat" | "girl"; tier: "small" | "standard" | "large" }>,
+  /** main → 宠物窗：形态/档位变更（载荷 { form, tier }，结构化克隆安全）。 */
+  onProfileUpdate: (callback: (payload: { form: "cat" | "girl"; tier: "small" | "standard" | "large" }) => void) => {
+    const listener = (_e: unknown, payload: { form: "cat" | "girl"; tier: "small" | "standard" | "large" }) => callback(payload);
+    ipcRenderer.on(IPC.VERGE_PROFILE_UPDATE, listener);
+    return () => ipcRenderer.off(IPC.VERGE_PROFILE_UPDATE, listener);
+  },
 
   // —— 网络页（主窗侧边栏）与桌宠互动 ——
   network: {

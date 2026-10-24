@@ -10,7 +10,11 @@ export type PetLayer =
   | "bib" | "bib_ao" | "paws" | "paws_up"
   | "eyes" | "nose" | "mouth" | "blush"
   | "zzz" | "quiet_mark" | "heart" | "stars" | "badge"
-  | "capsule" | "unread" | "bubble";
+  | "capsule" | "unread" | "bubble"
+  // v1.5.0：猫娘专用层（只在 form === "girl" 出现；四足永不产出它们，art-golden 的
+  // 逐字节相等是这条的间接证明）。顺序与 GIRL_LAYERS 一致。
+  | "legs" | "dress" | "arms" | "hands" | "collar"
+  | "hair_back" | "hair_front" | "ahoge" | "brows" | "tear";
 
 export type DrawOp =
   | { kind: "fillPath"; fill: string; points: Point2[]; layer?: PetLayer }
