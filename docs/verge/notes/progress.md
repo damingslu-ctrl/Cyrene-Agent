@@ -116,3 +116,17 @@
   2. 旧断言「猫娘命中框整体上移」被实测推翻（改为在钉位下方）；这是实测纠正暂行值，不是尺让步。
   3. 设置页走 `settings:get/set-pet-profile` 两条新通道（不比 `verge:profile:get` 的 `["pet"]` 白名单），写路径复用装配层收口。
 - 推后：CDP 版 #71 的真窗跑一次（Task 28 发版前）；#74 的 `verify:work-status` 与 `VERGE_PET_REVEAL_ASK` 第五通道仍缺。
+
+## Task 28 — 全量门、发版
+
+- 全量门（2026-10-24）：`CI=true npx vitest run` → **654 文件 / 6943 条通过（1 skipped）**；
+  `check:main`/`check:preload`/`check:renderer`/`check:brand`/`check:roster` 全绿；
+  `palette:check`/`palette:migrate:check` 无漂移；`check:sprites` → 198 targets all clear。
+- 构建：`pnpm` 因引擎版本不匹配跑不了（已知环境限制），改为逐条跑
+  `desktop-typescript.mjs main|preload` + `npx vite build`，全部成功；
+  `npx electron-builder --win` 出 **Mochi-Setup-1.5.0.exe（289,432,850 B）**；
+  `verify:installer --expect-version 1.5.0` → verified（mpv v0.41.0 / mingit 2.55.0 / screenshot helper 2,337,688 B）。
+- `npm run release` 不可用：`commit-and-tag-version` **不在 node_modules**（`release:dry` 报
+  「不是内部或外部命令」）。按「不新增依赖」的约束，版本与 CHANGELOG 手工升级（1.4.0 → 1.5.0）。
+  这条记进台账：下一期要么补装该 devDependency，要么把 release 脚本换成仓库内实现。
+- 未推送、未建 GitHub Release：本轮只做到「本地构建 + 安装包校验通过」。
