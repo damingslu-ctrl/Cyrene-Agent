@@ -238,3 +238,15 @@
   晕：剩余 3169.3ms / 记号层 16 笔 / 站定 `idle` / 结束归 0；
   坐：activity `rest`、clip `sit`。
 - 截图与报告：`D:/cyrene-p5-accept/shots-girl5/`（`girl-baseline` / `girl-lean-left` / `girl-notice` / `girl-head-tap` / `girl-feet-tap` / `girl-dizzy` / `girl-rest` + `pet-girl-report.json`）。
+
+### 发布（2026-10-25）
+
+- 推送：`master` → fork（`5e8b2b12..ca5e3059`）、tag `v1.7.0` → fork（只推 fork，未推 upstream）。
+- CI：`gh workflow run package-windows.yml --repo damingslu-ctrl/Cyrene-Agent --ref v1.7.0`
+  → run [40193658507](https://github.com/damingslu-ctrl/Cyrene-Agent/actions/runs/40193658507)
+  `package` 6m49s 全绿（含 `Verify installer artifacts`）。
+- Release：[v1.7.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.7.0)，
+  资产 `Mochi-Setup-1.7.0.exe` **296,256,156 B**，
+  sha256 `231624311181af73cc592bba26e9fd40791215828c34853a162720150d218399`（较 v1.6.0 +10,998 B）。
+- 收口复验：在**最终构建**（`dist/cli` 报 v1.7.0）上重跑 `pet-girl-cdp.mjs`，18/18 `all clear`。
+- 发版后工作树只剩 `.cache/*.png` 这一批量测贴图（已加进 ignore）；`dist/` 不入库。
