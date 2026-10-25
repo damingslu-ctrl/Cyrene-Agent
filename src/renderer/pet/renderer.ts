@@ -88,7 +88,7 @@ import {
 import { LEAVES_MS, buildLeafOps, createLeaves, leavesAlive, type LeafState } from "./girl-leaves";
 import { PRINT_GAP_MS, buildPrintOps, spawnPrint, stepPrints, type PawMark } from "./girl-prints";
 import { FOLLOW_MS, followArrived, followNeedsStep, followTargetX } from "./girl-follow";
-import { ACHIEVEMENT_MS, buildAchievementOps } from "./girl-achievements";
+import { ACHIEVEMENT_MS, EMPTY_STATS, buildAchievementOps } from "./girl-achievements";
 import { buildDreamOps } from "./girl-dream";
 import { buildRpsOps, buildRpsPlayerOps, RPS_MS, type RpsState } from "./girl-rps";
 import {
@@ -161,6 +161,61 @@ import {
   scareBird,
   type BirdState,
 } from "./girl-bird";
+import {
+  SCRATCH_MS,
+  buildScratchOps,
+  boostScratch,
+  createScratch,
+  scratchAlive,
+  scratchAtPoint,
+  scratchMarks,
+  scratchPhase,
+  scratchRectFor,
+  type ScratchState,
+} from "./girl-scratch";
+import {
+  BELL_MS,
+  bellAlive,
+  bellAt,
+  bellAtPoint,
+  bellRadius,
+  buildBellOps,
+  createBell,
+  ringBell,
+  type BellState,
+} from "./girl-bell";
+import {
+  MOUSE_MS,
+  buildMouseOps,
+  catchMouse,
+  createMouse,
+  mouseAlive,
+  mouseAt,
+  mouseAtPoint,
+  mouseRadius,
+  type MouseState,
+} from "./girl-mouse";
+import {
+  MOLE_MS,
+  buildMoleOps,
+  createMole,
+  moleAlive,
+  moleAtPoint,
+  moleHeadAt,
+  whackMole,
+  type MoleState,
+} from "./girl-mole";
+import {
+  HUG_MS,
+  buildHugOps,
+  createHug,
+  hugAlive,
+  hugAtPoint,
+  tapHug,
+  type HugState,
+} from "./girl-hug";
+import { RAIN_MS, buildRainOps, createRain, rainAlive, rainAmount, type RainState } from "./girl-rain";
+import { buildPurrOps } from "./girl-purr";
 import { rpsFromCommand } from "../../shared/pet-rps";
 import { GESTURE_COMMANDS, accessoryFromCommand, type PetCommand } from "../../shared/pet-commands";
 import type { WorkStatusTier } from "../../shared/work-status-types";
@@ -341,6 +396,13 @@ export class PixelPetRenderer {
   private catnip: CatnipState | null = null;
   private plane: PlaneState | null = null;
   private bird: BirdState | null = null;
+  private scratch: ScratchState | null = null;
+  private bell: BellState | null = null;
+  private mouse: MouseState | null = null;
+  private mole: MoleState | null = null;
+  private hug: HugState | null = null;
+  /** 雨天是氛围层：不占独演玩具槽，别的玩具开演也照下不误。 */
+  private rain: RainState | null = null;
   /** 走路留下的爪印（屏幕坐标，窗口搬走时留在桌布上）。 */
   private prints: PawMark[] = [];
   private lastPrintAt = 0;
@@ -613,6 +675,27 @@ export class PixelPetRenderer {
       else this.startBird(now);
       return;
     }
+    if (command === "scratch" || command === "bell" || command === "mouse"
+      || command === "mole" || command === "hug" || command === "rain") {
+      const now = performance.now();
+      if (command === "scratch") this.startScratch(now);
+      else if (command === "bell") this.startBell(now);
+      else if (command === "mouse") this.startMouse(now);
+      else if (command === "mole") this.startMole(now);
+      else if (command === "hug") this.startHug(now);
+      else this.startRain(now);
+      return;
+    }
+    if (command === "quests" || command === "diary") {
+      // 两本账都由引擎开口：渲染端只负责把气泡画出来。
+      const now = performance.now();
+      const said = command === "quests" ? this.engine?.questsReport(now) : this.engine?.diaryReport(now);
+      if (said) {
+        this.engine?.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
     if (command === "growth") {
       // 成长记录只是说一句：数值口径全在引擎里，渲染端不另算一份。
       const now = performance.now();
@@ -724,6 +807,14 @@ export class PixelPetRenderer {
     catnip: { x: number; y: number; phase: string; puffs: number; left: number } | null;
     plane: { x: number; y: number; caught: boolean; left: number } | null;
     bird: { x: number; y: number; pose: string; clickable: boolean; left: number } | null;
+    /** v1.12.0：猫抓板/铃铛球/发条鼠/打地鼠/抱抱/雨天与呼噜的读数口（与点击同一拍坐标）。 */
+    scratch: { x: number; y: number; w: number; h: number; marks: number; phase: string; left: number } | null;
+    bell: { x: number; y: number; r: number; rings: number; left: number } | null;
+    mouse: { x: number; y: number; r: number; caught: boolean; left: number } | null;
+    mole: { x: number; y: number; r: number; hits: number; activeSlot: number | null; left: number } | null;
+    hug: { x: number; y: number; taps: number; left: number } | null;
+    rain: { amount: number; left: number } | null;
+    purrLeft: number;
     prints: number;
     follow: { left: number; lastTargetX: number; arrived: boolean } | null;
     achievements: string[];
@@ -826,6 +917,76 @@ export class PixelPetRenderer {
         };
       }
     }
+    let scratchDiag: {
+      x: number; y: number; w: number; h: number; marks: number; phase: string; left: number;
+    } | null = null;
+    if (this.scratch) {
+      const phase = scratchPhase(this.scratch, now);
+      if (phase !== "gone") {
+        const rect = scratchRectFor(this.scratch, now, face, floorY);
+        scratchDiag = {
+          x: rect.x + rect.w / 2,
+          y: rect.y + rect.h / 2,
+          w: rect.w,
+          h: rect.h,
+          marks: scratchMarks(this.scratch, now),
+          phase,
+          left: Math.max(0, SCRATCH_MS - (now - this.scratch.bornAt)),
+        };
+      }
+    }
+    let bellDiag: { x: number; y: number; r: number; rings: number; left: number } | null = null;
+    if (this.bell && bellAlive(this.bell, now)) {
+      const pos = bellAt(this.bell, now, face, floorY);
+      bellDiag = {
+        x: pos.x,
+        y: pos.y,
+        r: bellRadius(face),
+        rings: this.bell.rings,
+        left: Math.max(0, BELL_MS - (now - this.bell.bornAt)),
+      };
+    }
+    let mouseDiag: { x: number; y: number; r: number; caught: boolean; left: number } | null = null;
+    if (this.mouse && mouseAlive(this.mouse, now)) {
+      const pos = mouseAt(this.mouse, now, face, floorY);
+      mouseDiag = {
+        x: pos.x,
+        y: pos.y,
+        r: mouseRadius(face),
+        caught: this.mouse.caughtAt >= 0,
+        left: Math.max(0, MOUSE_MS - (now - this.mouse.bornAt)),
+      };
+    }
+    let moleDiag: {
+      x: number; y: number; r: number; hits: number; activeSlot: number | null; left: number;
+    } | null = null;
+    if (this.mole && moleAlive(this.mole, now)) {
+      const head = moleHeadAt(this.mole, now, face, floorY);
+      moleDiag = {
+        x: head ? head.x : face.cx,
+        y: head ? head.y : floorY - 3,
+        r: head ? head.r : Math.max(4.2, Math.min(7, face.w * 0.12)),
+        hits: this.mole.hits,
+        activeSlot: head ? head.active.slot : null,
+        left: Math.max(0, MOLE_MS - (now - this.mole.bornAt)),
+      };
+    }
+    let hugDiag: { x: number; y: number; taps: number; left: number } | null = null;
+    if (this.hug && hugAlive(this.hug, now)) {
+      hugDiag = {
+        x: face.cx,
+        y: face.bottom + face.h * 0.3,
+        taps: this.hug.taps,
+        left: Math.max(0, HUG_MS - (now - this.hug.bornAt)),
+      };
+    }
+    let rainDiag: { amount: number; left: number } | null = null;
+    if (this.rain && rainAlive(this.rain, now)) {
+      rainDiag = {
+        amount: rainAmount(this.rain, now),
+        left: Math.max(0, RAIN_MS - (now - this.rain.bornAt)),
+      };
+    }
     return {
       presence: { ...this.presencePose },
       noticeAgeMs: this.noticeAt < 0 ? -1 : now - this.noticeAt,
@@ -891,6 +1052,13 @@ export class PixelPetRenderer {
       catnip: catnipDiag,
       plane: planeDiag,
       bird: birdDiag,
+      scratch: scratchDiag,
+      bell: bellDiag,
+      mouse: mouseDiag,
+      mole: moleDiag,
+      hug: hugDiag,
+      rain: rainDiag,
+      purrLeft: snapshot?.purrLeft ?? 0,
       prints: this.prints.length,
       follow: this.follow
         ? { left: Math.max(0, this.follow.until - now), lastTargetX: this.follow.lastTargetX, arrived: this.follow.arrived }
@@ -899,10 +1067,7 @@ export class PixelPetRenderer {
       achievement: snapshot?.achievementId && snapshot.achievementLeft > 0
         ? { id: snapshot.achievementId, left: snapshot.achievementLeft }
         : null,
-      stats: snapshot?.stats ?? {
-        pats: 0, catches: 0, wand: 0, bubbles: 0, pounces: 0,
-        boxes: 0, lasers: 0, brushes: 0, catnips: 0, planes: 0,
-      },
+      stats: snapshot?.stats ?? { ...EMPTY_STATS },
       sleepSince: this.sleepSince,
       nightCheckInMs: Math.max(0, NIGHT_NUDGE_POLL_MS - (now - this.lastNightNudgeCheckAt)),
     };
@@ -1213,6 +1378,12 @@ export class PixelPetRenderer {
       random: Math.random(),
     });
     if (!target) return false;
+    // 气泡开着时 canRoam 恒 false（引擎不许边说话边走），stepWalk 下一帧就会把 walk
+    // 掰回 idle——菜单点了像没反应。散步是用户明确下的令：先把话收掉再迈步。
+    this.engine.dismissBubble(now);
+    this.bubbleActive = false;
+    this.bubbleExpand = 0;
+    this.bubbleBox = null;
     this.engine.roamTo(target);
     if (!this.paused) this.draw(now);
     return true;
@@ -1245,6 +1416,11 @@ export class PixelPetRenderer {
     this.catnip = null;
     this.plane = null;
     this.bird = null;
+    this.scratch = null;
+    this.bell = null;
+    this.mouse = null;
+    this.mole = null;
+    this.hug = null;
   }
 
   /** 本地闸门（安静/拖拽/睡着/被抛）；引擎另有更细的闸（眩晕/活动中）。 */
@@ -1342,6 +1518,60 @@ export class PixelPetRenderer {
     if (this.engine && !this.engine.birdVisit(now)) return false;
     this.clearSoloToys();
     this.bird = createBird(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startScratch(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.scratchStart(now)) return false;
+    this.clearSoloToys();
+    this.scratch = createScratch(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startBell(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.bellStart(now)) return false;
+    this.clearSoloToys();
+    this.bell = createBell(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startMouse(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.mouseStart(now)) return false;
+    this.clearSoloToys();
+    this.mouse = createMouse(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startMole(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.moleStart(now)) return false;
+    this.clearSoloToys();
+    this.mole = createMole(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startHug(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.hugStart(now)) return false;
+    this.clearSoloToys();
+    this.hug = createHug(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startRain(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.rainStart(now)) return false;
+    // 雨是背景：不 clearSoloToys，她可以一边玩一边听雨。
+    this.rain = createRain(now);
     if (!this.paused) this.draw(now);
     return true;
   }
@@ -1527,6 +1757,93 @@ export class PixelPetRenderer {
     return buildBirdOps(this.bird, now, face);
   }
 
+  private tickScratch(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.scratch) {
+      this.scratch = null;
+      return [];
+    }
+    if (!scratchAlive(this.scratch, now)) {
+      this.scratch = null;
+      // 整整一轮走完才算磨过爪；被别的玩具顶掉的已在 clearSoloToys 里静默作废。
+      this.engine?.scratchEnd(now, true);
+      return [];
+    }
+    return buildScratchOps(this.scratch, now, face, this.cat.center.y);
+  }
+
+  private tickBell(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.bell) {
+      this.bell = null;
+      return [];
+    }
+    if (!bellAlive(this.bell, now)) {
+      const rings = this.bell.rings;
+      this.bell = null;
+      this.engine?.bellEnd(now, rings);
+      return [];
+    }
+    return buildBellOps(this.bell, now, face, this.cat.center.y);
+  }
+
+  private tickMouse(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.mouse) {
+      this.mouse = null;
+      return [];
+    }
+    if (!mouseAlive(this.mouse, now)) {
+      const missed = this.mouse.caughtAt < 0;
+      this.mouse = null;
+      if (missed) this.engine?.mouseMiss(now);
+      return [];
+    }
+    return buildMouseOps(this.mouse, now, face, this.cat.center.y);
+  }
+
+  private tickMole(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.mole) {
+      this.mole = null;
+      return [];
+    }
+    if (!moleAlive(this.mole, now)) {
+      const hits = this.mole.hits;
+      this.mole = null;
+      this.engine?.moleEnd(now, hits);
+      return [];
+    }
+    return buildMoleOps(this.mole, now, face, this.cat.center.y);
+  }
+
+  private tickHug(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.hug) {
+      this.hug = null;
+      return [];
+    }
+    if (!hugAlive(this.hug, now)) {
+      this.hug = null;
+      return [];
+    }
+    return buildHugOps(this.hug, now, face, this.cat.center.y);
+  }
+
+  /** 雨是氛围层：跟独演玩具各走各的表，最长 RAIN_MS。 */
+  private tickRain(now: number): DrawOp[] {
+    if (!this.rain) return [];
+    if (this.form !== "girl" || !rainAlive(this.rain, now)) {
+      this.rain = null;
+      return [];
+    }
+    const zoom = this.zoom || 1;
+    const w = (this.opts.canvas.clientWidth || this.profile.base.width) / zoom;
+    const h = (this.opts.canvas.clientHeight || this.profile.base.height) / zoom;
+    return buildRainOps(this.rain, now, w, h);
+  }
+
+  /** 呼噜的计时在引擎里：这里只按剩余毫秒画声纹，不另存一份。 */
+  private tickPurr(now: number, face: ReturnType<typeof girlFaceBox>, snapshot: CompanionSnapshot | null): DrawOp[] {
+    if (this.form !== "girl") return [];
+    return buildPurrOps(face, snapshot?.purrLeft ?? 0, now);
+  }
+
   private tickPrints(now: number, snapshot: CompanionSnapshot | null): DrawOp[] {
     stepPrints(this.prints, now);
     if (this.form !== "girl" || !this.catOrigin) {
@@ -1559,6 +1876,12 @@ export class PixelPetRenderer {
       ...this.tickCatnip(now, face),
       ...this.tickPlane(now, face),
       ...this.tickBird(now, face),
+      ...this.tickScratch(now, face),
+      ...this.tickBell(now, face),
+      ...this.tickMouse(now, face),
+      ...this.tickMole(now, face),
+      ...this.tickHug(now, face),
+      ...this.tickPurr(now, face, snapshot),
       // 纸箱压在所有道具之上：她钻进去时箱身必须挡住整个人。
       ...this.tickBox(now, face),
     ];
@@ -1567,6 +1890,8 @@ export class PixelPetRenderer {
       const age = ACHIEVEMENT_MS - snapshot.achievementLeft;
       ops.push(...buildAchievementOps(snapshot.achievementId, age, face, now / 1000));
     }
+    // 雨丝盖在最上面：这是「此刻窗外」的氛围层，只输给气泡。
+    ops.push(...this.tickRain(now));
     return ops;
   }
 
@@ -1947,6 +2272,9 @@ export class PixelPetRenderer {
       || this.rps !== null || this.prints.length > 0
       || this.box !== null || this.laser !== null || this.brush !== null
       || this.catnip !== null || this.plane !== null || this.bird !== null
+      || this.scratch !== null || this.bell !== null || this.mouse !== null
+      || this.mole !== null || this.hug !== null || this.rain !== null
+      || (snapshot !== null && snapshot.purrLeft > 0)
       || (snapshot !== null && snapshot.achievementLeft > 0)
     );
     if (moving || toyMoving) this.fps = FPS_HOVER;
@@ -2177,6 +2505,12 @@ export class PixelPetRenderer {
     this.catnip = null;
     this.plane = null;
     this.bird = null;
+    this.scratch = null;
+    this.bell = null;
+    this.mouse = null;
+    this.mole = null;
+    this.hug = null;
+    this.rain = null;
     this.prints = [];
     this.lastPrintAt = 0;
     this.follow = null;
@@ -2261,6 +2595,15 @@ export class PixelPetRenderer {
     // 尤其纸箱整只盖住脚边的球，球却先被点中过一次（v1.11 真窗探针 O1 抓到）。
     const tapFacing = this.cat.facing ?? 1;
     const tapFloorY = this.cat.center.y;
+    // 抱抱时她整个人都张着手：点上身＝再抱紧一点，这一下不算摸头。
+    if (this.hug && hugAtPoint(tapFace, dx, dy)) {
+      if (tapHug(this.hug, now)) {
+        this.engine?.hugTap(now, this.hug.taps);
+        this.engine?.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
     if (this.box) {
       const hit = boxAt(this.box, now, tapFace, tapFloorY, dx, dy);
       if (hit === "head" && this.engine?.boxCatch(now)) {
@@ -2318,6 +2661,39 @@ export class PixelPetRenderer {
         if (!this.paused) this.draw(now);
         return;
       }
+    }
+    // v1.12.0 地面四件（抓板/铃铛/发条鼠/地鼠）画在毛线球与爪印之上：命中先于球。
+    if (this.scratch && scratchAtPoint(this.scratch, now, tapFace, tapFloorY, dx, dy)) {
+      if (boostScratch(this.scratch, now)) {
+        this.engine?.scratchBoost(now);
+        this.engine?.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
+    if (this.bell && bellAtPoint(this.bell, now, tapFace, tapFloorY, dx, dy)) {
+      if (ringBell(this.bell, now)) {
+        this.engine?.bellRing(now, this.bell.rings);
+        this.engine?.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
+    if (this.mouse && mouseAtPoint(this.mouse, now, tapFace, tapFloorY, dx, dy)) {
+      if (catchMouse(this.mouse, now, tapFace, tapFloorY)) {
+        this.engine?.mouseCatch(now);
+        this.engine?.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
+    if (this.mole && moleAtPoint(this.mole, now, tapFace, tapFloorY, dx, dy)) {
+      if (whackMole(this.mole, now, tapFace, tapFloorY)) {
+        this.engine?.moleWhack(now, this.mole.hits);
+        this.engine?.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
     }
     // 伴飞小虫先截：它绕着脸飞，落在「头」分区里；不先拦，捉虫会被读成摸头。
     if (this.critter && critterAt(this.critter, now, tapFace, dx, dy)) {

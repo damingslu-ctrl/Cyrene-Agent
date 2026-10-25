@@ -1,5 +1,5 @@
 /**
- * 十枚小成就。条件全部来自已经存在的计数器：不新增一套成长线，只在她做到某件事的
+ * 十八枚小成就。条件全部来自已经存在的计数器：不新增一套成长线，只在她做到某件事的
  * 时候把这一刻记住（跨重启）。徽章只在解锁当场弹出 3.6 秒，之后收进存档。
  */
 import { ACCENT, GREEN, PAPER, ROSE, withAlpha } from "../../shared/pet-tokens";
@@ -11,6 +11,8 @@ export const ACHIEVEMENT_MS = 3_600;
 export const ACHIEVEMENT_IDS = [
   "first-catch", "first-wand", "bubble-lover", "seven-days", "heart-bond",
   "box-hide", "laser-catch", "brush-lover", "catnip-high", "plane-catch",
+  "scratch-art", "bell-fan", "windup-hunter", "mole-master",
+  "hug-lover", "purr-engine", "rain-listener", "daily-perfect",
 ] as const;
 
 export type AchievementId = (typeof ACHIEVEMENT_IDS)[number];
@@ -36,11 +38,28 @@ export interface PetStats {
   catnips: number;
   /** 接住纸飞机的次数。 */
   planes: number;
+  /** 完整磨完一轮猫抓板的次数。 */
+  scratches: number;
+  /** 铃铛球被摇响的次数（一轮最多记五声）。 */
+  bells: number;
+  /** 抓住发条老鼠的次数。 */
+  mice: number;
+  /** 打地鼠拍中的次数。 */
+  moles: number;
+  /** 抱抱的次数。 */
+  hugs: number;
+  /** 呼噜开场的次数（一连串摸头只记一次）。 */
+  purrs: number;
+  /** 发起雨天的次数。 */
+  rains: number;
+  /** 完成每日小目标的件数（跨天累计）。 */
+  quests: number;
 }
 
 export const EMPTY_STATS: PetStats = {
   pats: 0, catches: 0, wand: 0, bubbles: 0, pounces: 0,
   boxes: 0, lasers: 0, brushes: 0, catnips: 0, planes: 0,
+  scratches: 0, bells: 0, mice: 0, moles: 0, hugs: 0, purrs: 0, rains: 0, quests: 0,
 };
 
 export interface AchievementDef {
@@ -60,6 +79,14 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: "brush-lover", title: "梳毛上瘾", line: "再梳一下下…就一下" },
   { id: "catnip-high", title: "薄荷微醺", line: "地板…好像在转圈" },
   { id: "plane-catch", title: "空中小偷", line: "纸飞机？归我了！" },
+  { id: "scratch-art", title: "抓板艺术家", line: "这块板…以后归我的爪子了" },
+  { id: "bell-fan", title: "铃铛收藏家", line: "叮铃叮铃…听不腻" },
+  { id: "windup-hunter", title: "发条猎手", line: "咔哒咔哒的，追得到！" },
+  { id: "mole-master", title: "打地鼠高手", line: "冒头一个，我拍一个" },
+  { id: "hug-lover", title: "抱抱成瘾", line: "再抱一会儿…就一会儿" },
+  { id: "purr-engine", title: "呼噜发动机", line: "呼噜…停不下来了" },
+  { id: "rain-listener", title: "听雨的人", line: "下雨天，最适合一起发呆" },
+  { id: "daily-perfect", title: "今日全勤", line: "今天的三件事，都做完啦" },
 ];
 
 export function achievementById(id: string): AchievementDef | null {
@@ -85,6 +112,14 @@ export function newlyUnlocked(
   if (stats.brushes >= 10) hits.push("brush-lover");
   if (stats.catnips >= 2) hits.push("catnip-high");
   if (stats.planes >= 2) hits.push("plane-catch");
+  if (stats.scratches >= 3) hits.push("scratch-art");
+  if (stats.bells >= 3) hits.push("bell-fan");
+  if (stats.mice >= 2) hits.push("windup-hunter");
+  if (stats.moles >= 5) hits.push("mole-master");
+  if (stats.hugs >= 3) hits.push("hug-lover");
+  if (stats.purrs >= 3) hits.push("purr-engine");
+  if (stats.rains >= 2) hits.push("rain-listener");
+  if (stats.quests >= 3) hits.push("daily-perfect");
   return hits.filter((id) => !done.has(id));
 }
 
@@ -108,6 +143,14 @@ export function parseStats(raw: unknown): PetStats {
     brushes: count(obj.brushes),
     catnips: count(obj.catnips),
     planes: count(obj.planes),
+    scratches: count(obj.scratches),
+    bells: count(obj.bells),
+    mice: count(obj.mice),
+    moles: count(obj.moles),
+    hugs: count(obj.hugs),
+    purrs: count(obj.purrs),
+    rains: count(obj.rains),
+    quests: count(obj.quests),
   };
 }
 
@@ -149,8 +192,10 @@ export function buildAchievementOps(
   // 奖牌
   ops.push({ kind: "fillEllipse", fill: withAlpha(PAPER, 0.94 * alpha), cx: x, cy: y - r * 0.15, rx: r * 1.35, ry: r * 1.35 });
   const tone = id === "heart-bond" || id === "brush-lover" || id === "laser-catch"
+    || id === "scratch-art" || id === "hug-lover" || id === "purr-engine"
     ? ROSE
-    : id === "seven-days" || id === "catnip-high"
+    : id === "seven-days" || id === "catnip-high" || id === "rain-listener"
+      || id === "daily-perfect" || id === "mole-master"
       ? GREEN
       : ACCENT;
   ops.push({ kind: "fillEllipse", fill: withAlpha(tone, 0.96 * alpha), cx: x, cy: y - r * 0.15, rx: r * 1.05, ry: r * 1.05 });

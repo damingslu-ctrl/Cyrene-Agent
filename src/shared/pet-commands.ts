@@ -15,6 +15,8 @@ export type PetCommand =
   | "wand" | "bubbles" | "leaves" | "follow"
   /** 猫娘专属玩具 V：纸箱 / 激光笔 / 梳毛 / 猫薄荷 / 纸飞机 / 小鸟来访 / 成长记录。 */
   | "box" | "laser" | "brush" | "catnip" | "plane" | "bird" | "growth"
+  /** 猫娘专属互动 VI：猫抓板 / 铃铛球 / 发条鼠 / 打地鼠 / 抱抱 / 雨天 / 今日小目标 / 猫咪日记。 */
+  | "scratch" | "bell" | "mouse" | "mole" | "hug" | "rain" | "quests" | "diary"
   | RpsCommand
   | AccessoryCommand;
 
@@ -29,6 +31,7 @@ const BASE_COMMANDS: ReadonlyArray<PetCommand> = [
   "summon-critter", "wander",
   "wand", "bubbles", "leaves", "follow",
   "box", "laser", "brush", "catnip", "plane", "bird", "growth",
+  "scratch", "bell", "mouse", "mole", "hug", "rain", "quests", "diary",
 ];
 
 export const PET_COMMANDS: ReadonlyArray<PetCommand> = [

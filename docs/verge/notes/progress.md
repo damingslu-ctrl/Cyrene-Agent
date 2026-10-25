@@ -535,3 +535,51 @@
   `isDraft:false`、`isPrerelease:false`、Latest；资产 `Mochi-Setup-1.11.0.exe`
   **296,285,308 B** / `sha256 0b7f1e493bb6d81fc8c44b6aa6edd5a60b2e73026f7ad7db15700422364d1407`
   （与 GitHub digest 一致），上传完成 `2026-10-25T18:14:29Z`，公开于 `18:18:38Z`。
+
+### v1.12.0：抓板、铃铛球、发条鼠、打地鼠、抱抱、呼噜、小目标、日记与雨天（2026-10-26）
+
+- 八个纯模块：`girl-scratch` / `girl-bell` / `girl-mouse` / `girl-mole` / `girl-hug` /
+  `girl-purr` / `girl-quests` / `girl-diary` / `girl-rain`；状态只有「出生时刻 + 种子 +
+  互动笔数」，所有位置、阶段、命中框由 `now` 解析。
+- 共享命令 +8（`scratch` / `bell` / `mouse` / `mole` / `hug` / `rain` / `quests` /
+  `diary`）；右键菜单从 32 项扩到 40 项，四足形态统一置灰。
+- 引擎新增八个计数入口与 getter（`scratchStart/Boost/End`、`bellStart/Ring`、
+  `mouseStart/Catch/Miss`、`moleStart/Whack`、`hugStart/Tap`、`rainStart`、
+  `questsReport`、`diaryReport`）；`PetStats` 十项 → 十八项。
+- 八枚新成就（成就页 18 枚）：`scratch-art`(3) / `bell-fan`(3) / `windup-hunter`(2) /
+  `mole-master`(5) / `hug-lover`(3) / `purr-engine`(3) / `rain-listener`(2) /
+  `daily-perfect`(3 件小事)。
+- 成长记录改三行：`{档} · 第 N 天` / `徽章 n/18` / `互动 N 次`；分母读成就表。
+
+### 口径与裁决（v1.12.0）
+
+- **睡着不接地面玩具是设计**：探针第二次放发条鼠正赶上夜里小睡，引擎静默拒收。
+  一度改成「点玩具先叫醒」，撞上两条既有设计锁后撤回；探针改在每段玩具前用
+  `toggle-sleep` 摆正前置条件（`awakeForPlay`），并把「叫不醒」本身记为检查。
+- **一轮一拍账**：抓板整轮 +1；铃铛每声 +1（封顶 5）；发条鼠抓住 +1、跑掉自嘲不计数；
+  地鼠每只 +1、同一只不重复；抱抱开场 +1、点她只叠心不加账；雨天发起 +1。
+- **呼噜按串计数**：旧呼噜散尽再起才 +1，连着的摸头只把终点往后推，防止一串摸头刷穿成就。
+- **小目标「做过就记」**：不设惩罚、不要求连续；跨天清零前把当天笔数收进日记，
+  没笔数的日子不写空条目；`daily-perfect` 看 `quests >= 3`（跨天累计）。
+- **散步先收气泡**：气泡占着 `canRoam`，`roamTo` 下一帧会被掰回 `idle`；现在先
+  `dismissBubble` 再迈步，菜单不再「点了没反应」。
+
+### 量测与门（v1.12.0）
+
+- `CI=true npx vitest run` → **703 文件 / 7299 通过（1 skipped）**，无红，240.11s
+  （v1.11.0 基线 692 / 7242，+11 文件 +57 条；新增全在 11 个新文件里，改过的文件净增 0）。
+- 新增 11 个测试文件 **57 条**：scratch 5 / bell 4 / mouse 4 / mole 5 / hug 4 / purr 3 /
+  quests 4 / diary 5 / rain 4 / companion-girl-v112 9 / renderer-girl-v112 10。
+- 十一道门全绿（brand/main/preload/renderer/sprites/roster/palette/palette-migrate/
+  plugin-schema/adapted-models/plugin-sdk）；`build:main` 776 文件 / `build:preload` /
+  `build:renderer` 全绿。
+- 真窗 **190/190 `all clear`**：抓板 `marks 0→1`、整轮 `scratches=1`；铃铛冷却吞掉
+  第二下、第三下 `rings=2`、`bells=2`；发条鼠 `mice=1`、第二轮 `sleepSince=-1` 真开局、
+  跑掉「溜走了…」不计数；地鼠 `moles=1`、同只不重复；抱抱 `hugs=1→2`、
+  `purrLeft>2500`；雨天 20s 与铃铛/抱抱并行；小目标四行 `2/3`；日记两行；
+  成长记录 `心意相通 · 第 1 天\n徽章 3/18\n互动 18 次` 与成就 3 / 十八项和 18 对齐；
+  散步 `905 → 882.9(walk) → 830`（75px）。十八项计数 reload 后原样回来。
+- 截图与报告：`D:/cyrene-p5-accept/shots-girl-v112/`（46 张 + `pet-girl-report.json`）。
+- 未覆盖：抓板八道痕/铃铛五声/抱抱五颗心的封顶边界、地鼠六个冒头窗逐毫秒、
+  小目标全清专属句、日记七条封顶与跨天清零的真窗复演、雨天 26 颗雨滴逐颗轨迹；
+  `awakeForPlay` 本轮未触发（整场醒着）。

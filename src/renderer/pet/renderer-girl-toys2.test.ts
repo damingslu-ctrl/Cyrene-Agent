@@ -73,6 +73,7 @@ const home = { x: 900, y: 400 };
 const ZERO_STATS = {
   pats: 0, catches: 0, wand: 0, bubbles: 0, pounces: 0,
   boxes: 0, lasers: 0, brushes: 0, catnips: 0, planes: 0,
+  scratches: 0, bells: 0, mice: 0, moles: 0, hugs: 0, purrs: 0, rains: 0, quests: 0,
 };
 
 async function makeGirl() {
@@ -314,12 +315,12 @@ describe("v1.11.0 玩具互斥 / 成长记录 / 闸门", () => {
   it("成长记录：档位/天数/徽章/互动次数一行不差", async () => {
     const { r, clock } = await makeGirl();
     r.handleCommand("growth");
-    expect(r.getCompanionSnapshot()?.bubble?.text).toBe("亲近 · 第 1 天\n徽章 0/10 · 互动 0 次");
+    expect(r.getCompanionSnapshot()?.bubble?.text).toBe("亲近 · 第 1 天\n徽章 0/18\n互动 0 次");
     r.handleCommand("wand");
     const d = r.getGirlDiagnostics(clock.ms);
     r.tapAt(d.wand!.x, d.wand!.y, 20, clock.ms);
     r.handleCommand("growth");
-    expect(r.getCompanionSnapshot()?.bubble?.text).toBe("亲近 · 第 1 天\n徽章 1/10 · 互动 1 次");
+    expect(r.getCompanionSnapshot()?.bubble?.text).toBe("亲近 · 第 1 天\n徽章 1/18\n互动 1 次");
     r.dispose();
   });
 

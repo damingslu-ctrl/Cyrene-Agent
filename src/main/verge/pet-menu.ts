@@ -85,6 +85,15 @@ export interface PetMenuActions {
   plane: () => void;
   bird: () => void;
   growth: () => void;
+  /** v1.12.0 互动 VI：抓板 / 铃铛球 / 发条鼠 / 打地鼠 / 抱抱 / 雨天 / 今日小目标 / 猫咪日记。 */
+  scratch: () => void;
+  bell: () => void;
+  mouse: () => void;
+  mole: () => void;
+  hug: () => void;
+  rain: () => void;
+  quests: () => void;
+  diary: () => void;
   openNetwork: () => void;
   /** v1.5.0：形态与档位切换（落盘 + 广播在装配层，菜单只管发意图）。 */
   setForm: (form: PetForm) => void;
@@ -152,7 +161,16 @@ export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenu
     { label: "闻闻猫薄荷", enabled: input.form === "girl" && !!actions?.catnip, ...bind(actions?.catnip) },
     { label: "放架纸飞机", enabled: input.form === "girl" && !!actions?.plane, ...bind(actions?.plane) },
     { label: "请小鸟来做客", enabled: input.form === "girl" && !!actions?.bird, ...bind(actions?.bird) },
+    // —— v1.12.0 互动 VI：四件地面玩具 + 抱抱 + 雨天，外加两本账 ——
+    { label: "磨磨爪子", enabled: input.form === "girl" && !!actions?.scratch, ...bind(actions?.scratch) },
+    { label: "滚个铃铛球", enabled: input.form === "girl" && !!actions?.bell, ...bind(actions?.bell) },
+    { label: "放只发条鼠", enabled: input.form === "girl" && !!actions?.mouse, ...bind(actions?.mouse) },
+    { label: "来局打地鼠", enabled: input.form === "girl" && !!actions?.mole, ...bind(actions?.mole) },
+    { label: "抱一下", enabled: input.form === "girl" && !!actions?.hug, ...bind(actions?.hug) },
+    { label: "下场小雨", enabled: input.form === "girl" && !!actions?.rain, ...bind(actions?.rain) },
     { label: "成长记录", enabled: input.form === "girl" && !!actions?.growth, ...bind(actions?.growth) },
+    { label: "今日小目标", enabled: input.form === "girl" && !!actions?.quests, ...bind(actions?.quests) },
+    { label: "猫咪日记", enabled: input.form === "girl" && !!actions?.diary, ...bind(actions?.diary) },
     // 「让它做个动作」：只演一次手势，不改数值。放在互动组末尾，与喂/玩区分开。
     {
       label: "让它做个动作",
@@ -280,6 +298,14 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
         plane: () => onPetCommand("plane"),
         bird: () => onPetCommand("bird"),
         growth: () => onPetCommand("growth"),
+        scratch: () => onPetCommand("scratch"),
+        bell: () => onPetCommand("bell"),
+        mouse: () => onPetCommand("mouse"),
+        mole: () => onPetCommand("mole"),
+        hug: () => onPetCommand("hug"),
+        rain: () => onPetCommand("rain"),
+        quests: () => onPetCommand("quests"),
+        diary: () => onPetCommand("diary"),
         openNetwork: () => openNetworkPanel(),
         setForm: (form) => {
           service.setForm(form);

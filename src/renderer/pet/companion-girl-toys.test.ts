@@ -135,6 +135,7 @@ describe("玩具箱的闸门与存档", () => {
     expect(engine.getSnapshot().stats).toEqual({
       pats: 0, catches: 0, wand: 0, bubbles: 0, pounces: 0,
       boxes: 0, lasers: 0, brushes: 0, catnips: 0, planes: 0,
+      scratches: 0, bells: 0, mice: 0, moles: 0, hugs: 0, purrs: 0, rains: 0, quests: 0,
     });
   });
 
@@ -162,6 +163,7 @@ describe("玩具箱的闸门与存档", () => {
     expect(again.getSnapshot().stats).toEqual({
       pats: 0, catches: 1, wand: 1, bubbles: 0, pounces: 0,
       boxes: 0, lasers: 0, brushes: 0, catnips: 0, planes: 0,
+      scratches: 0, bells: 0, mice: 0, moles: 0, hugs: 0, purrs: 0, rains: 0, quests: 1,
     });
     expect(again.getSnapshot().achievements).toEqual(["first-wand", "first-catch"]);
     expect(again.getSnapshot().achievementId).toBeNull();

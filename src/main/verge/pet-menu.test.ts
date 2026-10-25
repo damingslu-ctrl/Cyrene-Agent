@@ -33,7 +33,9 @@ describe("buildPetMenuItems", () => {
       "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样",
       "给她打扮", "放只小虫逗逗她", "陪她散散步",
       "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来", "猜拳",
-      "纸箱躲猫猫", "照个红点点", "给她梳梳毛", "闻闻猫薄荷", "放架纸飞机", "请小鸟来做客", "成长记录",
+      "纸箱躲猫猫", "照个红点点", "给她梳梳毛", "闻闻猫薄荷", "放架纸飞机", "请小鸟来做客",
+      "磨磨爪子", "滚个铃铛球", "放只发条鼠", "来局打地鼠", "抱一下", "下场小雨",
+      "成长记录", "今日小目标", "猫咪日记",
       "让它做个动作",
       "打开网络面板",
       "形象：像素猫", "形象：猫娘",
@@ -50,17 +52,23 @@ describe("buildPetMenuItems", () => {
       accessory: () => {}, critter: () => {}, wander: () => {},
       wand: () => {}, bubbles: () => {}, leaves: () => {}, follow: () => {}, rps: () => {},
       box: () => {}, laser: () => {}, brush: () => {}, catnip: () => {}, plane: () => {}, bird: () => {}, growth: () => {},
+      scratch: () => {}, bell: () => {}, mouse: () => {}, mole: () => {}, hug: () => {}, rain: () => {},
+      quests: () => {}, diary: () => {},
     });
     const girlItems = buildPetMenuItems(input({ form: "girl" }), {
       accessory: () => {}, critter: () => {}, wander: () => {},
       wand: () => {}, bubbles: () => {}, leaves: () => {}, follow: () => {}, rps: () => {},
       box: () => {}, laser: () => {}, brush: () => {}, catnip: () => {}, plane: () => {}, bird: () => {}, growth: () => {},
+      scratch: () => {}, bell: () => {}, mouse: () => {}, mole: () => {}, hug: () => {}, rain: () => {},
+      quests: () => {}, diary: () => {},
     });
     const find = (items: typeof catItems, label: string) => items.find((i) => i.label === label)!;
     for (const label of [
       "给她打扮", "放只小虫逗逗她", "陪她散散步",
       "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来", "猜拳",
-      "纸箱躲猫猫", "照个红点点", "给她梳梳毛", "闻闻猫薄荷", "放架纸飞机", "请小鸟来做客", "成长记录",
+      "纸箱躲猫猫", "照个红点点", "给她梳梳毛", "闻闻猫薄荷", "放架纸飞机", "请小鸟来做客",
+      "磨磨爪子", "滚个铃铛球", "放只发条鼠", "来局打地鼠", "抱一下", "下场小雨",
+      "成长记录", "今日小目标", "猫咪日记",
     ]) {
       expect(find(catItems, label).enabled, label).toBe(false);
       expect(find(girlItems, label).enabled, label).toBe(true);
@@ -88,13 +96,23 @@ describe("buildPetMenuItems", () => {
       plane: () => sent.push("plane"),
       bird: () => sent.push("bird"),
       growth: () => sent.push("growth"),
+      scratch: () => sent.push("scratch"),
+      bell: () => sent.push("bell"),
+      mouse: () => sent.push("mouse"),
+      mole: () => sent.push("mole"),
+      hug: () => sent.push("hug"),
+      rain: () => sent.push("rain"),
+      quests: () => sent.push("quests"),
+      diary: () => sent.push("diary"),
     });
     for (const child of items.find((i) => i.label === "给她打扮")!.submenu!) child.action?.();
     items.find((i) => i.label === "放只小虫逗逗她")!.action?.();
     items.find((i) => i.label === "陪她散散步")!.action?.();
     for (const label of [
       "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来",
-      "纸箱躲猫猫", "照个红点点", "给她梳梳毛", "闻闻猫薄荷", "放架纸飞机", "请小鸟来做客", "成长记录",
+      "纸箱躲猫猫", "照个红点点", "给她梳梳毛", "闻闻猫薄荷", "放架纸飞机", "请小鸟来做客",
+      "磨磨爪子", "滚个铃铛球", "放只发条鼠", "来局打地鼠", "抱一下", "下场小雨",
+      "成长记录", "今日小目标", "猫咪日记",
     ]) {
       items.find((i) => i.label === label)!.action?.();
     }
@@ -104,7 +122,9 @@ describe("buildPetMenuItems", () => {
       "accessory:scarf", "accessory:flower", "accessory:star",
       "summon-critter", "wander",
       "wand", "bubbles", "leaves", "follow",
-      "box", "laser", "brush", "catnip", "plane", "bird", "growth",
+      "box", "laser", "brush", "catnip", "plane", "bird",
+      "scratch", "bell", "mouse", "mole", "hug", "rain",
+      "growth", "quests", "diary",
       "rps:rock", "rps:scissors", "rps:paper",
     ]);
   });

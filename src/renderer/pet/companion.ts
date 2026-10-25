@@ -32,8 +32,28 @@ import {
   type PetStats,
 } from "./girl-achievements";
 import { judgeRps, RPS_SIGNS, type RpsOutcome, type RpsSign } from "../../shared/pet-rps";
+import { PURR_MS } from "./girl-purr";
+import { RAIN_MS } from "./girl-rain";
+import {
+  bumpQuest as bumpQuestCount,
+  createQuests,
+  parseQuests,
+  questReport,
+  questsAllDone,
+  type QuestId,
+  type QuestState,
+} from "./girl-quests";
+import {
+  composeDiaryLine,
+  diaryReport as buildDiaryReport,
+  parseDiary,
+  pushDiary,
+  type DiaryEntry,
+} from "./girl-diary";
 
 export const BUBBLE_TTL_MS = 6_000;
+/** 排在气泡后面的那句话最多等这么久；等太久就作废，免得半小时后突然冒出来。 */
+const PENDING_LINE_MS = 30_000;
 /** 漫游速度（DIP/s）：比 native 的缓动藏身快一档，但仍是「散步」不是「瞬移」。 */
 export const WALK_SPEED = 55;
 /** 到位减速的半径：最后一段按比例降速，避免贴脸急停。 */
@@ -154,6 +174,14 @@ export interface CompanionSnapshot {
   achievementId: AchievementId | null;
   /** 累计互动统计：成就判据，也供探针核对。 */
   stats: PetStats;
+  /** 呼噜剩余毫秒（0＝没在呼噜）；渲染端据此画胸口声纹。 */
+  purrLeft: number;
+  /** 雨天剩余毫秒（0＝没下雨）；雨滴由渲染端解析绘制。 */
+  rainLeft: number;
+  /** 今日小目标的计数（跨天重置）。 */
+  quests: QuestState;
+  /** 最近七天的日记（新的在末尾）。 */
+  diary: DiaryEntry[];
 }
 
 export interface CompanionOptions {
@@ -263,6 +291,26 @@ export const GIRL_PLANE_LINES = ["接住啦！", "这架归我了"];
 export const GIRL_PLANE_MISS_LINES = ["飞走了…", "纸飞机不等我"];
 export const GIRL_BIRD_LINES = ["有小鸟！嘘——", "快看，窗边"];
 export const GIRL_BIRD_AWAY_LINES = ["飞走了…", "下次还来吗"];
+export const GIRL_SCRATCH_START_LINES = ["猫抓板？我试试", "这块板…是给我的吗"];
+export const GIRL_SCRATCH_LINES = ["沙沙沙…舒服", "爪子磨好了，亮亮的"];
+export const GIRL_BELL_START_LINES = ["铃铛球！叮铃叮铃", "这个声音…再响一次嘛"];
+export const GIRL_BELL_LINES = ["叮铃！", "球、球别跑"];
+export const GIRL_MOUSE_START_LINES = ["发条老鼠？咔哒咔哒的", "我来追它！"];
+export const GIRL_MOUSE_LINES = ["抓到了！", "看你往哪儿跑"];
+export const GIRL_MOUSE_MISS_LINES = ["溜走了…", "老鼠太快了啦"];
+export const GIRL_MOLE_START_LINES = ["打地鼠！我来", "冒头就拍下去"];
+export const GIRL_MOLE_LINES = ["啪！", "又冒一个！"];
+export const GIRL_MOLE_END_LINES = ["手都拍热了", "还、还想玩"];
+export const GIRL_HUG_START_LINES = ["要抱抱吗？来吧", "抱紧一点也没关系"];
+export const GIRL_HUG_LINES = ["这样…好暖", "再抱一会儿嘛"];
+export const GIRL_RAIN_START_LINES = ["下雨了…一起听", "雨声，很舒服"];
+/** 每日小目标做完一件时的回执：三个目标各一句自己的。 */
+export const GIRL_QUEST_DONE_LINES: Record<QuestId, readonly string[]> = {
+  pat: ["今天的摸摸，够了", "被摸饱了…"],
+  play: ["今天玩够本啦", "陪你玩，最开心"],
+  feed: ["小鱼干任务完成", "吃得饱饱的"],
+};
+export const GIRL_QUESTS_DONE_LINES = ["今天的目标全清啦", "三件事，都做到了"];
 
 /** 猫娘词表的唯一出口：测试按表锁文案，别在用例里另抄一份。 */
 export const GIRL_LINES = {
@@ -374,6 +422,10 @@ export function dayPartOf(hour: number): DayPart {
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 const clamp = (value: number, lo: number, hi: number) => Math.min(Math.max(value, lo), Math.max(hi, lo));
+const dayCount = (value: unknown): number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.min(100_000, Math.floor(value))
+    : 0;
 
 /**
  * 离线结算：饱腹掉、精力按休息回。亲密度不因离线下降——回来发现猫记仇不是陪伴。
@@ -691,6 +743,16 @@ export class CompanionEngine {
   private achievements: AchievementId[] = [];
   private achievementUntil = 0;
   private achievementId: AchievementId | null = null;
+  /** 呼噜的终点：摸顺/抱抱/梳完时续上，渲染端只看剩余毫秒。 */
+  private purrUntil = 0;
+  private rainUntil = 0;
+  /** 今日小目标与当天笔数；跨天时把前一天收成一条日记。 */
+  private quests: QuestState = createQuests();
+  private questDay = "";
+  private dayCounts = { pats: 0, plays: 0, feeds: 0, toys: 0 };
+  private diary: DiaryEntry[] = [];
+  /** 完成小目标的那句话排在当前气泡后面说：不许顶掉刚摸头/刚玩完的那句反应。 */
+  private pendingLine: { text: string; priority: number; at: number } | null = null;
 
   constructor(options: CompanionOptions = {}) {
     this.random = options.random ?? Math.random;
@@ -707,6 +769,8 @@ export class CompanionEngine {
     this.loadBond();
     // 读档后的亲密度就是「当前档」：不把旧存档误报成刚升级。
     this.lastBondTier = bondTierOf(this.vitals.affinity);
+    // 跨天收笔：昨天的小目标与日记在这里结清，今天从零开始。
+    this.ensureDay(this.wallNow());
   }
 
   // —— 查询面 ——
@@ -727,6 +791,9 @@ export class CompanionEngine {
     this.startleUntil = 0;
     this.pounceCooldownUntil = 0;
     this.bondUpUntil = 0;
+    this.purrUntil = 0;
+    this.rainUntil = 0;
+    this.pendingLine = null;
   }
 
   /**
@@ -833,6 +900,9 @@ export class CompanionEngine {
     this.headCombo = continued ? Math.min(PAT_COMBO_MAX, this.headCombo + 1) : 1;
     this.headComboAt = now;
     this.stats.pats += 1;
+    this.dayCounts.pats += 1;
+    // 摸顺了才呼噜：第一下只是「诶？」，第二下起才是真的被摸舒服了。
+    if (this.headCombo >= 2) this.startPurr(now);
     this.rewardAffinity(0.04 + (this.headCombo >= PAT_COMBO_MAX ? 0.02 : 0), now);
     this.happyUntil = now + 3_000 + (this.headCombo - 1) * 250;
     const gesture = this.headCombo >= 4 ? "hop" : this.headCombo >= 3 ? "shiver" : "coverFace";
@@ -844,6 +914,7 @@ export class CompanionEngine {
       ? GIRL_PAT_COMBO_LINES[Math.min(GIRL_PAT_COMBO_LINES.length - 1, this.headCombo - 2)]
       : null;
     this.say(comboLine ?? this.pickLine([...GIRL_HEAD_LINES]), 1, now, true);
+    this.noteQuest("pat", now);
   }
 
   /** 睡着被碰：立刻醒、缩一下、说一句被吓到的话；这一拍不走摸头/挠脚的反馈。 */
@@ -980,6 +1051,8 @@ export class CompanionEngine {
     this.idleUntil = now + IDLE_MIN_MS;
     this.say(this.pickLine([...GIRL_CRITTER_LINES]), 1, now, true);
     this.refreshAchievements(now);
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
     return true;
   }
 
@@ -1002,6 +1075,8 @@ export class CompanionEngine {
     this.startAction("play", now, 900);
     this.say(this.pickLine([...GIRL_WAND_LINES]), 1, now, true);
     this.refreshAchievements(now);
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
     return true;
   }
 
@@ -1110,6 +1185,8 @@ export class CompanionEngine {
     this.gestureUntil = now + gestureClip("hop").ms;
     this.say(this.pickLine([...GIRL_BOX_CATCH_LINES]), 1, now, true);
     this.refreshAchievements(now);
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
     return true;
   }
 
@@ -1136,6 +1213,8 @@ export class CompanionEngine {
     this.gestureUntil = now + gestureClip("hop").ms;
     this.say(this.pickLine([...GIRL_LASER_LINES]), 1, now, true);
     this.refreshAchievements(now);
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
     return true;
   }
 
@@ -1164,8 +1243,11 @@ export class CompanionEngine {
     this.saveBond();
     this.rewardAffinity(0.02, now);
     this.happyUntil = Math.max(this.happyUntil, now + 2_400);
+    this.startPurr(now);
     this.say(this.pickLine([...GIRL_BRUSH_LINES]), 1, now, true);
     this.refreshAchievements(now);
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
     return true;
   }
 
@@ -1195,6 +1277,8 @@ export class CompanionEngine {
     this.happyUntil = Math.max(this.happyUntil, now + 2_600);
     this.say(this.pickLine([...GIRL_CATNIP_LINES]), 1, now, true);
     this.refreshAchievements(now);
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
     return true;
   }
 
@@ -1221,6 +1305,8 @@ export class CompanionEngine {
     this.gestureUntil = now + gestureClip("hop").ms;
     this.say(this.pickLine([...GIRL_PLANE_LINES]), 1, now, true);
     this.refreshAchievements(now);
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
     return true;
   }
 
@@ -1238,18 +1324,194 @@ export class CompanionEngine {
     return this.say(this.pickLine([...GIRL_BIRD_AWAY_LINES]), 1, now, true);
   }
 
+  /** 猫抓板：一整轮磨爪；点板面由渲染端转成 boost，不另计数。 */
+  scratchStart(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 3_000);
+    this.ambientGesture = "peek";
+    this.gestureUntil = now + gestureClip("peek").ms;
+    this.say(this.pickLine([...GIRL_SCRATCH_START_LINES]), 1, now, true);
+    return true;
+  }
+
+  scratchBoost(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 900);
+    this.rewardAffinity(0.004, now);
+    return true;
+  }
+
+  scratchEnd(now = this.now(), completed = true): boolean {
+    if (this.form !== "girl" || this.quiet || !completed) return false;
+    this.stats.scratches += 1;
+    this.saveBond();
+    this.rewardAffinity(0.02, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 2_400);
+    this.say(this.pickLine([...GIRL_SCRATCH_LINES]), 1, now, true);
+    this.refreshAchievements(now);
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
+    return true;
+  }
+
+  bellStart(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 2_600);
+    this.ambientGesture = "peek";
+    this.gestureUntil = now + gestureClip("peek").ms;
+    this.say(this.pickLine([...GIRL_BELL_START_LINES]), 1, now, true);
+    return true;
+  }
+
+  /** 摇响一次：每声都计数（一轮上限在渲染端的铃铛模块里），只在第 1/3 声说话。 */
+  bellRing(now = this.now(), rings = 1): boolean {
+    if (!this.toyReady(now)) return false;
+    this.stats.bells += 1;
+    this.saveBond();
+    this.happyUntil = Math.max(this.happyUntil, now + 1_000);
+    this.rewardAffinity(0.004, now);
+    if (rings === 1 || rings === 3) this.say(this.pickLine([...GIRL_BELL_LINES]), 1, now, true);
+    this.refreshAchievements(now);
+    return true;
+  }
+
+  /** 一轮结束：摇过至少一声才算「玩过」，顺手记进今日目标。 */
+  bellEnd(now = this.now(), rings = 0): boolean {
+    if (this.form !== "girl" || this.quiet || rings <= 0) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 1_200);
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
+    return true;
+  }
+
+  mouseStart(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 3_000);
+    this.ambientGesture = "peek";
+    this.gestureUntil = now + gestureClip("peek").ms;
+    this.say(this.pickLine([...GIRL_MOUSE_START_LINES]), 1, now, true);
+    return true;
+  }
+
+  mouseCatch(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.stats.mice += 1;
+    this.saveBond();
+    this.rewardAffinity(0.018, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 2_400);
+    this.ambientGesture = "hop";
+    this.gestureUntil = now + gestureClip("hop").ms;
+    this.say(this.pickLine([...GIRL_MOUSE_LINES]), 1, now, true);
+    this.refreshAchievements(now);
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
+    return true;
+  }
+
+  /** 发条老鼠自己跑完了还没抓住：一句自嘲，不计数。 */
+  mouseMiss(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
+    this.lastUserAt = now;
+    return this.say(this.pickLine([...GIRL_MOUSE_MISS_LINES]), 1, now, true);
+  }
+
+  moleStart(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 3_000);
+    this.ambientGesture = "peek";
+    this.gestureUntil = now + gestureClip("peek").ms;
+    this.say(this.pickLine([...GIRL_MOLE_START_LINES]), 1, now, true);
+    return true;
+  }
+
+  /** 拍中一只：每只都计数，隔一只说一声「啪」；整轮结束再记陪玩。 */
+  moleWhack(now = this.now(), hits = 1): boolean {
+    if (!this.toyReady(now)) return false;
+    this.stats.moles += 1;
+    this.saveBond();
+    this.rewardAffinity(0.006, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 1_200);
+    this.ambientGesture = "hop";
+    this.gestureUntil = now + gestureClip("hop").ms;
+    if (hits % 2 === 1) this.say(this.pickLine([...GIRL_MOLE_LINES]), 1, now, true);
+    this.refreshAchievements(now);
+    return true;
+  }
+
+  moleEnd(now = this.now(), hits = 0): boolean {
+    if (this.form !== "girl" || this.quiet || hits <= 0) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 1_400);
+    this.say(this.pickLine([...GIRL_MOLE_END_LINES]), 1, now, true);
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
+    return true;
+  }
+
+  hugStart(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.stats.hugs += 1;
+    this.saveBond();
+    this.startPurr(now);
+    this.happyUntil = Math.max(this.happyUntil, now + 3_000);
+    this.ambientGesture = "clap";
+    this.gestureUntil = now + gestureClip("clap").ms;
+    this.say(this.pickLine([...GIRL_HUG_START_LINES]), 1, now, true);
+    this.refreshAchievements(now);
+    return true;
+  }
+
+  /** 再抱紧一点：涨一点亲密度、把呼噜续上；点得越多胸口的心越多（渲染端）。 */
+  hugTap(now = this.now(), taps = 1): boolean {
+    if (!this.toyReady(now)) return false;
+    this.rewardAffinity(0.008, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 1_400);
+    this.startPurr(now);
+    if (taps === 1 || taps === 3) this.say(this.pickLine([...GIRL_HUG_LINES]), 1, now, true);
+    return true;
+  }
+
+  rainStart(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.stats.rains += 1;
+    this.rainUntil = now + RAIN_MS;
+    this.saveBond();
+    this.happyUntil = Math.max(this.happyUntil, now + 4_000);
+    this.ambientGesture = "peek";
+    this.gestureUntil = now + gestureClip("peek").ms;
+    this.say(this.pickLine([...GIRL_RAIN_START_LINES]), 1, now, true);
+    this.refreshAchievements(now);
+    return true;
+  }
+
+  /** 今日小目标：四行账（汇总 + 三件小事）。 */
+  questsReport(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    this.ensureDay(this.wallNow());
+    this.lastUserAt = now;
+    return this.say(questReport(this.quests).join("\n"), 2, now, true);
+  }
+
+  /** 猫咪日记：标题 + 今天 + 最近两条旧账。 */
+  diaryReport(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    this.ensureDay(this.wallNow());
+    this.lastUserAt = now;
+    const today: DiaryEntry = { day: this.questDay, text: composeDiaryLine(this.dayCounts) };
+    return this.say(buildDiaryReport(this.diary, today).join("\n"), 2, now, true);
+  }
+
   /**
    * 成长记录：不说数值细节，只说「认识多久、什么档、拿了几枚」。
-   * 两行以内——气泡内宽只有 78px（v1.8 尺 #62），N/10 保证一位数变化不折行。
+   * 三行——气泡内宽只有 78px（v1.8 尺 #62），徽章与互动数各占一行，不折行。
    */
   growthReport(now = this.now()): boolean {
     if (this.form !== "girl" || this.quiet) return false;
     const tier = bondTierOf(this.vitals.affinity);
     const days = daysTogether(this.metAt, this.wallNow());
-    const s = this.stats;
-    const total = s.pats + s.catches + s.wand + s.bubbles + s.pounces + s.boxes + s.lasers + s.brushes + s.catnips + s.planes;
+    const total = Object.values(this.stats).reduce((sum, n) => sum + n, 0);
     this.lastUserAt = now;
-    return this.say(`${tier.name} · 第 ${days} 天\n徽章 ${this.achievements.length}/${ACHIEVEMENT_IDS.length} · 互动 ${total} 次`, 2, now, true);
+    return this.say(`${tier.name} · 第 ${days} 天\n徽章 ${this.achievements.length}/${ACHIEVEMENT_IDS.length}\n互动 ${total} 次`, 2, now, true);
   }
 
   getSnapshot(): CompanionSnapshot {
@@ -1286,6 +1548,10 @@ export class CompanionEngine {
       achievementLeft: Math.max(0, this.achievementUntil - this.now()),
       achievementId: this.achievementUntil > this.now() ? this.achievementId : null,
       stats: { ...this.stats },
+      purrLeft: Math.max(0, this.purrUntil - this.now()),
+      rainLeft: Math.max(0, this.rainUntil - this.now()),
+      quests: { counts: { ...this.quests.counts } },
+      diary: this.diary.map((entry) => ({ ...entry })),
     };
   }
 
@@ -1335,8 +1601,10 @@ export class CompanionEngine {
     const dt = clamp((now - this.lastNow) / 1000, 0, 1);
     this.lastNow = now;
 
+    this.ensureDay(this.wallNow());
     this.tickVitals(dt);
     if (this.bubble && now >= this.bubble.expiresAt) this.bubble = null;
+    this.flushPending(now);
 
     switch (this.activity) {
       case "sleep":
@@ -1397,6 +1665,10 @@ export class CompanionEngine {
     this.startAction("eat", now, 1_600);
     this.idleUntil = now + IDLE_MIN_MS;
     this.say(this.pickLine(this.lines(FEED_LINES, GIRL_FEED_LINES)), 1, now, true);
+    if (this.form === "girl") {
+      this.dayCounts.feeds += 1;
+      this.noteQuest("feed", now);
+    }
   }
 
   play(now = this.now()): void {
@@ -1410,6 +1682,10 @@ export class CompanionEngine {
     this.startAction("play", now, 2_000);
     this.idleUntil = now + IDLE_MIN_MS;
     this.say(this.pickLine(this.lines(PLAY_LINES, GIRL_PLAY_LINES)), 1, now, true);
+    if (this.form === "girl") {
+      this.dayCounts.plays += 1;
+      this.noteQuest("play", now);
+    }
   }
 
   toggleSleep(now = this.now()): void {
@@ -1634,6 +1910,10 @@ export class CompanionEngine {
           greetedKey?: unknown;
           stats?: unknown;
           achievements?: unknown;
+          questDay?: unknown;
+          quests?: unknown;
+          dayCounts?: unknown;
+          diary?: unknown;
         };
         found = true;
         if (typeof parsed?.metAt === "number" && Number.isFinite(parsed.metAt) && parsed.metAt > 0) {
@@ -1649,6 +1929,20 @@ export class CompanionEngine {
         if (typeof parsed.greetedKey === "string") this.greetedKey = parsed.greetedKey;
         this.stats = parseStats(parsed.stats);
         this.achievements = parseAchievements(parsed.achievements);
+        if (typeof parsed.questDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.questDay)) {
+          this.questDay = parsed.questDay;
+        }
+        this.quests = parseQuests(parsed.quests);
+        this.diary = parseDiary(parsed.diary);
+        if (parsed.dayCounts && typeof parsed.dayCounts === "object") {
+          const raw = parsed.dayCounts as Record<string, unknown>;
+          this.dayCounts = {
+            pats: dayCount(raw.pats),
+            plays: dayCount(raw.plays),
+            feeds: dayCount(raw.feeds),
+            toys: dayCount(raw.toys),
+          };
+        }
       }
     } catch {
       // 坏档不阻塞启动：初见时刻退回本次启动，下面立刻覆盖。
@@ -1670,6 +1964,10 @@ export class CompanionEngine {
         greetedKey: this.greetedKey,
         stats: this.stats,
         achievements: this.achievements,
+        questDay: this.questDay,
+        quests: this.quests,
+        dayCounts: this.dayCounts,
+        diary: this.diary,
       }));
     } catch {
       // 同 save：写不进去只影响「第几天」，不影响本次行为。
@@ -1717,6 +2015,68 @@ export class CompanionEngine {
     this.setVitals({ affinity: this.vitals.affinity + delta });
     this.refreshBond(now);
     this.refreshAchievements(now);
+  }
+
+  /** 呼噜：同一串互动只记一次；已经在呼噜就把终点往后推。 */
+  private startPurr(now: number): void {
+    if (now >= this.purrUntil) {
+      this.stats.purrs += 1;
+      this.saveBond();
+    }
+    this.purrUntil = Math.max(this.purrUntil, now + PURR_MS);
+  }
+
+  /** 记一笔今日小目标；刚好做完时发奖、说一句，全清时换一句更得意的。 */
+  private noteQuest(id: QuestId, now: number): void {
+    if (this.form !== "girl") return;
+    this.ensureDay(this.wallNow());
+    const done = bumpQuestCount(this.quests, id);
+    this.saveBond();
+    if (!done) return;
+    this.stats.quests += 1;
+    this.rewardAffinity(0.02, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 2_200);
+    const allDone = questsAllDone(this.quests);
+    // 第三件事和第 18 枚徽章同时发生：徽章那句已经在说「今天都做完啦」，不再重复。
+    const badgeSaid = allDone && this.achievementId === "daily-perfect" && now < this.achievementUntil;
+    if (badgeSaid) {
+      this.pendingLine = null;
+    } else {
+      const lines = allDone ? GIRL_QUESTS_DONE_LINES : GIRL_QUEST_DONE_LINES[id];
+      this.pendingLine = { text: this.pickLine([...lines]), priority: 1, at: now };
+      this.flushPending(now);
+    }
+    this.saveBond();
+  }
+
+  /** 排队的句子只在当前气泡走完、且她醒着的时候说；最多等 PENDING_LINE_MS。 */
+  private flushPending(now: number): void {
+    const pending = this.pendingLine;
+    if (!pending) return;
+    if (now - pending.at > PENDING_LINE_MS) {
+      this.pendingLine = null;
+      return;
+    }
+    if (this.activity === "sleep") return;
+    if (this.bubble && now < this.bubble.expiresAt) return;
+    if (this.say(pending.text, pending.priority, now)) this.pendingLine = null;
+  }
+
+  /**
+   * 跨天结账：把前一天的笔数收成一条日记，清空小目标与当天计数。
+   * 没有笔数的日子不留空白条目——「安静地待着」也是一天，但不必天天写进七条里。
+   */
+  private ensureDay(wall: number): void {
+    const key = dateKey(wall);
+    if (!key || key === this.questDay) return;
+    const day = this.dayCounts;
+    if (this.questDay !== "" && day.pats + day.plays + day.feeds + day.toys > 0) {
+      this.diary = pushDiary(this.diary, { day: this.questDay, text: composeDiaryLine(day) });
+    }
+    this.questDay = key;
+    this.quests = createQuests();
+    this.dayCounts = { pats: 0, plays: 0, feeds: 0, toys: 0 };
+    this.saveBond();
   }
 
   /**

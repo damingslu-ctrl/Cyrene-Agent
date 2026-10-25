@@ -34,7 +34,12 @@
 //   睡熟 1.8s 出梦话云、醒来抹掉；首次解锁成就时徽章压过普通台词（与单测同一口径）。
 // - v1.11 六件玩具：纸箱（敲箱→探头点头→收箱）、激光（同拍点中红点）、梳毛（起手一道→点击加速→
 //   整轮记一次）、薄荷（戳叶吸一口→整轮记一次）、纸飞机（同拍点中）、小鸟（停稳才可点、受惊飞走、
-//   不产数值）；每件的计数都要当场落盘，并在整页重载后还在；成长记录两行与徽章/互动读数同源。
+//   不产数值）；每件的计数都要当场落盘，并在整页重载后还在；成长记录（v1.12 起三行）
+//   与徽章/互动读数同源、徽章分母与源码成就表一致。
+// - v1.12 六件新玩具 + 两本账 + 雨：抓板（板面补痕→整轮记一次）、铃铛球（点响、冷却吞掉第二下）、
+//   发条鼠（抓住计数 / 跑掉不计数只自嘲）、地鼠（只认冒头的那只、同一只不重复计）、
+//   抱抱（开场计数并起呼噜、点上身再抱紧）、雨天（氛围层，玩别的也不收雨）；今日小目标与
+//   猫咪日记的排版；18 项计数器整页重载后原样回来。
 // 任一条不成立就红；环境问题（没窗/没墨）报 ENV，不冒充产品红。
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -99,6 +104,19 @@ const CATNIP_LINES = sourceLines("GIRL_CATNIP_LINES");
 const PLANE_LINES = sourceLines("GIRL_PLANE_LINES");
 const BIRD_LINES = sourceLines("GIRL_BIRD_LINES");
 const BIRD_AWAY_LINES = sourceLines("GIRL_BIRD_AWAY_LINES");
+const SCRATCH_START_LINES = sourceLines("GIRL_SCRATCH_START_LINES");
+const SCRATCH_LINES = sourceLines("GIRL_SCRATCH_LINES");
+const BELL_START_LINES = sourceLines("GIRL_BELL_START_LINES");
+const BELL_LINES = sourceLines("GIRL_BELL_LINES");
+const MOUSE_START_LINES = sourceLines("GIRL_MOUSE_START_LINES");
+const MOUSE_LINES = sourceLines("GIRL_MOUSE_LINES");
+const MOUSE_MISS_LINES = sourceLines("GIRL_MOUSE_MISS_LINES");
+const MOLE_START_LINES = sourceLines("GIRL_MOLE_START_LINES");
+const MOLE_LINES = sourceLines("GIRL_MOLE_LINES");
+const MOLE_END_LINES = sourceLines("GIRL_MOLE_END_LINES");
+const HUG_START_LINES = sourceLines("GIRL_HUG_START_LINES");
+const HUG_LINES = sourceLines("GIRL_HUG_LINES");
+const RAIN_START_LINES = sourceLines("GIRL_RAIN_START_LINES");
 
 /** 成就台词在 girl-achievements.ts：验收按表认，不在探针里另抄。 */
 function sourceAchievementLine(id) {
@@ -108,8 +126,23 @@ function sourceAchievementLine(id) {
   return JSON.parse(`"${hit[1]}"`);
 }
 
+/** 徽章总数：成长记录里的「徽章 n/总数」分母必须和源码数组一致。 */
+function sourceAchievementCount() {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/girl-achievements.ts"), "utf8");
+  const body = src.match(/export const ACHIEVEMENT_IDS\s*=\s*\[([\s\S]*?)\]\s*as\s+const/)?.[1];
+  if (!body) throw new Error("[ENV] 读不出 ACHIEVEMENT_IDS：成长记录的分母没处核对，先看源码");
+  return [...body.matchAll(/"((?:[^"\\]|\\.)*)"/g)].length;
+}
+
 const FIRST_CATCH_LINE = sourceAchievementLine("first-catch");
 const FIRST_WAND_LINE = sourceAchievementLine("first-wand");
+const ACHIEVEMENT_COUNT = sourceAchievementCount();
+
+/** 当前在展示的徽章台词（没在展示＝null）：用来认「徽章按设计压过了玩具句」。 */
+function shownAchievementLine(girl) {
+  const id = girl?.achievement?.id;
+  return id ? { id, line: sourceAchievementLine(id) } : null;
+}
 
 /** 猜拳判词与 shared/pet-rps.ts 同义（探针只认结果，不重复实现偏门规则）。 */
 function judgeRps(a, b) {
@@ -346,6 +379,8 @@ async function main() {
   };
   const results = {};
   const checks = [];
+  /** v1.12：重载前的 18 项计数快照，M 段拿它核对「计数器原样回来」。 */
+  let v12StatsForReload = null;
   const check = (name, ok, detail) => {
     checks.push({ name, ok, detail });
     if (!ok) process.exitCode = 1;
@@ -417,6 +452,22 @@ async function main() {
   // —— C. 三区：点头（coverFace/shy）与点脚（shiver/wink）——
   const tapAt = (x, y) => evaluate(s, `window.__cyrene.renderer.tapAt(${x}, ${y}, 40)`);
   const dismissBubble = () => evaluate(s, `window.__cyrene.renderer.dismissBubble()`);
+  // 睡着不接地面玩具是产品设计（renderer-girl-toys2 的锁）——夜里跑探针时她可能真睡着了，
+  // 探针要玩玩具就得先按菜单同一条命令叫醒，否则测到的是「设计静默拒收」而不是玩具。
+  const awakeForPlay = async (why) => {
+    const cur = await snap();
+    if (cur.activity !== "sleep") return cur;
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("toggle-sleep")`);
+    await wait(360);
+    await dismissBubble();
+    await wait(200);
+    const woke = await snap();
+    results.awake ??= {};
+    results.awake[why] = { woke: woke.activity !== "sleep", activity: woke.activity };
+    check(`awake.${why}`, woke.activity !== "sleep",
+      `叫醒后 activity=${woke.activity}（${why} 的前置条件没摆正）`);
+    return woke;
+  };
   g = await readGeo();
   await tapAt(g.headX * g.zoom, g.headY * g.zoom);
   // shy / wink 都只有 9 帧（24fps ≈ 375ms）：450ms 时早已回到基础段（happy/idle）。
@@ -1227,8 +1278,10 @@ async function main() {
     check("box.catch",
       !!boxCatch?.ok && boxC.girl.box?.caught === true && boxC.girl.stats.boxes === v11Before.boxes + 1,
       `attempt=${JSON.stringify(boxCatch)} box=${JSON.stringify(boxC.girl.box)} stats=${JSON.stringify(boxC.girl.stats)}`);
-    check("box.line", !!boxCSnap.bubble && BOX_CATCH_LINES.includes(boxCSnap.bubble.text),
-      `bubble=${boxCSnap.bubble?.text ?? "null"}`);
+    check("box.line", !!boxCSnap.bubble
+      && (BOX_CATCH_LINES.includes(boxCSnap.bubble.text) || BOND_UP_LINES.includes(boxCSnap.bubble.text)),
+      `bubble=${boxCSnap.bubble?.text ?? "null"}`
+        + (BOND_UP_LINES.includes(boxCSnap.bubble?.text) ? "（升档优先，捉箱那句按设计让位）" : ""));
     check("box.persist", bondAfterBox?.stats?.boxes === boxC.girl.stats.boxes,
       `bond.stats=${JSON.stringify(bondAfterBox?.stats ?? null)}`);
     const boxDeadline = Date.now() + 4_000;
@@ -1483,7 +1536,8 @@ async function main() {
       await wait(160);
     }
 
-    // O7 成长记录：两行以内、徽章数与互动总数与读数同源（不许另算一套）。
+    // O7 成长记录：v1.12 起三行（徽章与互动各占一行，78px 内宽不折行）；
+    // 徽章数与互动总数必须和读数同源（不许另算一套），分母按源码成就表核。
     await evaluate(s, `window.__cyrene.renderer.handleCommand("growth")`);
     await wait(200);
     const growthSnap = await snap();
@@ -1492,7 +1546,8 @@ async function main() {
     const growthLines = growthText.split("\n");
     const growthStats = growthDiag.girl.stats;
     const growthTotal = Object.values(growthStats).reduce((acc, n) => acc + n, 0);
-    const growthTail = growthLines[1]?.match(/^徽章 (\d+)\/10 · 互动 (\d+) 次$/);
+    const growthBadge = growthLines[1]?.match(/^徽章 (\d+)\/(\d+)$/);
+    const growthTotalLine = growthLines[2]?.match(/^互动 (\d+) 次$/);
     results.growth = {
       text: growthText,
       achievements: growthDiag.girl.achievements.length,
@@ -1501,12 +1556,429 @@ async function main() {
     };
     await shot("girl-growth.png");
     check("growth.lines",
-      growthLines.length === 2 && / · 第 \d+ 天$/.test(growthLines[0] ?? "") && !!growthTail,
+      growthLines.length === 3 && / · 第 \d+ 天$/.test(growthLines[0] ?? "")
+        && !!growthBadge && !!growthTotalLine,
       `bubble=${JSON.stringify(growthText)}`);
     check("growth.agrees",
-      !!growthTail && Number(growthTail[1]) === growthDiag.girl.achievements.length
-        && Number(growthTail[2]) === growthTotal,
-      `徽章=${growthTail?.[1]} achievements=${growthDiag.girl.achievements.length} 互动=${growthTail?.[2]} total=${growthTotal}`);
+      !!growthBadge && !!growthTotalLine
+        && Number(growthBadge[1]) === growthDiag.girl.achievements.length
+        && Number(growthBadge[2]) === ACHIEVEMENT_COUNT
+        && Number(growthTotalLine[1]) === growthTotal,
+      `徽章=${growthBadge?.[1]}/${growthBadge?.[2]}（源码 ${ACHIEVEMENT_COUNT}）`
+        + ` achievements=${growthDiag.girl.achievements.length}`
+        + ` 互动=${growthTotalLine?.[1]} total=${growthTotal}`);
+
+    // —— P. v1.12.0：抓板 / 铃铛球 / 发条鼠 / 地鼠 / 抱抱+呼噜 / 雨天 / 两本账 ——
+    // 六件玩具各演一轮，验「出生 → 命中/整轮结算 → 落盘」；雨天是氛围层，单独验
+    // 「玩别的也不收雨」。最后把 18 项 stats 原样交给 reload 段核对。
+    const v12Before = (await diag()).girl.stats;
+
+    // P1 猫抓板：进场 600ms → 板面点一下补一道痕（当场不结算）→ 整轮 5.2s 才记一次。
+    await awakeForPlay("scratch");
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("scratch")`);
+    await wait(240);
+    const scratchA = await diag();
+    const scratchASnap = await snap();
+    results.scratch = { a: scratchA.girl.scratch, bubble: scratchASnap.bubble?.text ?? null };
+    await shot("girl-scratch.png");
+    check("scratch.spawn",
+      !!scratchA.girl.scratch && scratchA.girl.scratch.phase === "enter" && scratchA.girl.scratch.left > 4_400,
+      `scratch=${JSON.stringify(scratchA.girl.scratch)}`);
+    check("scratch.line", !!scratchASnap.bubble && SCRATCH_START_LINES.includes(scratchASnap.bubble.text),
+      `bubble=${scratchASnap.bubble?.text ?? "null"}`);
+    await wait(520);
+    const scratchTap = await evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const b = d.girl.scratch;
+      if (!b) return { ok: false, why: "scratch gone" };
+      const z = d.layout.zoom;
+      window.__cyrene.renderer.tapAt(b.x * z, b.y * z, 40);
+      return { ok: true, x: b.x, y: b.y, phase: b.phase };
+    })()`);
+    await wait(200);
+    const scratchB = await diag();
+    results.scratch.tap = { attempt: scratchTap, scratch: scratchB.girl.scratch, stats: scratchB.girl.stats };
+    check("scratch.tap",
+      !!scratchTap?.ok && (scratchB.girl.scratch?.marks ?? 0) >= 1
+        && scratchB.girl.stats.scratches === v12Before.scratches,
+      `attempt=${JSON.stringify(scratchTap)} scratch=${JSON.stringify(scratchB.girl.scratch)} stats=${JSON.stringify(scratchB.girl.stats)}`);
+    const scratchDeadline = Date.now() + 7_000;
+    let scratchLast = scratchB.girl.scratch;
+    while (Date.now() < scratchDeadline) {
+      scratchLast = (await diag()).girl.scratch;
+      if (!scratchLast) break;
+      await wait(180);
+    }
+    const scratchDone = await diag();
+    const scratchDoneSnap = await snap();
+    const bondAfterScratch = await bondNow();
+    results.scratch.done = { stats: scratchDone.girl.stats, bubble: scratchDoneSnap.bubble?.text ?? null };
+    check("scratch.done", !scratchLast && scratchDone.girl.stats.scratches === v12Before.scratches + 1,
+      `scratch=${JSON.stringify(scratchLast)} stats=${JSON.stringify(scratchDone.girl.stats)}`);
+    check("scratch.line-done", !!scratchDoneSnap.bubble && SCRATCH_LINES.includes(scratchDoneSnap.bubble.text),
+      `bubble=${scratchDoneSnap.bubble?.text ?? "null"}`);
+    check("scratch.persist", bondAfterScratch?.stats?.scratches === scratchDone.girl.stats.scratches,
+      `bond.stats=${JSON.stringify(bondAfterScratch?.stats ?? null)}`);
+
+    // P2 铃铛球：点响第一声 → 冷却内第二下被吞掉（不重复计）→ 冷却外第三下才再响。
+    await awakeForPlay("bell");
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("bell")`);
+    await wait(240);
+    const bellA = await diag();
+    const bellASnap = await snap();
+    results.bell = { a: bellA.girl.bell, bubble: bellASnap.bubble?.text ?? null };
+    await shot("girl-bell.png");
+    check("bell.spawn",
+      !!bellA.girl.bell && bellA.girl.bell.rings === 0 && bellA.girl.bell.left > 4_600,
+      `bell=${JSON.stringify(bellA.girl.bell)}`);
+    check("bell.line", !!bellASnap.bubble && BELL_START_LINES.includes(bellASnap.bubble.text),
+      `bubble=${bellASnap.bubble?.text ?? "null"}`);
+    const bellTap1 = await evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const b = d.girl.bell;
+      if (!b) return { ok: false, why: "bell gone" };
+      const z = d.layout.zoom;
+      window.__cyrene.renderer.tapAt(b.x * z, b.y * z, 40);
+      return { ok: true, x: b.x, y: b.y };
+    })()`);
+    await wait(160);
+    const bellB = await diag();
+    const bellBSnap = await snap();
+    results.bell.ring = { attempt: bellTap1, bell: bellB.girl.bell, stats: bellB.girl.stats, bubble: bellBSnap.bubble?.text ?? null };
+    check("bell.ring",
+      !!bellTap1?.ok && bellB.girl.bell?.rings === 1 && bellB.girl.stats.bells === v12Before.bells + 1,
+      `attempt=${JSON.stringify(bellTap1)} bell=${JSON.stringify(bellB.girl.bell)} stats=${JSON.stringify(bellB.girl.stats)}`);
+    check("bell.ring-line", !!bellBSnap.bubble && BELL_LINES.includes(bellBSnap.bubble.text),
+      `bubble=${bellBSnap.bubble?.text ?? "null"}`);
+    await wait(120);
+    const bellTap2 = await evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const b = d.girl.bell;
+      if (!b) return { ok: false, why: "bell gone" };
+      const z = d.layout.zoom;
+      window.__cyrene.renderer.tapAt(b.x * z, b.y * z, 40);
+      return { ok: true, x: b.x, y: b.y };
+    })()`);
+    await wait(160);
+    const bellC = await diag();
+    results.bell.cooldown = { attempt: bellTap2, bell: bellC.girl.bell, stats: bellC.girl.stats };
+    check("bell.cooldown",
+      !!bellTap2?.ok && bellC.girl.bell?.rings === 1 && bellC.girl.stats.bells === v12Before.bells + 1,
+      `attempt=${JSON.stringify(bellTap2)} bell=${JSON.stringify(bellC.girl.bell)} stats=${JSON.stringify(bellC.girl.stats)}`);
+    await wait(200);
+    const bellTap3 = await evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const b = d.girl.bell;
+      if (!b) return { ok: false, why: "bell gone" };
+      const z = d.layout.zoom;
+      window.__cyrene.renderer.tapAt(b.x * z, b.y * z, 40);
+      return { ok: true, x: b.x, y: b.y };
+    })()`);
+    await wait(160);
+    const bellD = await diag();
+    results.bell.again = { attempt: bellTap3, bell: bellD.girl.bell, stats: bellD.girl.stats };
+    check("bell.again",
+      !!bellTap3?.ok && bellD.girl.bell?.rings === 2 && bellD.girl.stats.bells === v12Before.bells + 2,
+      `attempt=${JSON.stringify(bellTap3)} bell=${JSON.stringify(bellD.girl.bell)} stats=${JSON.stringify(bellD.girl.stats)}`);
+    const bellDeadline = Date.now() + 7_000;
+    let bellLast = bellD.girl.bell;
+    while (Date.now() < bellDeadline) {
+      bellLast = (await diag()).girl.bell;
+      if (!bellLast) break;
+      await wait(180);
+    }
+    check("bell.gone", !bellLast, `bell=${JSON.stringify(bellLast)}`);
+
+    // P3 发条鼠：点中算抓住并计数；第二轮不点，等它跑掉只自嘲，不产出数值。
+    await awakeForPlay("mouse");
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("mouse")`);
+    await wait(300);
+    const mouseA = await diag();
+    const mouseASnap = await snap();
+    results.mouse = { a: mouseA.girl.mouse, bubble: mouseASnap.bubble?.text ?? null };
+    await shot("girl-mouse.png");
+    check("mouse.spawn",
+      !!mouseA.girl.mouse && mouseA.girl.mouse.caught === false && mouseA.girl.mouse.left > 5_400,
+      `mouse=${JSON.stringify(mouseA.girl.mouse)}`);
+    check("mouse.line", !!mouseASnap.bubble && MOUSE_START_LINES.includes(mouseASnap.bubble.text),
+      `bubble=${mouseASnap.bubble?.text ?? "null"}`);
+    const mouseTap = await evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const m = d.girl.mouse;
+      if (!m) return { ok: false, why: "mouse gone" };
+      const z = d.layout.zoom;
+      window.__cyrene.renderer.tapAt(m.x * z, m.y * z, 40);
+      return { ok: true, x: m.x, y: m.y };
+    })()`);
+    await wait(180);
+    const mouseB = await diag();
+    const mouseBSnap = await snap();
+    const bondAfterMouse = await bondNow();
+    results.mouse.catch = { attempt: mouseTap, mouse: mouseB.girl.mouse, stats: mouseB.girl.stats, bubble: mouseBSnap.bubble?.text ?? null };
+    check("mouse.caught",
+      !!mouseTap?.ok && mouseB.girl.mouse?.caught === true && mouseB.girl.stats.mice === v12Before.mice + 1,
+      `attempt=${JSON.stringify(mouseTap)} mouse=${JSON.stringify(mouseB.girl.mouse)} stats=${JSON.stringify(mouseB.girl.stats)}`);
+    check("mouse.line-catch", !!mouseBSnap.bubble && MOUSE_LINES.includes(mouseBSnap.bubble.text),
+      `bubble=${mouseBSnap.bubble?.text ?? "null"}`);
+    check("mouse.persist", bondAfterMouse?.stats?.mice === mouseB.girl.stats.mice,
+      `bond.stats=${JSON.stringify(bondAfterMouse?.stats ?? null)}`);
+    const mouseGoneDeadline = Date.now() + 3_000;
+    let mouseLast = mouseB.girl.mouse;
+    while (Date.now() < mouseGoneDeadline) {
+      mouseLast = (await diag()).girl.mouse;
+      if (!mouseLast) break;
+      await wait(140);
+    }
+    check("mouse.gone", !mouseLast, `mouse=${JSON.stringify(mouseLast)}`);
+    // 第二轮必须真的开局：上一轮 6.4s 里她可能在夜里睡着，睡着拒收地面玩具是设计，
+    // 先叫醒再发第二只——这里把开局读数留在报告里，失败时一眼看出是没接还是没说。
+    await awakeForPlay("mouse-second");
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("mouse")`);
+    await wait(260);
+    const mouseSecond = await diag();
+    const mouseSecondSnap = await snap();
+    results.mouse.second = {
+      mouse: mouseSecond.girl.mouse,
+      activity: mouseSecondSnap.activity,
+      sleepSince: mouseSecond.girl.sleepSince,
+      bubble: mouseSecondSnap.bubble?.text ?? null,
+    };
+    check("mouse.respawn", !!mouseSecond.girl.mouse,
+      `mouse=${JSON.stringify(mouseSecond.girl.mouse)} activity=${mouseSecondSnap.activity}`
+        + ` sleepSince=${Math.round(mouseSecond.girl.sleepSince)}`);
+    const mouseMissDeadline = Date.now() + 8_000;
+    let mouseMissSeen = null;
+    while (Date.now() < mouseMissDeadline) {
+      mouseMissSeen = (await diag()).girl.mouse;
+      if (!mouseMissSeen) break;
+      await wait(140);
+    }
+    const mouseMissSnap = await snap();
+    const mouseAfterMiss = await diag();
+    results.mouse.miss = { bubble: mouseMissSnap.bubble?.text ?? null, stats: mouseAfterMiss.girl.stats };
+    check("mouse.miss",
+      !mouseMissSeen && mouseAfterMiss.girl.stats.mice === v12Before.mice + 1
+        && !!mouseMissSnap.bubble && MOUSE_MISS_LINES.includes(mouseMissSnap.bubble.text),
+      `mouse=${JSON.stringify(mouseMissSeen)} stats=${JSON.stringify(mouseAfterMiss.girl.stats)} bubble=${mouseMissSnap.bubble?.text ?? "null"}`);
+
+    // P4 打地鼠：只认冒头的那一只；同一只二次点击不重复计；整轮收尾说「手都拍热了」。
+    await awakeForPlay("mole");
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("mole")`);
+    await wait(300);
+    const moleA = await diag();
+    const moleASnap = await snap();
+    results.mole = { a: moleA.girl.mole, bubble: moleASnap.bubble?.text ?? null };
+    await shot("girl-mole.png");
+    check("mole.spawn", !!moleA.girl.mole && moleA.girl.mole.hits === 0 && moleA.girl.mole.left > 4_800,
+      `mole=${JSON.stringify(moleA.girl.mole)}`);
+    check("mole.line", !!moleASnap.bubble && MOLE_START_LINES.includes(moleASnap.bubble.text),
+      `bubble=${moleASnap.bubble?.text ?? "null"}`);
+    let moleHead = null;
+    const moleHeadDeadline = Date.now() + 3_000;
+    while (Date.now() < moleHeadDeadline) {
+      moleHead = (await diag()).girl.mole;
+      if (moleHead?.activeSlot !== null && moleHead?.activeSlot !== undefined) break;
+      await wait(110);
+    }
+    results.mole.head = moleHead;
+    check("mole.head", !!moleHead && moleHead.activeSlot !== null,
+      `mole=${JSON.stringify(moleHead)}`);
+    const moleTap = moleHead ? await evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const m = d.girl.mole;
+      if (!m) return { ok: false, why: "mole gone" };
+      const z = d.layout.zoom;
+      window.__cyrene.renderer.tapAt(m.x * z, m.y * z, 40);
+      return { ok: true, x: m.x, y: m.y, slot: m.activeSlot };
+    })()`) : null;
+    await wait(140);
+    const moleB = await diag();
+    const moleBSnap = await snap();
+    results.mole.whack = { attempt: moleTap, mole: moleB.girl.mole, stats: moleB.girl.stats, bubble: moleBSnap.bubble?.text ?? null };
+    check("mole.whack",
+      !!moleTap?.ok && moleB.girl.mole?.hits === 1 && moleB.girl.stats.moles === v12Before.moles + 1,
+      `attempt=${JSON.stringify(moleTap)} mole=${JSON.stringify(moleB.girl.mole)} stats=${JSON.stringify(moleB.girl.stats)}`);
+    check("mole.line-whack", !!moleBSnap.bubble && MOLE_LINES.includes(moleBSnap.bubble.text),
+      `bubble=${moleBSnap.bubble?.text ?? "null"}`);
+    const moleTap2 = await evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const m = d.girl.mole;
+      if (!m) return { ok: false, why: "mole gone" };
+      const z = d.layout.zoom;
+      window.__cyrene.renderer.tapAt(m.x * z, m.y * z, 40);
+      return { ok: true, x: m.x, y: m.y, slot: m.activeSlot };
+    })()`);
+    await wait(120);
+    const moleC = await diag();
+    results.mole.double = { attempt: moleTap2, mole: moleC.girl.mole, stats: moleC.girl.stats };
+    check("mole.double",
+      !!moleTap2?.ok && moleC.girl.mole?.hits === 1 && moleC.girl.stats.moles === v12Before.moles + 1,
+      `attempt=${JSON.stringify(moleTap2)} mole=${JSON.stringify(moleC.girl.mole)} stats=${JSON.stringify(moleC.girl.stats)}`);
+    const moleDeadline = Date.now() + 7_500;
+    let moleLast = moleC.girl.mole;
+    while (Date.now() < moleDeadline) {
+      moleLast = (await diag()).girl.mole;
+      if (!moleLast) break;
+      await wait(180);
+    }
+    const moleDoneSnap = await snap();
+    const moleDone = await diag();
+    results.mole.done = { stats: moleDone.girl.stats, bubble: moleDoneSnap.bubble?.text ?? null };
+    check("mole.done",
+      !moleLast && moleDone.girl.stats.moles === v12Before.moles + 1
+        && !!moleDoneSnap.bubble && MOLE_END_LINES.includes(moleDoneSnap.bubble.text),
+      `mole=${JSON.stringify(moleLast)} stats=${JSON.stringify(moleDone.girl.stats)} bubble=${moleDoneSnap.bubble?.text ?? "null"}`);
+
+    // P5 抱抱：一开场就计数并起呼噜；点上身＝再抱紧一点（不重复计 hug 次数）。
+    await awakeForPlay("hug");
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("hug")`);
+    await wait(240);
+    const hugA = await diag();
+    const hugASnap = await snap();
+    results.hug = {
+      a: hugA.girl.hug, purrLeft: hugA.girl.purrLeft, stats: hugA.girl.stats,
+      bubble: hugASnap.bubble?.text ?? null,
+    };
+    await shot("girl-hug.png");
+    check("hug.spawn",
+      !!hugA.girl.hug && hugA.girl.hug.taps === 0 && hugA.girl.hug.left > 3_000
+        && hugA.girl.stats.hugs === v12Before.hugs + 1,
+      `hug=${JSON.stringify(hugA.girl.hug)} stats=${JSON.stringify(hugA.girl.stats)}`);
+    const hugAAch = shownAchievementLine(hugA.girl);
+    check("hug.line", !!hugASnap.bubble
+      && (HUG_START_LINES.includes(hugASnap.bubble.text)
+        || BOND_UP_LINES.includes(hugASnap.bubble.text)
+        || (!!hugAAch && hugASnap.bubble.text === hugAAch.line)),
+      `bubble=${hugASnap.bubble?.text ?? "null"}`
+        + (hugAAch ? `（${hugAAch.id} 徽章在展示）` : ""));
+    check("hug.purr", hugA.girl.purrLeft > 2_500, `purrLeft=${Math.round(hugA.girl.purrLeft)}`);
+    const hugTap = await evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const h = d.girl.hug;
+      if (!h) return { ok: false, why: "hug gone" };
+      const z = d.layout.zoom;
+      window.__cyrene.renderer.tapAt(h.x * z, h.y * z, 40);
+      return { ok: true, x: h.x, y: h.y };
+    })()`);
+    await wait(180);
+    const hugB = await diag();
+    const hugBSnap = await snap();
+    results.hug.tap = { attempt: hugTap, hug: hugB.girl.hug, stats: hugB.girl.stats, bubble: hugBSnap.bubble?.text ?? null };
+    check("hug.tap",
+      !!hugTap?.ok && hugB.girl.hug?.taps === 1 && hugB.girl.stats.hugs === v12Before.hugs + 1,
+      `attempt=${JSON.stringify(hugTap)} hug=${JSON.stringify(hugB.girl.hug)} stats=${JSON.stringify(hugB.girl.stats)}`);
+    const hugBAch = shownAchievementLine(hugB.girl);
+    check("hug.line-tap", !!hugBSnap.bubble
+      && (HUG_LINES.includes(hugBSnap.bubble.text)
+        || BOND_UP_LINES.includes(hugBSnap.bubble.text)
+        || (!!hugBAch && hugBSnap.bubble.text === hugBAch.line)),
+      `bubble=${hugBSnap.bubble?.text ?? "null"}`
+        + (hugBAch ? `（${hugBAch.id} 徽章在展示）` : ""));
+    const hugDeadline = Date.now() + 4_500;
+    let hugLast = hugB.girl.hug;
+    while (Date.now() < hugDeadline) {
+      hugLast = (await diag()).girl.hug;
+      if (!hugLast) break;
+      await wait(180);
+    }
+    const hugAfter = await diag();
+    results.hug.done = { hug: hugLast, purrLeft: hugAfter.girl.purrLeft, stats: hugAfter.girl.stats };
+    check("hug.done",
+      !hugLast && hugAfter.girl.stats.hugs === v12Before.hugs + 1 && hugAfter.girl.purrLeft < 2_000,
+      `hug=${JSON.stringify(hugLast)} purrLeft=${Math.round(hugAfter.girl.purrLeft)} stats=${JSON.stringify(hugAfter.girl.stats)}`);
+
+    // P6 雨天：氛围层不占玩具槽 —— 雨里点铃铛球、再抱一下，雨一直在；20s 后自己收。
+    await awakeForPlay("rain");
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("rain")`);
+    await wait(800);
+    const rainA = await diag();
+    const rainASnap = await snap();
+    results.rain = { a: rainA.girl.rain, stats: rainA.girl.stats, bubble: rainASnap.bubble?.text ?? null };
+    await shot("girl-rain.png");
+    check("rain.spawn",
+      !!rainA.girl.rain && rainA.girl.rain.amount === 1 && rainA.girl.rain.left > 18_000
+        && rainA.girl.stats.rains === v12Before.rains + 1,
+      `rain=${JSON.stringify(rainA.girl.rain)} stats=${JSON.stringify(rainA.girl.stats)}`);
+    check("rain.line", !!rainASnap.bubble && RAIN_START_LINES.includes(rainASnap.bubble.text),
+      `bubble=${rainASnap.bubble?.text ?? "null"}`);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("bell")`);
+    await wait(220);
+    const rainBell = await diag();
+    const rainBellSnap = await snap();
+    results.rain.parallel = {
+      rain: rainBell.girl.rain, bell: rainBell.girl.bell,
+      bubble: rainBellSnap.bubble?.text ?? null,
+    };
+    check("rain.parallel",
+      !!rainBell.girl.rain && !!rainBell.girl.bell
+        && !!rainBellSnap.bubble && BELL_START_LINES.includes(rainBellSnap.bubble.text),
+      `rain=${JSON.stringify(rainBell.girl.rain)} bell=${JSON.stringify(rainBell.girl.bell)} bubble=${rainBellSnap.bubble?.text ?? "null"}`);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("hug")`);
+    await wait(220);
+    const rainHug = await diag();
+    results.rain.survives = { rain: rainHug.girl.rain, bell: rainHug.girl.bell, hug: rainHug.girl.hug };
+    check("rain.survives",
+      !!rainHug.girl.rain && rainHug.girl.bell === null && !!rainHug.girl.hug,
+      `rain=${JSON.stringify(rainHug.girl.rain)} bell=${JSON.stringify(rainHug.girl.bell)} hug=${JSON.stringify(rainHug.girl.hug)}`);
+
+    // P7 两本账：今日小目标四行（汇总 + 三件小事）、猫咪日记四行以内。
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("quests")`);
+    await wait(200);
+    const questsSnap = await snap();
+    const questsText = questsSnap.bubble?.text ?? "";
+    const questLines = questsText.split("\n");
+    results.quests = { text: questsText };
+    await shot("girl-quests.png");
+    check("quests.lines",
+      questLines.length === 4
+        && /^今日小目标( \d\/3| 全清啦)$/.test(questLines[0] ?? "")
+        && /^[✓·] 摸摸头 \d\/5$/.test(questLines[1] ?? "")
+        && /^[✓·] 陪它玩 \d\/2$/.test(questLines[2] ?? "")
+        && /^[✓·] 喂小鱼干 \d\/1$/.test(questLines[3] ?? ""),
+      `bubble=${JSON.stringify(questsText)}`);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("diary")`);
+    await wait(200);
+    const diarySnap = await snap();
+    const diaryText = diarySnap.bubble?.text ?? "";
+    const diaryLines = diaryText.split("\n");
+    results.diary = { text: diaryText };
+    await shot("girl-diary.png");
+    check("diary.lines",
+      diaryLines.length >= 2 && diaryLines.length <= 4
+        && diaryLines[0] === "猫咪日记" && /^\d+月\d+日 /.test(diaryLines[1] ?? ""),
+      `bubble=${JSON.stringify(diaryText)}`);
+
+    // P8 雨收场：它自己到点消失；此时才把 18 项计数交给 reload 段。
+    const rainDeadline = Date.now() + 24_000;
+    let rainLast = (await diag()).girl.rain;
+    while (Date.now() < rainDeadline) {
+      rainLast = (await diag()).girl.rain;
+      if (!rainLast) break;
+      await wait(240);
+    }
+    const v12Done = await diag();
+    v12StatsForReload = v12Done.girl.stats;
+    results.v12Stats = v12StatsForReload;
+    check("rain.gone",
+      !rainLast && v12Done.girl.stats.rains === v12Before.rains + 1,
+      `rain=${JSON.stringify(rainLast)} stats=${JSON.stringify(v12Done.girl.stats)}`);
+
   }
 
   // —— M. v1.9.0：纪念日与久别重逢 ——
@@ -1617,6 +2089,10 @@ async function main() {
     check("milestone.stats",
       ["boxes", "lasers", "brushes", "catnips", "planes"].every((k) => (m.stats?.[k] ?? -1) === 1),
       `stats=${JSON.stringify(m.stats ?? null)}`);
+    // v1.12：18 项计数（含抓板/铃铛/发条鼠/地鼠/抱抱/呼噜/雨/目标）整页重载后原样回来。
+    check("milestone.stats-v12",
+      !!v12StatsForReload && JSON.stringify(m.stats ?? null) === JSON.stringify(v12StatsForReload),
+      `before=${JSON.stringify(v12StatsForReload)} after=${JSON.stringify(m.stats ?? null)}`);
 
     await patchBondAndReload(`
       bond.metAt = now;
