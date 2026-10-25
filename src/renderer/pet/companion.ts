@@ -9,6 +9,15 @@ import type { Mood } from "../../shared/cat-types";
 import { gestureClip, gestureIds } from "./motion";
 import type { PetForm } from "../../shared/pet-profile";
 import type { Point, WorkArea } from "../../shared/pet-geometry";
+import {
+  BOND_UP_MS,
+  bondTierOf,
+  dateKey,
+  daysTogether,
+  nightKey,
+  type BondState,
+  type BondTier,
+} from "./girl-bond";
 
 export const BUBBLE_TTL_MS = 6_000;
 /** 漫游速度（DIP/s）：比 native 的缓动藏身快一档，但仍是「散步」不是「瞬移」。 */
@@ -33,6 +42,8 @@ export const THROW = {
 } as const;
 
 const VITALS_KEY = "cyrene.pet.vitals.v1";
+/** 羁绊存档：初见时刻、晨间伸懒腰/深夜提醒的日历键。和 vitals 分开，坏一份不拖累另一份。 */
+const BOND_KEY = "cyrene.pet.bond.v1";
 /** 离线结算上限：半年不开机也不会把猫饿成 0（时间戳被改坏时也兜得住）。 */
 const OFFLINE_CAP_MS = 72 * 3600_000;
 const IDLE_MIN_MS = 5_000;
@@ -101,6 +112,20 @@ export interface CompanionSnapshot {
   gesture: string | null;
   /** 连点逗晕的剩余毫秒（0＝不晕）。四足恒 0；渲染端拿它摆星环与晃身。 */
   dizzyLeft: number;
+  /** 当前羁绊档（亲密度换算）；四足也带，但只有猫娘的面板/文案读它。 */
+  bond: BondState;
+  /** 相识第几天（见面当天＝1）。 */
+  days: number;
+  /** 刚升档的记号剩余毫秒；0＝没有升档。 */
+  bondUpLeft: number;
+  /** 摸头连击数（窗口内才非 0，1 是普通的一下）。 */
+  patCombo: number;
+  /** 连击窗口剩余毫秒。 */
+  patComboLeft: number;
+  /** 睡梦中被碰醒的惊跳剩余毫秒（0＝没受惊）。 */
+  startleLeft: number;
+  /** 本次会话扑了几次光标（诊断/成就用，不进存档）。 */
+  pounces: number;
 }
 
 export interface CompanionOptions {
@@ -162,6 +187,28 @@ const GIRL_FEET_LINES = ["呀！脚很痒的——", "别、别挠那里", "咯�
 const GIRL_DIZZY_LINES = ["眼、眼前在转…", "别晃啦…", "站、站不稳了"];
 const GIRL_NOTICE_LINES = ["你回来啦", "刚刚在看什么呀？", "我在这儿哦"];
 
+/** 连击 2..5 的递进：从「诶？」到「只许再一下」再到彻底放弃抵抗。行序＝连击数−2。 */
+const GIRL_PAT_COMBO_LINES = [
+  "诶？又、又摸…",
+  "头发真的要乱了啦",
+  "再摸下去…我要脸红了",
+  "好、好啦…只许再一下",
+] as const;
+/** 升档台词：只在**用户互动**把亲密度推过门槛时说，不抢网络播报（优先级 2）。 */
+const GIRL_BOND_LINES: Record<BondTier["id"], readonly string[]> = {
+  new: ["我们…刚认识吧？"],
+  familiar: ["好像，和你更熟一点了", "下次也来找我玩嘛"],
+  close: ["和你待在一起，很安心", "我已经记住你的脚步声了"],
+  reliant: ["你不在的话…我会想你的", "今天也想多黏你一会儿"],
+  heart: ["最喜欢你了。真的。", "以后也一直在一起，好不好？"],
+};
+/** 被摸醒：白天理直气壮否认，深夜则压低声音。 */
+const GIRL_WAKE_LINES = ["唔…我没有睡着！", "被、被你摸醒了…", "刚才只是闭目养神"];
+const GIRL_WAKE_NIGHT_LINES = ["这么晚还来摸我…", "嘘…小点声啦", "我、我醒着呢"];
+const GIRL_TOY_LINES = ["球！球给我！", "看我的——", "滚回来呀", "接住！"];
+const GIRL_POUNCE_LINES = ["抓到你啦！", "别跑——", "嘿！"];
+const GIRL_NIGHT_LINES = ["很晚了…真的该睡了", "再陪你十分钟，然后去睡", "眼睛该休息啦", "我把屏幕调暗一点？"];
+
 /** 猫娘词表的唯一出口：测试按表锁文案，别在用例里另抄一份。 */
 export const GIRL_LINES = {
   pet: GIRL_PET_LINES,
@@ -171,6 +218,13 @@ export const GIRL_LINES = {
   feet: GIRL_FEET_LINES,
   dizzy: GIRL_DIZZY_LINES,
   notice: GIRL_NOTICE_LINES,
+  combo: GIRL_PAT_COMBO_LINES,
+  wake: GIRL_WAKE_LINES,
+  wakeNight: GIRL_WAKE_NIGHT_LINES,
+  toy: GIRL_TOY_LINES,
+  pounce: GIRL_POUNCE_LINES,
+  night: GIRL_NIGHT_LINES,
+  bond: GIRL_BOND_LINES,
 } as const;
 
 /** 被连点逗晕后的视觉时长；渲染端的星环与晃身同一条秒表。 */
@@ -412,6 +466,19 @@ export const TOUCH_KINDS = ["poke", "pet", "grab", "drop", "throw", "crash", "he
 export type TouchKind = (typeof TOUCH_KINDS)[number];
 /** 同类触摸的合并窗：连点/连撞不灌队列（spec §5 :257）。 */
 export const TOUCH_MERGE_MS = 2_500;
+/**
+ * 头/脚两区的合并窗短得多：2.5s 只能「弹同一句话两次」，650ms 才留得出
+ * 连击的节奏（约 1–3 次/秒）。poke/pet 仍走 2.5s，免得连点变复读机。
+ */
+export const HEAD_MERGE_MS = 650;
+/** 摸头连击的窗口：两次摸头间隔超过它，连击从头数。 */
+export const PAT_COMBO_WINDOW_MS = 3_200;
+/** 连击封顶：第 5 下之后不再升级，只维持最后一句。 */
+export const PAT_COMBO_MAX = 5;
+/** 睡梦中被碰醒的惊跳时长；渲染端的「！」与小跳共用这条秒表。 */
+export const STARTLE_MS = 1_600;
+/** 扑光标的冷却：扑一次就满足，不许跟着鼠标抽搐。 */
+export const POUNCE_COOLDOWN_MS = 18_000;
 /** 按住超它且没拖过 4px 阈值＝摩挲；以下是戳一下。 */
 export const PET_HOLD_MS = 500;
 export function clickKindFor(heldMs: number): "poke" | "pet" {
@@ -477,6 +544,21 @@ export class CompanionEngine {
   private noticeCooldownUntil = 0;
   /** 最近一次「用户碰过她」的行为时钟；静息周期从这里数 40s。 */
   private lastUserAt = 0;
+  /** 初见时刻（墙上时钟）：相识天数从这天算第 1 天。 */
+  private metAt = 0;
+  /** 上一次读到的档位：只用来判「升级了」，掉档不广播。 */
+  private lastBondTier: BondState = bondTierOf(0.5);
+  private bondUpUntil = 0;
+  /** 晨间伸懒腰与深夜提醒各自的日历键（跨重启去重）。 */
+  private morningKey = "";
+  private lastNightKey = "";
+  private lastNightNudgeAt = 0;
+  /** 摸头连击：窗口内累加，超窗归零；650ms 合并窗保证连击有节奏而不是连点。 */
+  private headCombo = 0;
+  private headComboAt = 0;
+  private startleUntil = 0;
+  private pounceCooldownUntil = 0;
+  private pounces = 0;
 
   constructor(options: CompanionOptions = {}) {
     this.random = options.random ?? Math.random;
@@ -490,6 +572,9 @@ export class CompanionEngine {
     this.idleUntil = this.lastNow + this.idleDelay();
     this.chatAt = this.lastNow + CHAT_MIN_MS + this.random() * CHAT_SPAN_MS;
     this.load();
+    this.loadBond();
+    // 读档后的亲密度就是「当前档」：不把旧存档误报成刚升级。
+    this.lastBondTier = bondTierOf(this.vitals.affinity);
   }
 
   // —— 查询面 ——
@@ -505,6 +590,11 @@ export class CompanionEngine {
     // 晕与「注意到你」都是她这一形的事：切走再切回来不该接着上一轮的秒表。
     this.dizzyUntil = 0;
     this.noticeCooldownUntil = 0;
+    this.headCombo = 0;
+    this.headComboAt = 0;
+    this.startleUntil = 0;
+    this.pounceCooldownUntil = 0;
+    this.bondUpUntil = 0;
   }
 
   /**
@@ -515,8 +605,15 @@ export class CompanionEngine {
     if (this.form !== "girl") return false;
     // 碰一下就算「有人陪着」：即使这一下被合并窗吞掉，也不该马上坐下来歇。
     this.lastUserAt = now;
+    // 睡着时被碰：先受惊醒来，这一下算「叫醒」而不是摸头/挠脚。
+    if (this.activity === "sleep" && (kind === "head" || kind === "feet" || kind === "poke")) {
+      this.lastTouchAt.set(kind, now);
+      this.wakeStartle(now);
+      return true;
+    }
+    const mergeMs = kind === "head" || kind === "feet" ? HEAD_MERGE_MS : TOUCH_MERGE_MS;
     const last = this.lastTouchAt.get(kind);
-    if (last !== undefined && now - last < TOUCH_MERGE_MS) return false;
+    if (last !== undefined && now - last < mergeMs) return false;
     this.lastTouchAt.set(kind, now);
     switch (kind) {
       case "poke": {
@@ -529,20 +626,12 @@ export class CompanionEngine {
       case "pet":
         this.pet(now);
         return true;
-      case "head": {
-        // 摸头：比戳一下更亲，但不像「摩挲」那样算长按。爱心走 pet 动作包络。
-        this.setVitals({ affinity: this.vitals.affinity + 0.04 });
-        this.happyUntil = now + 3_000;
-        this.ambientGesture = "coverFace";
-        this.gestureUntil = now + gestureClip("coverFace").ms;
-        this.startAction("pet", now, 1_000);
-        this.idleUntil = now + IDLE_MIN_MS;
-        this.say(this.pickLine([...GIRL_HEAD_LINES]), 1, now, true);
+      case "head":
+        this.patHead(now);
         return true;
-      }
       case "feet": {
         // 挠脚：怕痒、不掉精力（她没跑，只是缩了一下）。
-        this.setVitals({ affinity: this.vitals.affinity + 0.03 });
+        this.rewardAffinity(0.03, now);
         this.happyUntil = now + 2_500;
         this.ambientGesture = "shiver";
         this.gestureUntil = now + gestureClip("shiver").ms;
@@ -576,6 +665,9 @@ export class CompanionEngine {
     this.vy = 0;
     this.actionDuration = 0;
     this.happyUntil = 0;
+    this.headCombo = 0;
+    this.headComboAt = 0;
+    this.startleUntil = 0;
     if (this.activity !== "drag" && this.activity !== "thrown") this.activity = "idle";
     this.ambientGesture = "coverFace";
     this.gestureUntil = now + gestureClip("coverFace").ms;
@@ -597,6 +689,122 @@ export class CompanionEngine {
     if (!this.say(this.pickLine([...GIRL_NOTICE_LINES]), 0, now)) return false;
     this.noticeCooldownUntil = now + NOTICE_COOLDOWN_MS;
     this.happyUntil = Math.max(this.happyUntil, now + 1_800);
+    return true;
+  }
+
+  /**
+   * 一次摸头（已被合并窗放行）：连击在 3.2s 窗口内递增，第 4/5 下换手势，
+   * 封顶那下多给一点亲密度。第一下必须与旧口径逐字节一致：coverFace + 0.04。
+   */
+  private patHead(now: number): void {
+    const continued = this.headCombo > 0 && now - this.headComboAt <= PAT_COMBO_WINDOW_MS;
+    this.headCombo = continued ? Math.min(PAT_COMBO_MAX, this.headCombo + 1) : 1;
+    this.headComboAt = now;
+    this.rewardAffinity(0.04 + (this.headCombo >= PAT_COMBO_MAX ? 0.02 : 0), now);
+    this.happyUntil = now + 3_000 + (this.headCombo - 1) * 250;
+    const gesture = this.headCombo >= 4 ? "hop" : this.headCombo >= 3 ? "shiver" : "coverFace";
+    this.ambientGesture = gesture;
+    this.gestureUntil = now + gestureClip(gesture).ms;
+    this.startAction("pet", now, 1_000);
+    this.idleUntil = now + IDLE_MIN_MS;
+    const comboLine = this.headCombo >= 2
+      ? GIRL_PAT_COMBO_LINES[Math.min(GIRL_PAT_COMBO_LINES.length - 1, this.headCombo - 2)]
+      : null;
+    this.say(comboLine ?? this.pickLine([...GIRL_HEAD_LINES]), 1, now, true);
+  }
+
+  /** 睡着被碰：立刻醒、缩一下、说一句被吓到的话；这一拍不走摸头/挠脚的反馈。 */
+  private wakeStartle(now: number): void {
+    const hour = new Date(this.wallNow()).getHours();
+    const night = hour >= 22 || hour < 5;
+    this.activity = "idle";
+    this.target = null;
+    this.vx = 0;
+    this.vy = 0;
+    this.actionDuration = 0;
+    this.wakeFromSleep();
+    this.startleUntil = now + STARTLE_MS;
+    this.ambientGesture = "shiver";
+    this.gestureUntil = now + gestureClip("shiver").ms;
+    this.idleUntil = now + IDLE_MIN_MS;
+    this.lastUserAt = now;
+    this.say(this.pickLine([...(night ? GIRL_WAKE_NIGHT_LINES : GIRL_WAKE_LINES)]), 2, now, true);
+  }
+
+  /**
+   * 深夜提醒：由渲染端每 30s 问一次，引擎自己按「同一晚 45 分钟」去重。
+   * 不挂在 stepIdle 上——否则会变成一个额外随机源，把既有行为的抽签全挪位。
+   */
+  nightNudge(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
+    const wall = this.wallNow();
+    const hour = new Date(wall).getHours();
+    if (!(hour >= 23 || hour < 5)) return false;
+    const key = nightKey(wall);
+    if (this.lastNightKey === key && now - this.lastNightNudgeAt < 45 * 60_000) return false;
+    if (!this.say(this.pickLine([...GIRL_NIGHT_LINES]), 0, now)) return false;
+    this.lastNightKey = key;
+    this.lastNightNudgeAt = now;
+    this.saveBond();
+    this.ambientGesture = "yawn";
+    this.gestureUntil = now + gestureClip("yawn").ms;
+    return true;
+  }
+
+  /**
+   * 朝光标扑一下：只挪 9–26px（读起来是「扑」不是「瞬移」），朝向立刻对着光标，
+   * 落地压扁 + hop 片 + 一句得意的话。冷却 18s，安静/睡着/被拖/被投掷时整段不接。
+   * `bounds` 由渲染端给（窗口原点的可去范围），测试可省。
+   */
+  pounce(aimX: number, now = this.now(), bounds?: { minX: number; maxX: number }): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (this.activity !== "idle" && this.activity !== "rest") return false;
+    if (now < this.dizzyUntil || now < this.pounceCooldownUntil) return false;
+    const dx = aimX - this.pos.x;
+    if (!Number.isFinite(dx) || Math.abs(dx) < 6) return false;
+    const dir = dx >= 0 ? 1 : -1;
+    const step = Math.min(26, Math.max(9, Math.abs(dx) * 0.18));
+    let nextX = this.pos.x + dir * step;
+    if (bounds) nextX = clamp(nextX, bounds.minX, bounds.maxX);
+    if (Math.abs(nextX - this.pos.x) < 1) return false;
+    this.pos = { x: Math.round(nextX), y: this.pos.y };
+    this.facing = dir;
+    this.activity = "idle";
+    this.target = null;
+    this.actionDuration = 0;
+    this.squashUntil = now + 220;
+    this.happyUntil = now + 2_400;
+    this.ambientGesture = "hop";
+    this.gestureUntil = now + gestureClip("hop").ms;
+    this.idleUntil = now + 3_000;
+    this.lastUserAt = now;
+    this.pounceCooldownUntil = now + POUNCE_COOLDOWN_MS;
+    this.pounces += 1;
+    this.onMove?.({ ...this.pos });
+    this.settle(now);
+    this.say(this.pickLine([...GIRL_POUNCE_LINES]), 1, now, true);
+    return true;
+  }
+
+  /**
+   * 毛线球被踢：`auto` 是她自己扒拉球（不出声、不涨好感），
+   * 手动踢才换成 hop + 一句「球给我」并微弱涨亲密度。
+   */
+  toyBat(now = this.now(), auto = false): boolean {
+    if (this.form !== "girl") return false;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
+    if (now < this.dizzyUntil) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 2_400);
+    this.idleUntil = now + IDLE_MIN_MS;
+    const gesture = auto ? "peek" : "hop";
+    this.ambientGesture = gesture;
+    this.gestureUntil = now + gestureClip(gesture).ms;
+    if (auto) return true;
+    this.lastUserAt = now;
+    this.rewardAffinity(0.01, now);
+    this.startAction("play", now, 900);
+    this.say(this.pickLine([...GIRL_TOY_LINES]), 1, now, true);
     return true;
   }
 
@@ -622,6 +830,15 @@ export class CompanionEngine {
       bubble: this.bubble ? { ...this.bubble } : null,
       gesture: this.ambientGesture && this.gestureUntil > this.now() ? this.ambientGesture : null,
       dizzyLeft: Math.max(0, this.dizzyUntil - this.now()),
+      bond: bondTierOf(this.vitals.affinity),
+      days: daysTogether(this.metAt, this.wallNow()),
+      bondUpLeft: Math.max(0, this.bondUpUntil - this.now()),
+      patCombo: this.headCombo > 0 && this.now() - this.headComboAt <= PAT_COMBO_WINDOW_MS ? this.headCombo : 0,
+      patComboLeft: this.headCombo > 0
+        ? Math.max(0, this.headComboAt + PAT_COMBO_WINDOW_MS - this.now())
+        : 0,
+      startleLeft: Math.max(0, this.startleUntil - this.now()),
+      pounces: this.pounces,
     };
   }
 
@@ -715,7 +932,7 @@ export class CompanionEngine {
 
   pet(now = this.now()): void {
     this.lastUserAt = now;
-    this.setVitals({ affinity: this.vitals.affinity + 0.04 });
+    this.rewardAffinity(0.04, now);
     this.happyUntil = now + 3_500;
     this.startAction("pet", now, 900);
     this.idleUntil = now + IDLE_MIN_MS;
@@ -727,8 +944,8 @@ export class CompanionEngine {
     this.setVitals({
       fullness: this.vitals.fullness + 0.3,
       energy: this.vitals.energy + 0.05,
-      affinity: this.vitals.affinity + 0.02,
     });
+    this.rewardAffinity(0.02, now);
     this.happyUntil = now + 2_500;
     this.startAction("eat", now, 1_600);
     this.idleUntil = now + IDLE_MIN_MS;
@@ -740,8 +957,8 @@ export class CompanionEngine {
     this.setVitals({
       energy: this.vitals.energy - 0.14,
       fullness: this.vitals.fullness - 0.05,
-      affinity: this.vitals.affinity + 0.05,
     });
+    this.rewardAffinity(0.05, now);
     this.happyUntil = now + 4_000;
     this.startAction("play", now, 2_000);
     this.idleUntil = now + IDLE_MIN_MS;
@@ -751,6 +968,9 @@ export class CompanionEngine {
   toggleSleep(now = this.now()): void {
     this.lastUserAt = now;
     this.actionDuration = 0;
+    this.headCombo = 0;
+    this.headComboAt = 0;
+    this.startleUntil = 0;
     if (this.activity === "sleep") {
       this.activity = "idle";
       this.wakeFromSleep();
@@ -768,8 +988,16 @@ export class CompanionEngine {
   /** 露个脸：按时段说一句。安静期由 say() 拒绝，返回 false。 */
   greet(now = this.now()): boolean {
     this.lastUserAt = now;
-    const part = dayPartOf(new Date(this.wallNow()).getHours());
-    const text = this.form === "girl" ? GIRL_GREETINGS[part] : GREETING_LINES[part];
+    const wall = this.wallNow();
+    const part = dayPartOf(new Date(wall).getHours());
+    if (this.form !== "girl") return this.say(GREETING_LINES[part], 1, now);
+    // 每天第一次见面：先伸个懒腰再开口（同一天重启不再演）。
+    this.maybeMorningStretch(now, wall);
+    const days = daysTogether(this.metAt, wall);
+    // 第 N 天独占一行：问候句 72px，后面再缀「 · 第 2 天」会被 78px 内宽从词中间劈开。
+    const text = days >= 2
+      ? `${GIRL_GREETINGS[part]}\n第 ${days} 天`
+      : GIRL_GREETINGS[part];
     return this.say(text, 1, now);
   }
 
@@ -789,12 +1017,21 @@ export class CompanionEngine {
       case "toggle-sleep": this.toggleSleep(now); break;
       case "status": {
         const v = this.vitals;
-        this.say(
-          `亲密度 ${Math.round(v.affinity * 100)}% · 饱腹 ${Math.round(v.fullness * 100)}% · 精力 ${Math.round(v.energy * 100)}%`,
-          2,
-          now,
-          true,
-        );
+        const vitalLine = `亲密度 ${Math.round(v.affinity * 100)}% · 饱腹 ${Math.round(v.fullness * 100)}% · 精力 ${Math.round(v.energy * 100)}%`;
+        if (this.form === "girl") {
+          const bond = bondTierOf(v.affinity);
+          const days = daysTogether(this.metAt, this.wallNow());
+          // 四行小卡片：气泡内宽只有 78px，一整句真宽 160px+，硬挤会切字（v1.8 尺 #62）。
+          const card = [
+            `亲密度 ${Math.round(v.affinity * 100)}%`,
+            `饱腹 ${Math.round(v.fullness * 100)}%`,
+            `精力 ${Math.round(v.energy * 100)}%`,
+            `${bond.name} · 第 ${days} 天`,
+          ].join("\n");
+          this.say(card, 2, now, true);
+        } else {
+          this.say(vitalLine, 2, now, true);
+        }
         break;
       }
     }
@@ -879,11 +1116,47 @@ export class CompanionEngine {
   }
 
   save(): void {
+    this.saveBond();
     if (!this.storage) return;
     try {
       this.storage.setItem(VITALS_KEY, JSON.stringify({ vitals: this.vitals, savedAt: this.wallNow() }));
     } catch {
       // 存储不可写（配额/隐私模式）：行为不受影响，只是下次从默认值起步。
+    }
+  }
+
+  private loadBond(): void {
+    this.metAt = this.wallNow();
+    if (!this.storage) return;
+    let found = false;
+    try {
+      const raw = this.storage.getItem(BOND_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { metAt?: number; morningKey?: string; nightKey?: string };
+        found = true;
+        if (typeof parsed?.metAt === "number" && Number.isFinite(parsed.metAt) && parsed.metAt > 0) {
+          this.metAt = parsed.metAt;
+        }
+        if (typeof parsed.morningKey === "string") this.morningKey = parsed.morningKey;
+        if (typeof parsed.nightKey === "string") this.lastNightKey = parsed.nightKey;
+      }
+    } catch {
+      // 坏档不阻塞启动：初见时刻退回本次启动，下面立刻覆盖。
+    }
+    // 第一次见面就落盘：相识天数哪怕只开一次也不能从明天重新数。
+    if (!found) this.saveBond();
+  }
+
+  private saveBond(): void {
+    if (!this.storage) return;
+    try {
+      this.storage.setItem(BOND_KEY, JSON.stringify({
+        metAt: this.metAt,
+        morningKey: this.morningKey,
+        nightKey: this.lastNightKey,
+      }));
+    } catch {
+      // 同 save：写不进去只影响「第几天」，不影响本次行为。
     }
   }
 
@@ -900,6 +1173,48 @@ export class CompanionEngine {
   /** 同一件事，四足与猫娘两张词表；不在 `say` 层分支，免得每句都问一次形态。 */
   private lines(cat: readonly string[], girl: readonly string[]): readonly string[] {
     return this.form === "girl" ? girl : cat;
+  }
+
+  /**
+   * 每天第一次见面演一段伸懒腰：只改动作、不碰气泡（问候词由 greet 自己说）。
+   * 日历键落盘，跨重启同一天不重演。只在真正闲着时接管，拖拽/投掷/睡觉都不打断。
+   */
+  private maybeMorningStretch(now: number, wallMs: number): void {
+    const hour = new Date(wallMs).getHours();
+    if (hour < 5 || hour >= 11) return;
+    const key = dateKey(wallMs);
+    if (this.morningKey === key) return;
+    this.morningKey = key;
+    this.saveBond();
+    if (this.activity === "idle" || this.activity === "rest") {
+      this.ambientGesture = null;
+      this.gestureUntil = 0;
+      this.startAction("stretch", now, ACTION_MS.stretch);
+    }
+  }
+
+  /**
+   * 用户互动涨亲密度：先写数值再判档位。只有**这一个入口**会广播升级，
+   * 外部 setVitals/读档不会把旧数值误报成「刚刚升级」。
+   */
+  private rewardAffinity(delta: number, now: number): void {
+    this.setVitals({ affinity: this.vitals.affinity + delta });
+    this.refreshBond(now);
+  }
+
+  private refreshBond(now: number): void {
+    const next = bondTierOf(this.vitals.affinity);
+    if (next.index <= this.lastBondTier.index) {
+      this.lastBondTier = next;
+      return;
+    }
+    this.lastBondTier = next;
+    this.bondUpUntil = now + BOND_UP_MS;
+    this.happyUntil = Math.max(this.happyUntil, now + 3_200);
+    this.ambientGesture = "clap";
+    this.gestureUntil = now + gestureClip("clap").ms;
+    this.saveBond();
+    this.say(this.pickLine([...GIRL_BOND_LINES[next.id]]), 2, now, true);
   }
 
   private mood(): Mood {

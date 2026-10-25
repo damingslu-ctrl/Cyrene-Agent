@@ -13,6 +13,8 @@ import {
   ROLL_WEIGHTS,
   POKE_VARIANTS,
   PET_HOLD_MS,
+  POUNCE_COOLDOWN_MS,
+  STARTLE_MS,
   TOUCH_KINDS,
   TOUCH_MERGE_MS,
   bucketOf,
@@ -287,6 +289,19 @@ describe("companion interactions", () => {
     engine.setQuiet(true);
     engine.handleCommand("status");
     expect(engine.getSnapshot().bubble?.text).toBe(bubble?.text); // 不影响已有气泡，也不新说
+  });
+
+  it("猫娘状态卡四行报：三条资源各占一行，羁绊与相识天数同一行", () => {
+    const engine = new CompanionEngine({ now: () => T0, random: seq([0.5]), storage: makeStorage() });
+    engine.setForm("girl");
+    engine.setVitals({ affinity: 0.7, fullness: 0.7, energy: 0.8 });
+    engine.handleCommand("status");
+    const lines = engine.getSnapshot().bubble!.text.split("\n");
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toBe("亲密度 70%");
+    expect(lines[1]).toBe("饱腹 70%");
+    expect(lines[2]).toBe("精力 80%");
+    expect(lines[3]).toBe("依赖 · 第 1 天");
   });
 });
 
@@ -811,5 +826,202 @@ describe("companion 猫娘静息周期与微动作", () => {
     const snap = engine.update(t, ctx);
     expect(snap.activity).toBe("idle");
     expect(MICRO_GESTURES).toContain(snap.gesture);
+  });
+});
+
+describe("猫娘 II：连击 / 惊醒 / 羁绊 / 作息 / 扑与球", () => {
+  it("摸头连击：3.2s 内递进到第 4/5 下换手势，断了重新起算", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    engine.setForm("girl");
+    // 压到低好感，避免第 5 下顺手跨档：升档播报优先级 2 会把连击台词盖掉（另有单测锁它）。
+    engine.setVitals({ affinity: 0.2 });
+
+    engine.touch("head", t);
+    expect(engine.getSnapshot().patCombo).toBe(1);
+    expect(engine.getSnapshot().gesture).toBe("coverFace");
+
+    t += 700;
+    engine.touch("head", t);
+    expect(engine.getSnapshot().patCombo).toBe(2);
+    expect(engine.getSnapshot().bubble?.text).toBe(GIRL_LINES.combo[0]);
+
+    t += 700;
+    engine.touch("head", t);
+    expect(engine.getSnapshot().patCombo).toBe(3);
+    expect(engine.getSnapshot().gesture).toBe("shiver");
+
+    t += 700;
+    engine.touch("head", t);
+    expect(engine.getSnapshot().patCombo).toBe(4);
+    expect(engine.getSnapshot().gesture).toBe("hop");
+
+    t += 700;
+    engine.touch("head", t);
+    expect(engine.getSnapshot().patCombo).toBe(5);
+    expect(engine.getSnapshot().bubble?.text).toBe(GIRL_LINES.combo[3]);
+
+    // 窗口过了就不再算连击（下一次从 1 重来）。
+    t += 3_300;
+    expect(engine.getSnapshot().patCombo).toBe(0);
+    engine.touch("head", t);
+    expect(engine.getSnapshot().patCombo).toBe(1);
+    expect(engine.getSnapshot().gesture).toBe("coverFace");
+  });
+
+  it("睡中被碰是惊醒而不是挠脚：立刻醒、受惊记号 + 一句被吓到的话", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    engine.setForm("girl");
+    engine.toggleSleep(t);
+    expect(engine.getSnapshot().activity).toBe("sleep");
+
+    t += 500;
+    engine.touch("feet", t);
+    const snap = engine.getSnapshot();
+    expect(snap.activity).toBe("idle");
+    expect(snap.mood).not.toBe("sleep");
+    expect(snap.startleLeft).toBeGreaterThan(0);
+    expect(snap.startleLeft).toBeLessThanOrEqual(STARTLE_MS);
+    expect(snap.gesture).toBe("shiver");
+    expect(GIRL_LINES.wake).toContain(snap.bubble?.text);
+  });
+
+  it("深夜被摸醒换一套「嘘——」的台词", () => {
+    const nightWall = new Date(2026, 0, 10, 23, 30).getTime();
+    let t = T0;
+    const engine = new CompanionEngine({
+      storage: makeStorage(), now: () => t, wallNow: () => nightWall, random: seq([0.5]),
+    });
+    engine.setForm("girl");
+    engine.toggleSleep(t);
+    t += 400;
+    engine.touch("head", t);
+    expect(GIRL_LINES.wakeNight).toContain(engine.getSnapshot().bubble?.text);
+  });
+
+  it("亲密度跨档才播报一次；setVitals 直接改数不播报", () => {
+    let t = T0;
+    const storage = makeStorage();
+    const engine = new CompanionEngine({ storage, now: () => t, random: seq([0.5]) });
+    engine.setForm("girl");
+
+    engine.setVitals({ affinity: 0.64 });
+    expect(engine.getSnapshot().bubble).toBeNull();
+    t += 2_000;
+    engine.touch("feet", t); // +0.03 → 0.67，跨过 0.66「依赖」
+    const up = engine.getSnapshot();
+    expect(up.bond.id).toBe("reliant");
+    expect(up.bond.name).toBe("依赖");
+    expect(up.bondUpLeft).toBeGreaterThan(0);
+    expect(GIRL_LINES.bond.reliant).toContain(up.bubble?.text);
+
+    // 同一档里再涨不再喊（气泡还是上一句，升档窗口继续走）。
+    const upText = up.bubble?.text;
+    const upLeft = up.bondUpLeft;
+    t += 1_000;
+    engine.touch("feet", t);
+    const same = engine.getSnapshot();
+    expect(same.bubble?.text).toBe(upText);
+    expect(same.bondUpLeft).toBeLessThan(upLeft);
+    engine.setVitals({ affinity: 0.1 });
+    const dropped = engine.getSnapshot();
+    expect(dropped.bond.id).toBe("new");
+    expect(dropped.bubble?.text).not.toBe(GIRL_LINES.bond.new[0]);
+  });
+
+  it("第二天露脸：问候句把「第 N 天」单独放一行，不让换行劈开句子", () => {
+    const wall = new Date(2026, 0, 10, 8, 0).getTime();
+    const storage = makeStorage();
+    new CompanionEngine({ storage, now: () => T0, wallNow: () => wall, random: seq([0.5]) });
+    const engine = new CompanionEngine({
+      storage, now: () => T0, wallNow: () => wall + 24 * 3600_000, random: seq([0.5]),
+    });
+    engine.setForm("girl");
+    engine.greet(T0);
+    expect(engine.getSnapshot().bubble?.text).toBe(`${GIRL_GREETINGS.morning}\n第 2 天`);
+  });
+
+  it("相识天数跨天累加，同一天只算第 1 天", () => {
+    const wall = new Date(2026, 0, 10, 9, 0).getTime();
+    const storage = makeStorage();
+    new CompanionEngine({ storage, now: () => T0, wallNow: () => wall, random: seq([0.5]) });
+
+    const same = new CompanionEngine({ storage, now: () => T0, wallNow: () => wall + 2 * 3600_000, random: seq([0.5]) });
+    expect(same.getSnapshot().days).toBe(1);
+
+    const later = new CompanionEngine({ storage, now: () => T0, wallNow: () => wall + 2 * 24 * 3600_000, random: seq([0.5]) });
+    expect(later.getSnapshot().days).toBe(3);
+  });
+
+  it("早晨第一次见面伸懒腰；同一天第二次不再演", () => {
+    const wall = new Date(2026, 0, 10, 8, 0).getTime();
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, wallNow: () => wall, random: seq([0.5]) });
+    engine.setForm("girl");
+    engine.greet(t);
+    expect(engine.getSnapshot().activity).toBe("stretch");
+
+    t += 3_000;
+    engine.update(t, ctx);
+    engine.greet(t + 1_000);
+    expect(engine.getSnapshot().activity).not.toBe("stretch");
+  });
+
+  it("深夜提醒同一晚 45 分钟内只说一次，安静期直接闭嘴", () => {
+    const nightWall = new Date(2026, 0, 10, 23, 30).getTime();
+    let t = T0;
+    const engine = new CompanionEngine({
+      storage: makeStorage(), now: () => t, wallNow: () => nightWall, random: seq([0.5]),
+    });
+    engine.setForm("girl");
+    expect(engine.nightNudge(t)).toBe(true);
+    expect(GIRL_LINES.night).toContain(engine.getSnapshot().bubble?.text);
+    expect(engine.nightNudge(t + 60_000)).toBe(false);
+
+    engine.setQuiet(true);
+    expect(engine.nightNudge(t + 46 * 60_000)).toBe(false);
+  });
+
+  it("朝光标扑：只挪一小段、朝过去、带冷却", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    engine.setForm("girl");
+    engine.setPosition({ x: 200, y: 300 });
+    const before = engine.getSnapshot().pos.x;
+
+    expect(engine.pounce(420, t, { minX: 0, maxX: 900 })).toBe(true);
+    const pounced = engine.getSnapshot();
+    expect(pounced.pos.x).toBeGreaterThan(before);
+    expect(pounced.pos.x - before).toBeLessThanOrEqual(26);
+    expect(pounced.facing).toBe(1);
+    expect(pounced.pounces).toBe(1);
+    expect(GIRL_LINES.pounce).toContain(pounced.bubble?.text);
+
+    expect(engine.pounce(100, t + 1_000, { minX: 0, maxX: 900 })).toBe(false);
+    expect(engine.pounce(engine.getSnapshot().pos.x + 2, t + POUNCE_COOLDOWN_MS + 1, { minX: 0, maxX: 900 })).toBe(false); // 太近不扑
+    t += POUNCE_COOLDOWN_MS + 2_000;
+    expect(engine.pounce(20, t, { minX: 0, maxX: 900 })).toBe(true);
+    expect(engine.getSnapshot().facing).toBe(-1);
+  });
+
+  it("毛线球被拨：自动档不出声，手动档换 hop + 说球 + 微弱涨亲密度", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    engine.setForm("girl");
+    const affinity = engine.getVitals().affinity;
+
+    expect(engine.toyBat(t, true)).toBe(true);
+    expect(engine.getSnapshot().bubble).toBeNull();
+    expect(engine.getSnapshot().gesture).toBe("peek");
+
+    t += 10;
+    expect(engine.toyBat(t, false)).toBe(true);
+    expect(engine.getSnapshot().gesture).toBe("hop");
+    expect(GIRL_LINES.toy).toContain(engine.getSnapshot().bubble?.text);
+    expect(engine.getVitals().affinity).toBeGreaterThan(affinity);
+
+    engine.toggleSleep(t + 100);
+    expect(engine.toyBat(t + 200, false)).toBe(false);
   });
 });

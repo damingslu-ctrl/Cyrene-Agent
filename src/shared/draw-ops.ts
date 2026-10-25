@@ -41,4 +41,4 @@ export type DrawOp =
       x: number; y: number; w: number; h: number;
       layer?: PetLayer;
     }
-  | { kind: "text"; text: string; x: number; y: number; size: number; color: string; align?: "left" | "right" | "center"; layer?: PetLayer };
+  | { kind: "text"; text: string; x: number; y: number; size: number; color: string; align?: "left" | "right" | "center"; maxWidth?: number; layer?: PetLayer };

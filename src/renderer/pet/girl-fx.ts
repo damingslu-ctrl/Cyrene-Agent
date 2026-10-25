@@ -5,7 +5,8 @@ import {
 } from "../../shared/pet-tokens";
 import { girlFaceBox, girlInkBox, type GirlAnimBody } from "./girl-sprite";
 import type { GirlPresencePose } from "./girl-presence";
-import type { CompanionActivity } from "./companion";
+import { STARTLE_MS, type CompanionActivity } from "./companion";
+import { BOND_UP_MS } from "./girl-bond";
 
 /**
  * 猫娘的「屏幕记号」层：画在**她身上和桌布上的小东西**。
@@ -48,6 +49,14 @@ export interface GirlFxInput {
   /** 开心到会哼歌的档：happy mood 或 wave/peace/happy 片。 */
   notes: boolean;
   quiet: boolean;
+  /** 坐垫包络 0..1：坐下时垫子从她身下展开，起身收回。 */
+  cushion: number;
+  /** 刚升档的记号剩余毫秒（BOND_UP_MS 起算）；0＝没有升档。 */
+  bondUpLeft: number;
+  /** 摸头连击数（0/1＝无连击，2..5 才有记号）。 */
+  patCombo: number;
+  /** 睡梦中被碰醒的惊跳剩余毫秒。 */
+  startleLeft: number;
 }
 
 export interface GirlFxOps {
@@ -128,20 +137,18 @@ function blushOps(input: GirlFxInput): DrawOp[] {
   return ops;
 }
 
-/** 「！」：从脸侧上方弹出、上浮、淡出。两笔同形，奶油在外、强调色在内。 */
-function noticeOps(input: GirlFxInput): DrawOp[] {
-  if (input.noticeAgeMs < 0 || input.noticeAgeMs > NOTICE_FX_MS) return [];
-  if (input.dizzyLeft > 0.05) return [];
-  const p = clamp01(input.noticeAgeMs / NOTICE_FX_MS);
+/** 「！」本体：从脸侧上方弹出、上浮、淡出。奶油在外、强调色在内；`scale` 给受惊用。 */
+function exclamationOps(input: GirlFxInput, ageMs: number, totalMs: number, scale = 1): DrawOp[] {
+  const p = clamp01(ageMs / totalMs);
   const alpha = smoothFade(p, 0.08, 0.62);
   if (alpha <= 0.01) return [];
   const face = girlFaceBox(input.body, input.frame);
-  const popIn = Math.min(1, input.noticeAgeMs / 180);
+  const popIn = Math.min(1, ageMs / 180);
   const over = 1 + 0.28 * Math.sin(popIn * Math.PI);
   const bob = Math.sin(p * Math.PI) * 2.2;
   const x = face.cx + input.body.facing * face.w * 0.62;
   const y = face.top - face.h * 0.30 - bob;
-  const h = Math.max(4.4, face.h * 0.40) * over;
+  const h = Math.max(4.4, face.h * 0.40) * over * scale;
   const w = Math.max(1.5, h * 0.24);
   const dotR = Math.max(1.1, w * 0.62);
   const gap = h * 0.32;
@@ -155,6 +162,13 @@ function noticeOps(input: GirlFxInput): DrawOp[] {
   bar(x, y - h, w, h * 0.78, withAlpha(ACCENT, alpha));
   ops.push({ kind: "fillEllipse", fill: withAlpha(ACCENT, alpha), cx: x, cy: y + gap + dotR * 0.7, rx: dotR, ry: dotR, layer: "stars" });
   return ops;
+}
+
+/** 「注意到你」的「！」：受惊/眩晕时让位（同一位置不叠两支）。 */
+function noticeOps(input: GirlFxInput): DrawOp[] {
+  if (input.noticeAgeMs < 0 || input.noticeAgeMs > NOTICE_FX_MS) return [];
+  if (input.dizzyLeft > 0.05 || input.startleLeft > 0) return [];
+  return exclamationOps(input, input.noticeAgeMs, NOTICE_FX_MS);
 }
 
 /** 连点晕圈：三颗双色小星绕头顶转，越到尾巴越淡。 */
@@ -231,6 +245,135 @@ function angerOps(input: GirlFxInput): DrawOp[] {
   return ops;
 }
 
+/** 一枚双色爱心：奶油外圈 + 玫瑰芯（两瓣椭圆 + 一个三角）。 */
+function heartOps(x: number, y: number, r: number, fill: string, halo: string, alpha: number): DrawOp[] {
+  const out: DrawOp[] = [];
+  const a = clamp01(alpha);
+  for (const [rr, color] of [[r * 1.22, withAlpha(halo, 0.92 * a)], [r, withAlpha(fill, a)]] as const) {
+    for (const side of [-0.52, 0.52]) {
+      out.push({
+        kind: "fillEllipse", fill: color,
+        cx: x + rr * side, cy: y - rr * 0.42, rx: rr * 0.56, ry: rr * 0.56, layer: "stars",
+      });
+    }
+    out.push({
+      kind: "fillPath", fill: color,
+      points: [[x - rr * 0.95, y - rr * 0.12], [x + rr * 0.95, y - rr * 0.12], [x, y + rr]],
+      layer: "stars",
+    });
+  }
+  return out;
+}
+
+/** 坐垫：她身下的椭圆软垫，奶油外圈先铺再压玫瑰面；起身时跟着包络收回。 */
+function cushionOps(input: GirlFxInput): DrawOp[] {
+  const a = clamp01(input.cushion);
+  if (a <= 0.01) return [];
+  const ink = girlInkBox(input.body, input.frame);
+  const x = ink.cx;
+  const y = input.groundY + 1.2;
+  const grow = 0.82 + 0.18 * a;
+  const rx = Math.max(20, Math.min(34, ink.w * 0.62)) * grow;
+  const ry = Math.max(4.6, rx * 0.30);
+  const ops: DrawOp[] = [
+    { kind: "fillEllipse", fill: withAlpha(PAPER, 0.10 * a), cx: x, cy: y + 1.2, rx: rx * 1.14, ry: ry * 1.5, layer: "stars" },
+    { kind: "fillEllipse", fill: withAlpha(PAPER, 0.95 * a), cx: x, cy: y, rx: rx * 1.06, ry: ry * 1.18, layer: "stars" },
+    { kind: "fillEllipse", fill: withAlpha(ROSE, 0.90 * a), cx: x, cy: y, rx, ry, layer: "stars" },
+    { kind: "fillEllipse", fill: withAlpha(ROSE_DEEP, 0.30 * a), cx: x, cy: y + ry * 0.34, rx: rx * 0.9, ry: ry * 0.5, layer: "stars" },
+    {
+      kind: "fillRoundRect", fill: withAlpha(PAPER, 0.52 * a),
+      x: x - rx * 0.52, y: y - Math.max(0.7, ry * 0.16),
+      w: rx * 1.04, h: Math.max(1.4, ry * 0.2), r: Math.max(0.7, ry * 0.1), layer: "stars",
+    },
+  ];
+  for (const side of [-1, 1]) {
+    ops.push({
+      kind: "fillEllipse", fill: withAlpha(PAPER, 0.78 * a),
+      cx: x + side * rx * 0.82, cy: y - ry * 0.1,
+      rx: Math.max(1.1, ry * 0.3), ry: Math.max(0.8, ry * 0.22), layer: "stars",
+    });
+  }
+  return ops;
+}
+
+/** 升档爆发：一圈光环 + 五枚错相上浮的爱心；持续 2.6s。 */
+function bondUpOps(input: GirlFxInput): DrawOp[] {
+  if (input.bondUpLeft <= 0) return [];
+  const p = clamp01(1 - input.bondUpLeft / BOND_UP_MS);
+  if (p >= 1) return [];
+  const face = girlFaceBox(input.body, input.frame);
+  const alpha = Math.min(1, smoothFade(p, 0.04, 0.62) * 1.05);
+  if (alpha <= 0.01) return [];
+  const ops: DrawOp[] = [];
+  if (p < 0.42) {
+    const ring = face.w * (0.55 + p * 1.7);
+    const a = (1 - p / 0.42) * 0.8;
+    ops.push({ kind: "strokeEllipse", stroke: withAlpha(PAPER, 0.9 * a), width: 2.6, cx: face.cx, cy: face.cy, rx: ring, ry: ring * 0.8, layer: "stars" });
+    ops.push({ kind: "strokeEllipse", stroke: withAlpha(ACCENT, a), width: 1.2, cx: face.cx, cy: face.cy, rx: ring, ry: ring * 0.8, layer: "stars" });
+  }
+  const baseR = Math.max(1.8, face.w * 0.075);
+  for (let i = 0; i < 5; i += 1) {
+    const ph = (p * 1.25 + i * 0.18) % 1;
+    const a = smoothFade(ph, 0.03, 0.6) * alpha;
+    if (a <= 0.015) continue;
+    const side = i % 2 === 0 ? 1 : -1;
+    const x = face.cx + side * face.w * (0.22 + ph * 0.5) + Math.sin(ph * 7 + i) * 1.2;
+    const y = face.cy - face.h * 0.08 - ph * face.h * 1.05;
+    const r = baseR * (0.85 + ph * 0.45);
+    ops.push(...heartOps(x, y, r, ROSE_DEEP, PAPER, a));
+  }
+  return ops;
+}
+
+/** 连击记号：头顶一圈小爱心，数量＝连击−1，右下角再压一个「xN」。 */
+function comboOps(input: GirlFxInput): DrawOp[] {
+  if (input.patCombo < 2 || input.startleLeft > 0 || input.mood === "sleep") return [];
+  const face = girlFaceBox(input.body, input.frame);
+  const n = Math.min(4, input.patCombo - 1);
+  const pulse = 0.82 + 0.18 * Math.sin(input.nowSec * 8.5);
+  const r = Math.max(1.5, face.w * 0.065) * pulse;
+  const ops: DrawOp[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const t = n === 1 ? 0.5 : i / (n - 1);
+    const ang = -Math.PI / 2 + (t - 0.5) * 1.25;
+    const x = face.cx + Math.cos(ang) * face.w * 0.72;
+    const y = face.cy + Math.sin(ang) * face.h * 0.62 - face.h * 0.12;
+    ops.push(...heartOps(x, y, r, ROSE_DEEP, PAPER, 0.92));
+  }
+  const label = `x${input.patCombo}`;
+  const tx = face.cx - input.body.facing * face.w * 0.55;
+  const ty = face.top - face.h * 0.12;
+  const size = Math.max(4.6, face.w * 0.155);
+  ops.push({ kind: "text", text: label, x: tx + 0.35, y: ty + 0.35, size, color: withAlpha(PAPER, 0.92), align: "center", layer: "stars" });
+  ops.push({ kind: "text", text: label, x: tx, y: ty, size, color: withAlpha(ACCENT, 0.95), align: "center", layer: "stars" });
+  return ops;
+}
+
+/** 睡中被碰醒：头顶一个更大的「！」+ 两侧惊跳线 + 一颗冷汗。 */
+function startleOps(input: GirlFxInput): DrawOp[] {
+  if (input.startleLeft <= 0) return [];
+  const age = STARTLE_MS - input.startleLeft;
+  const p = clamp01(1 - input.startleLeft / STARTLE_MS);
+  const a = smoothFade(p, 0.02, 0.58);
+  if (a <= 0.01) return [];
+  const face = girlFaceBox(input.body, input.frame);
+  const ops: DrawOp[] = exclamationOps(input, age, STARTLE_MS, 1.18);
+  const reach = face.w * (0.48 + p * 0.22);
+  for (const side of [-1, 1]) {
+    const x0 = face.cx + side * face.w * 0.34;
+    const y0 = face.cy - face.h * 0.22;
+    const x1 = face.cx + side * (face.w * 0.34 + reach * 0.5);
+    const y1 = y0 - face.h * 0.28;
+    ops.push({ kind: "strokePath", stroke: withAlpha(PAPER, 0.92 * a), width: 2.4, points: [[x0, y0], [x1, y1]], layer: "stars" });
+    ops.push({ kind: "strokePath", stroke: withAlpha(ACCENT, a), width: 1.1, points: [[x0, y0], [x1, y1]], layer: "stars" });
+  }
+  const dx = face.cx + input.body.facing * face.w * 0.42;
+  const dy = face.cy - face.h * 0.05;
+  ops.push({ kind: "fillEllipse", fill: withAlpha(PAPER, 0.9 * a), cx: dx, cy: dy, rx: 2.0, ry: 2.8, layer: "stars" });
+  ops.push({ kind: "fillEllipse", fill: withAlpha(ACCENT, 0.9 * a), cx: dx, cy: dy, rx: 1.1, ry: 1.8, layer: "stars" });
+  return ops;
+}
+
 /** 走路/落地的脚边尘埃：小团双色，不描边而是「亮底 + 灰芯」，两档桌布都看得见。 */
 function dustOps(input: GirlFxInput): DrawOp[] {
   const ops: DrawOp[] = [];
@@ -270,15 +413,21 @@ function dustOps(input: GirlFxInput): DrawOp[] {
   return ops;
 }
 
-/** 全部记号：`below` 只有投影，其余都在 `above`。顺序即叠放顺序。 */
+/**
+ * 全部记号：`below` = 坐垫 + 投影（垫子先铺，影子压在上面，她才「坐在垫子里」）；
+ * 其余都在 `above`。顺序即叠放顺序：贴脸的在前，头顶的记号在后，尘埃最后。
+ */
 export function buildGirlFxOps(input: GirlFxInput): GirlFxOps {
   return {
-    below: groundShadow(input),
+    below: [...cushionOps(input), ...groundShadow(input)],
     above: [
       ...blushOps(input),
+      ...comboOps(input),
+      ...bondUpOps(input),
       ...noteOps(input),
       ...angerOps(input),
       ...noticeOps(input),
+      ...startleOps(input),
       ...dizzyOps(input),
       ...dustOps(input),
     ],

@@ -11,7 +11,15 @@
 // - 「！」：把目标贴到头心，noticeAgeMs 落在 [0, 1800] 且引擎真的排了台词；
 // - 三区：点头 → coverFace/shy 且脸红上升；点脚 → shiver/wink；
 // - 连点：2.4s 内第四下 → dizzyLeft > 2500、星记号 ≥ 12 笔、姿势片切到 shy；
-// - 静息：最后一次互动 40s 后自己坐下，片名是 sit（最多等 56s）。
+// - 毛线球：诊断里有球；点它 → 球动、hop、说玩具台词、亲密度 +0.01；8s 内自己停下；
+// - 摸头连击 / 羁绊：三下连续摸头 → patCombo ≥ 3、跨进「依赖」、升级记号在场，
+//   状态卡四行同时报「依赖 · 第 N 天」，每行按真 Chromium 字宽量都 ≤ 78px 内宽；
+// - 晨间：把墙上时钟拨到明天 08:00 → 她演伸懒腰，days 变 2 且问候句带「第 2 天」
+//   （只改 Date.now，不动行为秒表）；
+// - 惊醒：右键睡眠后点头 → startleLeft > 800、醒回 idle、说被吓到的台词；
+// - 扑光标：冻结真实光标后手动甩两下（90ms / 170px）→ pounces +1、位置真的挪了；
+// - 坐垫：rest 期间 cushion > 0.9，below 层多出坐垫笔数；
+// - 深夜：卡在 30s 询问拍点前把时钟拨到 23:30 → 气泡出现深夜台词。
 // 任一条不成立就红；环境问题（没窗/没墨）报 ENV，不冒充产品红。
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -25,6 +33,19 @@ const PROFILE = "D:\\cyrene-p5-accept\\profile-girl";
 const DEBUG_PORT = 9337;
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** 从引擎源码读一份台词表：验收按表认句子，不在探针里另抄一份（改词就会一起红）。 */
+function sourceLines(name) {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/companion.ts"), "utf8");
+  const body = src.match(new RegExp(`const\\s+${name}\\s*=\\s*\\[([\\s\\S]*?)\\];`))?.[1];
+  if (!body) throw new Error(`[ENV] 读不出 ${name}：验收句子表都没了，先看源码`);
+  return [...body.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
+}
+
+const TOY_LINES = sourceLines("GIRL_TOY_LINES");
+const POUNCE_LINES = sourceLines("GIRL_POUNCE_LINES");
+const WAKE_LINES = [...sourceLines("GIRL_WAKE_LINES"), ...sourceLines("GIRL_WAKE_NIGHT_LINES")];
+const NIGHT_LINES = sourceLines("GIRL_NIGHT_LINES");
 
 /** 探针自己的 Electron 子进程；任何失败路径都要带走它，别留一只无头猫占着端口。 */
 let activeChild = null;
@@ -274,6 +295,7 @@ async function main() {
 
   // —— C. 三区：点头（coverFace/shy）与点脚（shiver/wink）——
   const tapAt = (x, y) => evaluate(s, `window.__cyrene.renderer.tapAt(${x}, ${y}, 40)`);
+  const dismissBubble = () => evaluate(s, `window.__cyrene.renderer.dismissBubble()`);
   g = await readGeo();
   await tapAt(g.headX * g.zoom, g.headY * g.zoom);
   // shy / wink 都只有 9 帧（24fps ≈ 375ms）：450ms 时早已回到基础段（happy/idle）。
@@ -322,6 +344,206 @@ async function main() {
   const settled = await diag();
   results.dizzyEnded = settled.girl;
   check("dizzy.ended", settled.girl.dizzyLeft === 0, `dizzyLeft=${settled.girl.dizzyLeft}`);
+  check("diag.new-fields",
+    typeof settled.girl.nightCheckInMs === "number"
+      && typeof settled.girl.pounces === "number"
+      && typeof settled.girl.teasePending === "number",
+    `nightCheckInMs=${settled.girl.nightCheckInMs} pounces=${settled.girl.pounces} tease=${settled.girl.teasePending}`);
+
+  // —— F. 毛线球：先在、点它会滚、8s 内自己停下 ——
+  // 眩晕台词是优先级 2、TTL 6s：不先清掉，玩具台词（1）根本顶不上去。
+  await dismissBubble();
+  await wait(250);
+  const toyBase = await diag();
+  const toyBefore = toyBase.girl.toy;
+  const affinityBeforeToy = (await snap()).vitals.affinity;
+  results.toy = { before: toyBefore };
+  check("toy.exists", !!toyBefore, `toy=${JSON.stringify(toyBefore)}`);
+  if (toyBefore) {
+    await tapAt(toyBefore.x * probeGeo.zoom, toyBefore.y * probeGeo.zoom);
+    await wait(260);
+    const kicked = await diag();
+    const kickedSnap = await snap();
+    results.toy.kick = {
+      toy: kicked.girl.toy,
+      bubble: kickedSnap.bubble?.text ?? null,
+      gesture: kickedSnap.gesture,
+      activity: kickedSnap.activity,
+      affinity: kickedSnap.vitals.affinity,
+    };
+    await shot("girl-toy-kick.png");
+    check("toy.kick.moves",
+      !!kicked.girl.toy && (!kicked.girl.toy.rest || Math.abs(kicked.girl.toy.x - toyBefore.x) > 6),
+      `before=${JSON.stringify(toyBefore)} after=${JSON.stringify(kicked.girl.toy)}`);
+    check("toy.kick.gesture", kickedSnap.gesture === "hop", `gesture=${kickedSnap.gesture}`);
+    check("toy.kick.line", !!kickedSnap.bubble && TOY_LINES.includes(kickedSnap.bubble.text),
+      `bubble=${kickedSnap.bubble?.text ?? "null"}`);
+    check("toy.kick.affinity", kickedSnap.vitals.affinity > affinityBeforeToy + 0.004,
+      `${affinityBeforeToy.toFixed(3)} → ${kickedSnap.vitals.affinity.toFixed(3)}`);
+
+    let toyRest = null;
+    const toyDeadline = Date.now() + 8_000;
+    while (Date.now() < toyDeadline) {
+      const n = await diag();
+      if (n.girl.toy?.rest) { toyRest = n.girl.toy; break; }
+      await wait(200);
+    }
+    results.toy.rest = toyRest;
+    check("toy.settles", !!toyRest, toyRest ? `x=${toyRest.x.toFixed(1)} y=${toyRest.y.toFixed(1)}` : "8s 内没停下");
+    if (toyRest) {
+      check("toy.in-bounds", toyRest.x > 4 && toyRest.x < 80 && toyRest.y > 20 && toyRest.y < 108,
+        `x=${toyRest.x.toFixed(1)} y=${toyRest.y.toFixed(1)}`);
+    }
+  }
+
+  // —— G. 摸头连击 + 羁绊升档：0.5 起、已有一次摸头 +0.04 与挠脚 +0.03、球 +0.01，
+  //       三下连击把亲密度推过 0.66 → 「依赖」。状态句同时报档位与相识天数。——
+  await dismissBubble();
+  await wait(250);
+  let comboSnap = null;
+  for (let i = 0; i < 3; i++) {
+    g = await readGeo();
+    await tapAt(g.headX * g.zoom, g.headY * g.zoom);
+    // 650ms 合并窗：每下隔 760ms，既不被吞，第三下也仍在 3.2s 连击窗里。
+    await wait(i === 2 ? 220 : 760);
+  }
+  comboSnap = await snap();
+  const comboDiag = await diag();
+  results.combo = {
+    patCombo: comboSnap.patCombo, bond: comboSnap.bond, bondUpLeft: comboSnap.bondUpLeft,
+    bubble: comboSnap.bubble?.text ?? null, fx: comboDiag.girl.fx,
+    affinity: comboSnap.vitals.affinity,
+  };
+  await shot("girl-combo-bond.png");
+  check("combo.count", comboSnap.patCombo >= 3, `patCombo=${comboSnap.patCombo}`);
+  check("bond.tier", comboSnap.bond.id === "reliant", `bond=${comboSnap.bond.id}/${comboSnap.bond.name}`);
+  check("bond.up", comboSnap.bondUpLeft > 600, `bondUpLeft=${Math.round(comboSnap.bondUpLeft)}`);
+  check("bond.fx", comboDiag.girl.fx.above >= 3, `above=${comboDiag.girl.fx.above}`);
+
+  await dismissBubble();
+  await evaluate(s, `window.__cyrene.renderer.handleCommand("status")`);
+  await wait(220);
+  const statusSnap = await snap();
+  results.status = { bubble: statusSnap.bubble?.text ?? null, bond: statusSnap.bond, days: statusSnap.days };
+  check("status.bond", !!statusSnap.bubble && statusSnap.bubble.text.includes(statusSnap.bond.name),
+    `bubble=${statusSnap.bubble?.text ?? "null"} bond=${statusSnap.bond.name}`);
+  check("status.days", !!statusSnap.bubble && statusSnap.bubble.text.includes(`第 ${statusSnap.days} 天`),
+    `bubble=${statusSnap.bubble?.text ?? "null"} days=${statusSnap.days}`);
+  // 状态卡是四行小卡片（v1.8 尺 #62）：在真 Chromium 里按 9px sans-serif 量每一行，
+  // 必须全落在 78px 内宽里——旧估算把 `·` 当 5.2px，句子真宽 78.3 被切在盒外。
+  const statusText = statusSnap.bubble?.text ?? "";
+  const statusFit = await evaluate(s, `(() => {
+    const ctx = document.createElement("canvas").getContext("2d");
+    ctx.font = "9px sans-serif";
+    return ${JSON.stringify(statusText)}.split(String.fromCharCode(10))
+      .map((line) => ({ line, w: +ctx.measureText(line).width.toFixed(2) }));
+  })()`);
+  results.status.fit = statusFit;
+  check("status.lines", statusFit.length === 4, `lines=${statusFit.length}`);
+  check("status.fits", statusFit.length > 0 && statusFit.every((l) => l.w <= 78),
+    statusFit.map((l) => `${l.w}px「${l.line}」`).join(" / "));
+
+  // —— H. 晨间伸懒腰：把**墙上时钟**拨到明天 08:00（行为秒表仍是 performance.now）。
+  //       跨日让 morningKey 必不相同，顺带验「相识天数」从 1 变 2。
+  //       她刚演完摸头（activity=pet）时不会被打断——这是产品规矩，探针要等回 idle。——
+  {
+    const idleDeadline = Date.now() + 6_000;
+    while (Date.now() < idleDeadline) {
+      const n = await snap();
+      if (n.activity === "idle") break;
+      await wait(120);
+    }
+  }
+  const tomorrowMorning = new Date();
+  tomorrowMorning.setDate(tomorrowMorning.getDate() + 1);
+  tomorrowMorning.setHours(8, 0, 0, 0);
+  const fakeMorningMs = tomorrowMorning.getTime();
+  // 伸懒腰挂在 greet()（每天第一次露脸）而不是每帧：伪时钟和 greet 必须同一拍。
+  await evaluate(s, `(() => {
+    window.__realDateNow = Date.now;
+    Date.now = () => ${fakeMorningMs};
+    window.__cyrene.renderer.greet();
+    return Date.now();
+  })()`);
+  await wait(320);
+  const morning = await snap();
+  // 上一句状态卡是优先级 2（同槽不降级），会压住晨间问候。先清槽再 greet 一次：
+  // maybeMorningStretch 按日期去重，这一步只补台词，不会重演伸懒腰。
+  await dismissBubble();
+  await evaluate(s, `window.__cyrene.renderer.greet()`);
+  await wait(220);
+  const morningTalk = await snap();
+  results.morning = {
+    activity: morning.activity, days: morning.days,
+    bubble: morningTalk.bubble?.text ?? null, talkActivity: morningTalk.activity,
+  };
+  await shot("girl-morning-stretch.png");
+  check("morning.stretch", morning.activity === "stretch", `activity=${morning.activity}`);
+  check("morning.days", morning.days === 2, `days=${morning.days}`);
+  check("morning.line", !!morningTalk.bubble && morningTalk.bubble.text.includes("第 2 天"),
+    `bubble=${morningTalk.bubble?.text ?? "null"}`);
+  await evaluate(s, `(() => { Date.now = window.__realDateNow; delete window.__realDateNow; })()`);
+
+  // —— I. 惊醒：右键睡眠 → 点头。睡着时碰头走 startle，不走摸头反馈。——
+  await dismissBubble();
+  await evaluate(s, `window.__cyrene.renderer.handleCommand("toggle-sleep")`);
+  await wait(400);
+  const asleep = await snap();
+  check("startle.sleep", asleep.activity === "sleep", `activity=${asleep.activity}`);
+  g = await readGeo();
+  await tapAt(g.headX * g.zoom, g.headY * g.zoom);
+  await wait(180);
+  const startled = await snap();
+  const startledDiag = await diag();
+  results.startle = {
+    activity: startled.activity, gesture: startled.gesture, startleLeft: startled.startleLeft,
+    bubble: startled.bubble?.text ?? null, clip: startledDiag.girl.clip,
+  };
+  await shot("girl-startle.png");
+  check("startle.wakes", startled.activity === "idle", `activity=${startled.activity}`);
+  check("startle.timer", startled.startleLeft > 800 || startledDiag.girl.startleLeft > 800,
+    `snap=${Math.round(startled.startleLeft)} diag=${Math.round(startledDiag.girl.startleLeft)}`);
+  check("startle.line", !!startled.bubble && WAKE_LINES.includes(startled.bubble.text),
+    `bubble=${startled.bubble?.text ?? "null"}`);
+
+  // —— J. 扑光标：冻结真实光标后手动甩三下（第一次只记基线，后两笔才算逗弄）。——
+  // 先静默 >900ms，让上一笔落在窗口外——否则两次快速采样就会提前触发。
+  await wait(1_000);
+  await dismissBubble();
+  g = await readGeo();
+  const beforePounce = await snap();
+  // 采样间隔必须 ≤240ms：CDP 往返会拖到 ~300ms，隐藏窗的 setTimeout 会被节流到
+  // 数百 ms；用 80ms 忙等卡住同一拍，间隔只由页面内的 performance.now 决定。
+  const pounceX1 = (g.headX - 120) * g.zoom;
+  const pounceX2 = (g.headX + 50) * g.zoom;
+  const pounceY = g.headY * g.zoom;
+  await evaluate(s, `(() => {
+    const r = window.__cyrene.renderer;
+    const spin = (x) => {
+      r.setGazeTarget([x, ${pounceY}]);
+      const t0 = performance.now();
+      while (performance.now() - t0 < 80) { /* 卡住 80ms，模拟快速甩手 */ }
+    };
+    spin(${pounceX1});
+    spin(${pounceX2});
+    spin(${pounceX1});
+  })()`);
+  await wait(400);
+  const pounced = await snap();
+  const pouncedDiag = await diag();
+  results.pounce = {
+    before: { x: beforePounce.pos.x, pounces: beforePounce.pounces, facing: beforePounce.facing },
+    after: { x: pounced.pos.x, pounces: pounced.pounces, facing: pounced.facing },
+    bubble: pounced.bubble?.text ?? null, gesture: pounced.gesture, teasePending: pouncedDiag.girl.teasePending,
+  };
+  await shot("girl-pounce.png");
+  check("pounce.count", pounced.pounces === beforePounce.pounces + 1,
+    `${beforePounce.pounces} → ${pounced.pounces}`);
+  check("pounce.moved", pounced.pos.x !== beforePounce.pos.x, `x=${beforePounce.pos.x} → ${pounced.pos.x}`);
+  check("pounce.line", !!pounced.bubble && POUNCE_LINES.includes(pounced.bubble.text),
+    `bubble=${pounced.bubble?.text ?? "null"}`);
+  check("pounce.tease-cleared", pouncedDiag.girl.teasePending === 0, `teasePending=${pouncedDiag.girl.teasePending}`);
+  await setGaze(null);
 
   // —— E. 静息：最后一次互动 40s 后坐下（引擎是唯一计时权威，这里只等）——
   // 探针不动真光标，但真光标可能正好压在窗上（userActive=true 会按设计延后坐下）。
@@ -348,9 +570,54 @@ async function main() {
   check("rest.clip", restDiag?.girl.clip === "sit", `clip=${restDiag?.girl.clip ?? "null"}`);
   if (restSnap) {
     // sit 段的头几帧还接近站姿：等半秒再截图，取到真的坐下去那一张。
-    await wait(600);
+    await wait(700);
+    const cushioned = await diag();
+    results.cushion = { cushion: cushioned.girl.cushion, below: cushioned.girl.fx.below, clip: cushioned.girl.clip };
     await shot("girl-rest.png");
+    check("cushion.rises", cushioned.girl.cushion > 0.9, `cushion=${cushioned.girl.cushion.toFixed(2)}`);
+    check("cushion.ink", cushioned.girl.fx.below >= 3, `below=${cushioned.girl.fx.below}`);
   }
+
+  // —— K. 深夜提醒：等「距下一拍 <5s」，再把墙上时钟拨到明天 23:30。
+  //        只拨 Date.now（引擎的 wallNow），行为秒表 performance.now 不动。 ——
+  let nightBubble = null;
+  let nightPhaseReady = false;
+  if (restSnap) {
+    const phaseDeadline = Date.now() + 32_000;
+    while (Date.now() < phaseDeadline) {
+      const d = await diag();
+      if (d.girl.nightCheckInMs < 5_000) { nightPhaseReady = true; break; }
+      await wait(150);
+    }
+    const nightAt = new Date();
+    nightAt.setDate(nightAt.getDate() + 1);
+    nightAt.setHours(23, 30, 0, 0);
+    await dismissBubble();
+    const preNight = await snap();
+    if (preNight.activity === "sleep") {
+      // 睡着时 nightNudge 按设计拒收：先叫醒，再考她「深夜会不会提醒」。
+      await evaluate(s, `window.__cyrene.renderer.handleCommand("toggle-sleep")`);
+      await wait(220);
+    }
+    await dismissBubble();
+    await evaluate(s, `(() => { window.__realDateNowNight = Date.now; Date.now = () => ${nightAt.getTime()}; })()`);
+    const nightDeadline = Date.now() + 6_000;
+    while (Date.now() < nightDeadline) {
+      const d = await snap();
+      const text = d.bubble?.text ?? null;
+      if (text && NIGHT_LINES.includes(text)) { nightBubble = text; break; }
+      if (d.activity === "sleep") {
+        await evaluate(s, `window.__cyrene.renderer.handleCommand("toggle-sleep")`);
+      } else if (text) {
+        // 占着话筒的自主碎碎念（优先级 1）会挡住夜间提醒（0）：清掉再等这一拍。
+        await dismissBubble();
+      }
+      await wait(160);
+    }
+    await evaluate(s, `(() => { Date.now = window.__realDateNowNight; delete window.__realDateNowNight; })()`);
+  }
+  results.night = { phaseReady: nightPhaseReady, bubble: nightBubble };
+  check("night.line", !!nightBubble, nightPhaseReady ? `bubble=${nightBubble ?? "null"}` : "32s 内没等到询问拍点");
 
   const failed = checks.filter((c) => !c.ok);
   results.checks = checks;

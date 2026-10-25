@@ -3,6 +3,8 @@ import type { CatInput } from "./art";
 import { girlAnimBodyFor, girlFaceBox } from "./girl-sprite";
 import { NOTICE_FX_MS, buildGirlFxOps, type GirlFxInput } from "./girl-fx";
 import { restingPresence } from "./girl-presence";
+import { BOND_UP_MS } from "./girl-bond";
+import { STARTLE_MS } from "./companion";
 
 function mkCat(over: Partial<CatInput> = {}): CatInput {
   return {
@@ -42,6 +44,10 @@ function mkFx(over: Partial<GirlFxInput> = {}): GirlFxInput {
     groundY: 88,
     notes: false,
     quiet: false,
+    cushion: 0,
+    bondUpLeft: 0,
+    patCombo: 0,
+    startleLeft: 0,
     ...over,
   };
 }
@@ -159,5 +165,59 @@ describe("猫娘脸部记号", () => {
     const walking = buildGirlFxOps(mkFx({ activity: "walk", step: Math.PI / 2 })).above;
     expect(walking.some((o) => o.layer === "stars")).toBe(true);
     expect(buildGirlFxOps(mkFx({ activity: "idle", step: Math.PI / 2 })).above.some((o) => o.layer === "stars")).toBe(false);
+  });
+});
+
+describe("猫娘 II 的新记号", () => {
+  it("坐垫画在人物之前、压在投影下面；收起时一个像素都不留", () => {
+    const ops = buildGirlFxOps(mkFx({ cushion: 1 })).below;
+    const cushion = ops.filter((o) => o.layer === "stars");
+    expect(cushion.length).toBeGreaterThanOrEqual(6);
+    // 坐垫先铺，地面投影后压：影子必须在坐垫之上，否则她像悬在垫子上。
+    expect(ops[0].layer).toBe("stars");
+    expect(ops.findIndex((o) => o.layer === "ground_shadow")).toBeGreaterThan(cushion.length - 1);
+    for (const op of cushion) {
+      if (op.kind !== "fillEllipse") continue;
+      expect(op.cy).toBeGreaterThanOrEqual(87);
+      expect(op.cy).toBeLessThanOrEqual(93);
+      expect(op.rx).toBeLessThanOrEqual(40);
+    }
+    expect(buildGirlFxOps(mkFx({ cushion: 0 })).below.some((o) => o.layer === "stars")).toBe(false);
+  });
+
+  it("升档爆发有时限、双色，且只出现在升档窗口里", () => {
+    const fx = mkFx({ bondUpLeft: BOND_UP_MS * 0.8 });
+    const ops = buildGirlFxOps(fx).above.filter((o) => o.layer === "stars");
+    expect(ops.length).toBeGreaterThanOrEqual(6);
+    const colors = ops.map((o) => (o.kind === "fillEllipse" || o.kind === "fillPath" || o.kind === "strokeEllipse" ? (o.kind === "strokeEllipse" ? o.stroke : o.fill) : ""));
+    expect(colors.some((c) => c.includes("247, 244, 236"))).toBe(true);
+    expect(colors.some((c) => c.includes("221, 106, 127"))).toBe(true);
+    expect(buildGirlFxOps(mkFx({ bondUpLeft: 0 })).above.some((o) => o.layer === "stars")).toBe(false);
+  });
+
+  it("摸头连击按次数长爱心并写 xN；受惊/睡着时不叠", () => {
+    const two = buildGirlFxOps(mkFx({ patCombo: 2 })).above.filter((o) => o.layer === "stars");
+    const four = buildGirlFxOps(mkFx({ patCombo: 4 })).above.filter((o) => o.layer === "stars");
+    expect(four.length).toBeGreaterThan(two.length);
+    const labels = four.filter((o) => o.kind === "text").map((o) => (o.kind === "text" ? o.text : ""));
+    expect(labels).toContain("x4");
+    // 「xN」是双色的：奶油底字先画、强调色再压。
+    expect(labels).toHaveLength(2);
+    expect(buildGirlFxOps(mkFx({ patCombo: 1 })).above.some((o) => o.layer === "stars")).toBe(false);
+    expect(buildGirlFxOps(mkFx({ patCombo: 4, startleLeft: STARTLE_MS })).above.some((o) => o.kind === "text")).toBe(false);
+    expect(buildGirlFxOps(mkFx({ patCombo: 4, mood: "sleep" })).above.some((o) => o.kind === "text")).toBe(false);
+  });
+
+  it("惊醒：更大的「!」+ 惊跳线 + 冷汗，寿命结束即清空", () => {
+    const ops = buildGirlFxOps(mkFx({ startleLeft: STARTLE_MS * 0.5 })).above.filter((o) => o.layer === "stars");
+    expect(ops.length).toBeGreaterThanOrEqual(8);
+    const strokes = ops.filter((o) => o.kind === "strokePath");
+    expect(strokes.length).toBeGreaterThanOrEqual(4);
+    const colors = ops.map((o) => (o.kind === "fillEllipse" ? o.fill : o.kind === "strokePath" ? o.stroke : ""));
+    expect(colors.some((c) => c.includes("91, 141, 239"))).toBe(true);
+    expect(buildGirlFxOps(mkFx({ startleLeft: 0 })).above.some((o) => o.layer === "stars")).toBe(false);
+    // 受惊期间「注意到你」的「!」让位给更大的这支：同一位置不许叠两支。
+    const both = buildGirlFxOps(mkFx({ startleLeft: STARTLE_MS * 0.5, noticeAgeMs: 300 })).above.filter((o) => o.layer === "stars");
+    expect(both.length).toBe(ops.length);
   });
 });

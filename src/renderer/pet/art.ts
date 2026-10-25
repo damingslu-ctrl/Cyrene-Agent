@@ -688,36 +688,48 @@ export function fmtSpeedOpt(b: number | null): string {
 export const BUBBLE = { w: 86, margin: 2, padX: 4, padY: 6, lineH: 12, font: 9, r: 8, y: 8 } as const;
 
 /**
- * 按可用宽度贪心换行。字宽取近似排印值（CJK 1em、空格 0.32em、其余 0.58em）——
- * 只用来决定断行，不参与合成；合成由 Chromium 自己量。
+ * 9px sans-serif 在 Chromium/Windows 下的实测字宽（v1.8 尺 #62）：
+ * CJK/全角标点 9.00、`·`/`…` 也落到全角 9.00、`%` 8.29、`—` 8.05、空格 2.02、数字 4.99。
+ * 旧表把 `·` 当 5.2 估，状态句算出来 74.5、真宽 78.3，最后两个字切在盒外。
+ */
+function bubbleCharWidth(ch: string, fontSize: number): number {
+  const k = fontSize / 9;
+  if (ch === " ") return 2.02 * k;
+  if (ch === "%") return 8.29 * k;
+  if (ch === "—") return 8.05 * k;
+  const cp = ch.codePointAt(0) ?? 0;
+  if (cp > 0x2e80 || ch === "·" || ch === "…") return fontSize;
+  return 5.2 * k;
+}
+
+/**
+ * 按可用宽度贪心换行。`\n` 是硬换行：状态卡片自己分行，不让贪心把「精力 80%」拆开。
+ * 字宽只决定断行，合成由 Chromium 自己量；合成端另有 `maxWidth` 兜底，估算再偏也不许切字。
  */
 export function wrapBubbleText(text: string, maxWidth: number, fontSize: number): string[] {
-  const charWidth = (ch: string): number => {
-    const cp = ch.codePointAt(0) ?? 0;
-    if (cp > 0x2e80) return fontSize;
-    if (ch === " ") return fontSize * (2.9 / 9);
-    return fontSize * (5.2 / 9);
-  };
-  const widthOf = (line: string): number => [...line].reduce((sum, ch) => sum + charWidth(ch), 0);
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return [""];
-  const lines: string[] = [];
-  let line = "";
-  for (const word of words) {
-    const next = line ? `${line} ${word}` : word;
-    if (widthOf(next) <= maxWidth) { line = next; continue; }
-    if (line) lines.push(line);
-    if (widthOf(word) <= maxWidth) { line = word; continue; }
-    // 一个词（常见：整句中文不带空格）比整行还宽：按字硬切，宁可多一行也不出盒。
-    let chunk = "";
-    for (const ch of [...word]) {
-      if (chunk && widthOf(chunk + ch) > maxWidth) { lines.push(chunk); chunk = ""; }
-      chunk += ch;
+  const widthOf = (line: string): number => [...line].reduce((sum, ch) => sum + bubbleCharWidth(ch, fontSize), 0);
+  const wrapOne = (source: string): string[] => {
+    const words = source.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return [""];
+    const lines: string[] = [];
+    let line = "";
+    for (const word of words) {
+      const next = line ? `${line} ${word}` : word;
+      if (widthOf(next) <= maxWidth) { line = next; continue; }
+      if (line) lines.push(line);
+      if (widthOf(word) <= maxWidth) { line = word; continue; }
+      // 一个词（常见：整句中文不带空格）比整行还宽：按字硬切，宁可多一行也不出盒。
+      let chunk = "";
+      for (const ch of [...word]) {
+        if (chunk && widthOf(chunk + ch) > maxWidth) { lines.push(chunk); chunk = ""; }
+        chunk += ch;
+      }
+      line = chunk;
     }
-    line = chunk;
-  }
-  if (line) lines.push(line);
-  return lines;
+    if (line) lines.push(line);
+    return lines;
+  };
+  return text.split("\n").flatMap(wrapOne);
 }
 
 export interface BubbleBox { x: number; y: number; w: number; h: number }
@@ -759,7 +771,7 @@ export function buildBubbleOps(input: BubbleInput): DrawOp[] {
       kind: "text", text: line,
       x: box.x + BUBBLE.padX,
       y: box.y + BUBBLE.padY + BUBBLE.lineH * i + BUBBLE.lineH / 2,
-      size: BUBBLE.font, color: ink, align: "left", layer: "bubble",
+      size: BUBBLE.font, color: ink, align: "left", maxWidth: BUBBLE.w - BUBBLE.padX * 2, layer: "bubble",
     });
   });
   return ops;

@@ -586,3 +586,78 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
   `shiver` + 换句；晕 3169.3ms / 记号 16 笔；坐：`rest` + `sit`。
 - 未覆盖：记号层只查了状态与笔数（外加截图目检），没有逐像素尺；眩晕冷却 6s 与注意冷却
   12s 没有在真窗里等满，由单测锁住。
+
+---
+
+## 16. v1.8.0 猫娘专项 II（2026-10-25）
+
+> 用户令：继续猫娘专项，「我要超级多」。仍只在 `form === "girl"` 生效；四足的 RNG、
+> 行为表与渲染路径不动。实施台账见 `docs/verge/notes/progress.md` 的「v1.8.0」一节。
+
+### 16.1 新增模块
+
+| 模块 | 职责 | 关键常量/契约 |
+|---|---|---|
+| `girl-bond.ts` | 亲密度→五档称号、升级秒表、本地日键、相识天数 | `BOND_TIERS` 初识 0 / 熟悉 0.22 / 亲近 0.45 / 依赖 0.66 / 心意相通 0.86；`BOND_UP_MS 2600`；`dateKey` / `nightKey`（凌晨 0–5 点算前一晚）/ `daysTogether`（见面当天=第 1 天，坏档回 1） |
+| `girl-toy.ts` | 毛线球的物理与画面 | `TOY`：r 4.5 / g 760 / 地面弹性 0.42 / 墙 0.55 / 滚动摩擦 2.2 / 空气阻力 0.35 / 弹跳下限 42 / 静止阈值 9 / 踢力 260 / 封顶 560 / 拖尾 7 / 单步 50ms；固定 8ms 子步、每拍最多 10 步 |
+| `girl-tease.ts` | 「逗光标」纯计数器 | `TEASE`：900ms 窗 / 单次 ≥26px / 采样间隔 ≤240ms / 凑满 2 次快速移动触发；冷却归引擎（18s，且睡觉/安静/被抓时整段不接） |
+
+### 16.2 引擎契约
+
+- **羁绊升级**：只有 `rewardAffinity`（摸头/挠脚/踢球）会广播升级；`setVitals`/读档不广播。
+  升级时 `bondUpUntil = now + 2600` + `clap` 手势 + 档位台词（优先级 2），并立即落盘。
+- **相识天数**：`metAt` 在首次构造时写入，`daysTogether` 用本地 y/m/d 重组的 UTC 零点做差
+  （DST 不会多/少一天）。状态卡片与问候句都读它。
+- **摸头连击**：`PAT_COMBO_WINDOW_MS 3200` / 封顶 5；第 1 下与旧口径逐字节一致
+  （`coverFace` + `+0.04`）；第 3/4 下换 `shiver`/`hop`，封顶那下多给 `+0.02`；
+  第 2 下起换连击台词。`patCombo` 与 `patComboLeft` 进快照供诊断。
+- **受惊唤醒**：睡着时碰头走 `wakeStartle`——立刻 `idle`、`STARTLE_MS 1600` 缩身、
+  夜/日两套台词，不走摸头/挠脚反馈。
+- **深夜提醒**：渲染端每 `NIGHT_NUDGE_POLL_MS 30s` 调一次 `nightNudge`；23 点后或 5 点前、
+  同一晚 45 分钟去重、优先级 0；不挂 `stepIdle`，避免多一个随机源挪动既有抽签。
+- **扑光标**：只接 `idle/rest`，非晕、距光标 ≥6px；一步 9–26px（`18%` 距离，夹在
+  `[9,26]`），落地压扁 220ms + `hop` 片 + 得意台词；冷却 `POUNCE_COOLDOWN_MS 18s`。
+  触发源是 `TeaseTracker`：渲染端每拍喂一次光标，凑满一次才扑。
+- **毛线球**：物理跑在绘制空间，边界由渲染端给（左右 5px、地面 = 脚线）。球静止、离她
+  ≤40px、她闲着且不安静/不睡时才会自动扒拉：首拍 12–22s，扒过后 14–26s，忙着别的
+  则 8s 后再试。`auto` 只换 `peek` 手势，不出声不涨好感；用户点球才换 `hop` +
+  `play` 动作 + 台词 + `+0.01` 亲密度。
+- **坐垫**：`activity === "rest"` 时 180ms 指数淡入，起身淡出；画在 `below`（人物之下）。
+- **晨间伸懒腰**：只在 `greet()` 里判 5–11 点、`dateKey` 落盘去重；拖拽/投掷/睡觉不打断。
+  问候句第 2 天起把「第 N 天」单独放一行（见 16.4）。
+- **状态卡片**：猫娘形态改为四行 `亲密度/饱腹/精力/称号 · 第 N 天`，靠 `\n` 硬换行，
+  不走贪心折行；四足仍是原来的一行 `vitalLine`。
+
+### 16.3 渲染契约
+
+- 玩具与坐垫的绘制 op 都进 `buildGirlFxOps` 的 `below`（人物之下），记号/爱心/受惊星在
+  `above`；`girl.fx` 诊断分别报 `below/above` 笔数。
+- `getGirlDiagnostics()` 新增：`cushion`、`toy{x,y,vx,vy,rest,trail}`、`bondUpLeft`、
+  `startleLeft`、`pounces`、`teasePending`、`nightCheckInMs`。
+- 帧率分档：球在动或羁绊升级/连击/受惊进行中 → `FPS_HOVER`；坐垫淡入淡出 → `FPS_ACTIVE`。
+- 气泡文本 op 增加 `maxWidth`（78 = 86 − 2×4），`fillText` 在合成端硬裁；`wrapBubbleText`
+  的 `\n` 为硬换行。字宽表换成 Chromium 9px 实测值（CJK/`·`/`…` 9.00、`%` 8.29、
+  `—` 8.05、空格 2.02）——旧表把 `·` 估成 5.2，状态句算 74.5 实宽 78.3，最后两字切在盒外。
+
+### 16.4 验收
+
+- 单测：全仓 **667 文件 / 7089 通过（1 skipped）**；猫娘相关 12 个文件 **205 条**绿：
+  companion 68 / art 37 / renderer 22 / girl-anim 16 / girl-sprite 15 / girl-fx 12 /
+  girl-presence 9 / girl-zones 8 / girl-toy 6 / girl-bond 4 / girl-tease 4 / girl-face-meta 4。
+- 真窗：`scripts/verify/pet-girl-cdp.mjs` **48/48 `all clear`**（girl/standard，zoom=1）：
+  - 球：踢前 `x=67 rest` → 踢后 `x=20.30 vx=139.24 trail=7`，最终落 `x=57.0 y=83.2`
+    在界内；手势 `hop`、台词「接住！」，亲密度 0.570→0.580。
+  - 连击：`patCombo=3`，档位 `reliant/依赖`，`bondUpLeft=1600`，记号层 `above=60`。
+  - 状态卡四行实测宽 47.29 / 38.29 / 38.29 / 58.06 px（内宽 78，全部放得下）。
+  - 晨间：`activity=stretch`、`days=2`、气泡「早呀，今天也要一起\n第 2 天」。
+  - 受惊：睡→`idle`，剩余 1406ms，台词「被、被你摸醒了…」。
+  - 扑：计数 0→1，位置 x 919→905，台词「抓到你啦！」，`teasePending` 归 0。
+  - 静息：`rest` + `sit`，坐垫 `cushion=1.00`，地面记号 13 笔；深夜台词「眼睛该休息啦」。
+- 门：`check:brand` / `check:main` / `check:preload` / `check:renderer` / `check:sprites` /
+  `check:roster` / `palette:check` / `palette:migrate:check` 全绿；
+  `build:main`（773 文件）/ `build:preload` / `build:cli`（v1.8.0）/ `build:renderer` 全绿。
+- 截图与报告：`D:/cyrene-p5-accept/shots-v1.8-7/`（13 张 + `pet-girl-report.json`）。
+- 未覆盖：坐垫只有淡入终态（1.00）与截图目检，没有量 180ms 曲线；自动扒球 5.5–9s 的
+  实际等待没有在真窗里等满，由单测锁；扑的 18s 冷却没有等满（单测锁）；夜里 45 分钟
+  去重只验了「首次会说」，没有等到第二次窗口。截图是 82×108 基址下的静态帧，
+  慢速弹道与拖尾的运动观感由 3× 放大图目检补充。

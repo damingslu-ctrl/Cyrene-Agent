@@ -114,6 +114,8 @@ export interface GirlPresenceMotion {
   shiftX?: number;
   facing?: 1 | -1;
   dizzy?: number;
+  /** 惊醒的余量 0..1：短促的高频抖，比眩晕快得多，读起来是「吓一跳」而不是「晕」。 */
+  startle?: number;
 }
 
 /**
@@ -129,7 +131,9 @@ export function girlAnimBodyFor(input: CatInput, presence?: GirlPresenceMotion):
   const stretch = Math.max(0, Math.min(1, p.stretch));
   const dizzy = Math.max(0, Math.min(1, presence?.dizzy ?? 0));
   const wobble = dizzy > 0 ? Math.sin(input.t * 9.5) * 1.8 * dizzy : 0;
-  const deg = p.tilt * 0.7 + Math.sin(walk) * 1.0 + (presence?.leanDeg ?? 0) + wobble;
+  const startle = Math.max(0, Math.min(1, presence?.startle ?? 0));
+  const jolt = startle > 0 ? Math.sin(input.t * 34) * 2.6 * startle : 0;
+  const deg = p.tilt * 0.7 + Math.sin(walk) * 1.0 + (presence?.leanDeg ?? 0) + wobble + jolt;
   return {
     pivot: { x: input.center.x + (presence?.shiftX ?? 0), y: input.center.y + input.jumpY - walkLift },
     rot: (deg * Math.PI) / 180,

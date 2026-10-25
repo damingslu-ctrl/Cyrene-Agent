@@ -38,6 +38,7 @@ import {
   CompanionEngine,
   DIZZY_MS,
   PET_HOLD_MS,
+  STARTLE_MS,
   clickKindFor,
   type CompanionActivity,
   type CompanionSnapshot,
@@ -46,6 +47,8 @@ import {
 import { GirlTapTracker, classifyGirlTap } from "./girl-zones";
 import { GirlPresence, restingPresence, type GirlPresencePose } from "./girl-presence";
 import { buildGirlFxOps } from "./girl-fx";
+import { TOY, buildToyOps, createToy, kickToy, stepToy, toyAt, type ToyOps, type ToyState } from "./girl-toy";
+import { TeaseTracker } from "./girl-tease";
 import type { PetCommand } from "../../shared/pet-commands";
 import { GESTURE_COMMANDS } from "../../shared/pet-commands";
 import type { WorkStatusTier } from "../../shared/work-status-types";
@@ -86,6 +89,9 @@ const FPS_HOVER = 60;
 /** fps 闸的容差：贴着 1000/fps 卡线时，浮点抖动不该把重绘顺延到下一档（再空 250ms）。 */
 const FPS_GATE_SLACK_MS = 2.5;
 
+/** 深夜提醒询问引擎的节拍。诊断把「距下一拍」报出去，验收才能卡点喂伪时钟。 */
+const NIGHT_NUDGE_POLL_MS = 30_000;
+
 export class PixelPetRenderer {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly cat: CatInput;
@@ -115,6 +121,20 @@ export class PixelPetRenderer {
   private blush = 0;
   private lastGirlFxAt: number | null = null;
   private lastFxCounts = { below: 0, above: 0 };
+  /** 坐垫包络 0..1：rest 活动时展开，起身收回（与脸红同一条 180ms 缓动）。 */
+  private cushion = 0;
+  /**
+   * 脚边的毛线球。物理在绘制空间跑（82px 窗子里），引擎只负责她的反应（toyBat）：
+   * 球怎么滚是她窗子里的事，窗户怎么搬是引擎的事，两边不互相持有状态。
+   */
+  private toyState: ToyState | null = null;
+  private lastToyAt: number | null = null;
+  /** 下一次她自己扒拉球的时刻（闲置时才轮到，踢过一手就重新排）。 */
+  private nextToyBatAt = 0;
+  /** 光标快速甩两下的计数器：凑满了才让她扑（冷却在引擎）。 */
+  private readonly tease = new TeaseTracker();
+  /** 深夜提醒的轮询闸：每 30s 问引擎一次，去重（同一晚 45min）由引擎管。 */
+  private lastNightNudgeCheckAt = 0;
   /** 槽位时钟：每层「当前片 + 起点」（ms）。只存状态，采样在 draw 里按 now 算。 */
   private slots: Partial<Record<"body" | "gesture", { id: string; startedAt: number }>> = {};
   /** 手势层的显式片（playGesture/touch）；空则按活动映射。 */
@@ -486,14 +506,38 @@ export class PixelPetRenderer {
     blush: number;
     clip: string | null;
     fx: { below: number; above: number };
+    cushion: number;
+    toy: { x: number; y: number; vx: number; vy: number; rest: boolean; trail: number } | null;
+    bondUpLeft: number;
+    patCombo: number;
+    startleLeft: number;
+    pounces: number;
+    teasePending: number;
+    /** 距下一拍深夜提醒询问还有多久（真窗验收要卡在拍点上伪时钟）。 */
+    nightCheckInMs: number;
   } {
+    const snapshot = this.engine?.getSnapshot();
     return {
       presence: { ...this.presencePose },
       noticeAgeMs: this.noticeAt < 0 ? -1 : now - this.noticeAt,
-      dizzyLeft: this.engine?.getSnapshot().dizzyLeft ?? 0,
+      dizzyLeft: snapshot?.dizzyLeft ?? 0,
       blush: this.blush,
       clip: this.getGirlClipId(),
       fx: { ...this.lastFxCounts },
+      cushion: this.cushion,
+      toy: this.toyState
+        ? {
+            x: this.toyState.x, y: this.toyState.y,
+            vx: this.toyState.vx, vy: this.toyState.vy,
+            rest: this.toyState.rest, trail: this.toyState.trail.length,
+          }
+        : null,
+      bondUpLeft: snapshot?.bondUpLeft ?? 0,
+      patCombo: snapshot?.patCombo ?? 0,
+      startleLeft: snapshot?.startleLeft ?? 0,
+      pounces: snapshot?.pounces ?? 0,
+      teasePending: this.tease.pending,
+      nightCheckInMs: Math.max(0, NIGHT_NUDGE_POLL_MS - (now - this.lastNightNudgeCheckAt)),
     };
   }
 
@@ -526,9 +570,31 @@ export class PixelPetRenderer {
       this.gazeTarget = point;
       return;
     }
+    const now = performance.now();
     this.gazeTarget = point;
+    // 追光标只长在猫娘上：四足没有「扑」的骨架，硬搬会变成整窗瞬移。
+    if (this.form === "girl" && point) this.maybePounce(point, now);
     // 眼球是连续动画：立即重绘一帧，别等 4fps 闸（最坏 250ms，看起来像卡住）。
-    if (!this.paused) this.draw(performance.now());
+    if (!this.paused) this.draw(now);
+  }
+
+  /**
+   * 光标快速甩两下 → 引擎的扑。渲染端只做两件事：换算窗口坐标、给可去范围；
+   * 「累不累、能不能扑」全由引擎（冷却/睡着/安静/被拖）与 TeaseTracker（甩得够不够快）判。
+   */
+  private maybePounce(point: Point2, now: number): void {
+    const engine = this.engine;
+    if (!engine || !this.catOrigin || !this.workArea) return;
+    const zoom = this.zoom || 1;
+    const w = this.profile.base.width * zoom;
+    const h = this.profile.base.height * zoom;
+    // 只对她身边 190px 内的快速甩动起反应：隔着半屏挥鼠标不该让她突然起跑。
+    if (Math.abs(point[0] - w / 2) > 190 || Math.abs(point[1] - h / 2) > 240) return;
+    if (!this.tease.feed(point[0], point[1], now)) return;
+    engine.pounce(this.catOrigin.x + point[0], now, {
+      minX: this.workArea.x,
+      maxX: this.workArea.x + this.workArea.width - w,
+    });
   }
 
   dismissBubble(): void {
@@ -603,6 +669,13 @@ export class PixelPetRenderer {
     const dtMs = this.lastCompanionAt === null ? 0 : Math.max(0, now - this.lastCompanionAt);
     this.lastCompanionAt = now;
 
+    // 深夜提醒：每 30s 问一次；同一晚 45min 只一次由引擎去重。放在 update 之前，
+    // 这样 setBubble 的句子能立刻出现在这一帧的快照里，不用等下一拍。
+    if (this.form === "girl" && now - this.lastNightNudgeCheckAt >= NIGHT_NUDGE_POLL_MS) {
+      this.lastNightNudgeCheckAt = now;
+      engine.nightNudge(now);
+    }
+
     const snapshot = engine.update(now, {
       workArea: this.workArea,
       // 漫游夹的是「窗口」不是「猫」：catOrigin 是窗口原点，尺寸含档位与 zoom。
@@ -644,6 +717,53 @@ export class PixelPetRenderer {
 
     this.sendBoundsForContent();
     return snapshot;
+  }
+
+  /**
+   * 毛线球的一生：第一次要在 girl 形态里落地才生成（她还没出现时不该先有一只球）。
+   * 位置取她脚边前侧；`x` 收进基址窗，球不会被画到窗外去。
+   */
+  private ensureToy(now: number): ToyState {
+    if (!this.toyState) {
+      const w = this.profile.base.width;
+      const facing = this.cat.facing ?? 1;
+      const x = Math.min(w - 12, Math.max(12, this.cat.center.x + facing * 26));
+      this.toyState = createToy(x, this.cat.center.y);
+      this.lastToyAt = null;
+      this.nextToyBatAt = now + 12_000 + Math.random() * 10_000;
+    }
+    return this.toyState;
+  }
+
+  /**
+   * 每帧推进毛线球 + 她自己偶尔扒拉一下。
+   * 球在**绘制空间**里滚：`floorY` 是她的脚线，左/右以基址宽为界（气泡展开不算她家变宽）。
+   * 自动扒拉只在她闲着、球在脚边、且不是安静/睡着时发生——一个睡着的她不会有手去拨球。
+   */
+  private tickToy(now: number, snapshot: CompanionSnapshot | null): ToyOps | null {
+    if (this.form !== "girl") {
+      this.lastToyAt = null;
+      return null;
+    }
+    const toy = this.ensureToy(now);
+    const dt = this.lastToyAt === null ? 0 : Math.max(0, now - this.lastToyAt);
+    this.lastToyAt = now;
+    const floorY = this.cat.center.y;
+    const w = this.profile.base.width;
+    stepToy(toy, dt / 1000, { left: 5, right: w - 5, floorY });
+
+    const idle = snapshot !== null && (snapshot.activity === "idle" || snapshot.activity === "rest");
+    const near = Math.abs(toy.x - this.cat.center.x) <= 40;
+    if (toy.rest && idle && near && !this.quiet && this.cat.mood !== "sleep" && now >= this.nextToyBatAt) {
+      if (this.engine?.toyBat(now, true)) {
+        kickToy(toy, this.cat.facing ?? 1, TOY.kickPower * (0.5 + Math.random() * 0.25));
+        this.nextToyBatAt = now + 14_000 + Math.random() * 12_000;
+      } else {
+        // 她这会儿正忙着别的（手势/动作）：过几秒再试，别每帧都问。
+        this.nextToyBatAt = now + 8_000;
+      }
+    }
+    return buildToyOps({ state: toy, floorY });
   }
 
   getCanvas(): HTMLCanvasElement {
@@ -992,15 +1112,27 @@ export class PixelPetRenderer {
     // 手势/动作段先落定，再算重绘帧率：淡化期要 30fps，循环段至少比片段 fps 快一档。
     if (this.form === "girl" && this.girlAnimReady) this.tickGirlClip(now, snapshot);
 
-    // 三档 fps：走路/投掷要 60，气泡/藏身缓动/计时动作 30，静坐 4。
+    // 坐垫包络与脸红共用一条 180ms 时间常数；镜头外的缓动量只在这里推一次。
+    const dtFx = this.lastGirlFxAt === null ? 0 : Math.max(0, Math.min(90, now - this.lastGirlFxAt));
+    this.lastGirlFxAt = now;
+    const cushionTarget = this.form === "girl" && snapshot?.activity === "rest" ? 1 : 0;
+    this.cushion += (cushionTarget - this.cushion) * (1 - Math.exp(-dtFx / 180));
+    if (this.cushion < 0.01) this.cushion = 0;
+    const cushionMoving = Math.abs(cushionTarget - this.cushion) > 0.01;
+
+    // 三档 fps：走路/投掷/滚球要 60，气泡/藏身缓动/计时动作 30，静坐 4。
     const moving = snapshot !== null
       && (snapshot.activity === "walk" || snapshot.activity === "thrown");
     // 计时动作（洗脸/哈欠/伸懒腰/歪头/摸摸/吃/玩）与落地压扁都是连续动画：
     // 留在 4fps 档会把它们切成一秒四格，动作越细腻越像卡带。
     const animating = snapshot !== null
       && (snapshot.activityProgress > 0 || snapshot.squash > 0);
-    if (moving) this.fps = FPS_HOVER;
-    else if (peekAnimating || this.bubbleExpand > 0 || animating) this.fps = FPS_ACTIVE;
+    // 一次性的记号也不能冻在 4fps：升档 2.6s、连击 3.2s、惊醒 1.6s 都是连续演出。
+    const fxAnimating = snapshot !== null
+      && (snapshot.bondUpLeft > 0 || snapshot.patCombo > 1 || snapshot.startleLeft > 0);
+    const toyMoving = this.form === "girl" && this.toyState !== null && !this.toyState.rest;
+    if (moving || toyMoving) this.fps = FPS_HOVER;
+    else if (peekAnimating || this.bubbleExpand > 0 || animating || fxAnimating || cushionMoving) this.fps = FPS_ACTIVE;
     // agent 在干活时保持 30fps：手势（打字/点头）与粒子都在动，留在 4fps 档会一顿一顿。
     else if (this.workTier !== null) this.fps = FPS_ACTIVE;
     else this.fps = FPS_IDLE;
@@ -1034,6 +1166,8 @@ export class PixelPetRenderer {
     const w = (this.opts.canvas.clientWidth || this.profile.base.width) / this.zoom;
     const h = (this.opts.canvas.clientHeight || this.profile.base.height) / this.zoom;
     this.ctx.clearRect(0, 0, w, h);
+    // 球先推进一拍再画：同一帧里踢/滚/她自己扒拉都落在同一张画上。
+    const toyArt = this.tickToy(now, snapshot);
     let ops: DrawOp[];
     if (this.form === "girl") {
       if (this.girlAnimReady) {
@@ -1042,6 +1176,8 @@ export class PixelPetRenderer {
         const sample = this.girlPlayer.sample(now);
         const activity = (snapshot?.activity ?? "idle") as CompanionActivity;
         const dizzyLeft = Math.max(0, Math.min(1, (snapshot?.dizzyLeft ?? 0) / DIZZY_MS));
+        const startleLeft = Math.max(0, Math.min(STARTLE_MS, snapshot?.startleLeft ?? 0));
+        const startle = startleLeft / STARTLE_MS;
 
         // 1) 先拿「不叠加存在感」的刚体算头心：脸框逐帧实测，倾斜/侧移只有 2px 级，
         //    晚一帧回喂不影响观感，但避免了解不出来的自指。
@@ -1070,9 +1206,7 @@ export class PixelPetRenderer {
           this.engine?.notice(now);
         }
 
-        // 2) 脸红包络：目标由「正在播的片 + 互动」给，按 180ms 缓动。
-        const dtFx = this.lastGirlFxAt === null ? 0 : Math.max(0, Math.min(90, now - this.lastGirlFxAt));
-        this.lastGirlFxAt = now;
+        // 2) 脸红包络：目标由「正在播的片 + 互动」给，按 180ms 缓动（dt 在 fps 之前已算）。
         const targetBlush = this.girlBlushTarget(snapshot);
         this.blush += (targetBlush - this.blush) * (1 - Math.exp(-dtFx / 180));
         if (this.blush < 0.01) this.blush = 0;
@@ -1083,6 +1217,7 @@ export class PixelPetRenderer {
           shiftX: this.presencePose.shiftX,
           facing: this.presencePose.facing,
           dizzy: dizzyLeft,
+          startle,
         });
         const clip = this.girlPlayer.clipId;
         const fx = buildGirlFxOps({
@@ -1103,18 +1238,28 @@ export class PixelPetRenderer {
           groundY: this.cat.center.y,
           notes: this.cat.mood === "happy" || clip === "happy" || clip === "wave" || clip === "peace",
           quiet: this.quiet,
+          cushion: this.cushion,
+          bondUpLeft: snapshot?.bondUpLeft ?? 0,
+          patCombo: snapshot?.patCombo ?? 0,
+          startleLeft,
         });
         this.lastFxCounts = { below: fx.below.length, above: fx.above.length };
         // 投影必须压在人物下面：分两趟画，投影一趟、人物+记号一趟。
+        // 球的影子压在坐垫/地面投影之上，球身在她之后——她从球后面走过去时球仍然在前面。
         paintOps(this.ctx, fx.below);
+        if (toyArt) paintOps(this.ctx, toyArt.below);
         if (sample.prev) this.paintGirlFrame(sample.prev.index, 1, body);
         this.paintGirlFrame(sample.index, sample.fade, body);
+        if (toyArt) paintOps(this.ctx, toyArt.above);
         // 立绘里的脸/身体是画死的；表情层不参与，屏幕记号照旧跟 mood/pet/quiet 走。
         ops = [...buildGirlOverlayOps(this.cat), ...fx.above];
       } else if (this.girlSpriteReady) {
+        if (toyArt) paintOps(this.ctx, toyArt.below);
         this.paintGirlSprite();
+        if (toyArt) paintOps(this.ctx, toyArt.above);
         ops = buildGirlOverlayOps(this.cat);
       } else if (this.girlSpriteFailed) {
+        if (toyArt) paintOps(this.ctx, toyArt.below);
         const composed = this.composeChannels(now, this.lastSnapshot);
         ops = buildPetOps({
           ...this.cat,
@@ -1123,6 +1268,7 @@ export class PixelPetRenderer {
           blink: Math.max(this.cat.blink, composed.blink),
           form: "girl",
         });
+        if (toyArt) ops.push(...toyArt.above);
       } else {
         ops = [];
       }
@@ -1155,6 +1301,11 @@ export class PixelPetRenderer {
     this.blush = 0;
     this.lastGirlFxAt = null;
     this.lastFxCounts = { below: 0, above: 0 };
+    this.toyState = null;
+    this.lastToyAt = null;
+    this.nextToyBatAt = 0;
+    this.tease.reset();
+    this.cushion = 0;
     // 形态也是行为引擎的分岔口：不同步这一步，猫娘的四档加权抽取永远不跑（她只会走四足那张平表）。
     this.engine?.setForm(form);
     this.animGesture = null;
@@ -1206,7 +1357,19 @@ export class PixelPetRenderer {
       return;
     }
     const zoom = this.zoom || 1;
-    const zone = classifyGirlTap(cssX / zoom, cssY / zoom, this.getHitRect());
+    const dx = cssX / zoom;
+    const dy = cssY / zoom;
+    // 毛线球先截：它就在脚边，落在「脚」分区里；不先拦，点球会被读成挠脚。
+    if (this.toyState && toyAt(this.toyState, dx, dy, 4)) {
+      // 点在球的哪半边就往哪边弹——和真拨一下球的手感一致，不用先判她的朝向。
+      const dir = dx < this.toyState.x ? 1 : -1;
+      kickToy(this.toyState, dir, TOY.kickPower * (0.9 + Math.random() * 0.2));
+      this.engine?.toyBat(now, false);
+      this.nextToyBatAt = now + 14_000 + Math.random() * 12_000;
+      if (!this.paused) this.draw(now);
+      return;
+    }
+    const zone = classifyGirlTap(dx, dy, this.getHitRect());
     if (this.girlTaps.tap(now).dizzy) {
       this.engine?.dizzy(now);
       // 4fps 档最坏要等 250ms，连点的第四下必须当场有反应。

@@ -71,7 +71,9 @@ export function paintOps(ctx: CanvasRenderingContext2D, ops: DrawOp[]): void {
         ctx.font = `${op.size}px sans-serif`;
         ctx.textBaseline = "middle";
         ctx.textAlign = op.align ?? "left";
-        ctx.fillText(op.text, op.x, op.y);
+        // maxWidth 是硬边界：断行估算再准也可能被不同字体的实际字宽咬掉半格，
+        // 这里让 Chromium 自己压缩，宁可字距紧一点也不让最后一个字切在盒外。
+        ctx.fillText(op.text, op.x, op.y, op.maxWidth);
         break;
     }
   }

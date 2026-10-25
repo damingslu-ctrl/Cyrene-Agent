@@ -237,14 +237,32 @@ describe("buildBubbleOps 对话气泡", () => {
     const text = "亲密度 80% · 饱腹 90% · 精力 70%";
     const lines = wrapBubbleText(text, 78, 9);
     expect(lines.length).toBeGreaterThanOrEqual(2);
-    const width = (line: string) => [...line].reduce(
-      (sum, ch) => sum + (ch.charCodeAt(0) > 0x2e80 ? 9 : ch === " " ? 2.9 : 5.2),
-      0,
-    );
+    // 9px sans-serif 在 Chromium/Win 下的**实测**字宽（v1.8 尺 #62）：
+    // CJK/`·`/`…` 9.00、`%` 8.29、`—` 8.05、空格 2.02、数字 4.99。
+    // 旧表把 `·` 当 5.2 估，状态句算出 74.5 而真宽 78.3，最后两个字切在盒外。
+    const width = (line: string) => [...line].reduce((sum, ch) => {
+      if (ch === " ") return sum + 2.02;
+      if (ch === "%") return sum + 8.29;
+      if (ch === "—") return sum + 8.05;
+      const cp = ch.codePointAt(0)!;
+      return sum + (cp > 0x2e80 || ch === "·" || ch === "…" ? 9 : 5.2);
+    }, 0);
     for (const line of lines) expect(width(line)).toBeLessThanOrEqual(78 + 1e-6);
     expect(lines.join(" ").replace(/\s+/g, " ")).toBe(text);
     const ops = buildBubbleOps(input({ text }));
     expect(of(ops, "bubble").filter(isText)).toHaveLength(lines.length);
+  });
+
+  it("`\\n` 是硬换行：状态卡片四行各放得下，文字带 maxWidth 硬边界", () => {
+    const text = "亲密度 80%\n饱腹 90%\n精力 70%\n依赖 · 第 3 天";
+    const lines = wrapBubbleText(text, 78, 9);
+    expect(lines).toEqual(["亲密度 80%", "饱腹 90%", "精力 70%", "依赖 · 第 3 天"]);
+    const ops = of(buildBubbleOps(input({ text })), "bubble").filter(isText);
+    expect(ops).toHaveLength(4);
+    for (const op of ops) expect(op.maxWidth).toBe(78);
+    const box = bubbleBoxRect(172, false, text);
+    expect(box.h).toBe(6 * 2 + 12 * 4);
+    expect(box.y + box.h).toBeLessThanOrEqual(108);
   });
 
   it("be=0 一个字节都不画：窗口还没长开时气泡不许先出屏", () => {
