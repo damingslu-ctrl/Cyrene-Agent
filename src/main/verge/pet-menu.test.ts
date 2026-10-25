@@ -30,7 +30,8 @@ describe("buildPetMenuItems", () => {
     const items = buildPetMenuItems(input());
     expect(items.map((item) => item.label)).toEqual([
       "安静半小时", "取消安静", "贴边藏身",
-      "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样", "让它做个动作",
+      "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样",
+      "给她打扮", "放只小虫逗逗她", "陪她散散步", "让它做个动作",
       "打开网络面板",
       "形象：像素猫", "形象：猫娘",
       ...(["small", "standard", "large"] as const).map((t) =>
@@ -39,6 +40,39 @@ describe("buildPetMenuItems", () => {
     ]);
     // 分隔线：形态组之前一条 + 隐藏之前一条（v1.5.0 起两组动作各占一段）。
     expect(items.filter((item) => item.separatorBefore).map((item) => item.label)).toEqual(["形象：像素猫", "隐藏"]);
+  });
+
+  it("猫娘专属三条：四足形态下置灰，切到猫娘后可点；装扮子菜单列全六件", () => {
+    const catItems = buildPetMenuItems(input({ form: "cat" }), {
+      accessory: () => {}, critter: () => {}, wander: () => {},
+    });
+    const girlItems = buildPetMenuItems(input({ form: "girl" }), {
+      accessory: () => {}, critter: () => {}, wander: () => {},
+    });
+    const find = (items: typeof catItems, label: string) => items.find((i) => i.label === label)!;
+    for (const label of ["给她打扮", "放只小虫逗逗她", "陪她散散步"]) {
+      expect(find(catItems, label).enabled, label).toBe(false);
+      expect(find(girlItems, label).enabled, label).toBe(true);
+    }
+    expect(find(girlItems, "给她打扮").submenu?.map((i) => i.label))
+      .toEqual(["不戴", "铃铛项圈", "蝴蝶结", "小围巾", "耳边小花", "星星发夹"]);
+  });
+
+  it("装扮子项发的是 `accessory:<id>` 命令，小虫/散步各发自己的命令", () => {
+    const sent: string[] = [];
+    const items = buildPetMenuItems(input({ form: "girl" }), {
+      accessory: (id) => sent.push(`accessory:${id}`),
+      critter: () => sent.push("summon-critter"),
+      wander: () => sent.push("wander"),
+    });
+    for (const child of items.find((i) => i.label === "给她打扮")!.submenu!) child.action?.();
+    items.find((i) => i.label === "放只小虫逗逗她")!.action?.();
+    items.find((i) => i.label === "陪她散散步")!.action?.();
+    expect(sent).toEqual([
+      "accessory:none", "accessory:bell", "accessory:bow",
+      "accessory:scarf", "accessory:flower", "accessory:star",
+      "summon-critter", "wander",
+    ]);
   });
 
   it("形态两档 + 身形三档：当前项勾上，且只有该组一项勾（藏身那颗不算）", () => {

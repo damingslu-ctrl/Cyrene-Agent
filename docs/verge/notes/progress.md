@@ -329,3 +329,63 @@
   `Mochi-Setup-1.8.1.exe` 296,261,011 B，
   sha256 `78ed910dcd60bb26935fdeae72f81393cac448b0d02c8d1a4e1ee10767647f6c`（与 CI 下载件逐字节一致）。
 - v1.8.0：tag 保留，CI run 40199751553 主动取消，不发 Release。
+
+### 猫娘专项 III：可见的小世界（v1.9.0，2026-10-25）
+
+| # | 能力 | 落地 |
+|---|------|------|
+| 1 | 装扮系统 | `shared/pet-accessory.ts` 六项词表；`girl-accessory.ts` 五件逐帧脸框锚定；右键子菜单 + `accessory:<id>` 命令；存档 `accessory` |
+| 2 | 伴飞小虫 | `girl-critter.ts`：蝴蝶 6–18 点 / 流萤其余；绕脸轨道、12s 寿命、520ms 捉后闪光；+0.02 亲密度 |
+| 3 | 喂食道具 | `girl-snack.ts`：620ms 下落 + 摇尾，2.6s 收场；`feed` 命令顺带生成，数值仍归引擎 |
+| 4 | 纪念日 | `girl-milestone.ts`：7/30/100/365、5.2s、`celebrated` 跨重启记账；彩带 10 枚 |
+| 5 | 久别重逢 | `REUNION_GAP_MS = 3h`；台词 3 句；优先于普通问候、低于纪念日 |
+| 6 | 星期语料 | `GIRL_WEEKDAY_CHATTER` 三池 + `WEEKDAY_CHATTER_CHANCE 0.5`；深夜不换池 |
+| 7 | 睡毯 | `girl-fx.blanketOps` 6 笔；`mood === "sleep" && !quiet` |
+| 8 | 散步 | `girl-wander.ts` 60–160px、贴边掉头；`roamTo` 引擎接管 |
+| 9 | 诊断/探针 | `getPetDiagnostics().girl` 增 5 组读数；探针 50 → **78** 条 |
+
+### 口径与裁决（v1.9.0）
+
+- 装扮锚在 `girlFaceBox` 的逐帧脸框上：立绘每一帧的脸/头发都在动，固定比例钉会飘到空气里。
+  每件先铺奶油光边再压色，深色桌布上也读得出来。
+- 选择写 `BOND_KEY` 并立即落盘；同一件再点不出声。坏存档/坏命令一律回「不戴」，
+  UI 永远不读到 undefined。
+- 捉虫不碰睡眠：`sleep/drag/thrown` 时引擎拒绝，点击继续走三区——叫醒她只能靠摸或戳，
+  虫子不能替用户动手。拒绝不能吞点击，否则睡着的猫娘点头会失效。
+- 纪念日优先于重逢与「第 N 天」；安静期不点火也不记账，醒来补。`celebrated` 写
+  `day:N`，同一天重开不重演；`milestoneLeft` 与渲染端共用 5200ms。
+- 重逢判定必须在写回 `lastSeenAt` 之前读；`save()` 也刷新 `lastSeenAt`，否则关窗
+  落位会把整场陪跑算成「没见过」。
+- 开窗问候等 `profileReady`：抢在 profile 前 `greet` 会用四足台词，并把
+  「第 N 天」/彩带/重逢整条分支吃掉；`greetedKey` 只在 `say` 真说出口时写。
+- 星期语料抽签 `< 0.5` 才换池：一半日子仍按时段说，日历是线索不是准点播报机。
+- 睡毯只在真睡且非安静时出笔：免打扰是「陪你不吵」，不是「她睡了」（native #67 同一条规矩）。
+- 小虫首刷 45–85s、复刷 30–75s：见面就放虫会抢开机问候；手动召唤不受此限。
+- 捉虫台词用「小家伙」：夜里是流萤，说「小蝴蝶」会穿帮。
+- 睡毯的尺按「毯子贡献」判：采样窗里皮肤本身落在玫瑰色段，不同待机帧腿/手露出数量
+  不同（实测基线 36–131），不能拿「回到基线 +80」当判据；睡时 860 → 醒 121，
+  掉 739 像素才算收走。
+- 空帧不是产品帧：换窗宽时画布清成透明，真跑抓到过 315B 纯空图。`shot()` 对
+  <1200B 重截，`rosePixels` 对 0 重取，并把「基线非零」变成一条检查。
+- 截图里头顶绿色对勾是「开心」徽章（`GREEN`，`mood === "happy"`），不是环境浮层；
+  早期把它当噪声是因为新开进程是 idle，没有徽章。
+
+### 量测与门（v1.9.0）
+
+- `CI=true npx vitest run` → **673 文件 / 7128 通过（1 skipped）**，无红。
+- 猫娘相关 18 个文件 **242 条**绿：新增 6 个文件 32 条（accessory 5 / critter 6 /
+  snack 4 / milestone 2 / wander 4 / companion-girl-three 11），`girl-fx` +2，
+  原 12 文件 208 条不变；菜单两文件 **19 条**绿（装扮子项 + 命令两条）。
+- `check:brand` / `check:main` / `check:preload` / `check:renderer` / `check:sprites` /
+  `check:roster` / `palette:check` / `palette:migrate:check` 全绿；
+  `build:main`（774 文件）/ `build:preload` / `build:renderer`（6.07s）全绿。
+- 真窗 **78/78 `all clear`**（girl/standard，zoom=1）：
+  蝴蝶结 `bow` + 存档 `bow` + 「蝴蝶结，系好了」；换回 `none` + 「先这样也很好看」；
+  夜间流萤捉住、`0.700 → 0.720`、「小家伙，对不起啦」、闪光后归 null；
+  小鱼干进度 `0.088 → 0.371` 后收场；睡毯 `36 → 860`、醒来 `121`；
+  散步 `+103px`（60–160 窗内）；第 7 天「我们认识第 7 天啦」、`left≈4903`、`above=20`；
+  重逢「你回来了…我等好久」、`days=1`。
+- 截图与报告：`D:/cyrene-p5-accept/shots-girl-v190/`（19 张 + `pet-girl-report.json`）。
+- 未覆盖：五件装扮只有蝴蝶结真窗戴过，其余四件单测锁；小虫自主首刷/复刷没有等满，
+  也没有单测锁（只验手动召唤）；白天蝴蝶只由单测锁；小鱼干没有逐帧量下落曲线；
+  睡毯不比对具体待机帧；纪念日只真窗验第 7 天；重逢只验第一次。

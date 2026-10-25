@@ -112,12 +112,13 @@ beforeEach(() => {
 });
 
 describe("attachPetContextMenu", () => {
-  it("右键弹出互动 + 安静 + 形态/身形 + 窗口动作共 17 项（两条分隔线）", () => {
+  it("右键弹出互动 + 安静 + 形态/身形 + 窗口动作共 20 项（两条分隔线）", () => {
     const { template, popup } = rightClick(makeService({ quietUntil: null, tuckEnabled: true }));
     const labels = template.filter((entry) => entry.type !== "separator").map((entry) => entry.label);
     expect(labels).toEqual([
       "安静半小时", "取消安静", "贴边藏身",
-      "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样", "让它做个动作",
+      "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样",
+      "给她打扮", "放只小虫逗逗她", "陪她散散步", "让它做个动作",
       "打开网络面板",
       "形象：像素猫", "形象：猫娘",
       "身形：小巧 (70×92)", "身形：标准 (82×108)", "身形：大 (100×132)",

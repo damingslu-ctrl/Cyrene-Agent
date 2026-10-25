@@ -18,6 +18,8 @@ import {
   type BondState,
   type BondTier,
 } from "./girl-bond";
+import { normalizeAccessory, type AccessoryId } from "../../shared/pet-accessory";
+import { MILESTONE_MS, milestoneFor, milestoneKey, parseCelebrated } from "./girl-milestone";
 
 export const BUBBLE_TTL_MS = 6_000;
 /** 漫游速度（DIP/s）：比 native 的缓动藏身快一档，但仍是「散步」不是「瞬移」。 */
@@ -126,6 +128,12 @@ export interface CompanionSnapshot {
   startleLeft: number;
   /** 本次会话扑了几次光标（诊断/成就用，不进存档）。 */
   pounces: number;
+  /** 她身上戴的那一件（`none` = 不戴）。四足也带，但只有猫娘会画。 */
+  accessory: AccessoryId;
+  /** 纪念日彩带的剩余毫秒（0＝今天没有庆典在放）。 */
+  milestoneLeft: number;
+  /** 正在庆祝的是第几天（不在庆典中为 0）。 */
+  milestoneDays: number;
 }
 
 export interface CompanionOptions {
@@ -246,6 +254,67 @@ export const GIRL_GREETINGS = {
   evening: "回来啦，\n先歇一会儿",
   night: "这么晚…\n我陪你一会儿",
 } as const;
+
+/** 隔多久没见算「久别」：3 小时内只是走开一下，别每次都演重逢。 */
+export const REUNION_GAP_MS = 3 * 3600_000;
+
+/** 久别重逢：三个说法都短，78px 内不折成两半。 */
+export const GIRL_REUNION_LINES = [
+  "你回来了…我等好久",
+  "总算见到你了",
+  "还以为你今天不来了",
+] as const;
+
+/** 装扮台词：每一件一句招呼；`none` 是「换回不戴」的回执。 */
+export const GIRL_ACCESSORY_LINES: Record<AccessoryId, readonly string[]> = {
+  none: ["先这样也很好看"],
+  bell: ["叮铃…听得见吗？", "铃铛，喜欢吗？"],
+  bow: ["蝴蝶结，系好了", "这样会不会太显眼…"],
+  scarf: ["围巾暖乎乎的", "冬天也不怕了"],
+  flower: ["花别在耳边啦", "像不像春天？"],
+  star: ["星星别在头发上", "今晚也闪一闪"],
+};
+
+/** 捉到伴飞小虫的台词；「小家伙」两个虫种都叫得出口。 */
+export const GIRL_CRITTER_LINES = [
+  "捉到啦！",
+  "小家伙，对不起啦",
+  "飞、飞走了？",
+];
+
+/**
+ * 星期语料：周一/周五/周末各有自己的池子。抽签没中（或平日）仍回时段表，
+ * 深夜永远不换——先把觉睡了。
+ */
+export const GIRL_WEEKDAY_CHATTER: Record<"mon" | "fri" | "weekend", readonly string[]> = {
+  mon: ["周一…慢慢来就好", "新的一周，我陪你", "今天先做一件小事吧"],
+  fri: ["周五啦，快收工", "再撑一下下就周末了", "今晚可以晚一点睡"],
+  weekend: ["周末就懒一会儿嘛", "今天想去哪儿？", "不用赶，慢慢过"],
+};
+
+/** 星期话题的抽中概率：一半日子仍按时段说，免得变成日历播报机。 */
+export const WEEKDAY_CHATTER_CHANCE = 0.5;
+
+export function chatterPoolFor(hour: number, weekday: number, roll: number): readonly string[] {
+  const part = dayPartOf(hour);
+  if (part === "night") return GIRL_CHATTER.night;
+  if (Number.isFinite(roll) && roll < WEEKDAY_CHATTER_CHANCE) {
+    if (weekday === 1) return GIRL_WEEKDAY_CHATTER.mon;
+    if (weekday === 5) return GIRL_WEEKDAY_CHATTER.fri;
+    if (weekday === 0 || weekday === 6) return GIRL_WEEKDAY_CHATTER.weekend;
+  }
+  return GIRL_CHATTER[part];
+}
+
+/** 纪念日的独白：必须带「第 N 天」原文，气泡尺按它锁。 */
+function milestoneLine(day: number): string {
+  switch (day) {
+    case 7: return "我们认识第 7 天啦";
+    case 30: return "第 30 天了呢";
+    case 100: return "第 100 天…好久呀";
+    default: return "第 365 天，一整年了";
+  }
+}
 
 export type DayPart = keyof typeof GREETING_LINES;
 
@@ -553,12 +622,23 @@ export class CompanionEngine {
   private morningKey = "";
   private lastNightKey = "";
   private lastNightNudgeAt = 0;
+  /** 今天已经露过脸：同一天隐藏/显示不再重复「第 N 天」。 */
+  private greetedKey = "";
   /** 摸头连击：窗口内累加，超窗归零；650ms 合并窗保证连击有节奏而不是连点。 */
   private headCombo = 0;
   private headComboAt = 0;
   private startleUntil = 0;
   private pounceCooldownUntil = 0;
   private pounces = 0;
+  /** 她身上那一件（跟着羁绊存档走，关窗再开还在）。 */
+  private accessory: AccessoryId = "none";
+  /** 已经庆祝过的纪念日键（`day:7` …）：同一天跨重启不重演。 */
+  private celebrated: string[] = [];
+  /** 上一次真的见到她的墙上时刻；0 = 还没有记录（首次见面不算久别）。 */
+  private lastSeenAt = 0;
+  /** 彩带寿命与正在庆祝的天数。 */
+  private milestoneUntil = 0;
+  private milestoneDays = 0;
 
   constructor(options: CompanionOptions = {}) {
     this.random = options.random ?? Math.random;
@@ -812,6 +892,40 @@ export class CompanionEngine {
     return { ...this.vitals };
   }
 
+  /**
+   * 换一件装扮：坏值一律回「不戴」，同一件再点一次不说话。
+   * 返回 false 只代表「状态没变」，不是失败。
+   */
+  setAccessory(id: AccessoryId | string, now = this.now()): boolean {
+    if (this.form !== "girl") return false;
+    const next = normalizeAccessory(id);
+    if (next === this.accessory) return false;
+    this.accessory = next;
+    this.lastUserAt = now;
+    this.happyUntil = Math.max(this.happyUntil, now + 1_800);
+    this.idleUntil = now + IDLE_MIN_MS;
+    this.saveBond();
+    this.say(this.pickLine(GIRL_ACCESSORY_LINES[next]), 1, now, true);
+    return true;
+  }
+
+  /**
+   * 捉住伴飞的小虫：涨一点亲密度、开心一下、说一句。
+   * 睡着时不接——叫醒她的方式只有摸/戳，虫子不能替用户动手。
+   */
+  catchCritter(now = this.now()): boolean {
+    if (this.form !== "girl") return false;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
+    this.lastUserAt = now;
+    this.rewardAffinity(0.02, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 2_400);
+    this.ambientGesture = "hop";
+    this.gestureUntil = now + gestureClip("hop").ms;
+    this.idleUntil = now + IDLE_MIN_MS;
+    this.say(this.pickLine([...GIRL_CRITTER_LINES]), 1, now, true);
+    return true;
+  }
+
   getSnapshot(): CompanionSnapshot {
     return {
       activity: this.activity,
@@ -839,6 +953,9 @@ export class CompanionEngine {
         : 0,
       startleLeft: Math.max(0, this.startleUntil - this.now()),
       pounces: this.pounces,
+      accessory: this.accessory,
+      milestoneLeft: this.milestoneUntil > this.now() ? this.milestoneUntil - this.now() : 0,
+      milestoneDays: this.milestoneUntil > this.now() ? this.milestoneDays : 0,
     };
   }
 
@@ -990,16 +1107,55 @@ export class CompanionEngine {
     this.lastUserAt = now;
     const wall = this.wallNow();
     const part = dayPartOf(new Date(wall).getHours());
-    if (this.form !== "girl") return this.say(GREETING_LINES[part], 1, now);
+    if (this.form !== "girl") {
+      this.lastSeenAt = wall;
+      this.saveBond();
+      return this.say(GREETING_LINES[part], 1, now);
+    }
+    const days = daysTogether(this.metAt, wall);
+    // 重逢判定必须在写回 lastSeenAt 之前读：先写就成了「刚见过」。
+    const reunion = this.lastSeenAt > 0 && wall - this.lastSeenAt >= REUNION_GAP_MS;
+    this.lastSeenAt = wall;
+    const todayKey = dateKey(wall);
+    const firstToday = this.greetedKey !== todayKey;
     // 每天第一次见面：先伸个懒腰再开口（同一天重启不再演）。
     this.maybeMorningStretch(now, wall);
-    const days = daysTogether(this.metAt, wall);
-    // 问候句自己按标点断行、第 N 天再独占一行：78px 内宽装不下 9 个全角字，
-    // 交给贪心折行会把「一起」劈成「一 / 起」。
-    const text = days >= 2
-      ? `${GIRL_GREETINGS[part]}\n第 ${days} 天`
-      : GIRL_GREETINGS[part];
-    return this.say(text, 1, now);
+    const milestone = this.takeMilestone(days, now);
+    let text: string;
+    if (milestone) {
+      text = milestoneLine(days);
+    } else if (reunion) {
+      text = this.pickLine([...GIRL_REUNION_LINES]);
+    } else if (firstToday && days >= 2 && milestoneFor(days) === null) {
+      // 问候句自己按标点断行、第 N 天再独占一行：78px 内宽装不下 9 个全角字，
+      // 交给贪心折行会把「一起」劈成「一 / 起」。只在**当天第一次露脸**说一次；
+      // 纪念日当天这句让给庆典，不再补「第 N 天」。
+      text = `${GIRL_GREETINGS[part]}\n第 ${days} 天`;
+    } else {
+      text = GIRL_GREETINGS[part];
+    }
+    // 只有真说出口才算「今天露过脸」：被更高优先级的卡片顶掉时，
+    // 「第 N 天」这句要留到下一次露脸补上，不能被一次沉默吃掉。
+    const said = this.say(text, milestone ? 2 : 1, now, milestone);
+    if (said) this.greetedKey = todayKey;
+    this.saveBond();
+    return said;
+  }
+
+  /**
+   * 纪念日：只在 7/30/100/365 天、且这一天还没庆祝过时点火。
+   * 安静期不点火也不记账——醒来后还能补上。
+   */
+  private takeMilestone(days: number, now: number): boolean {
+    const day = milestoneFor(days);
+    if (day === null || this.quiet) return false;
+    const key = milestoneKey(day);
+    if (this.celebrated.includes(key)) return false;
+    this.celebrated.push(key);
+    this.milestoneUntil = now + MILESTONE_MS;
+    this.milestoneDays = day;
+    this.saveBond();
+    return true;
   }
 
   /**
@@ -1117,6 +1273,9 @@ export class CompanionEngine {
   }
 
   save(): void {
+    // 关窗/落位都算「见过」：只靠 greet 写 lastSeenAt 会把整场陪跑的时长丢掉，
+    // 下次开窗就误报成久别。
+    this.lastSeenAt = this.wallNow();
     this.saveBond();
     if (!this.storage) return;
     try {
@@ -1133,13 +1292,27 @@ export class CompanionEngine {
     try {
       const raw = this.storage.getItem(BOND_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as { metAt?: number; morningKey?: string; nightKey?: string };
+        const parsed = JSON.parse(raw) as {
+          metAt?: number;
+          morningKey?: string;
+          nightKey?: string;
+          accessory?: unknown;
+          celebrated?: unknown;
+          lastSeenAt?: unknown;
+          greetedKey?: unknown;
+        };
         found = true;
         if (typeof parsed?.metAt === "number" && Number.isFinite(parsed.metAt) && parsed.metAt > 0) {
           this.metAt = parsed.metAt;
         }
         if (typeof parsed.morningKey === "string") this.morningKey = parsed.morningKey;
         if (typeof parsed.nightKey === "string") this.lastNightKey = parsed.nightKey;
+        this.accessory = normalizeAccessory(parsed.accessory);
+        this.celebrated = parseCelebrated(parsed.celebrated);
+        if (typeof parsed.lastSeenAt === "number" && Number.isFinite(parsed.lastSeenAt) && parsed.lastSeenAt > 0) {
+          this.lastSeenAt = parsed.lastSeenAt;
+        }
+        if (typeof parsed.greetedKey === "string") this.greetedKey = parsed.greetedKey;
       }
     } catch {
       // 坏档不阻塞启动：初见时刻退回本次启动，下面立刻覆盖。
@@ -1155,6 +1328,10 @@ export class CompanionEngine {
         metAt: this.metAt,
         morningKey: this.morningKey,
         nightKey: this.lastNightKey,
+        accessory: this.accessory,
+        celebrated: this.celebrated,
+        lastSeenAt: this.lastSeenAt,
+        greetedKey: this.greetedKey,
       }));
     } catch {
       // 同 save：写不进去只影响「第几天」，不影响本次行为。
@@ -1268,8 +1445,9 @@ export class CompanionEngine {
       return;
     }
     if (this.bubble === null && !this.quiet && now >= this.chatAt) {
+      const wall = this.wallNow();
       const chatter = this.form === "girl"
-        ? GIRL_CHATTER[dayPartOf(new Date(this.wallNow()).getHours())]
+        ? chatterPoolFor(new Date(wall).getHours(), new Date(wall).getDay(), this.random())
         : CHATTER;
       this.say(this.pickLine(chatter), 1, now);
       this.chatAt = now + CHAT_MIN_MS + this.random() * CHAT_SPAN_MS;

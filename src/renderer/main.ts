@@ -102,10 +102,24 @@ const renderer = new PixelPetRenderer({
 
     // 免打扰（Task 11）：启动先读一次盘上状态（跨重启的安静期），再订安静状态变更的下行。
     // 落盘的变化才算数（brief 验收判据），屏幕上的月牙只是它的影子。
+    //
+    // 开窗问候要等「形态」到位：renderer 出生时还是默认的四足猫，形态与档位由随后
+    // 一条异步 profile 落下来。抢在它前面 greet，猫娘会用猫的台词开口，且纪念日/
+    // 久别整条分支都在 `form !== "girl"` 的早退里被吃掉（v1.9 真窗验收抓到）。
+    let quietNow = false;
+    let quietReady = false;
+    let profileReady = false;
+    let greeted = false;
+    const greetWhenReady = () => {
+      if (greeted || !quietReady || !profileReady || quietNow) return;
+      greeted = true;
+      renderer.greet();
+    };
     window.verge?.isQuiet().then((quiet) => {
-      renderer.setQuiet(quiet);
-      // 开窗先打个招呼；安静期由引擎拒收，不吵人。
-      if (!quiet) renderer.greet();
+      quietNow = !!quiet;
+      quietReady = true;
+      renderer.setQuiet(quietNow);
+      greetWhenReady();
     }).catch(() => { /* 状态读取失败不影响加载：月牙缺失比启动失败轻 */ });
     quietChangedOff = window.verge?.onQuietChanged(({ quietUntil }) => {
       // payload 带的是**当下** quietUntil：写盘（右键菜单 / toggle）时是未来的截止，
@@ -148,10 +162,16 @@ const renderer = new PixelPetRenderer({
     let profilePushed = false;
     profileOff = window.verge?.onProfileUpdate((ref) => {
       profilePushed = true;
+      profileReady = true;
       renderer.setProfile(ref);
+      greetWhenReady();
     }) ?? null;
     void window.verge?.getProfile().then((ref) => {
-      if (ref && !profilePushed) renderer.setProfile(ref);
+      if (ref && !profilePushed) {
+        profileReady = true;
+        renderer.setProfile(ref);
+        greetWhenReady();
+      }
     }).catch(() => { /* 读不到就停在 cat/standard：猫照画 */ });
 
     (window as unknown as { __cyrene: unknown }).__cyrene = {

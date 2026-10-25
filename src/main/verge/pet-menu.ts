@@ -10,6 +10,8 @@
  */
 import { Menu, type BrowserWindow, type MenuItemConstructorOptions } from "electron";
 import type { PetCommand } from "../../shared/pet-commands";
+import { accessoryCommandFor } from "../../shared/pet-commands";
+import { ACCESSORIES, type AccessoryId } from "../../shared/pet-accessory";
 import { armQuiet, isQuietNow, quietRemainingMinutes } from "./quiet-clock";
 import type { VergeService } from "./verge-service";
 import { PET_FORMS, SIZE_TIERS, profileFor, type PetForm, type SizeTier } from "../../shared/pet-profile";
@@ -62,6 +64,12 @@ export interface PetMenuActions {
   status: () => void;
   /** 「让它做个动作」：发手势命令（不改数值）。 */
   gesture: (command: PetCommand) => void;
+  /** 猫娘装扮：换件饰品/摘掉（四足形态下菜单项禁用）。 */
+  accessory: (id: AccessoryId) => void;
+  /** 招一只伴飞小虫（蝴蝶/流萤，按时段）。 */
+  critter: () => void;
+  /** 陪她散一段步：朝当前朝向走 60–160px。 */
+  wander: () => void;
   openNetwork: () => void;
   /** v1.5.0：形态与档位切换（落盘 + 广播在装配层，菜单只管发意图）。 */
   setForm: (form: PetForm) => void;
@@ -96,6 +104,18 @@ export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenu
     { label: "陪它玩", enabled: true, ...bind(actions?.play) },
     { label: "哄它睡觉", enabled: true, ...bind(actions?.toggleSleep) },
     { label: "它现在怎么样", enabled: true, ...bind(actions?.status) },
+    // —— 猫娘专属三条：四足形态下置灰（她才有耳朵、裙摆和散步的腿） ——
+    {
+      label: "给她打扮",
+      enabled: input.form === "girl" && !!actions?.accessory,
+      submenu: ACCESSORIES.map((entry) => ({
+        label: entry.name,
+        enabled: input.form === "girl" && !!actions?.accessory,
+        action: () => actions?.accessory?.(entry.id),
+      })),
+    },
+    { label: "放只小虫逗逗她", enabled: input.form === "girl" && !!actions?.critter, ...bind(actions?.critter) },
+    { label: "陪她散散步", enabled: input.form === "girl" && !!actions?.wander, ...bind(actions?.wander) },
     // 「让它做个动作」：只演一次手势，不改数值。放在互动组末尾，与喂/玩区分开。
     {
       label: "让它做个动作",
@@ -208,6 +228,9 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
         toggleSleep: () => onPetCommand("toggle-sleep"),
         status: () => onPetCommand("status"),
         gesture: (command) => onPetCommand(command),
+        accessory: (id) => onPetCommand(accessoryCommandFor(id)),
+        critter: () => onPetCommand("summon-critter"),
+        wander: () => onPetCommand("wander"),
         openNetwork: () => openNetworkPanel(),
         setForm: (form) => {
           service.setForm(form);

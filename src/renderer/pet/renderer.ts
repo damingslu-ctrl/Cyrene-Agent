@@ -47,10 +47,24 @@ import {
 import { GirlTapTracker, classifyGirlTap } from "./girl-zones";
 import { GirlPresence, restingPresence, type GirlPresencePose } from "./girl-presence";
 import { buildGirlFxOps } from "./girl-fx";
+import { buildAccessoryOps } from "./girl-accessory";
+import {
+  CATCH_FLASH_MS,
+  CRITTER_LIFE_MS,
+  buildCritterOps,
+  catchCritter,
+  critterAlive,
+  critterAt,
+  critterKindFor,
+  spawnCritter,
+  stepCritter,
+  type CritterState,
+} from "./girl-critter";
+import { SNACK_MS, buildSnackOps, createSnack, snackAlive, stepSnack, type SnackState } from "./girl-snack";
+import { wanderTarget } from "./girl-wander";
 import { TOY, buildToyOps, createToy, kickToy, stepToy, toyAt, type ToyOps, type ToyState } from "./girl-toy";
 import { TeaseTracker } from "./girl-tease";
-import type { PetCommand } from "../../shared/pet-commands";
-import { GESTURE_COMMANDS } from "../../shared/pet-commands";
+import { GESTURE_COMMANDS, accessoryFromCommand, type PetCommand } from "../../shared/pet-commands";
 import type { WorkStatusTier } from "../../shared/work-status-types";
 import { presentationOf } from "./work-status-presentation";
 import { formGeometry, profileFor, type PetForm, type PetProfile } from "../../shared/pet-profile";
@@ -211,6 +225,13 @@ export class PixelPetRenderer {
   private bubbleBox: BubbleBox | null = null;
   /** 引擎时钟：rAF 的毫秒值直接喂 update，和绘制同一根秒表。 */
   private lastCompanionAt: number | null = null;
+
+  /** 伴飞小虫：一只在飞或刚被捉住；null = 现在没有。 */
+  private critter: CritterState | null = null;
+  /** 下一次允许自发招虫的时刻；0 = 还没排过（首次要等 45–85s，见面就先放虫太吵）。 */
+  private nextCritterAt = 0;
+  /** 喂食的小鱼干道具；null = 没在演。 */
+  private snack: SnackState | null = null;
 
   constructor(private readonly opts: PixelPetRendererOptions) {
     // willReadFrequently：点击穿透逐像素读 alpha（getImageData），不建这张快路径会退回 GPU 读回。
@@ -444,6 +465,24 @@ export class PixelPetRenderer {
       this.playGesture(gestureId);
       return;
     }
+    if (command === "summon-critter") {
+      this.summonCritter(performance.now());
+      return;
+    }
+    if (command === "wander") {
+      this.wander(performance.now());
+      return;
+    }
+    const accessory = accessoryFromCommand(command);
+    if (accessory) {
+      const now = performance.now();
+      if (this.engine?.setAccessory(accessory, now)) {
+        this.engine?.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
+    if (command === "feed") this.spawnSnack(performance.now());
     // 走到这里的只剩五项数值互动；类型上 `GESTURE_COMMANDS` 已经排除了手势分支。
     this.engine?.handleCommand(command as "pet" | "feed" | "play" | "toggle-sleep" | "status", performance.now());
     // 用户主动互动的数值立刻落盘：等到下一次漫游停稳才存，摸摸攒的亲密度会白丢。
@@ -513,6 +552,12 @@ export class PixelPetRenderer {
     startleLeft: number;
     pounces: number;
     teasePending: number;
+    /** v1.9.0：装扮、纪念日、伴飞小虫与喂食道具的读数口。 */
+    accessory: string;
+    milestoneLeft: number;
+    milestoneDays: number;
+    critter: { kind: string; caught: boolean; x: number; y: number } | null;
+    snack: { x: number; y: number; progress: number } | null;
     /** 距下一拍深夜提醒询问还有多久（真窗验收要卡在拍点上伪时钟）。 */
     nightCheckInMs: number;
   } {
@@ -537,6 +582,23 @@ export class PixelPetRenderer {
       startleLeft: snapshot?.startleLeft ?? 0,
       pounces: snapshot?.pounces ?? 0,
       teasePending: this.tease.pending,
+      accessory: snapshot?.accessory ?? "none",
+      milestoneLeft: snapshot?.milestoneLeft ?? 0,
+      milestoneDays: snapshot?.milestoneDays ?? 0,
+      critter: this.critter
+        ? {
+            kind: this.critter.kind,
+            caught: this.critter.caughtAt >= 0,
+            x: this.critter.x,
+            y: this.critter.y,
+          }
+        : null,
+      snack: this.snack
+        ? {
+            x: this.snack.x, y: this.snack.y,
+            progress: Math.max(0, Math.min(1, (now - this.snack.bornAt) / SNACK_MS)),
+          }
+        : null,
       nightCheckInMs: Math.max(0, NIGHT_NUDGE_POLL_MS - (now - this.lastNightNudgeCheckAt)),
     };
   }
@@ -764,6 +826,87 @@ export class PixelPetRenderer {
       }
     }
     return buildToyOps({ state: toy, floorY });
+  }
+
+  /**
+   * 伴飞小虫的一生：闲着且醒着的时候自己招一只（12s 后飞走），
+   * 或由右键「放只小虫逗逗她」当场放一只。四足形态恒没有（她没有耳朵去听翅膀）。
+   */
+  private tickCritter(now: number, face: ReturnType<typeof girlFaceBox>, snapshot: CompanionSnapshot | null): DrawOp[] {
+    if (this.form !== "girl") {
+      this.critter = null;
+      return [];
+    }
+    if (this.critter) {
+      stepCritter(this.critter, now, face);
+      if (this.critter.caughtAt >= 0) {
+        if (now - this.critter.caughtAt > CATCH_FLASH_MS) this.critter = null;
+      } else if (!critterAlive(this.critter, now)) {
+        this.critter = null;
+        this.nextCritterAt = now + 30_000 + Math.random() * 45_000;
+      }
+    }
+    const idle = snapshot !== null
+      && (snapshot.activity === "idle" || snapshot.activity === "rest")
+      && snapshot.mood !== "sleep";
+    if (this.nextCritterAt === 0) this.nextCritterAt = now + 45_000 + Math.random() * 40_000;
+    if (!this.critter && idle && !this.quiet && now >= this.nextCritterAt) {
+      this.summonCritter(now, false);
+    }
+    return this.critter ? buildCritterOps(this.critter, now, face) : [];
+  }
+
+  /**
+   * 当场放一只小虫（菜单/自主共用）。`manual` 决定要不要立刻重开一帧：
+   * 自主调用发生在 draw 里，重画会自指。
+   */
+  private summonCritter(now: number, redraw = true): boolean {
+    if (this.form !== "girl") return false;
+    const kind = critterKindFor(new Date(Date.now()).getHours());
+    this.critter = spawnCritter({ now, kind, seed: Math.random() });
+    this.nextCritterAt = now + CRITTER_LIFE_MS + 30_000 + Math.random() * 45_000;
+    if (redraw && !this.paused) this.draw(now);
+    return true;
+  }
+
+  /** 喂食时的小鱼干：只是一段道具动画，数值仍由引擎结算。 */
+  private spawnSnack(now: number): void {
+    if (this.form !== "girl" || this.quiet || this.cat.mood === "sleep") return;
+    const frame = this.girlAnimReady ? this.girlPlayer.sample(now).index : 0;
+    const face = girlFaceBox(girlAnimBodyFor(this.cat), frame);
+    this.snack = createSnack(now, face, this.cat.center.y, this.cat.facing ?? 1);
+  }
+
+  private tickSnack(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.snack) {
+      this.snack = null;
+      return [];
+    }
+    if (!snackAlive(this.snack, now)) {
+      this.snack = null;
+      return [];
+    }
+    stepSnack(this.snack, now, face, this.cat.center.y);
+    return buildSnackOps(this.snack, now, face);
+  }
+
+  /**
+   * 陪她散一段步：落点由 `wanderTarget` 现算（贴着屏边会自己掉头），
+   * 走路由引擎接管——和自主漫游同一条物理与落盘链。
+   */
+  private wander(now: number): boolean {
+    if (this.form !== "girl" || !this.engine || !this.catOrigin || !this.workArea) return false;
+    const target = wanderTarget({
+      origin: this.catOrigin,
+      size: { width: this.profile.base.width * this.zoom, height: this.profile.base.height * this.zoom },
+      workArea: this.workArea,
+      facing: this.cat.facing ?? 1,
+      random: Math.random(),
+    });
+    if (!target) return false;
+    this.engine.roamTo(target);
+    if (!this.paused) this.draw(now);
+    return true;
   }
 
   getCanvas(): HTMLCanvasElement {
@@ -1242,20 +1385,46 @@ export class PixelPetRenderer {
           bondUpLeft: snapshot?.bondUpLeft ?? 0,
           patCombo: snapshot?.patCombo ?? 0,
           startleLeft,
+          milestoneLeft: snapshot?.milestoneLeft ?? 0,
+          milestoneDays: snapshot?.milestoneDays ?? 0,
         });
         this.lastFxCounts = { below: fx.below.length, above: fx.above.length };
+        // 装扮锚在最终刚体的脸框上：倾斜/侧移/转身时跟着一起动。
+        const accessoryOps = buildAccessoryOps({
+          body,
+          frame: sample.index,
+          nowSec: now / 1000,
+          activity,
+          facing: body.facing,
+          accessory: snapshot?.accessory ?? "none",
+        });
+        const finalFace = girlFaceBox(body, sample.index);
+        // 道具先推进一拍：小虫/鱼干与人物落在同一张画上。
+        const snackOps = this.tickSnack(now, finalFace);
+        const critterOps = this.tickCritter(now, finalFace, snapshot);
         // 投影必须压在人物下面：分两趟画，投影一趟、人物+记号一趟。
         // 球的影子压在坐垫/地面投影之上，球身在她之后——她从球后面走过去时球仍然在前面。
         paintOps(this.ctx, fx.below);
         if (toyArt) paintOps(this.ctx, toyArt.below);
         if (sample.prev) this.paintGirlFrame(sample.prev.index, 1, body);
         this.paintGirlFrame(sample.index, sample.fade, body);
+        // 装扮压在人物上、球之前：蝴蝶结在发顶，铃铛在颈圈上。
+        paintOps(this.ctx, accessoryOps);
         if (toyArt) paintOps(this.ctx, toyArt.above);
         // 立绘里的脸/身体是画死的；表情层不参与，屏幕记号照旧跟 mood/pet/quiet 走。
-        ops = [...buildGirlOverlayOps(this.cat), ...fx.above];
+        ops = [...buildGirlOverlayOps(this.cat), ...snackOps, ...fx.above, ...critterOps];
       } else if (this.girlSpriteReady) {
         if (toyArt) paintOps(this.ctx, toyArt.below);
         this.paintGirlSprite();
+        const fallbackBody = girlAnimBodyFor(this.cat);
+        paintOps(this.ctx, buildAccessoryOps({
+          body: fallbackBody,
+          frame: 0,
+          nowSec: now / 1000,
+          activity: (snapshot?.activity ?? "idle") as CompanionActivity,
+          facing: fallbackBody.facing,
+          accessory: snapshot?.accessory ?? "none",
+        }));
         if (toyArt) paintOps(this.ctx, toyArt.above);
         ops = buildGirlOverlayOps(this.cat);
       } else if (this.girlSpriteFailed) {
@@ -1306,6 +1475,8 @@ export class PixelPetRenderer {
     this.nextToyBatAt = 0;
     this.tease.reset();
     this.cushion = 0;
+    this.critter = null;
+    this.snack = null;
     // 形态也是行为引擎的分岔口：不同步这一步，猫娘的四档加权抽取永远不跑（她只会走四足那张平表）。
     this.engine?.setForm(form);
     this.animGesture = null;
@@ -1359,6 +1530,17 @@ export class PixelPetRenderer {
     const zoom = this.zoom || 1;
     const dx = cssX / zoom;
     const dy = cssY / zoom;
+    // 伴飞小虫先截：它绕着脸飞，落在「头」分区里；不先拦，捉虫会被读成摸头。
+    const tapFrame = this.girlAnimReady ? this.girlPlayer.sample(now).index : 0;
+    const tapFace = girlFaceBox(girlAnimBodyFor(this.cat), tapFrame);
+    if (this.critter && critterAt(this.critter, now, tapFace, dx, dy)) {
+      // 先问引擎：睡着/被拖着时捉不到，这一下应该继续走分区而不是被吞掉。
+      if (this.engine?.catchCritter(now)) {
+        catchCritter(this.critter, now);
+        if (!this.paused) this.draw(now);
+        return;
+      }
+    }
     // 毛线球先截：它就在脚边，落在「脚」分区里；不先拦，点球会被读成挠脚。
     if (this.toyState && toyAt(this.toyState, dx, dy, 4)) {
       // 点在球的哪半边就往哪边弹——和真拨一下球的手感一致，不用先判她的朝向。

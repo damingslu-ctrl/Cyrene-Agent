@@ -7,6 +7,7 @@ import { girlFaceBox, girlInkBox, type GirlAnimBody } from "./girl-sprite";
 import type { GirlPresencePose } from "./girl-presence";
 import { STARTLE_MS, type CompanionActivity } from "./companion";
 import { BOND_UP_MS } from "./girl-bond";
+import { MILESTONE_MS } from "./girl-milestone";
 
 /**
  * 猫娘的「屏幕记号」层：画在**她身上和桌布上的小东西**。
@@ -57,6 +58,10 @@ export interface GirlFxInput {
   patCombo: number;
   /** 睡梦中被碰醒的惊跳剩余毫秒。 */
   startleLeft: number;
+  /** 纪念日庆典剩余毫秒；0＝没有庆典。 */
+  milestoneLeft: number;
+  /** 正在庆祝的是第几天（7/30/100/365）。 */
+  milestoneDays: number;
 }
 
 export interface GirlFxOps {
@@ -296,6 +301,85 @@ function cushionOps(input: GirlFxInput): DrawOp[] {
   return ops;
 }
 
+/**
+ * 睡毯：睡着的她身上盖一条小被子，从腰际铺到脚边。
+ * 只在真的睡着（mood === "sleep"）且没在免打扰里铺——免打扰是「她陪着但不吵」，
+ * 不是「她睡了」，铺毯子会把两件事说成一件（native #67 同一条规矩）。
+ * 毯子是画在**她身上**的，但下缘压在桌布上，所以外圈仍走奶油光边。
+ */
+function blanketOps(input: GirlFxInput): DrawOp[] {
+  if (input.mood !== "sleep" || input.quiet) return [];
+  const ink = girlInkBox(input.body, input.frame);
+  const w = Math.max(16, Math.min(34, ink.w * 0.92));
+  const top = ink.cy + ink.h * 0.02;
+  const bottom = Math.min(input.groundY + 1.5, ink.bottom + 2);
+  const h = Math.max(8, bottom - top);
+  const cx = ink.cx;
+  const r = Math.max(2.6, w * 0.16);
+  const ops: DrawOp[] = [];
+  // 奶油光边先铺（毯子下缘落在桌布上）。
+  ops.push({
+    kind: "fillRoundRect", fill: withAlpha(PAPER, 0.92),
+    x: cx - w / 2 - 1.2, y: top - 1.2, w: w + 2.4, h: h + 2.4, r: r + 1.2, layer: "stars",
+  });
+  ops.push({
+    kind: "fillRoundRect", fill: withAlpha(ROSE, 0.88),
+    x: cx - w / 2, y: top, w, h, r, layer: "stars",
+  });
+  // 翻边：一道奶油折线压住毯口，读起来是「被子拉到身上」而不是「地上多了一块布」。
+  ops.push({
+    kind: "fillRoundRect", fill: withAlpha(PAPER, 0.96),
+    x: cx - w / 2 - 0.4, y: top - 1.6, w: w + 0.8, h: Math.max(2.2, h * 0.16), r: 1.1, layer: "stars",
+  });
+  ops.push({
+    kind: "fillRoundRect", fill: withAlpha(ROSE_DEEP, 0.34),
+    x: cx - w / 2 + 1.2, y: top + Math.max(1.4, h * 0.2), w: w - 2.4, h: Math.max(1, h * 0.07), r: 0.5, layer: "stars",
+  });
+  // 两道缝线：让毯面不是一块纯色矩形。
+  for (const side of [-1, 1]) {
+    const lx = cx + side * w * 0.26;
+    ops.push({
+      kind: "strokePath", stroke: withAlpha(PAPER, 0.55), width: 1,
+      points: [[lx, top + h * 0.32], [lx, bottom - h * 0.18]], layer: "stars",
+    });
+  }
+  return ops;
+}
+
+/** 纪念日彩带：十枚双色纸片绕着头顶转着落下；越到尾巴越淡。 */
+function milestoneOps(input: GirlFxInput): DrawOp[] {
+  if (input.milestoneLeft <= 0) return [];
+  const p = clamp01(1 - input.milestoneLeft / MILESTONE_MS);
+  if (p >= 1) return [];
+  const head = girlFaceBox(input.body, input.frame);
+  const palette = [ACCENT, ROSE_DEEP, ROSE, WARN];
+  const ops: DrawOp[] = [];
+  for (let i = 0; i < 10; i += 1) {
+    const seed = (i * 0.618 + 0.13) % 1;
+    const ph = (p * 1.35 + i * 0.09) % 1;
+    const a = (1 - ph) * 0.92;
+    if (a <= 0.02) continue;
+    const x = head.cx
+      + Math.sin(seed * Math.PI * 2 + p * 5.2) * head.w * (0.55 + 0.5 * seed)
+      + Math.cos(ph * 9 + seed * 7) * head.w * 0.08;
+    const y = head.top - head.h * 0.38 + ph * head.h * 1.85;
+    const r = Math.max(1.2, head.w * (0.05 + 0.02 * seed));
+    const spin = seed * Math.PI * 2 + p * 7;
+    const color = palette[i % palette.length];
+    for (const [rr, fill] of [[r * 1.55, withAlpha(PAPER, 0.9 * a)], [r, withAlpha(color, a)]] as const) {
+      const c = Math.cos(spin);
+      const s = Math.sin(spin);
+      const pts: Array<[number, number]> = [
+        [x + c * rr, y + s * rr * 0.6],
+        [x - c * rr, y - s * rr * 0.6],
+        [x - s * rr * 0.8, y + c * rr * 0.8],
+      ];
+      ops.push({ kind: "fillPath", fill, points: pts, layer: "stars" });
+    }
+  }
+  return ops;
+}
+
 /** 升档爆发：一圈光环 + 五枚错相上浮的爱心；持续 2.6s。 */
 function bondUpOps(input: GirlFxInput): DrawOp[] {
   if (input.bondUpLeft <= 0) return [];
@@ -421,6 +505,7 @@ export function buildGirlFxOps(input: GirlFxInput): GirlFxOps {
   return {
     below: [...cushionOps(input), ...groundShadow(input)],
     above: [
+      ...blanketOps(input),
       ...blushOps(input),
       ...comboOps(input),
       ...bondUpOps(input),
@@ -429,6 +514,7 @@ export function buildGirlFxOps(input: GirlFxInput): GirlFxOps {
       ...noticeOps(input),
       ...startleOps(input),
       ...dizzyOps(input),
+      ...milestoneOps(input),
       ...dustOps(input),
     ],
   };

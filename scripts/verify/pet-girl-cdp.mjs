@@ -19,7 +19,16 @@
 // - 惊醒：右键睡眠后点头 → startleLeft > 800、醒回 idle、说被吓到的台词；
 // - 扑光标：冻结真实光标后手动甩两下（90ms / 170px）→ pounces +1、位置真的挪了；
 // - 坐垫：rest 期间 cushion > 0.9，below 层多出坐垫笔数；
-// - 深夜：卡在 30s 询问拍点前把时钟拨到 23:30 → 气泡出现深夜台词。
+// - 深夜：卡在 30s 询问拍点前把时钟拨到 23:30 → 气泡出现深夜台词；
+// - v1.9 装扮：`accessory:bow` → 引擎报 bow、bond 存档同步、回执台词；换回 none 同理；
+// - v1.9 伴飞小虫：召唤 → 白天蝴蝶/夜里流萤、未捉；点它的实时坐标 → 捉住、+0.02 亲密度、
+//   闪光结束后从诊断里消失；
+// - v1.9 小鱼干：feed → 道具出现、进度递增、2.6s 后收场；
+// - v1.9 睡毯：睡下时下半身盖上一整块玫瑰毯（画布下半身玫瑰像素骤增），
+//   醒来那一块掉回毯子以下的量级（皮肤本身也落在这色段，不按「回到某一帧」判）；
+// - v1.9 散步：wander → 走起来且落点位移在 60–160px 设计窗内；
+// - v1.9 纪念日/重逢：只改本应用自己的 bond 存档（metAt/lastSeenAt）后整页重载，
+//   启动 greet 报「第 7 天」彩带 / 久别台词（不碰用户目录里的其他盘）。
 // 任一条不成立就红；环境问题（没窗/没墨）报 ENV，不冒充产品红。
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -46,9 +55,25 @@ const TOY_LINES = sourceLines("GIRL_TOY_LINES");
 const POUNCE_LINES = sourceLines("GIRL_POUNCE_LINES");
 const WAKE_LINES = [...sourceLines("GIRL_WAKE_LINES"), ...sourceLines("GIRL_WAKE_NIGHT_LINES")];
 const NIGHT_LINES = sourceLines("GIRL_NIGHT_LINES");
+const CRITTER_LINES = sourceLines("GIRL_CRITTER_LINES");
+const REUNION_LINES = sourceLines("GIRL_REUNION_LINES");
+
+/** 从 `const NAME = { field: [...] }` 里读一张台词表（装扮是按件分组的字典）。 */
+function sourceFieldLines(name, field) {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/companion.ts"), "utf8");
+  const block = src.match(new RegExp(`const\\s+${name}[^=]*=\\s*\\{([\\s\\S]*?)\\n\\};`))?.[1];
+  const body = block?.match(new RegExp(`\\b${field}:\\s*\\[([\\s\\S]*?)\\]`))?.[1];
+  if (!body) throw new Error(`[ENV] 读不出 ${name}.${field}：验收句子表都没了，先看源码`);
+  return [...body.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
+}
+
+const ACCESSORY_BOW_LINES = sourceFieldLines("GIRL_ACCESSORY_LINES", "bow");
+const ACCESSORY_NONE_LINES = sourceFieldLines("GIRL_ACCESSORY_LINES", "none");
 
 /** 探针自己的 Electron 子进程；任何失败路径都要带走它，别留一只无头猫占着端口。 */
 let activeChild = null;
+/** 中途 ENV 红时也要把已经量到的读数落盘，别让前二十条检查随着异常一起丢。 */
+let partialWriter = null;
 
 function assertSafeProfile(dir) {
   const normalized = path.resolve(dir).toLowerCase();
@@ -226,14 +251,62 @@ async function main() {
     };
   };
   const shot = async (name) => {
-    const r = await s.send("Page.captureScreenshot", { format: "png" }, 20_000);
-    fs.writeFileSync(path.join(shots, name), Buffer.from(r.data, "base64"));
+    // 气泡收起/展开会换窗宽，画布先清成透明再重画；正好截在空档里会得到
+    // 一张几百字节的纯空图（v1.9 真跑抓到 girl-lean-left 315B）。空帧不是
+    // 产品画面，等一拍重截，不把噪声留在证据里。
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const r = await s.send("Page.captureScreenshot", { format: "png" }, 20_000);
+      const buf = Buffer.from(r.data, "base64");
+      if (buf.length >= 1_200 || attempt === 3) {
+        fs.writeFileSync(path.join(shots, name), buf);
+        return buf.length;
+      }
+      await wait(160);
+    }
+  };
+  // 睡毯的判据不能只看 above 笔数：睡姿本身会收掉几笔（脸红/注意），
+  // 记号线加减相抵后笔数差不出毯子。直接数**画布下半身**的玫瑰色像素：
+  // 毯子是 0.88 不透明的整块玫瑰，醒来必须退回去。
+  const rosePixels = () => evaluate(s, `(() => {
+    const d = window.__cyrene.getPetDiagnostics();
+    const c = document.getElementById("pet-canvas");
+    if (!c) return { n: 0, box: null, reason: "no canvas" };
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    const scale = c.width / Math.max(1, c.clientWidth);
+    const h = d.hitRect;
+    const x0 = Math.max(0, Math.floor(h.x * scale));
+    const x1 = Math.min(c.width, Math.ceil((h.x + h.width) * scale));
+    const y0 = Math.max(0, Math.floor((h.y + h.height * 0.45) * scale));
+    const y1 = Math.min(c.height, Math.ceil((h.y + h.height * 0.98) * scale));
+    const data = ctx.getImageData(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0)).data;
+    let n = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+      if (a > 200 && r > 205 && g > 95 && g < 185 && b > 115 && b < 200) n++;
+    }
+    return { n, box: [x0, y0, x1 - x0, y1 - y0], scale };
+  })()`);
+  // 气泡开合会换窗宽，画布被清成透明直到下一帧重画；这时读到的 0 不是「她没有玫瑰色」，
+  // 而是尺子踩空了。空帧重取，并把「基线非零」本身也变成一条检查。
+  const rosePixelsSettled = async () => {
+    let r = await rosePixels();
+    for (let i = 0; i < 5 && r.n === 0; i += 1) {
+      await wait(160);
+      r = await rosePixels();
+    }
+    return r;
   };
   const results = {};
   const checks = [];
   const check = (name, ok, detail) => {
     checks.push({ name, ok, detail });
     if (!ok) process.exitCode = 1;
+  };
+  partialWriter = () => {
+    try {
+      fs.writeFileSync(path.join(shots, "pet-girl-report.partial.json"),
+        JSON.stringify({ results, checks }, null, 2), "utf8");
+    } catch { /* 落盘失败不掩盖原始异常 */ }
   };
   const waitActivity = async (want, timeoutMs) => {
     const deadline = Date.now() + timeoutMs;
@@ -630,6 +703,290 @@ async function main() {
   results.night = { phaseReady: nightPhaseReady, bubble: nightBubble };
   check("night.line", !!nightBubble, nightPhaseReady ? `bubble=${nightBubble ?? "null"}` : "32s 内没等到询问拍点");
 
+  // —— L. v1.9.0：装扮 / 伴飞小虫 / 小鱼干 / 睡毯 / 散步 ——
+  // 全部走右键菜单同一条命令通道（handleCommand），验的是「菜单 → 引擎 → 画」整条线；
+  // 读数口是 getGirlDiagnostics() 新增的 accessory/critter/snack/milestoneLeft。
+  {
+    let pre = await snap();
+    if (pre.activity === "sleep") {
+      await evaluate(s, `window.__cyrene.renderer.handleCommand("toggle-sleep")`);
+      await wait(320);
+      pre = await snap();
+    }
+    await dismissBubble();
+    await wait(220);
+
+    // L1 装扮：命令改引擎 + 落自己的 bond 存档 + 一句回执；截图留证。
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("accessory:bow")`);
+    await wait(260);
+    const bowDiag = await diag();
+    const bowSnap = await snap();
+    const bondAfterBow = await evaluate(s, `(() => {
+      try { return JSON.parse(localStorage.getItem("cyrene.pet.bond.v1") ?? "null"); } catch { return null; }
+    })()`);
+    results.accessory = {
+      accessory: bowDiag.girl.accessory,
+      persisted: bondAfterBow?.accessory ?? null,
+      bubble: bowSnap.bubble?.text ?? null,
+    };
+    await shot("girl-accessory-bow.png");
+    check("accessory.state", bowDiag.girl.accessory === "bow", `accessory=${bowDiag.girl.accessory}`);
+    check("accessory.persist", bondAfterBow?.accessory === "bow", `bond.accessory=${bondAfterBow?.accessory ?? "null"}`);
+    check("accessory.line", !!bowSnap.bubble && ACCESSORY_BOW_LINES.includes(bowSnap.bubble.text),
+      `bubble=${bowSnap.bubble?.text ?? "null"}`);
+
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("accessory:none")`);
+    await wait(220);
+    const noneDiag = await diag();
+    const noneSnap = await snap();
+    check("accessory.clear", noneDiag.girl.accessory === "none", `accessory=${noneDiag.girl.accessory}`);
+    check("accessory.clear-line", !!noneSnap.bubble && ACCESSORY_NONE_LINES.includes(noneSnap.bubble.text),
+      `bubble=${noneSnap.bubble?.text ?? "null"}`);
+
+    // L2 伴飞小虫：召唤 → 白天蝴蝶/夜里流萤 → 点它捉住 → 闪光后消失 → 亲密度 +0.02。
+    await dismissBubble();
+    const affinityBeforeCatch = (await snap()).vitals.affinity;
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("summon-critter")`);
+    await wait(180);
+    const critterDiag = await diag();
+    const expectedKind = await evaluate(s,
+      `(() => { const h = new Date().getHours(); return h >= 6 && h < 18 ? "butterfly" : "firefly"; })()`);
+    results.critter = {
+      kind: critterDiag.girl.critter?.kind ?? null,
+      expectedKind,
+      caught: critterDiag.girl.critter?.caught ?? null,
+      pos: critterDiag.girl.critter ? { x: critterDiag.girl.critter.x, y: critterDiag.girl.critter.y } : null,
+    };
+    await shot("girl-critter.png");
+    check("critter.spawn", !!critterDiag.girl.critter, `critter=${JSON.stringify(critterDiag.girl.critter)}`);
+    check("critter.kind", critterDiag.girl.critter?.kind === expectedKind,
+      `kind=${critterDiag.girl.critter?.kind} expected=${expectedKind}`);
+    check("critter.flying", critterDiag.girl.critter?.caught === false, `caught=${critterDiag.girl.critter?.caught}`);
+
+    // 点它：读数与点击必须在同一个 JS 拍里完成——它绕着脸飞（~46px/s），
+    // 中间隔一次 CDP 往返就会落在命中圈外。最多补点三下。
+    let catchAttempt = null;
+    for (let i = 0; i < 3; i++) {
+      catchAttempt = await evaluate(s, `(() => {
+        const d = window.__cyrene.getPetDiagnostics();
+        const c = d.girl.critter;
+        if (!c) return { ok: false, why: "critter gone" };
+        const z = d.layout.zoom;
+        window.__cyrene.renderer.tapAt(c.x * z, c.y * z, 40);
+        return { ok: true, x: c.x, y: c.y };
+      })()`);
+      await wait(130);
+      if ((await diag()).girl.critter?.caught) break;
+    }
+    const caughtDiag = await diag();
+    const caughtSnap = await snap();
+    results.critterCatch = {
+      attempt: catchAttempt,
+      caught: caughtDiag.girl.critter?.caught ?? null,
+      bubble: caughtSnap.bubble?.text ?? null,
+      affinityBefore: affinityBeforeCatch,
+      affinityAfter: caughtSnap.vitals.affinity,
+    };
+    // 气泡出现/收回会带着窗口改尺寸：立刻截会撞上两次重绘之间的空画布。
+    await wait(140);
+    await shot("girl-critter-caught.png");
+    check("critter.caught", caughtDiag.girl.critter?.caught === true,
+      `critter=${JSON.stringify(caughtDiag.girl.critter)} attempt=${JSON.stringify(catchAttempt)}`);
+    check("critter.line", !!caughtSnap.bubble && CRITTER_LINES.includes(caughtSnap.bubble.text),
+      `bubble=${caughtSnap.bubble?.text ?? "null"}`);
+    check("critter.affinity", caughtSnap.vitals.affinity > affinityBeforeCatch + 0.005,
+      `${affinityBeforeCatch.toFixed(3)} → ${caughtSnap.vitals.affinity.toFixed(3)}`);
+    await wait(760);
+    const afterFlash = await diag();
+    check("critter.gone", afterFlash.girl.critter === null, `critter=${JSON.stringify(afterFlash.girl.critter)}`);
+
+    // L3 小鱼干：喂 → 脚边出现鱼 → 进度在走 → 2.6s 后自己收场。
+    await dismissBubble();
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("feed")`);
+    await wait(220);
+    const snackA = await diag();
+    await shot("girl-snack.png");
+    await wait(700);
+    const snackB = await diag();
+    results.snack = { a: snackA.girl.snack, b: snackB.girl.snack };
+    check("snack.spawn", !!snackA.girl.snack, `snack=${JSON.stringify(snackA.girl.snack)}`);
+    check("snack.progress", !!snackB.girl.snack && snackB.girl.snack.progress > (snackA.girl.snack?.progress ?? 1),
+      `${snackA.girl.snack?.progress?.toFixed(3) ?? "null"} → ${snackB.girl.snack?.progress?.toFixed(3) ?? "null"}`);
+    const snackDeadline = Date.now() + 4_000;
+    let snackLast = snackB.girl.snack;
+    while (Date.now() < snackDeadline) {
+      snackLast = (await diag()).girl.snack;
+      if (!snackLast) break;
+      await wait(220);
+    }
+    check("snack.gone", !snackLast, `snack=${JSON.stringify(snackLast)}`);
+
+    // L4 睡毯：睡着时下半身盖上一整块玫瑰毯；醒来收走。
+    await dismissBubble();
+    await wait(260);
+    const awakePink = await rosePixelsSettled();
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("toggle-sleep")`);
+    await wait(520);
+    const sleepSnap2 = await snap();
+    const sleepPink = await rosePixelsSettled();
+    results.blanket = {
+      activity: sleepSnap2.activity,
+      awakePink: awakePink.n,
+      sleepPink: sleepPink.n,
+      box: sleepPink.box,
+      scale: sleepPink.scale,
+    };
+    await shot("girl-blanket.png");
+    check("blanket.sleep", sleepSnap2.activity === "sleep", `activity=${sleepSnap2.activity}`);
+    check("blanket.baseline", awakePink.n > 0, `醒着玫瑰像素 ${awakePink.n}`);
+    check("blanket.pixels", sleepPink.n >= 150 && sleepPink.n >= awakePink.n + 100,
+      `玫瑰像素 ${awakePink.n} → ${sleepPink.n}`);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("toggle-sleep")`);
+    await wait(420);
+    const wokeSnap = await snap();
+    const wakePink = await rosePixelsSettled();
+    results.blanket.wakePink = wakePink.n;
+    check("blanket.wake", wokeSnap.activity !== "sleep", `activity=${wokeSnap.activity}`);
+    // 不能拿「醒着基线 +80」当上界：这扇窗从大腿到脚，皮肤本身就在玫瑰色段里，
+    // 不同待机帧露出的腿/手数量不同（实测基线 37–131 都出现过）。毯子本身是 660+ 像素，
+    // 「收走了」的判据应该是那一块的量级掉了，而不是回到另一帧的皮肤数。
+    check("blanket.clears", wakePink.n + 400 <= sleepPink.n && wakePink.n < sleepPink.n / 2,
+      `醒来玫瑰像素 ${wakePink.n}（睡时 ${sleepPink.n}、醒着基线 ${awakePink.n}）`);
+
+    // L5 散步：命令 → 走起来 → 落点位移在设计的 60–160px 内。
+    await dismissBubble();
+    await wait(2_000);
+    const walkBefore = await snap();
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("wander")`);
+    await wait(400);
+    const walkMid = await snap();
+    results.wander = { before: walkBefore.pos.x, mid: walkMid.pos.x, activity: walkMid.activity };
+    check("wander.starts", walkMid.activity === "walk" || walkMid.pos.x !== walkBefore.pos.x,
+      `activity=${walkMid.activity} x=${walkBefore.pos.x} → ${walkMid.pos.x}`);
+    const walkDeadline = Date.now() + 8_000;
+    let walkEnd = walkMid;
+    while (Date.now() < walkDeadline) {
+      walkEnd = await snap();
+      if (walkEnd.activity === "idle" || walkEnd.activity === "rest") break;
+      await wait(250);
+    }
+    const walked = Math.abs(walkEnd.pos.x - walkBefore.pos.x);
+    results.wanderEnd = { x: walkEnd.pos.x, delta: walked, activity: walkEnd.activity };
+    check("wander.distance", walked >= 55 && walked <= 165, `delta=${walked}px（设计窗 60–160）`);
+  }
+
+  // —— M. v1.9.0：纪念日与久别重逢 ——
+  // 只改写**本应用自己**的 localStorage bond（不动用户目录里任何别人的盘），
+  // 写完就在同一拍里 location.reload()：中间不留「旧页面又存一次盘」的竞态。
+  // 新页面按盘上的 metAt/lastSeenAt 走启动问候——启动问候会先等 profile 落档
+  // （v1.9 真窗验收抓到过「猫形态抢跑」），所以这里轮询到那句话为止。
+  {
+    const patchBondAndReload = async (patchExpr) => {
+      const originBefore = await evaluate(s, `performance.timeOrigin`);
+      // 先写盘再发重载：写与导航之间只隔一次 CDP 往返。页面自己的存盘都发生在
+      // 用户动作上，这里没有动作，不会被旧页面的内存快照盖回去。
+      await evaluate(s, `(() => {
+        const KEY = "cyrene.pet.bond.v1";
+        let bond = {};
+        try { bond = JSON.parse(localStorage.getItem(KEY) ?? "{}") ?? {}; } catch { bond = {}; }
+        const now = Date.now();
+        ${patchExpr}
+        localStorage.setItem(KEY, JSON.stringify(bond));
+        return bond;
+      })()`);
+      const readDoc = () => evaluate(s, `(() => ({
+        origin: performance.timeOrigin,
+        bridge: !!window.__cyrene,
+        canvas: !!document.getElementById("pet-canvas"),
+      }))()`, 5_000).catch(() => null);
+      const deadline = Date.now() + 40_000;
+      let lastError = null;
+      let reloadAt = 0;
+      for (;;) {
+        const now = Date.now();
+        if (now >= reloadAt) {
+          try { await s.send("Page.reload", { ignoreCache: false }, 20_000); } catch (e) { lastError = String(e); }
+          reloadAt = now + 8_000;
+        }
+        const st = await readDoc();
+        if (st && st.bridge && st.canvas && st.origin > originBefore) break;
+        if (Date.now() > deadline) {
+          throw new Error(`[ENV] 重载后 40s 没等到新页面的渲染桥（last=${JSON.stringify(lastError)}）`);
+        }
+        await wait(150);
+      }
+      await evaluate(s, `window.__cyrene.setGazeFrozen(true)`).catch(() => {});
+    };
+    // 命中那一拍就取读数与截图：纪念日彩带只有 5.2s，等 waitPetInk 轮询完再读就凉了。
+    const waitBootLine = async (label, hit) => {
+      const read = () => evaluate(s, `(() => {
+        const cy = window.__cyrene;
+        if (!cy) return null;
+        const snap = cy.renderer.getCompanionSnapshot();
+        const d = cy.getPetDiagnostics();
+        return {
+          text: snap.bubble?.text ?? null,
+          days: snap.days,
+          form: d.form,
+          left: d.girl.milestoneLeft,
+          daysShown: d.girl.milestoneDays,
+          above: d.girl.fx.above,
+        };
+      })()`, 5_000).catch(() => null);
+      const deadline = Date.now() + 25_000;
+      let last = null;
+      while (Date.now() < deadline) {
+        last = await read();
+        if (last && last.text && hit(last.text)) {
+          await wait(180);
+          const settled = await read();
+          return { ok: true, first: last, settled: settled ?? last };
+        }
+        await wait(120);
+      }
+      return { ok: false, first: last, settled: last };
+    };
+
+    await patchBondAndReload(`
+      bond.metAt = now - 6 * 86400000 - 30000;
+      bond.celebrated = [];
+      bond.lastSeenAt = now;
+    `);
+    const milestone = await waitBootLine("纪念日", (t) => t.includes("第 7 天"));
+    await waitPetInk(s, 20_000, appLog, child);
+    await shot("girl-milestone.png");
+    const m = milestone.settled ?? milestone.first ?? {};
+    results.milestone = {
+      days: m.days,
+      bubble: milestone.first?.text ?? null,
+      form: m.form,
+      left: m.left,
+      daysShown: m.daysShown,
+      above: m.above,
+      matched: milestone.ok,
+    };
+    check("milestone.days", m.days === 7, `days=${m.days}`);
+    check("milestone.line", !!milestone.first && milestone.first.text.includes("第 7 天"),
+      `bubble=${milestone.first?.text ?? "null"}`);
+    check("milestone.window", milestone.ok && m.left > 0 && m.daysShown === 7,
+      `left=${Math.round(m.left ?? 0)} days=${m.daysShown}`);
+    check("milestone.ribbons", m.above >= 8, `above=${m.above}`);
+
+    await patchBondAndReload(`
+      bond.metAt = now;
+      bond.celebrated = ["day:7"];
+      bond.lastSeenAt = now - 4 * 3600000;
+    `);
+    const reunion = await waitBootLine("重逢", (t) => REUNION_LINES.includes(t));
+    await waitPetInk(s, 20_000, appLog, child);
+    await shot("girl-reunion.png");
+    const r = reunion.settled ?? reunion.first ?? {};
+    results.reunion = { bubble: reunion.first?.text ?? null, days: r.days, form: r.form, matched: reunion.ok };
+    check("reunion.line", !!reunion.first && REUNION_LINES.includes(reunion.first.text),
+      `bubble=${reunion.first?.text ?? "null"}`);
+    check("reunion.days", r.days === 1, `days=${r.days}`);
+  }
+
   const failed = checks.filter((c) => !c.ok);
   results.checks = checks;
   fs.writeFileSync(path.join(shots, "pet-girl-report.json"), JSON.stringify(results, null, 2), "utf8");
@@ -644,6 +1001,7 @@ async function main() {
 }
 
 main().catch(async (error) => {
+  try { partialWriter?.(); } catch {}
   try { activeChild?.kill(); } catch {}
   console.error(String(error?.stack ?? error));
   if (process.exitCode === undefined || process.exitCode === 0) process.exitCode = 1;

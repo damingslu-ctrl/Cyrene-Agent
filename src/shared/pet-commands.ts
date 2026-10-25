@@ -1,13 +1,38 @@
 /** 右键菜单 → 宠物窗的单向动作。渲染端是唯一执行者（状态都在它手里）。 */
+import { ACCESSORY_IDS, type AccessoryId } from "./pet-accessory";
+
+/** 装扮命令：`accessory:<id>`（id 来自共享词表，菜单与渲染端对同一组值）。 */
+export type AccessoryCommand = `accessory:${AccessoryId}`;
+
 export type PetCommand =
   | "pet" | "feed" | "play" | "toggle-sleep" | "status"
   /** 「让它做个动作」：只演一次手势，不动数值（`gesture:<id>` 见 `GESTURE_COMMANDS`）。 */
-  | "wave" | "bow" | "nod" | "tilt" | "hop" | "stretch" | "clap";
+  | "wave" | "bow" | "nod" | "tilt" | "hop" | "stretch" | "clap"
+  /** 猫娘专属：招一只伴飞小虫 / 自己散一段步。四足收到时静默忽略。 */
+  | "summon-critter" | "wander"
+  | AccessoryCommand;
 
-export const PET_COMMANDS: ReadonlyArray<PetCommand> = [
+export const ACCESSORY_COMMANDS: ReadonlyArray<AccessoryCommand> =
+  ACCESSORY_IDS.map((id) => `accessory:${id}` as const);
+
+const BASE_COMMANDS: ReadonlyArray<PetCommand> = [
   "pet", "feed", "play", "toggle-sleep", "status",
   "wave", "bow", "nod", "tilt", "hop", "stretch", "clap",
+  "summon-critter", "wander",
 ];
+
+export const PET_COMMANDS: ReadonlyArray<PetCommand> = [...BASE_COMMANDS, ...ACCESSORY_COMMANDS];
+
+/** `accessory:bow` → `"bow"`；不是装扮命令返回 null。 */
+export function accessoryFromCommand(command: PetCommand): AccessoryId | null {
+  if (!command.startsWith("accessory:")) return null;
+  const id = command.slice("accessory:".length);
+  return (ACCESSORY_IDS as readonly string[]).includes(id) ? (id as AccessoryId) : null;
+}
+
+export function accessoryCommandFor(id: AccessoryId): AccessoryCommand {
+  return `accessory:${id}`;
+}
 
 /**
  * 手势命令 → 手势 id（`motion.ts` 的 GESTURE_IDS 子集）。

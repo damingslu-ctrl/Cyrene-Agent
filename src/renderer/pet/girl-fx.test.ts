@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CatInput } from "./art";
-import { girlAnimBodyFor, girlFaceBox } from "./girl-sprite";
+import { girlAnimBodyFor, girlFaceBox, girlInkBox } from "./girl-sprite";
 import { NOTICE_FX_MS, buildGirlFxOps, type GirlFxInput } from "./girl-fx";
 import { restingPresence } from "./girl-presence";
 import { BOND_UP_MS } from "./girl-bond";
@@ -48,6 +48,8 @@ function mkFx(over: Partial<GirlFxInput> = {}): GirlFxInput {
     bondUpLeft: 0,
     patCombo: 0,
     startleLeft: 0,
+    milestoneLeft: 0,
+    milestoneDays: 0,
     ...over,
   };
 }
@@ -219,5 +221,38 @@ describe("猫娘 II 的新记号", () => {
     // 受惊期间「注意到你」的「!」让位给更大的这支：同一位置不许叠两支。
     const both = buildGirlFxOps(mkFx({ startleLeft: STARTLE_MS * 0.5, noticeAgeMs: 300 })).above.filter((o) => o.layer === "stars");
     expect(both.length).toBe(ops.length);
+  });
+});
+
+describe("睡毯与纪念日彩带", () => {
+  it("睡毯只在她真的睡着、且不在免打扰时铺开；醒来就收", () => {
+    const asleep = buildGirlFxOps(mkFx({ mood: "sleep" })).above;
+    expect(asleep.length).toBeGreaterThan(0);
+    const first = asleep[0];
+    const fill = first.kind === "fillEllipse" ? first.fill : first.kind === "fillPath" || first.kind === "fillRoundRect" ? first.fill : "";
+    expect(fill).toMatch(/^rgba\(247, 244, 236/); // 奶油光边打底
+    expect(buildGirlFxOps(mkFx({ mood: "idle" })).above).toHaveLength(0);
+    // 免打扰时她是「安静」不是「睡着」：不铺毯子（native #67 同一规矩）。
+    expect(buildGirlFxOps(mkFx({ mood: "sleep", quiet: true })).above).toHaveLength(0);
+
+    const ink = girlInkBox(girlAnimBodyFor(mkCat()), 0);
+    const bounds = buildGirlFxOps(mkFx({ mood: "sleep" })).above;
+    for (const op of bounds) {
+      const y = op.kind === "fillEllipse" ? op.cy : op.kind === "fillRoundRect" ? op.y + op.h / 2 : op.kind === "fillPath" ? op.points[0][1] : null;
+      if (y !== null) {
+        expect(y).toBeGreaterThan(ink.top);
+        expect(y).toBeLessThan(ink.bottom + 3);
+      }
+    }
+  });
+
+  it("纪念日彩带有时限、双色，并绕着头部飘落", () => {
+    const fx = mkFx({ milestoneLeft: 3_000, milestoneDays: 7 });
+    const ops = buildGirlFxOps(fx).above.filter((o) => o.layer === "stars");
+    expect(ops.length).toBeGreaterThanOrEqual(8);
+    const colors = ops.map((o) => (o.kind === "fillEllipse" || o.kind === "fillPath" ? o.fill : ""));
+    expect(colors.some((c) => c.includes("247, 244, 236"))).toBe(true);
+    expect(colors.some((c) => c.includes("221, 106, 127") || c.includes("91, 141, 239"))).toBe(true);
+    expect(buildGirlFxOps(mkFx({ milestoneLeft: 0, milestoneDays: 7 })).above).toHaveLength(0);
   });
 });
