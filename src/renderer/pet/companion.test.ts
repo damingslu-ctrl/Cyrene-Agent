@@ -29,6 +29,7 @@ import {
   type CompanionContext,
 } from "./companion";
 import { gestureClip, gestureIds } from "./motion";
+import { wrapBubbleText } from "./art";
 
 const T0 = 1_700_000_000_000;
 const workArea = { x: 0, y: 0, width: 1000, height: 700 };
@@ -940,6 +941,13 @@ describe("猫娘 II：连击 / 惊醒 / 羁绊 / 作息 / 扑与球", () => {
     engine.setForm("girl");
     engine.greet(T0);
     expect(engine.getSnapshot().bubble?.text).toBe(`${GIRL_GREETINGS.morning}\n第 2 天`);
+  });
+
+  it("问候句按标点预断行：每一行都放得进 78px，不会被贪心再劈一次", () => {
+    for (const text of Object.values(GIRL_GREETINGS)) {
+      expect(wrapBubbleText(text, 78, 9)).toEqual(text.split("\n"));
+      expect(wrapBubbleText(`${text}\n第 12 天`, 78, 9)).toHaveLength(text.split("\n").length + 1);
+    }
   });
 
   it("相识天数跨天累加，同一天只算第 1 天", () => {

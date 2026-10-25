@@ -624,7 +624,7 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
   `play` 动作 + 台词 + `+0.01` 亲密度。
 - **坐垫**：`activity === "rest"` 时 180ms 指数淡入，起身淡出；画在 `below`（人物之下）。
 - **晨间伸懒腰**：只在 `greet()` 里判 5–11 点、`dateKey` 落盘去重；拖拽/投掷/睡觉不打断。
-  问候句第 2 天起把「第 N 天」单独放一行（见 16.4）。
+  四段问候自身按标点预断成两行（每行 ≤78px），第 2 天起再接「第 N 天」独占的一行。
 - **状态卡片**：猫娘形态改为四行 `亲密度/饱腹/精力/称号 · 第 N 天`，靠 `\n` 硬换行，
   不走贪心折行；四足仍是原来的一行 `vitalLine`。
 
@@ -641,23 +641,37 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
 
 ### 16.4 验收
 
-- 单测：全仓 **667 文件 / 7089 通过（1 skipped）**；猫娘相关 12 个文件 **205 条**绿：
-  companion 68 / art 37 / renderer 22 / girl-anim 16 / girl-sprite 15 / girl-fx 12 /
+- 单测：全仓 **667 文件 / 7092 通过（1 skipped）**；猫娘相关 12 个文件 **208 条**绿：
+  companion 69 / art 39 / renderer 22 / girl-anim 16 / girl-sprite 15 / girl-fx 12 /
   girl-presence 9 / girl-zones 8 / girl-toy 6 / girl-bond 4 / girl-tease 4 / girl-face-meta 4。
-- 真窗：`scripts/verify/pet-girl-cdp.mjs` **48/48 `all clear`**（girl/standard，zoom=1）：
+- 真窗：`scripts/verify/pet-girl-cdp.mjs` **50/50 `all clear`**（girl/standard，zoom=1）：
   - 球：踢前 `x=67 rest` → 踢后 `x=20.30 vx=139.24 trail=7`，最终落 `x=57.0 y=83.2`
     在界内；手势 `hop`、台词「接住！」，亲密度 0.570→0.580。
   - 连击：`patCombo=3`，档位 `reliant/依赖`，`bondUpLeft=1600`，记号层 `above=60`。
   - 状态卡四行实测宽 47.29 / 38.29 / 38.29 / 58.06 px（内宽 78，全部放得下）。
-  - 晨间：`activity=stretch`、`days=2`、气泡「早呀，今天也要一起\n第 2 天」。
+  - 晨间：`activity=stretch`、`days=2`、气泡「早呀，\n今天也要一起\n第 2 天」，
+    三行实测 27 / 54 / 27.03 px。
   - 受惊：睡→`idle`，剩余 1406ms，台词「被、被你摸醒了…」。
   - 扑：计数 0→1，位置 x 919→905，台词「抓到你啦！」，`teasePending` 归 0。
   - 静息：`rest` + `sit`，坐垫 `cushion=1.00`，地面记号 13 笔；深夜台词「眼睛该休息啦」。
 - 门：`check:brand` / `check:main` / `check:preload` / `check:renderer` / `check:sprites` /
   `check:roster` / `palette:check` / `palette:migrate:check` 全绿；
-  `build:main`（773 文件）/ `build:preload` / `build:cli`（v1.8.0）/ `build:renderer` 全绿。
-- 截图与报告：`D:/cyrene-p5-accept/shots-v1.8-7/`（13 张 + `pet-girl-report.json`）。
-- 未覆盖：坐垫只有淡入终态（1.00）与截图目检，没有量 180ms 曲线；自动扒球 5.5–9s 的
+  `build:main`（773 文件）/ `build:preload` / `build:cli`（v1.8.1）/ `build:renderer` 全绿。
+- 截图与报告：`D:/cyrene-p5-accept/shots-v1.8-9/`（13 张 + `pet-girl-report.json`）。
+- 未覆盖：坐垫只有淡入终态（1.00）与截图目检，没有量 180ms 曲线；自动扒球 12–26s 的
   实际等待没有在真窗里等满，由单测锁；扑的 18s 冷却没有等满（单测锁）；夜里 45 分钟
   去重只验了「首次会说」，没有等到第二次窗口。截图是 82×108 基址下的静态帧，
-  慢速弹道与拖尾的运动观感由 3× 放大图目检补充。
+  慢速弹道与拖尾的运动观感由 6× 放大图目检补充。
+
+### 16.5 v1.8.1 收口：换行禁则
+
+- 触发：v1.8.0 打 tag 后、CI 构建期间目检截图，发现问候句仍被劈成「早呀，今天也要一 / 起」——
+  预断只解决了「第 N 天」，问候句第一行本身 81px 仍超 78px；继续扫连击截图又见
+  「今天也想多黏你— / 会儿」。CI run 40199751553 被主动取消，未发 Release。
+- 修复：四段问候按标点预断为两行；`wrapBubbleText` 加两条中文禁则——收尾标点不落行首
+  （把上一字一起带下去），末行 1–2 字时从上一行匀（标点连同前一个字一起搬）。
+  探针新增 `morning.lines` / `morning.fits`，检查从 48 条涨到 50 条。
+- 验收：猫娘 12 文件 **208 条**；真窗 **50/50**；晨间三行 27 / 54 / 27.03px；
+  连击气泡「今天也想多黏你 / 一会儿」不再是孤字。
+- 截图与报告：`D:/cyrene-p5-accept/shots-v1.8-9/`。
+- 版本说明：v1.8.0 的 commit `a5c97400` 与 tag 保留，但 Release 从 v1.8.1 出。

@@ -241,10 +241,10 @@ export const GREETING_LINES = {
 
 /** 猫娘的露面问候：同一个时段，说的是「我陪你」而不是四足的「一起加油」。 */
 export const GIRL_GREETINGS = {
-  morning: "早呀，今天也要一起",
-  afternoon: "你忙你的，我在这儿",
-  evening: "回来啦，先歇一会儿",
-  night: "这么晚…我陪你一会儿",
+  morning: "早呀，\n今天也要一起",
+  afternoon: "你忙你的，\n我在这儿",
+  evening: "回来啦，\n先歇一会儿",
+  night: "这么晚…\n我陪你一会儿",
 } as const;
 
 export type DayPart = keyof typeof GREETING_LINES;
@@ -994,7 +994,8 @@ export class CompanionEngine {
     // 每天第一次见面：先伸个懒腰再开口（同一天重启不再演）。
     this.maybeMorningStretch(now, wall);
     const days = daysTogether(this.metAt, wall);
-    // 第 N 天独占一行：问候句 72px，后面再缀「 · 第 2 天」会被 78px 内宽从词中间劈开。
+    // 问候句自己按标点断行、第 N 天再独占一行：78px 内宽装不下 9 个全角字，
+    // 交给贪心折行会把「一起」劈成「一 / 起」。
     const text = days >= 2
       ? `${GIRL_GREETINGS[part]}\n第 ${days} 天`
       : GIRL_GREETINGS[part];

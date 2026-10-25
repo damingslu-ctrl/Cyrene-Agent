@@ -482,6 +482,17 @@ async function main() {
   check("morning.days", morning.days === 2, `days=${morning.days}`);
   check("morning.line", !!morningTalk.bubble && morningTalk.bubble.text.includes("第 2 天"),
     `bubble=${morningTalk.bubble?.text ?? "null"}`);
+  const morningText = morningTalk.bubble?.text ?? "";
+  const morningFit = await evaluate(s, `(() => {
+    const ctx = document.createElement("canvas").getContext("2d");
+    ctx.font = "9px sans-serif";
+    return ${JSON.stringify(morningText)}.split(String.fromCharCode(10))
+      .map((line) => ({ line, w: +ctx.measureText(line).width.toFixed(2) }));
+  })()`);
+  results.morning.fit = morningFit;
+  check("morning.lines", morningFit.length === 3, `lines=${morningFit.length}`);
+  check("morning.fits", morningFit.length === 3 && morningFit.every((l) => l.w <= 78),
+    morningFit.map((l) => `${l.w}px「${l.line}」`).join(" / "));
   await evaluate(s, `(() => { Date.now = window.__realDateNow; delete window.__realDateNow; })()`);
 
   // —— I. 惊醒：右键睡眠 → 点头。睡着时碰头走 startle，不走摸头反馈。——

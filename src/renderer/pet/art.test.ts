@@ -265,6 +265,19 @@ describe("buildBubbleOps 对话气泡", () => {
     expect(box.y + box.h).toBeLessThanOrEqual(108);
   });
 
+  it("断行不留孤字：末行 1–2 个字时从上一行匀（标点连前一个字一起搬）", () => {
+    const lines = wrapBubbleText("今天也想多黏你—会儿", 78, 9);
+    expect(lines).toEqual(["今天也想多黏", "你—会儿"]);
+    expect([...lines[lines.length - 1]].length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("收尾标点不落行首：宁可前一行少一格，也不让「，」开头", () => {
+    const lines = wrapBubbleText("一二三四五六七八，九十", 78, 9);
+    expect(lines).toEqual(["一二三四五六七", "八，九十"]);
+    expect(lines.some((line) => line.startsWith("，"))).toBe(false);
+    expect(lines.join("")).toBe("一二三四五六七八，九十");
+  });
+
   it("be=0 一个字节都不画：窗口还没长开时气泡不许先出屏", () => {
     expect(buildBubbleOps(input({ be: 0 }))).toHaveLength(0);
   });

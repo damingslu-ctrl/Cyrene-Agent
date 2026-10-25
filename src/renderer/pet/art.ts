@@ -705,9 +705,13 @@ function bubbleCharWidth(ch: string, fontSize: number): number {
 /**
  * 按可用宽度贪心换行。`\n` 是硬换行：状态卡片自己分行，不让贪心把「精力 80%」拆开。
  * 字宽只决定断行，合成由 Chromium 自己量；合成端另有 `maxWidth` 兜底，估算再偏也不许切字。
+ *
+ * 中文排版两条禁则（v1.8.1 尺 #63）：收尾标点不许落在行首；末行剩 1–2 个字时从上一行
+ * 匀过来（连标点一起搬）——「今天也想多黏你— / 会儿」这类孤字比多一行难读得多。
  */
 export function wrapBubbleText(text: string, maxWidth: number, fontSize: number): string[] {
   const widthOf = (line: string): number => [...line].reduce((sum, ch) => sum + bubbleCharWidth(ch, fontSize), 0);
+  const NO_LINE_START = "，。、；：？！）】」』”’…—%";
   const wrapOne = (source: string): string[] => {
     const words = source.trim().split(/\s+/).filter(Boolean);
     if (words.length === 0) return [""];
@@ -721,12 +725,38 @@ export function wrapBubbleText(text: string, maxWidth: number, fontSize: number)
       // 一个词（常见：整句中文不带空格）比整行还宽：按字硬切，宁可多一行也不出盒。
       let chunk = "";
       for (const ch of [...word]) {
-        if (chunk && widthOf(chunk + ch) > maxWidth) { lines.push(chunk); chunk = ""; }
+        if (chunk && widthOf(chunk + ch) > maxWidth) {
+          if (NO_LINE_START.includes(ch) && [...chunk].length > 1) {
+            // 收尾标点不落行首：把上一字一起带到下一行，宁可前一行短一格。
+            const chars = [...chunk];
+            const carried = chars.pop() as string;
+            lines.push(chars.join(""));
+            chunk = carried + ch;
+            continue;
+          }
+          lines.push(chunk);
+          chunk = "";
+        }
         chunk += ch;
       }
       line = chunk;
     }
     if (line) lines.push(line);
+    // 末行只剩 1–2 个字时从上一行匀：孤字读起来像断句错了。
+    if (lines.length >= 2) {
+      let last = [...lines[lines.length - 1]];
+      while (last.length < 3) {
+        const prev = [...lines[lines.length - 2]];
+        if (prev.length <= 3) break;
+        let take = 1;
+        if (NO_LINE_START.includes(prev[prev.length - 1])) take = 2;
+        if (prev.length - take < 3) break;
+        const carried = prev.splice(prev.length - take, take).join("");
+        lines[lines.length - 2] = prev.join("");
+        last = [...carried, ...last];
+      }
+      lines[lines.length - 1] = last.join("");
+    }
     return lines;
   };
   return text.split("\n").flatMap(wrapOne);
