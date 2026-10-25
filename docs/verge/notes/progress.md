@@ -525,3 +525,13 @@
 - 截图与报告：`D:/cyrene-p5-accept/shots-girl-v111/`（36 张 + `pet-girl-report.json`）。
 - 未覆盖：纸箱三档探头窗边界逐毫秒、激光轨迹逐帧、梳毛四趟单趟漏帧、
   薄荷打滚完整姿态曲线、纸飞机空手 miss 台词、小鸟跨工作区落脚夹取。
+
+### v1.11.0 发布证据（2026-10-26）
+
+- commit `c205c075` + tag `v1.11.0`（annotated，peel 同一 commit）只推 fork；
+  上游未动。
+- CI：手动 dispatch run `40219346838`（ref `v1.11.0`），`package` job 6m50s 全步绿。
+- Release [v1.11.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.11.0)：
+  `isDraft:false`、`isPrerelease:false`、Latest；资产 `Mochi-Setup-1.11.0.exe`
+  **296,285,308 B** / `sha256 0b7f1e493bb6d81fc8c44b6aa6edd5a60b2e73026f7ad7db15700422364d1407`
+  （与 GitHub digest 一致），上传完成 `2026-10-25T18:14:29Z`，公开于 `18:18:38Z`。

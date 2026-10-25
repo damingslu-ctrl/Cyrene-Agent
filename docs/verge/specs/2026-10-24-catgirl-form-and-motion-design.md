@@ -1020,3 +1020,14 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
 - 未覆盖：纸箱三档探头窗的边界逐毫秒、激光李萨如轨迹的逐帧回放、梳毛四趟的
   单趟漏帧、薄荷打滚 3s 的完整姿态曲线、纸飞机空手 miss 台词、小鸟跨工作区
   落脚夹取——均由对应单测锁条件，真窗只复演了主路径。
+
+### 19.5 v1.11.0 发布证据（2026-10-26）
+
+- commit `c205c075` + tag `v1.11.0`（annotated，peel 同一 commit）只推 fork；
+  上游未动。
+- CI：手动 dispatch run `40219346838`（ref `v1.11.0`），`package` job 6m50s
+  （18:02:38Z → 18:09:28Z）全步绿。
+- Release [v1.11.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.11.0)：
+  `isDraft:false`、`isPrerelease:false`、Latest；资产 `Mochi-Setup-1.11.0.exe`
+  **296,285,308 B** / `sha256 0b7f1e493bb6d81fc8c44b6aa6edd5a60b2e73026f7ad7db15700422364d1407`
+  （与 GitHub digest 一致），上传完成 `2026-10-25T18:14:29Z`，公开于 `18:18:38Z`。
