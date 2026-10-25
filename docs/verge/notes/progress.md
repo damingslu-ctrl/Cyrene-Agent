@@ -461,3 +461,13 @@
 - 未覆盖：逗猫棒空挥 miss 台词、泡泡连破 12 颗的成就、落叶逐帧旋落曲线、猜拳另外两组
   胜负词、跟随 12s 到时与跨工作区夹取、搬窗后爪印滑出、梦话云笔数与 1.8s 前静默、
   `bubble-lover` 与 `heart-bond` 真窗触发——均由对应单测锁条件，未在真窗复演。
+
+### v1.10.0 发布证据（2026-10-26）
+
+- commit `0e66680c` + tag `v1.10.0`（annotated，peel 同一 commit）只推 fork；
+  上游未动。
+- CI：手动 dispatch run `40214568365`（ref `v1.10.0`），`package` job 4m39s 全步绿。
+- Release [v1.10.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.10.0)：
+  `isDraft:false`、`isPrerelease:false`、Latest；资产 `Mochi-Setup-1.10.0.exe`
+  **296,283,711 B** / `sha256 fd41ca8b65ca70fb4e37ff8280610bd65b866442765a017dee6b5bba54876a08`
+  （与 GitHub digest 一致），上传完成 `2026-10-25T17:12:32Z`，公开于 `17:18:10Z`。

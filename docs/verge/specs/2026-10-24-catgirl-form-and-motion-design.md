@@ -914,3 +914,17 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
   所以任何两个玩具互斥靠生成时清空对方，逻辑只在一处。
 - **静息不说话也不记账**：安静期成就不弹、不写、不占存档；醒来后的第一次互动会补上
   （`newlyUnlocked` 只比较存档与当前条件，本身无时间戳）。
+
+### 18.5 v1.10.0 发布证据（2026-10-26）
+
+- commit `0e66680c`（feat(pet): 猫娘的玩具箱、跟随、爪印、梦话云与五枚成就（v1.10.0）），
+  tag `v1.10.0`（annotated，peel 到同一 commit）只推 fork；上游未动。
+- CI：手动 dispatch run `40214568365`（ref `v1.10.0`），`package` job 4m39s 全步绿
+  （含 tag/package.json 版本一致性、截图辅助 Rust `--locked`、NSIS、`verify:installer`）。
+- Release [v1.10.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.10.0)：
+  标题「Mochi v1.10.0 — 玩具箱、跟随、爪印、梦话云与五枚成就」，`isDraft:false`、
+  `isPrerelease:false`、Latest；资产 `Mochi-Setup-1.10.0.exe` **296,283,711 B**
+  （较 v1.9.0 +16,355 B），GitHub 记录的 digest
+  `sha256:fd41ca8b65ca70fb4e37ff8280610bd65b866442765a017dee6b5bba54876a08`
+  与下载后本地 `sha256sum` 一致；资产上传完成 `2026-10-25T17:12:32Z`，
+  Release 公开于 `2026-10-25T17:18:10Z`。
