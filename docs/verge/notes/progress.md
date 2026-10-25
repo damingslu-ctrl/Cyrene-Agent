@@ -143,3 +143,41 @@
 - 本地包 `release/Mochi-Setup-1.5.0.exe` 289,432,850 B / sha256 `889d2ac4…`：与 CI 包不同（构建环境差异），
   **发布资产取 CI 包**，本地包只作 `verify:installer` 的本地证据。
 - `electron-builder.yml` 的 `publish: null` 未动。
+
+## v1.6.0：逐帧动作提到原片 24fps + 高清姿态立绘（2026-10-25）
+
+### 根因（不是「帧不够」，是「时钟慢」+「采样错拍」）
+
+- 源片 `scripts/assets/source/pet-intro.mp4` 容器实测 **146 帧 @24fps / 6.083s**
+  （mp4 `stts`：145×25/600s；`mvhd` 44100/266438）。旧管线只抽 15fps 的 91 帧。
+- 逐帧像素比对：146 帧里只有 **88 张不同的画**（保持帧数分布 1×40 / 2×40 / 3×7 / 5×1），
+  即原片本来就按「每 2 帧换一张」的 12 画/秒节拍。15fps 采样与它错拍，动作段再按 3–10fps 播，
+  每张画被撑到 **100–333ms**——这就是用户说的「做不到视频一样连贯」。
+- 循环段接缝：逐段实测首尾差 53.3–99.6，段内相邻帧差 6.97–36.8，**接缝比段内步进大 1.3–2.5 倍**，
+  直接 wrap 必看见一次回跳。
+
+### 改动
+
+- `build-pet-intro.cjs`：`FPS 15 → 24`（与源片 1:1，不再丢帧）；重启动画图集 146 帧 / 304×248。
+- `build-girl-anim.py`：`COUNT 91 → 146`；16 段区间换算到 24fps 全帧（0..145）；
+  30 格静帧表的 25 情绪 + 12 姿态源帧号按**画面**重映射到新图集（不是按时间缩放）。
+- `girl-anim.ts`：`GIRL_CLIP_PLAY` 按原片节拍分两档——静息循环 12fps（一拍两格）、
+  动作与走路 24fps；新增 `loopMode`（默认 `pingpong`）与 `redrawFloorFor()`（片段帧率 2×，封顶 30）。
+- `renderer.ts`：重绘下限改用 `redrawFloorFor`（原先 `片段 fps + 1`，在 24fps 段上会让重绘落后）。
+- 新增 `build-girl-poses.py`：用户给的 7 张 1136×912 参考图 → 7 格高清姿态图集（340×248/格）
+  + 512 高整身立绘 `girl-large.webp`。抠像用「色差种子 → 最大连通域 → 闭运算 → 填洞 → 外缘软 alpha」：
+  只按色差会把背景那层粉色柔光与星星整片留下（深色桌布上是一片灰雾）；
+  实测最大连通域 274,923 px vs 次大 1,730 px，差两个数量级，这条判据稳。
+- `cat-variants.ts`：姿态优先取高清图集（`GIRL_POSE_FROM_HIRES` 6 个），其余与全部情绪档仍取静帧表。
+
+### 量测与门
+
+- `cat-sprites --measure`（197 张）：square 0.409–0.484 / bust 0.373–0.497 / full 0.213–0.296 /
+  round 0.349–0.450 / wide 0.141，质心 ≤14.2%，字节 33–148 KB（256/512 档）、横幅 244 KB。
+  带宽与预算按这组数重标（girl：square 0.39–0.51 / bust 0.35–0.52 / full 0.19–0.32 /
+  round 0.33–0.47；预算 256 档 100 KB、512 档 210 KB、横幅 280 KB）。
+- `CI=true npx vitest run` → **659 文件 / 7001 通过（1 skipped）**。
+- `check:brand` / `check:main` / `check:preload` / `check:renderer` / `check:sprites` / `check:roster`
+  与 `build:main|preload|cli|renderer` 全绿。
+- 真窗命中尺（`pet-hit-cdp.mjs`，girl/standard）：质心 42.7 对窗轴 41、IoU **0.799**、
+  bbox 26,31,39×55、变异对照 shrink 0.167 / shift 0.388（判红）→ `all clear`。
