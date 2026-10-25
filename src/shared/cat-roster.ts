@@ -26,7 +26,7 @@ export const CAT_ROSTER: readonly CatMember[] = [
   { nickname: "海苔", latin: "Haitai", coat: "azure", pose: "sleep", personaSeed: "脆的那只，一有动静就装睡，装得最像" },
   { nickname: "棉花", latin: "Mianhua", coat: "paper", pose: "puff", personaSeed: "炸毛就是一整朵云，虚张声势，先替你把门关好" },
   { nickname: "鱼丸", latin: "Yuwan", coat: "rose", pose: "pout", personaSeed: "嘴上挂着委屈，实际最会办事，办完还要你摸两下" },
-  { nickname: "奶盖", latin: "Naigai", coat: "rose", pose: "happy", personaSeed: "浮在最上面那只，永远开心，负责把气氛抬起来" },
+  { nickname: "奶盖", latin: "Naigai", coat: "rose", pose: "run", personaSeed: "浮在最上面那只，永远开心，负责把气氛抬起来" },
 ] as const;
 
 /** 旧角色名 → 新猫名。只用于日志、`LEGACY` 兜底和提交正文，**绝不进资产查找**。 */
