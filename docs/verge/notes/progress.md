@@ -195,3 +195,46 @@
   295MB 级产物走 7896 代理要留重试余地。
 - 与 v1.5.0 相比安装包 +6.9 MB：146 帧图集（1.63 MB）+ 7 格高清姿态（592 KB）
   + 197 张派生位图增大（8.9 → 9.3 MB）+ 重建的全部页面资产。
+
+## v1.7.0：猫娘专项——存在感、记号层、三区互动与静息（2026-10-25）
+
+> 用户令：「我说的主要是猫娘形态，对它进行巨量提升吧，发挥你的想象」。本轮新能力全部只在
+> `form === "girl"` 分支生效；四足的行为表、RNG 消耗与演出路径原样不动。
+
+### 交付内容
+
+| # | 能力 | 落点 |
+|---|---|---|
+| 1 | 逐帧脸框/墨框 | `scripts/assets/build-girl-face.py` 实测 146 帧 → `girl-face-meta.ts`；`girlFaceBox`/`girlInkBox` 把格内比例按朝向/缩放/旋转折进绘制空间 |
+| 2 | 注视存在感 | `girl-presence.ts`：朝光标压 ≤4.2°、侧移 ≤2.2px（240ms 缓动）；转身要停 380ms、翻完锁 900ms；「注意」只认跨过 0.86 的边沿，冷却 12s |
+| 3 | 屏幕记号层 | `girl-fx.ts`：地面投影（3.5% 奶油底光 + 五环伪高斯）、腮红、`!`、晕星、开心音符、生气蒸汽、走路/落地尘；画在身外的一律双色 |
+| 4 | 三区点击 | `girl-zones.ts`：命中框 0–36% 头 / 36–76% 身 / 76–100% 脚，各有台词与手势；2.4s 内第 4 下 → 晕 3.6s、冷却 6s |
+| 5 | 猫娘人格文案 | `GIRL_LINES`（摸/喂/玩/头/脚/晕/注意）、`GIRL_CHATTER`（四时段）、`GIRL_GREETINGS`；四足词表原样保留 |
+| 6 | 静息周期 | 一个人待满 40s → 坐 18–30s（`rest` 活动 → `sit` 片）→ 起身伸懒腰 2.2s |
+| 7 | 待机微动作 | `idle_micro` 档 35% 抽 `peek`/`wink`，短到不打断静坐 |
+| 8 | 同级可顶 | `say(..., replaceSame)`：点完头立刻点脚，第二句顶掉第一句；≥3 的播报仍不可抢 |
+| 9 | 渲染器接线 | 投影分两趟画、`tapAt(cssX,cssY,heldMs)` 统一入口、`getGirlDiagnostics()`（presence/noticeAgeMs/dizzyLeft/blush/clip/fx 计数） |
+| 10 | 真窗探针 | `scripts/verify/pet-girl-cdp.mjs`：CDP 点画布、冻结真光标、18 条判据、报告落盘 |
+
+### 口径与裁决
+
+- 静息排在 `canRoam` 闸**之前**：贴边藏身时 `peekDx>0.5` 让 `canRoam` 恒 false，坐下挂在那道闸后面等于永远轮不到她歇。再加一条「光标压在她窗子里就把独处秒表按在 0」——否则手一离开窗子她会立刻坐下，读起来像「等你好久了」。
+- 歇完先伸懒腰 2.2s 再回待机，并把静息秒表从「歇完」重新起算；不重置会变成「坐 25s + 站 15s」凑满 40s，坐下反成常态。
+- `replaceSame` 只给用户刚做的动作；网络播报（优先级 ≥3）不可被顶掉——把重要信息换掉比少一句撒娇糟得多。
+- 尺的 `zoom` 必须从 `getLayoutInfo()` 读：气泡展开时窗口 innerWidth 是 172 而基址 82，`innerWidth/base` 会算成 2.09，探针喂进去的坐标全落到命中框外（本轮真窗踩过）。`getLayoutInfo` 现在报 `{ base, center, s, zoom }`。
+- 短手势（shy/wink 9 帧 @24fps ≈375ms）的取样窗从 450ms 收到 200ms；否则截到的是已经播完的 `happy/idle`。
+- 探针的「真光标」是全局副作用不能动，加 `__cyrene.setGazeFrozen(true)` 停掉 120ms 轮询，让手动 `setGazeTarget` 稳定生效；该开关只在 debug 面，产品路径永不置真。
+
+### 量测与门
+
+- `CI=true npx vitest run` → **664 文件 / 7057 通过（1 skipped）**。两条与桌宠无关的用例在全量并发下失败（`agui-bridge.test.ts` 轮询窗口多读一次、`document-tools.test.ts` 15s 超时），单文件复跑 **138/138 绿** → 判为机器负载抖动，不记为产品红。
+- 猫娘相关 7 个测试文件 **117 条**全绿：companion 57 / girl-anim 16 / girl-sprite 15 / girl-presence 9 / girl-fx 8 / girl-zones 8 / girl-face-meta 4。
+- `check:brand` / `check:main` / `check:preload` / `check:renderer` / `check:sprites` / `check:roster` / `palette:check` / `palette:migrate:check` 全绿；`build:main`（773 文件）/ `build:preload`（141 + learn-exam）/ `build:cli` / `build:renderer` 全绿。
+- 真窗 18/18 `all clear`（girl/standard，zoom=1，hitRect 19.66,30.18,45.88×63.27）：
+  `lean.left` −3.96° / `lean.shift` −1.50px / `lean.facing` −1 / `lean.release` −0.15°；
+  `notice.age` 422.6ms + 气泡「刚刚在看什么呀？」；
+  头：clip `shy` / gesture `coverFace` / blush 0.72；
+  脚：clip `wink` / gesture `shiver` / 气泡换成「别、别挠那里」；
+  晕：剩余 3169.3ms / 记号层 16 笔 / 站定 `idle` / 结束归 0；
+  坐：activity `rest`、clip `sit`。
+- 截图与报告：`D:/cyrene-p5-accept/shots-girl5/`（`girl-baseline` / `girl-lean-left` / `girl-notice` / `girl-head-tap` / `girl-feet-tap` / `girl-dizzy` / `girl-rest` + `pet-girl-report.json`）。

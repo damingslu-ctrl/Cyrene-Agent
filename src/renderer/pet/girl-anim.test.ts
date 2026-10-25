@@ -46,7 +46,7 @@ function readWebpHeader(buffer: Buffer): { width: number; height: number; hasAlp
 const CLIP_IDS = Object.keys(GIRL_ANIM_RANGES) as GirlClipId[];
 const ACTIVITIES: GirlActivity[] = [
   "idle", "walk", "groom", "yawn", "stretch", "tilt",
-  "sleep", "pet", "eat", "play", "drag", "thrown",
+  "sleep", "pet", "eat", "play", "rest", "drag", "thrown",
 ];
 
 function mk(overrides: Partial<CatInput> = {}): CatInput {
@@ -123,7 +123,7 @@ describe("帧段表", () => {
     }
   });
 
-  it("12 种活动都有基础段；免打扰时睡觉段被替换（月牙与 Zzz 互斥）", () => {
+  it("13 种活动都有基础段；免打扰时睡觉段被替换（月牙与 Zzz 互斥）", () => {
     for (const activity of ACTIVITIES) {
       expect(ACTIVITY_CLIP[activity], activity).toBeTruthy();
       expect(GIRL_ANIM_RANGES[ACTIVITY_CLIP[activity]], activity).toBeTruthy();
@@ -131,6 +131,7 @@ describe("帧段表", () => {
     expect(baseClipFor("sleep", false)).toBe("sleep");
     expect(baseClipFor("sleep", true)).toBe("idle");
     expect(baseClipFor("walk", false)).toBe("walk");
+    expect(baseClipFor("rest", false)).toBe("sit");
   });
 
   it("18 个手势全部有帧段可播，且没有映射到不存在的段", () => {

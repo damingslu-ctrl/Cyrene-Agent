@@ -43,9 +43,21 @@ const CHAT_SPAN_MS = 30_000;
 export const NAP_MIN_MS = 45_000;
 const NAP_SPAN_MS = 45_000;
 
+/**
+ * 猫娘的静息周期：一个人待够 40s 会自己坐下来歇 18–30s，起身时顺手伸个懒腰。
+ * 只有猫娘有「坐」这一段（四足睡/站两态），所以这条周期也只长在 girl 分支上。
+ */
+export const REST_AFTER_MS = 40_000;
+export const REST_MIN_MS = 18_000;
+const REST_SPAN_MS = 12_000;
+
+/** `idle_micro` 档里真的动一下：只挑两个最轻的短手势，不打断「她在陪你」的静。 */
+export const MICRO_GESTURES = ["peek", "wink"] as const;
+export const MICRO_CHANCE = 0.35;
+
 export type CompanionActivity =
   | "idle" | "walk" | "groom" | "yawn" | "stretch" | "tilt"
-  | "sleep" | "pet" | "eat" | "play" | "drag" | "thrown";
+  | "sleep" | "pet" | "eat" | "play" | "rest" | "drag" | "thrown";
 
 export interface CompanionVitals {
   affinity: number;
@@ -87,6 +99,8 @@ export interface CompanionSnapshot {
    * 猫娘自主抽到的手势 clip id；过期即 null。四足路径恒 null（R-D2：它读不到这条也照常演）。
    */
   gesture: string | null;
+  /** 连点逗晕的剩余毫秒（0＝不晕）。四足恒 0；渲染端拿它摆星环与晃身。 */
+  dizzyLeft: number;
 }
 
 export interface CompanionOptions {
@@ -128,9 +142,41 @@ const CHATTER = [
   "今天也好好陪着你",
 ];
 
+/** 猫娘自己的闲话：四足的「网络/窗外」是猫视角，她坐在这里陪你，说的是人的话。 */
+export const GIRL_CHATTER: Record<"morning" | "afternoon" | "evening" | "night", readonly string[]> = {
+  morning: ["早呀，今天想先做什么？", "窗边的光刚刚好", "我陪你开工吧"],
+  afternoon: ["要不要伸个懒腰？", "我在这儿，不吵你", "忙完记得喝口水"],
+  evening: ["今天也辛苦啦", "剩下的明天再说嘛", "灯开暖一点好不好"],
+  night: ["这么晚…我陪你一会儿", "该睡啦，真的", "夜里我守着你"],
+};
+
 const PET_LINES = ["呼噜呼噜…", "再摸一下嘛", "今天也很喜欢你"];
 const FEED_LINES = ["小鱼干！", "嚼嚼…好吃", "吃饱啦"];
 const PLAY_LINES = ["再来一次！", "接住啦～", "好玩！"];
+
+const GIRL_PET_LINES = ["嗯…再摸一会儿", "手、手不要停嘛", "这样很安心"];
+const GIRL_FEED_LINES = ["是给我的吗？", "嚼嚼…好甜", "还想再吃一口"];
+const GIRL_PLAY_LINES = ["陪你玩到天黑！", "这回我赢定了", "再来一局嘛"];
+const GIRL_HEAD_LINES = ["诶？摸、摸头…", "头发会被摸乱的啦", "再、再摸一下也可以"];
+const GIRL_FEET_LINES = ["呀！脚很痒的——", "别、别挠那里", "咯咯…站不稳了"];
+const GIRL_DIZZY_LINES = ["眼、眼前在转…", "别晃啦…", "站、站不稳了"];
+const GIRL_NOTICE_LINES = ["你回来啦", "刚刚在看什么呀？", "我在这儿哦"];
+
+/** 猫娘词表的唯一出口：测试按表锁文案，别在用例里另抄一份。 */
+export const GIRL_LINES = {
+  pet: GIRL_PET_LINES,
+  feed: GIRL_FEED_LINES,
+  play: GIRL_PLAY_LINES,
+  head: GIRL_HEAD_LINES,
+  feet: GIRL_FEET_LINES,
+  dizzy: GIRL_DIZZY_LINES,
+  notice: GIRL_NOTICE_LINES,
+} as const;
+
+/** 被连点逗晕后的视觉时长；渲染端的星环与晃身同一条秒表。 */
+export const DIZZY_MS = 3_600;
+/** 「注意到你」的台词冷却：跟 presence.noticeCooldownMs 同量级，但两边各记各的。 */
+export const NOTICE_COOLDOWN_MS = 12_000;
 
 export const GREETING_LINES = {
   morning: "早上好，今天也一起加油",
@@ -138,6 +184,23 @@ export const GREETING_LINES = {
   evening: "晚上好，今天辛苦啦",
   night: "这么晚还没睡呀",
 } as const;
+
+/** 猫娘的露面问候：同一个时段，说的是「我陪你」而不是四足的「一起加油」。 */
+export const GIRL_GREETINGS = {
+  morning: "早呀，今天也要一起",
+  afternoon: "你忙你的，我在这儿",
+  evening: "回来啦，先歇一会儿",
+  night: "这么晚…我陪你一会儿",
+} as const;
+
+export type DayPart = keyof typeof GREETING_LINES;
+
+export function dayPartOf(hour: number): DayPart {
+  if (hour >= 5 && hour < 11) return "morning";
+  if (hour >= 11 && hour < 18) return "afternoon";
+  if (hour >= 18 && hour < 22) return "evening";
+  return "night";
+}
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 const clamp = (value: number, lo: number, hi: number) => Math.min(Math.max(value, lo), Math.max(hi, lo));
@@ -345,7 +408,7 @@ export function bucketOf(frac: number, options: Pick<RollOptions, "hour" | "ener
 // v1.5.0 P4 Task 22：触摸六类 + 2.5s 合并 + 点击反馈 5 变体
 // ===========================================================================
 
-export const TOUCH_KINDS = ["poke", "pet", "grab", "drop", "throw", "crash"] as const;
+export const TOUCH_KINDS = ["poke", "pet", "grab", "drop", "throw", "crash", "head", "feet"] as const;
 export type TouchKind = (typeof TOUCH_KINDS)[number];
 /** 同类触摸的合并窗：连点/连撞不灌队列（spec §5 :257）。 */
 export const TOUCH_MERGE_MS = 2_500;
@@ -409,6 +472,11 @@ export class CompanionEngine {
   /** 手动塞进被窝（右键 toggle）的睡眠没有终点；自主小睡到 sleepUntil 自醒。 */
   private sleepManual = false;
   private sleepUntil = 0;
+  /** 连点逗晕的终点；晕着的时候不再接新的晕，也不起步走开。 */
+  private dizzyUntil = 0;
+  private noticeCooldownUntil = 0;
+  /** 最近一次「用户碰过她」的行为时钟；静息周期从这里数 40s。 */
+  private lastUserAt = 0;
 
   constructor(options: CompanionOptions = {}) {
     this.random = options.random ?? Math.random;
@@ -418,6 +486,7 @@ export class CompanionEngine {
     this.onMove = options.onMove;
     this.onSettle = options.onSettle;
     this.lastNow = this.now();
+    this.lastUserAt = this.lastNow;
     this.idleUntil = this.lastNow + this.idleDelay();
     this.chatAt = this.lastNow + CHAT_MIN_MS + this.random() * CHAT_SPAN_MS;
     this.load();
@@ -433,6 +502,9 @@ export class CompanionEngine {
     this.gestureUntil = 0;
     this.previousGesture = null;
     this.lastTouchAt.clear();
+    // 晕与「注意到你」都是她这一形的事：切走再切回来不该接着上一轮的秒表。
+    this.dizzyUntil = 0;
+    this.noticeCooldownUntil = 0;
   }
 
   /**
@@ -441,6 +513,8 @@ export class CompanionEngine {
    */
   touch(kind: TouchKind, now = this.now()): boolean {
     if (this.form !== "girl") return false;
+    // 碰一下就算「有人陪着」：即使这一下被合并窗吞掉，也不该马上坐下来歇。
+    this.lastUserAt = now;
     const last = this.lastTouchAt.get(kind);
     if (last !== undefined && now - last < TOUCH_MERGE_MS) return false;
     this.lastTouchAt.set(kind, now);
@@ -449,12 +523,33 @@ export class CompanionEngine {
         const v = POKE_VARIANTS[Math.min(4, Math.floor(this.random() * 5))];
         this.ambientGesture = v.gesture;
         this.gestureUntil = now + gestureClip(v.gesture).ms;
-        this.say(this.pickLine([...v.lines]), 1, now);
+        this.say(this.pickLine([...v.lines]), 1, now, true);
         return true;
       }
       case "pet":
         this.pet(now);
         return true;
+      case "head": {
+        // 摸头：比戳一下更亲，但不像「摩挲」那样算长按。爱心走 pet 动作包络。
+        this.setVitals({ affinity: this.vitals.affinity + 0.04 });
+        this.happyUntil = now + 3_000;
+        this.ambientGesture = "coverFace";
+        this.gestureUntil = now + gestureClip("coverFace").ms;
+        this.startAction("pet", now, 1_000);
+        this.idleUntil = now + IDLE_MIN_MS;
+        this.say(this.pickLine([...GIRL_HEAD_LINES]), 1, now, true);
+        return true;
+      }
+      case "feet": {
+        // 挠脚：怕痒、不掉精力（她没跑，只是缩了一下）。
+        this.setVitals({ affinity: this.vitals.affinity + 0.03 });
+        this.happyUntil = now + 2_500;
+        this.ambientGesture = "shiver";
+        this.gestureUntil = now + gestureClip("shiver").ms;
+        this.idleUntil = now + IDLE_MIN_MS;
+        this.say(this.pickLine([...GIRL_FEET_LINES]), 1, now, true);
+        return true;
+      }
       case "grab":
         return this.say(this.pickLine([...GRAB_LINES]), 1, now);
       case "drop":
@@ -464,6 +559,45 @@ export class CompanionEngine {
       case "crash":
         return this.say(this.pickLine([...CRASH_LINES]), 1, now);
     }
+  }
+
+  /**
+   * 连点逗晕。计时与阈值在 `girl-zones.ts`（纯计数器）；这里只负责「晕了之后」：
+   * 停下脚步、演一段捂脸、说一句晕话，并给渲染端一个剩余时长。
+   * 四足恒 false —— 四足的连点仍按合并窗吞掉（口径差⑮）。
+   */
+  dizzy(now = this.now()): boolean {
+    if (this.form !== "girl") return false;
+    if (now < this.dizzyUntil) return false;
+    this.lastUserAt = now;
+    this.dizzyUntil = now + DIZZY_MS;
+    this.target = null;
+    this.vx = 0;
+    this.vy = 0;
+    this.actionDuration = 0;
+    this.happyUntil = 0;
+    if (this.activity !== "drag" && this.activity !== "thrown") this.activity = "idle";
+    this.ambientGesture = "coverFace";
+    this.gestureUntil = now + gestureClip("coverFace").ms;
+    this.idleUntil = now + DIZZY_MS;
+    this.wakeFromSleep();
+    this.say(this.pickLine([...GIRL_DIZZY_LINES]), 2, now);
+    return true;
+  }
+
+  /**
+   * 「注意到你回来了」。presence 认到「光标从远处进入近圈」时调用；
+   * 优先级 0：不抢任何工作播报，只在没话的时候轻轻接一句。
+   * 安静/睡着时闭嘴——免打扰期间她只挂月牙（native #67 同一条规矩）。
+   */
+  notice(now = this.now()): boolean {
+    if (this.form !== "girl") return false;
+    if (this.quiet || this.activity === "sleep") return false;
+    if (now < this.noticeCooldownUntil) return false;
+    if (!this.say(this.pickLine([...GIRL_NOTICE_LINES]), 0, now)) return false;
+    this.noticeCooldownUntil = now + NOTICE_COOLDOWN_MS;
+    this.happyUntil = Math.max(this.happyUntil, now + 1_800);
+    return true;
   }
 
   getVitals(): CompanionVitals {
@@ -487,6 +621,7 @@ export class CompanionEngine {
       vy: this.vy,
       bubble: this.bubble ? { ...this.bubble } : null,
       gesture: this.ambientGesture && this.gestureUntil > this.now() ? this.ambientGesture : null,
+      dizzyLeft: Math.max(0, this.dizzyUntil - this.now()),
     };
   }
 
@@ -515,6 +650,7 @@ export class CompanionEngine {
 
   /** 起步漫游；目标会在 update 里按当前 workArea 夹取。 */
   roamTo(target: Point, now = this.now()): void {
+    this.lastUserAt = now;
     this.target = { x: target.x, y: target.y };
     this.activity = "walk";
     this.actionUntil = 0;
@@ -564,6 +700,7 @@ export class CompanionEngine {
       case "pet":
       case "eat":
       case "play":
+      case "rest":
         if (now >= this.actionUntil) this.finishAction(now);
         break;
       case "idle":
@@ -577,14 +714,16 @@ export class CompanionEngine {
   // —— 互动 ——
 
   pet(now = this.now()): void {
+    this.lastUserAt = now;
     this.setVitals({ affinity: this.vitals.affinity + 0.04 });
     this.happyUntil = now + 3_500;
     this.startAction("pet", now, 900);
     this.idleUntil = now + IDLE_MIN_MS;
-    this.say(this.pickLine(PET_LINES), 1, now);
+    this.say(this.pickLine(this.lines(PET_LINES, GIRL_PET_LINES)), 1, now, true);
   }
 
   feed(now = this.now()): void {
+    this.lastUserAt = now;
     this.setVitals({
       fullness: this.vitals.fullness + 0.3,
       energy: this.vitals.energy + 0.05,
@@ -593,10 +732,11 @@ export class CompanionEngine {
     this.happyUntil = now + 2_500;
     this.startAction("eat", now, 1_600);
     this.idleUntil = now + IDLE_MIN_MS;
-    this.say(this.pickLine(FEED_LINES), 1, now);
+    this.say(this.pickLine(this.lines(FEED_LINES, GIRL_FEED_LINES)), 1, now, true);
   }
 
   play(now = this.now()): void {
+    this.lastUserAt = now;
     this.setVitals({
       energy: this.vitals.energy - 0.14,
       fullness: this.vitals.fullness - 0.05,
@@ -605,10 +745,11 @@ export class CompanionEngine {
     this.happyUntil = now + 4_000;
     this.startAction("play", now, 2_000);
     this.idleUntil = now + IDLE_MIN_MS;
-    this.say(this.pickLine(PLAY_LINES), 1, now);
+    this.say(this.pickLine(this.lines(PLAY_LINES, GIRL_PLAY_LINES)), 1, now, true);
   }
 
   toggleSleep(now = this.now()): void {
+    this.lastUserAt = now;
     this.actionDuration = 0;
     if (this.activity === "sleep") {
       this.activity = "idle";
@@ -626,14 +767,9 @@ export class CompanionEngine {
 
   /** 露个脸：按时段说一句。安静期由 say() 拒绝，返回 false。 */
   greet(now = this.now()): boolean {
-    const hour = new Date(this.wallNow()).getHours();
-    const text = hour >= 5 && hour < 11
-      ? GREETING_LINES.morning
-      : hour >= 11 && hour < 18
-        ? GREETING_LINES.afternoon
-        : hour >= 18 && hour < 22
-          ? GREETING_LINES.evening
-          : GREETING_LINES.night;
+    this.lastUserAt = now;
+    const part = dayPartOf(new Date(this.wallNow()).getHours());
+    const text = this.form === "girl" ? GIRL_GREETINGS[part] : GREETING_LINES[part];
     return this.say(text, 1, now);
   }
 
@@ -645,6 +781,7 @@ export class CompanionEngine {
     command: "pet" | "feed" | "play" | "toggle-sleep" | "status",
     now = this.now(),
   ): void {
+    this.lastUserAt = now;
     switch (command) {
       case "pet": this.pet(now); break;
       case "feed": this.feed(now); break;
@@ -656,6 +793,7 @@ export class CompanionEngine {
           `亲密度 ${Math.round(v.affinity * 100)}% · 饱腹 ${Math.round(v.fullness * 100)}% · 精力 ${Math.round(v.energy * 100)}%`,
           2,
           now,
+          true,
         );
         break;
       }
@@ -663,6 +801,7 @@ export class CompanionEngine {
   }
 
   beginDrag(now = this.now()): void {
+    this.lastUserAt = now;
     this.activity = "drag";
     this.target = null;
     this.actionDuration = 0;
@@ -693,10 +832,20 @@ export class CompanionEngine {
 
   // —— 气泡 ——
 
-  say(text: string, priority = 1, now = this.now()): boolean {
+  /**
+   * 单槽气泡。默认口径：同级不抢、低级不抢高级（闲话/播报/notice 共用一条槽）。
+   * `replaceSame` 只给**用户刚做的事**用：点完头立刻点脚，第二句必须顶掉第一句，
+   * 否则屏幕上还是上一句「摸头」，读起来像没反应。再高的优先级（≥3 的网络播报）
+   * 依旧不可抢——把重要的信息换掉比少一句撒娇糟得多。
+   */
+  say(text: string, priority = 1, now = this.now(), replaceSame = false): boolean {
     if (this.quiet) return false;
     if (!text.trim()) return false;
-    if (this.bubble && now < this.bubble.expiresAt && priority <= this.bubble.priority) return false;
+    const cur = this.bubble;
+    if (cur && now < cur.expiresAt) {
+      if (cur.priority > priority) return false;
+      if (!replaceSame && cur.priority === priority) return false;
+    }
     this.bubble = { text, priority, expiresAt: now + BUBBLE_TTL_MS };
     return true;
   }
@@ -744,8 +893,13 @@ export class CompanionEngine {
     return IDLE_MIN_MS + this.random() * IDLE_SPAN_MS;
   }
 
-  private pickLine(lines: string[]): string {
+  private pickLine(lines: readonly string[]): string {
     return lines[Math.floor(this.random() * lines.length) % lines.length];
+  }
+
+  /** 同一件事，四足与猫娘两张词表；不在 `say` 层分支，免得每句都问一次形态。 */
+  private lines(cat: readonly string[], girl: readonly string[]): readonly string[] {
+    return this.form === "girl" ? girl : cat;
   }
 
   private mood(): Mood {
@@ -773,13 +927,35 @@ export class CompanionEngine {
   }
 
   private stepIdle(now: number, context: CompanionContext): void {
+    // 晕着的时候站原地晃：不聊天、不迈步，等星星转完。
+    if (now < this.dizzyUntil) {
+      this.idleUntil = Math.max(this.idleUntil, this.dizzyUntil);
+      return;
+    }
+    // 光标就压在她窗子里＝人还在跟前：把「一个人待着」的秒表一直按在 0。
+    // 不这样做，手一离开窗子她会立刻坐下，读起来像「等你好久了」的惊悚版。
+    if (this.userActive) this.lastUserAt = now;
+    // 静息周期排在「能不能动」的闸之前，而且**只**要求她自己闲着：
+    // 贴边藏身（peek 中 canRoam 恒 false）与气泡开着恰恰是最常见的「人不在」现场，
+    // 把坐下挂在这道闸后面，等于永远轮不到她歇。
+    if (
+      this.form === "girl"
+      && this.activity === "idle"
+      && now - this.lastUserAt >= REST_AFTER_MS
+    ) {
+      this.startRest(now);
+      return;
+    }
     if (!context.canRoam) {
       // 被藏身/面板占着：把起步时间一路推后，解除后不许「攒满一发立刻走」。
       this.idleUntil = Math.max(this.idleUntil, now + 4_000);
       return;
     }
     if (this.bubble === null && !this.quiet && now >= this.chatAt) {
-      this.say(this.pickLine(CHATTER), 1, now);
+      const chatter = this.form === "girl"
+        ? GIRL_CHATTER[dayPartOf(new Date(this.wallNow()).getHours())]
+        : CHATTER;
+      this.say(this.pickLine(chatter), 1, now);
       this.chatAt = now + CHAT_MIN_MS + this.random() * CHAT_SPAN_MS;
     }
     if (now < this.idleUntil) return;
@@ -844,12 +1020,36 @@ export class CompanionEngine {
       this.gestureUntil = now + gestureClip(roll.gesture).ms;
       return;
     }
+    // idle_micro 不再一定「什么都不做」：偶尔抬眼看你一下、或轻轻眨个眼，
+    // 两段都短到不打断静坐，却能让待机不像一张会呼吸的贴图。
+    if (roll.bucket === "idle_micro" && this.random() < MICRO_CHANCE) {
+      const idx = Math.min(
+        MICRO_GESTURES.length - 1,
+        Math.floor(clamp(this.random(), 0, 0.999999) * MICRO_GESTURES.length),
+      );
+      const micro = MICRO_GESTURES[idx];
+      this.previousGesture = micro;
+      this.ambientGesture = micro;
+      this.gestureUntil = now + gestureClip(micro).ms;
+      return;
+    }
     // idle_micro：夜里力竭才睡，睡法与四足共用一条 NAP 口。
     if (night && this.vitals.energy < 0.5) {
       this.activity = "sleep";
       this.sleepManual = false;
       this.sleepUntil = now + NAP_MIN_MS + this.random() * NAP_SPAN_MS;
     }
+  }
+
+  /**
+   * 自己坐下歇一会儿。起身由 `finishAction` 接一段伸懒腰，不用另开计时器；
+   * 坐下即重置「有人陪」的秒表，歇完 40s 内不会再坐（否则会变成一直坐着）。
+   */
+  private startRest(now: number): void {
+    this.lastUserAt = now;
+    this.ambientGesture = null;
+    this.gestureUntil = 0;
+    this.startAction("rest", now, REST_MIN_MS + this.random() * REST_SPAN_MS);
   }
 
   private startRoam(context: CompanionContext, now: number): void {
@@ -991,10 +1191,18 @@ export class CompanionEngine {
   }
 
   private finishAction(now: number): void {
+    const rested = this.activity === "rest";
     this.activity = "idle";
     this.target = null;
     this.actionDuration = 0;
     this.idleUntil = now + this.idleDelay();
+    // 歇完先伸个懒腰再站好：直接从坐姿切回待机会像「被剪了一刀」。
+    // 静息秒表也从「歇完」重新起算——否则坐 25s 再站 15s 就凑满 40s，
+    // 一下变成坐一会儿、站一会儿，坐着反而成了常态。
+    if (rested) {
+      this.lastUserAt = now;
+      this.startAction("stretch", now, ACTION_MS.stretch);
+    }
   }
 
   private settle(now: number): void {

@@ -3,6 +3,7 @@ import { matMul, matRoot, toMap2, type Map2 } from "./rig";
 import type { DrawOp } from "./ops";
 import { GIRL_SPRITE } from "./girl-sprite-meta";
 import { GIRL_ANIM } from "./girl-anim-meta";
+import { GIRL_FACE, GIRL_INK_BOX } from "./girl-face-meta";
 
 /**
  * 猫娘位图立绘的几何与记号钉位。
@@ -104,24 +105,116 @@ export interface GirlAnimBody {
 }
 
 /**
+ * 「存在感」叠在刚体上的三个量（见 girl-presence.ts）：朝光标压、往光标挪、真翻身。
+ * 都是屏幕空间量，不乘朝向——镜像后「往右倾」仍然该往右倾。
+ * `dizzy` 是连点眩晕的残余 0..1：只加一点点抖，不接管姿态。
+ */
+export interface GirlPresenceMotion {
+  leanDeg?: number;
+  shiftX?: number;
+  facing?: 1 | -1;
+  dizzy?: number;
+}
+
+/**
  * 帧动画的刚体位姿：帧本身已经在动（呼吸/眨眼/摆臂），这里只叠「动作之外」的整身量——
  * 走路起伏、落地压扁、歪头、朝向。**不再叠呼吸**：帧动画里每帧的胸腔位置就是呼吸。
  */
-export function girlAnimBodyFor(input: CatInput): GirlAnimBody {
+export function girlAnimBodyFor(input: CatInput, presence?: GirlPresenceMotion): GirlAnimBody {
   const s = (input.u * 2) / VB;
   const p = input.pose;
   const walk = p.walk ?? 0;
   const walkLift = Math.max(0, Math.sin(walk)) * 1.2;
   const squash = Math.max(0, Math.min(1, p.squash ?? 0));
   const stretch = Math.max(0, Math.min(1, p.stretch));
-  const deg = p.tilt * 0.7 + Math.sin(walk) * 1.0;
+  const dizzy = Math.max(0, Math.min(1, presence?.dizzy ?? 0));
+  const wobble = dizzy > 0 ? Math.sin(input.t * 9.5) * 1.8 * dizzy : 0;
+  const deg = p.tilt * 0.7 + Math.sin(walk) * 1.0 + (presence?.leanDeg ?? 0) + wobble;
   return {
-    pivot: { x: input.center.x, y: input.center.y + input.jumpY - walkLift },
+    pivot: { x: input.center.x + (presence?.shiftX ?? 0), y: input.center.y + input.jumpY - walkLift },
     rot: (deg * Math.PI) / 180,
     sx: (1 + 0.12 * squash) * (1 + 0.01 * stretch),
-    sy: (1 - 0.16 * squash) * (1 + 0.02 * stretch),
-    facing: input.facing ?? 1,
+    sy: (1 - 0.16 * squash) * (1 + 0.02 * stretch) * (1 - 0.03 * dizzy),
+    facing: presence?.facing ?? input.facing ?? 1,
     k: s * (GIRL_ANIM.inkVb / GIRL_ANIM.inkRefPx),
+  };
+}
+
+/**
+ * 格子内的归一化坐标 → 绘制空间。朝向、缩放、旋转都按 `paintGirlFrame` 的同一顺序折进去，
+ * 所以记号（腮红/「!」/晕圈）与画面里那张脸永远同一个位姿。
+ */
+export function girlCellPoint(body: GirlAnimBody, fx: number, fy: number): { x: number; y: number } {
+  const w = GIRL_ANIM.cellW * body.k;
+  const h = GIRL_ANIM.cellH * body.k;
+  const lx = (fx - GIRL_ANIM.anchorX) * w * body.sx * body.facing;
+  const ly = (fy - GIRL_ANIM.anchorY) * h * body.sy;
+  const c = Math.cos(body.rot);
+  const s = Math.sin(body.rot);
+  return { x: body.pivot.x + lx * c - ly * s, y: body.pivot.y + lx * s + ly * c };
+}
+
+/** 某帧的脸框（绘制空间）：记号层的唯一落点来源。 */
+export interface GirlFaceBox {
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
+  /** 脸框四角（轴对齐包围盒），给「不许贴到格子边」之类的尺用。 */
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+export function girlFaceBox(body: GirlAnimBody, frame: number): GirlFaceBox {
+  const i = Math.max(0, Math.min(GIRL_FACE.length - 1, Math.floor(frame)));
+  const [cx, cy, w, h] = GIRL_FACE[i];
+  const corners = [
+    girlCellPoint(body, cx - w / 2, cy - h / 2),
+    girlCellPoint(body, cx + w / 2, cy - h / 2),
+    girlCellPoint(body, cx - w / 2, cy + h / 2),
+    girlCellPoint(body, cx + w / 2, cy + h / 2),
+  ];
+  const center = girlCellPoint(body, cx, cy);
+  const cellW = GIRL_ANIM.cellW * body.k * body.sx;
+  const cellH = GIRL_ANIM.cellH * body.k * body.sy;
+  return {
+    cx: center.x,
+    cy: center.y,
+    w: w * cellW,
+    h: h * cellH,
+    left: Math.min(...corners.map((p) => p.x)),
+    right: Math.max(...corners.map((p) => p.x)),
+    top: Math.min(...corners.map((p) => p.y)),
+    bottom: Math.max(...corners.map((p) => p.y)),
+  };
+}
+
+/** 某帧的墨框（绘制空间）：投影宽度、命中提示都从这只人的实际占位来。 */
+export function girlInkBox(body: GirlAnimBody, frame: number): GirlFaceBox {
+  const i = Math.max(0, Math.min(GIRL_INK_BOX.length - 1, Math.floor(frame)));
+  const [x, y, w, h] = GIRL_INK_BOX[i];
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const corners = [
+    girlCellPoint(body, x, y),
+    girlCellPoint(body, x + w, y),
+    girlCellPoint(body, x, y + h),
+    girlCellPoint(body, x + w, y + h),
+  ];
+  const center = girlCellPoint(body, cx, cy);
+  const cellW = GIRL_ANIM.cellW * body.k * body.sx;
+  const cellH = GIRL_ANIM.cellH * body.k * body.sy;
+  return {
+    cx: center.x,
+    cy: center.y,
+    w: w * cellW,
+    h: h * cellH,
+    left: Math.min(...corners.map((p) => p.x)),
+    right: Math.max(...corners.map((p) => p.x)),
+    top: Math.min(...corners.map((p) => p.y)),
+    bottom: Math.max(...corners.map((p) => p.y)),
   };
 }
 

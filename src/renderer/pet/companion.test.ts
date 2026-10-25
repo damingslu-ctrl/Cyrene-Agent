@@ -2,6 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
   BUBBLE_TTL_MS,
   CompanionEngine,
+  DIZZY_MS,
+  GIRL_CHATTER,
+  GIRL_GREETINGS,
+  GIRL_LINES,
+  GREETING_LINES,
+  MICRO_GESTURES,
+  NOTICE_COOLDOWN_MS,
+  REST_AFTER_MS,
   ROLL_WEIGHTS,
   POKE_VARIANTS,
   PET_HOLD_MS,
@@ -9,6 +17,7 @@ import {
   TOUCH_MERGE_MS,
   bucketOf,
   clickKindFor,
+  dayPartOf,
   GESTURE_CATEGORIES,
   pickCategorizedGesture,
   pickRoll,
@@ -344,6 +353,22 @@ describe("companion bubble slot", () => {
     expect(engine.getSnapshot().bubble).toBeNull();
   });
 
+  it("直接点的反应能顶掉同级上一条；网络播报（3）依旧不可抢", () => {
+    const engine = new CompanionEngine({ now: () => T0, random: seq([0.5]), storage: makeStorage() });
+    engine.setForm("girl");
+    engine.touch("head", T0);
+    expect(GIRL_LINES.head).toContain(engine.getSnapshot().bubble?.text);
+
+    // 点脚是新的一句话：屏幕上不许还挂着「摸头」。
+    engine.touch("feet", T0 + 100);
+    expect(GIRL_LINES.feet).toContain(engine.getSnapshot().bubble?.text);
+
+    // 网络播报更重要：直接点也不许把它换掉。
+    expect(engine.say("网络断了", 3, T0 + 200)).toBe(true);
+    engine.touch("head", T0 + 400);
+    expect(engine.getSnapshot().bubble?.text).toBe("网络断了");
+  });
+
   it("TTL 到点由 update 自己清空：没有新句子也不许留在屏幕上", () => {
     const engine = new CompanionEngine({ now: () => T0, random: seq([0.5]), storage: makeStorage() });
     expect(engine.say("我先说一句", 1, T0)).toBe(true);
@@ -471,8 +496,8 @@ describe("随机小动作分类池（对齐 deepseek-pet 的 categories）", () 
 describe("companion touch kinds", () => {
   const girlCtx: CompanionContext = { workArea, size, canRoam: true };
 
-  it("六类名单与合并窗口钉死（spec §5 :255-257）", () => {
-    expect([...TOUCH_KINDS]).toEqual(["poke", "pet", "grab", "drop", "throw", "crash"]);
+  it("八类名单与合并窗口钉死（六类旧口径 + 猫娘三区的头/脚）", () => {
+    expect([...TOUCH_KINDS]).toEqual(["poke", "pet", "grab", "drop", "throw", "crash", "head", "feet"]);
     expect(TOUCH_MERGE_MS).toBe(2500);
     expect(PET_HOLD_MS).toBe(500);
   });
@@ -519,7 +544,7 @@ describe("companion touch kinds", () => {
     expect(engine.getSnapshot().activity).toBe("pet");
   });
 
-  it("猫形六类全吞：返回 false、零台词、零 RNG 消耗（口径差⑮的对照）", () => {
+  it("猫形八类全吞：返回 false、零台词、零 RNG 消耗（口径差⑮的对照）", () => {
     let draws = 0;
     const engine = new CompanionEngine({
       storage: makeStorage(), now: () => T0,
@@ -560,5 +585,231 @@ describe("companion touch kinds", () => {
       t += 60_000;
     }
     void girlCtx;
+  });
+});
+
+describe("companion 猫娘三区 / 眩晕 / 注意到你", () => {
+  it("摸头：捂脸 + 头台词 + 亲密度，爱心走 pet 动作包络", () => {
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => T0, random: seq([0.5]) });
+    engine.setForm("girl");
+    const before = engine.getVitals().affinity;
+    expect(engine.touch("head")).toBe(true);
+    const snap = engine.getSnapshot();
+    expect(snap.gesture).toBe("coverFace");
+    expect(GIRL_LINES.head).toContain(snap.bubble?.text);
+    expect(snap.activity).toBe("pet");
+    expect(engine.getVitals().affinity).toBeCloseTo(before + 0.04, 6);
+  });
+
+  it("挠脚：怕痒（shiver）+ 脚台词，也涨亲密度", () => {
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => T0, random: seq([0.5]) });
+    engine.setForm("girl");
+    const before = engine.getVitals().affinity;
+    expect(engine.touch("feet")).toBe(true);
+    const snap = engine.getSnapshot();
+    expect(snap.gesture).toBe("shiver");
+    expect(GIRL_LINES.feet).toContain(snap.bubble?.text);
+    expect(engine.getVitals().affinity).toBeCloseTo(before + 0.03, 6);
+  });
+
+  it("眩晕：晕满 3.6s、捂脸说晕话；晕着不叠晕，醒来可再晕；切形态清秒表", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    engine.setForm("girl");
+    expect(engine.dizzy()).toBe(true);
+    const snap = engine.getSnapshot();
+    expect(snap.dizzyLeft).toBeCloseTo(DIZZY_MS, 6);
+    expect(snap.gesture).toBe("coverFace");
+    expect(GIRL_LINES.dizzy).toContain(snap.bubble?.text);
+    expect(engine.dizzy()).toBe(false);
+    t += DIZZY_MS + 1;
+    expect(engine.dizzy()).toBe(true);
+    engine.setForm("cat");
+    expect(engine.dizzy()).toBe(false);
+  });
+
+  it("晕着站原地：不聊天、不迈步，星星转完才恢复", () => {
+    let t = T0;
+    let draws = 0;
+    const engine = new CompanionEngine({
+      storage: makeStorage(), now: () => t,
+      random: () => { draws += 1; return 0.5; },
+    });
+    engine.setForm("girl");
+    engine.dizzy(t);
+    const afterDizzy = draws;
+    t += 1_000;
+    const snap = engine.update(t, ctx);
+    expect(snap.activity).toBe("idle");
+    expect(snap.dizzyLeft).toBeGreaterThan(0);
+    // 只允许 update 内部的必要抽取为 0：晕着时 stepIdle 应整段短路。
+    expect(draws, "晕着还在抽动作").toBe(afterDizzy);
+  });
+
+  it("注意到你：优先级 0 不抢工作播报，说过一次 12s 内不再说", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    engine.setForm("girl");
+
+    expect(engine.say("正在测速，先别走开", 1, t)).toBe(true);
+    expect(engine.notice(t + 1), "有更高优先级的播报时不许抢").toBe(false);
+    engine.dismissBubble(t + 2);
+
+    expect(engine.notice(t + 3)).toBe(true);
+    expect(GIRL_LINES.notice).toContain(engine.getSnapshot().bubble?.text);
+    engine.dismissBubble(t + 4);
+    expect(engine.notice(t + 5)).toBe(false);
+    expect(engine.notice(t + NOTICE_COOLDOWN_MS + 3)).toBe(true);
+  });
+
+  it("安静或睡着时 notice 闭嘴；四足两条新接口都恒 false", () => {
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => T0, random: seq([0.5]) });
+    engine.setForm("girl");
+    engine.setQuiet(true);
+    expect(engine.notice()).toBe(false);
+    engine.setQuiet(false);
+    engine.toggleSleep();
+    expect(engine.notice()).toBe(false);
+
+    engine.setForm("cat");
+    expect(engine.notice()).toBe(false);
+    expect(engine.dizzy()).toBe(false);
+  });
+
+  it("问候按时段分表：猫娘四句、四足保留原表；dayPartOf 的四个边界", () => {
+    expect(dayPartOf(5)).toBe("morning");
+    expect(dayPartOf(10)).toBe("morning");
+    expect(dayPartOf(11)).toBe("afternoon");
+    expect(dayPartOf(17)).toBe("afternoon");
+    expect(dayPartOf(18)).toBe("evening");
+    expect(dayPartOf(21)).toBe("evening");
+    expect(dayPartOf(22)).toBe("night");
+    expect(dayPartOf(4)).toBe("night");
+
+    const morning = new Date(2026, 9, 25, 9, 0, 0).getTime();
+    const girl = new CompanionEngine({ storage: makeStorage(), now: () => T0, wallNow: () => morning, random: seq([0.5]) });
+    girl.setForm("girl");
+    expect(girl.greet()).toBe(true);
+    expect(girl.getSnapshot().bubble?.text).toBe(GIRL_GREETINGS.morning);
+
+    const cat = new CompanionEngine({ storage: makeStorage(), now: () => T0, wallNow: () => morning, random: seq([0.5]) });
+    expect(cat.greet()).toBe(true);
+    expect(cat.getSnapshot().bubble?.text).toBe(GREETING_LINES.morning);
+  });
+
+  it("闲话按时段换表，而且不坐着弹：起身后才说早上的那句", () => {
+    let t = T0;
+    const wall = new Date(2026, 9, 25, 9, 30, 0).getTime();
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, wallNow: () => wall, random: seq([0.5]) });
+    engine.setForm("girl");
+    t += 70_000;
+    // 一个人待够 40s 先坐下：静息优先于闲话，坐着不弹气泡。
+    expect(engine.update(t, ctx).activity).toBe("rest");
+    expect(engine.getSnapshot().bubble).toBeNull();
+
+    // 坐满 24s（18 + 0.5×12）→ 伸懒腰 2.2s → 回待机的那一步才说话。
+    t += 24_000;
+    expect(engine.update(t, ctx).activity).toBe("stretch");
+    t += 3_000;
+    engine.update(t, ctx);
+    t += 1_000;
+    expect(GIRL_CHATTER.morning).toContain(engine.update(t, ctx).bubble?.text);
+  });
+});
+
+describe("companion 猫娘静息周期与微动作", () => {
+  it("一个人待够 40s 自己坐下；歇完先伸懒腰再回待机", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    engine.setForm("girl");
+
+    t += REST_AFTER_MS - 1_000;
+    expect(engine.update(t, ctx).activity).not.toBe("rest");
+
+    t += 1_000;
+    expect(engine.update(t, ctx).activity).toBe("rest");
+
+    // 坐的时长 = 18s + 0.5 × 12s = 24s
+    t += 24_000;
+    expect(engine.update(t, ctx).activity).toBe("stretch");
+
+    t += 3_000;
+    expect(engine.update(t, ctx).activity).toBe("idle");
+  });
+
+  it("歇完的秒表从起身重新起算：不会站起来就又想坐", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    engine.setForm("girl");
+
+    t += REST_AFTER_MS;
+    expect(engine.update(t, ctx).activity).toBe("rest");
+    t += 24_000; // 18s + 0.5 × 12s
+    expect(engine.update(t, ctx).activity).toBe("stretch");
+    t += 3_000; // 伸懒腰 2.2s 已结束
+    expect(engine.update(t, ctx).activity).toBe("idle");
+
+    // 起床时刻（t0+64s）才是新起点：39s 后还站着，41s 后才许坐。
+    t = T0 + 64_000 + REST_AFTER_MS - 1_000;
+    expect(engine.update(t, ctx).activity).not.toBe("rest");
+    t += 2_000;
+    expect(engine.update(t, ctx).activity).toBe("rest");
+  });
+
+  it("碰一下重新计时：不是「到点必坐」", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    engine.setForm("girl");
+
+    t += REST_AFTER_MS - 5_000;
+    engine.touch("head", t);
+    t += 6_000;
+    expect(engine.update(t, ctx).activity).not.toBe("rest");
+
+    t += REST_AFTER_MS;
+    expect(engine.update(t, ctx).activity).toBe("rest");
+  });
+
+  it("静息只长在猫娘上：四足待 40s 也不会「坐」", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    t += REST_AFTER_MS + 1_000;
+    expect(engine.update(t, ctx).activity).not.toBe("rest");
+  });
+
+  it("被停在屏边（藏身中不许动）也照样坐下：静息不该被 canRoam 吃掉", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    engine.setForm("girl");
+    t += REST_AFTER_MS;
+    expect(engine.update(t, { ...ctx, canRoam: false }).activity).toBe("rest");
+  });
+
+  it("光标压在她身上不算一个人待着：手离开窗子 40s 才坐", () => {
+    let t = T0;
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    engine.setForm("girl");
+    engine.setUserActive(true);
+    t += REST_AFTER_MS + 5_000;
+    expect(engine.update(t, ctx).activity).not.toBe("rest");
+
+    engine.setUserActive(false);
+    t += REST_AFTER_MS - 1_000;
+    expect(engine.update(t, ctx).activity).not.toBe("rest");
+    t += 2_000;
+    expect(engine.update(t, ctx).activity).toBe("rest");
+  });
+
+  it("idle_micro 偶尔真的动一下：抽到 peek/wink，而不是永远站桩", () => {
+    let t = T0;
+    const engine = new CompanionEngine({
+      storage: makeStorage(), now: () => t,
+      random: seq([0.5, 0.5, 0.05, 0.1, 0.0]),
+    });
+    engine.setForm("girl");
+    t += 8_000;
+    const snap = engine.update(t, ctx);
+    expect(snap.activity).toBe("idle");
+    expect(MICRO_GESTURES).toContain(snap.gesture);
   });
 });

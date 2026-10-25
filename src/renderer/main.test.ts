@@ -19,9 +19,11 @@ describe("main.ts 触摸接线（Task 22）", () => {
     expect(src.includes("onCatClick")).toBe(false);
   });
 
-  it("pointerup 按按住时长分档，走 clickKindFor → renderer.touch", () => {
-    expect(src).toMatch(/pressPending[\s\S]{0,400}clickKindFor\(/);
-    expect(src).toMatch(/renderer\.touch\(clickKindFor\(/);
+  it("pointerup 按按住时长分档：renderer.tapAt 接住落点，分区判定在渲染端", () => {
+    expect(src).toMatch(/pressPending[\s\S]{0,400}reportTouch\(/);
+    expect(src).toMatch(/renderer\.tapAt\(/);
+    expect(src).toMatch(/event\.clientX\s*-\s*rect\.left/);
+    expect(src).toMatch(/event\.clientY\s*-\s*rect\.top/);
   });
 
   it("pointerdown 记录按下时刻", () => {

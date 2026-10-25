@@ -1,7 +1,6 @@
 import "./ui/theme";
 import { CONSOLE_PREFIX } from "../shared/brand";
 import { PixelPetRenderer } from "./pet/renderer";
-import { clickKindFor } from "./pet/companion";
 import { ClickThroughController } from "./pet/click-through";
 
 const canvas = document.getElementById("pet-canvas") as HTMLCanvasElement;
@@ -168,7 +167,15 @@ const renderer = new PixelPetRenderer({
         tier: renderer.getProfileRef().tier,
         // 同上：基址窗口与绘制原点。尺 #71 要靠它们把「宠物本体」与「气泡」分开量。
         layout: renderer.getLayoutInfo(),
+        // 猫娘存在感/记号的读数口（真窗验收用）：倾斜、侧移、朝向、脸红、「！」年龄。
+        girl: renderer.getGirlDiagnostics(),
       }),
+      // 验收用：冻结真实光标对注视的抢占，让探针手动喂的 setGazeTarget 稳定生效。
+      // 放在 __cyrene 顶层而不是诊断返回值里——它是**动作**，不是一次读数。
+      setGazeFrozen: (frozen: boolean) => {
+        gazeFrozen = !!frozen;
+        if (gazeFrozen) renderer.setGazeTarget(null);
+      },
     };
   },
   onError: (err) => {
@@ -198,6 +205,13 @@ addTrackedEventListener(window, "resize", () => {
 const GAZE_POLL_MS = 120;
 const GAZE_MAX_DISTANCE_PX = 420;
 let gazeTimer: number | null = null;
+/**
+ * 验收探针用：冻结光标轮询。
+ * 探针不能动用户的真光标（那是全局副作用），只能手动喂 setGazeTarget；
+ * 而 120ms 一轮的轮询会把手动目标盖掉，所以需要一个开关把「真实光标」这一路停掉。
+ * 产品路径永远不置真；探针退出时进程一起退，不留下持久状态。
+ */
+let gazeFrozen = false;
 
 function stopGazePolling(): void {
   if (gazeTimer !== null) {
@@ -210,7 +224,7 @@ function stopGazePolling(): void {
 function startGazePolling(): void {
   if (gazeTimer !== null) return;
   gazeTimer = window.setInterval(() => {
-    if (!petVisible || isDragging) return;
+    if (!petVisible || isDragging || gazeFrozen) return;
     void window.cyrene.getCursorPosition().then((cursor) => {
       if (!cursor) return;
       // 窗口原点在漫游时会动，每帧现取，不能缓存。
@@ -277,9 +291,10 @@ let moveSamples: Array<{ x: number; y: number; t: number }> = [];
 /**
  * 单点＝戳一下（poke），按住 ≥500ms 且没拖过 4px＝摩挲（pet）。
  * 双击→玩 已退役：连点被引擎的 2.5s 合并窗收掉，「玩」仍有右键菜单直达（口径差⑮）。
+ * 落点一起交给渲染器：猫娘按头/身/脚分区回应（四足完全忽略这两个数）。
  */
-function reportTouch(heldMs: number): void {
-  renderer.touch(clickKindFor(heldMs));
+function reportTouch(heldMs: number, cssX: number, cssY: number): void {
+  renderer.tapAt(cssX, cssY, heldMs);
 }
 
 /**
@@ -575,7 +590,12 @@ addTrackedEventListener(canvas, "pointerup", (e) => {
   if (pressPending) {
     pressPending = false;
     moveSamples = [];
-    reportTouch(performance.now() - pressAtMs);
+    const rect = canvas.getBoundingClientRect();
+    reportTouch(
+      performance.now() - pressAtMs,
+      event.clientX - rect.left,
+      event.clientY - rect.top,
+    );
     try {
       (event.target as Element).releasePointerCapture(event.pointerId);
     } catch {}

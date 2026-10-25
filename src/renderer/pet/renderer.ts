@@ -19,7 +19,7 @@ import {
 import { paintOps, type DrawOp, type Point2 } from "./ops";
 import { buildBubbleOps, bubbleBoxRect, type BubbleBox, type CatInput } from "./art";
 import { buildPetOps } from "./form";
-import { buildGirlOverlayOps, girlAnimBodyFor, girlBodyFor, type GirlAnimBody } from "./girl-sprite";
+import { buildGirlOverlayOps, girlAnimBodyFor, girlBodyFor, girlFaceBox, type GirlAnimBody } from "./girl-sprite";
 import { GIRL_SPRITE } from "./girl-sprite-meta";
 import { GIRL_ANIM } from "./girl-anim-meta";
 import {
@@ -34,7 +34,18 @@ import {
 } from "./girl-anim";
 import { blinkAt, bodyClip, gestureClip, mixPose, sampleClip, type Slots } from "./motion";
 import { faceOf, MOOD_TO_EXPRESSION, type Expression } from "./face";
-import { CompanionEngine, type CompanionSnapshot, type TouchKind } from "./companion";
+import {
+  CompanionEngine,
+  DIZZY_MS,
+  PET_HOLD_MS,
+  clickKindFor,
+  type CompanionActivity,
+  type CompanionSnapshot,
+  type TouchKind,
+} from "./companion";
+import { GirlTapTracker, classifyGirlTap } from "./girl-zones";
+import { GirlPresence, restingPresence, type GirlPresencePose } from "./girl-presence";
+import { buildGirlFxOps } from "./girl-fx";
 import type { PetCommand } from "../../shared/pet-commands";
 import { GESTURE_COMMANDS } from "../../shared/pet-commands";
 import type { WorkStatusTier } from "../../shared/work-status-types";
@@ -90,6 +101,20 @@ export class PixelPetRenderer {
   private workSince = 0;
   /** 注视目标（窗口内容坐标）；null 时眼球走自主游移。 */
   private gazeTarget: Point2 | null = null;
+  /** 连点计数器（只认猫娘）：2.4s 内第四下逗晕。 */
+  private girlTaps = new GirlTapTracker();
+  /**
+   * 注视存在感（只认猫娘帧动画）：位图的脸是画死的，她「注意到你」只能靠整身。
+   * 位置量是绘制空间像素/角度，每帧由 draw 喂 now，暂停即停。
+   */
+  private readonly girlPresence = new GirlPresence();
+  private presencePose: GirlPresencePose = restingPresence();
+  /** 「！」出现的绝对时刻；-1＝没有。渲染器只记时间，画多久由记号层决定。 */
+  private noticeAt = -1;
+  /** 脸红包络 0..1：片/互动给目标，按 180ms 时间常数缓动，切段不「啪」地亮。 */
+  private blush = 0;
+  private lastGirlFxAt: number | null = null;
+  private lastFxCounts = { below: 0, above: 0 };
   /** 槽位时钟：每层「当前片 + 起点」（ms）。只存状态，采样在 draw 里按 now 算。 */
   private slots: Partial<Record<"body" | "gesture", { id: string; startedAt: number }>> = {};
   /** 手势层的显式片（playGesture/touch）；空则按活动映射。 */
@@ -451,6 +476,43 @@ export class PixelPetRenderer {
   }
 
   /**
+   * 猫娘存在感的读数口（CDP 验收用）：只读，不改状态。
+   * `presence` 是缓动后的姿态量，`noticeAgeMs`/`dizzyLeft` 是记号层与引擎的同源读数。
+   */
+  getGirlDiagnostics(now = performance.now()): {
+    presence: GirlPresencePose;
+    noticeAgeMs: number;
+    dizzyLeft: number;
+    blush: number;
+    clip: string | null;
+    fx: { below: number; above: number };
+  } {
+    return {
+      presence: { ...this.presencePose },
+      noticeAgeMs: this.noticeAt < 0 ? -1 : now - this.noticeAt,
+      dizzyLeft: this.engine?.getSnapshot().dizzyLeft ?? 0,
+      blush: this.blush,
+      clip: this.getGirlClipId(),
+      fx: { ...this.lastFxCounts },
+    };
+  }
+
+  /**
+   * 脸红的唯一目标表：片名优先（coverFace 已映射成 shy、shiver 映射成 wink），
+   * 其次是「正在被摸」。睡着/免打扰不红——闭着眼脸红读不出来，只会像脏点。
+   */
+  private girlBlushTarget(snapshot: CompanionSnapshot | null): number {
+    if (this.cat.mood === "sleep" || this.quiet) return 0;
+    const clip = this.girlPlayer.clipId;
+    if (clip === "shy" || clip === "sitShy") return 0.95;
+    if (clip === "wink") return 0.55;
+    if (clip === "happy" || clip === "wave" || clip === "peace") return 0.5;
+    if (snapshot?.activity === "pet") return 0.35 + 0.35 * Math.sin(Math.PI * snapshot.activityProgress);
+    if (this.cat.mood === "happy") return 0.3;
+    return 0;
+  }
+
+  /**
    * 注视目标（`[x, y]` 窗口内容坐标，null＝没有目标，眼球回到自主游移）。
    *
    * 只喂给 `CatInput.mouse`：art.ts 拿它算瞳孔偏移，超出头部也照算（视线方向而非落点），
@@ -624,10 +686,14 @@ export class PixelPetRenderer {
    * 尺的前提读数（R-D11 的「读数口」同源）：基址窗口尺寸与当前绘制原点。
    * 命中尺要判「墨是不是全在宠物基址里」，没有这两列就分不清
    * 「墨超界=画歪了」和「墨超界=气泡把窗口撑宽了」。
+   *
+   * `zoom` 是**绘制空间→窗口 CSS 坐标**的唯一系数。窗口宽度在气泡展开时是
+   * bubbleWidth 而不是 base×zoom，拿 innerWidth/base 反推 zoom 会算出 2.09 这种假值，
+   * 探针据此喂进来坐标就全落到命中框外（2026-10-25 真窗验收踩过）。量尺一律读这里。
    */
-  getLayoutInfo(): { base: { width: number; height: number }; center: Point; s: number } {
+  getLayoutInfo(): { base: { width: number; height: number }; center: Point; s: number; zoom: number } {
     const { s } = this.profile.catScale(this.lastSent?.e ?? 0);
-    return { base: { ...this.profile.base }, center: { ...this.cat.center }, s };
+    return { base: { ...this.profile.base }, center: { ...this.cat.center }, s, zoom: this.zoom };
   }
 
   /**
@@ -974,11 +1040,77 @@ export class PixelPetRenderer {
         // 帧动画：上一段冻住的那一帧垫底，当前段按淡化进度压上去
         // （先画 prev 再画当前，中途不会出现整体透明度塌陷）。
         const sample = this.girlPlayer.sample(now);
-        const body = girlAnimBodyFor(this.cat);
+        const activity = (snapshot?.activity ?? "idle") as CompanionActivity;
+        const dizzyLeft = Math.max(0, Math.min(1, (snapshot?.dizzyLeft ?? 0) / DIZZY_MS));
+
+        // 1) 先拿「不叠加存在感」的刚体算头心：脸框逐帧实测，倾斜/侧移只有 2px 级，
+        //    晚一帧回喂不影响观感，但避免了解不出来的自指。
+        const baseBody = girlAnimBodyFor(this.cat);
+        const baseFace = girlFaceBox(baseBody, sample.index);
+        const zoom = this.zoom || 1;
+        // 注视目标是窗口内容 css 坐标，绘制空间要除 zoom（与 isPointOnBubble/tapAt 同口径）。
+        const gaze: Point2 | null = this.gazeTarget && dizzyLeft <= 0
+          ? [this.gazeTarget[0] / zoom, this.gazeTarget[1] / zoom]
+          : null;
+        // 走路/拖拽/投掷的方向归物理，睡着与被逗晕时不跟。
+        const allowTurn = (activity === "idle" || activity === "rest") && dizzyLeft <= 0;
+        const awake = this.cat.mood !== "sleep" && !this.quiet;
+        const presence = this.girlPresence.update({
+          now,
+          gaze,
+          head: [baseFace.cx, baseFace.cy],
+          facing: this.cat.facing ?? 1,
+          allowTurn,
+          awake,
+        });
+        this.presencePose = presence.pose;
+        if (presence.notice) {
+          this.noticeAt = now;
+          // 引擎是台词的唯一出口：它按优先级 0 排队，绝不盖掉 agent 的工作播报。
+          this.engine?.notice(now);
+        }
+
+        // 2) 脸红包络：目标由「正在播的片 + 互动」给，按 180ms 缓动。
+        const dtFx = this.lastGirlFxAt === null ? 0 : Math.max(0, Math.min(90, now - this.lastGirlFxAt));
+        this.lastGirlFxAt = now;
+        const targetBlush = this.girlBlushTarget(snapshot);
+        this.blush += (targetBlush - this.blush) * (1 - Math.exp(-dtFx / 180));
+        if (this.blush < 0.01) this.blush = 0;
+
+        // 3) 最终刚体：存在感的倾斜/侧移/朝向叠在动作刚体上，眩晕只加一点抖。
+        const body = girlAnimBodyFor(this.cat, {
+          leanDeg: this.presencePose.leanDeg,
+          shiftX: this.presencePose.shiftX,
+          facing: this.presencePose.facing,
+          dizzy: dizzyLeft,
+        });
+        const clip = this.girlPlayer.clipId;
+        const fx = buildGirlFxOps({
+          body,
+          frame: sample.index,
+          nowSec: now / 1000,
+          nowMs: now,
+          mood: this.cat.mood,
+          pet: this.cat.pet,
+          presence: this.presencePose,
+          blush: this.blush,
+          noticeAgeMs: this.noticeAt < 0 ? -1 : now - this.noticeAt,
+          dizzyLeft,
+          squash: this.cat.pose.squash ?? 0,
+          activity,
+          step: this.cat.pose.walk ?? 0,
+          lift: Math.max(0, Math.min(1, -this.cat.jumpY / 26)),
+          groundY: this.cat.center.y,
+          notes: this.cat.mood === "happy" || clip === "happy" || clip === "wave" || clip === "peace",
+          quiet: this.quiet,
+        });
+        this.lastFxCounts = { below: fx.below.length, above: fx.above.length };
+        // 投影必须压在人物下面：分两趟画，投影一趟、人物+记号一趟。
+        paintOps(this.ctx, fx.below);
         if (sample.prev) this.paintGirlFrame(sample.prev.index, 1, body);
         this.paintGirlFrame(sample.index, sample.fade, body);
         // 立绘里的脸/身体是画死的；表情层不参与，屏幕记号照旧跟 mood/pet/quiet 走。
-        ops = buildGirlOverlayOps(this.cat);
+        ops = [...buildGirlOverlayOps(this.cat), ...fx.above];
       } else if (this.girlSpriteReady) {
         this.paintGirlSprite();
         ops = buildGirlOverlayOps(this.cat);
@@ -1016,6 +1148,13 @@ export class PixelPetRenderer {
     this.form = form;
     this.slots = {};
     this.explicitGesture = null;
+    this.girlTaps.reset();
+    this.girlPresence.reset();
+    this.presencePose = restingPresence();
+    this.noticeAt = -1;
+    this.blush = 0;
+    this.lastGirlFxAt = null;
+    this.lastFxCounts = { below: 0, above: 0 };
     // 形态也是行为引擎的分岔口：不同步这一步，猫娘的四档加权抽取永远不跑（她只会走四足那张平表）。
     this.engine?.setForm(form);
     this.animGesture = null;
@@ -1047,6 +1186,34 @@ export class PixelPetRenderer {
   /** 触摸六类（引擎在猫形恒 false；同一入口两形态共用，反应只长在猫娘上）。 */
   touch(kind: TouchKind): void {
     this.engine?.touch(kind);
+  }
+
+  /**
+   * 指针点击的统一入口（css 坐标 + 按住时长）。
+   * - 四足：完全回到老的 `clickKindFor → touch` 口径，一支签都不多吃；
+   * - 猫娘：长按仍是摩挲；轻点按落点分区（头/身/脚），2.4s 内第四下改成逗晕。
+   *
+   * 分区只决定「回哪一句、摆哪个手势」，是否晕只跟点多快有关——所以计数器
+   * 在分区之前走，晕了就不再叠一条普通反应。
+   */
+  tapAt(cssX: number, cssY: number, heldMs: number, now = performance.now()): void {
+    if (this.form !== "girl") {
+      this.engine?.touch(clickKindFor(heldMs), now);
+      return;
+    }
+    if (heldMs >= PET_HOLD_MS) {
+      this.engine?.touch("pet", now);
+      return;
+    }
+    const zoom = this.zoom || 1;
+    const zone = classifyGirlTap(cssX / zoom, cssY / zoom, this.getHitRect());
+    if (this.girlTaps.tap(now).dizzy) {
+      this.engine?.dizzy(now);
+      // 4fps 档最坏要等 250ms，连点的第四下必须当场有反应。
+      if (!this.paused) this.draw(now);
+      return;
+    }
+    this.engine?.touch(zone === "head" ? "head" : zone === "feet" ? "feet" : "poke", now);
   }
 
   /**

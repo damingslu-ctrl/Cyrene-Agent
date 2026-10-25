@@ -172,7 +172,7 @@ export class GirlClipPlayer {
 
 export type GirlActivity =
   | "idle" | "walk" | "groom" | "yawn" | "stretch" | "tilt"
-  | "sleep" | "pet" | "eat" | "play" | "drag" | "thrown";
+  | "sleep" | "pet" | "eat" | "play" | "rest" | "drag" | "thrown";
 
 /**
  * 基础动作（一遍一遍循环）。groom/yawn/stretch/tilt 在帧图集里各有一整段，
@@ -189,6 +189,7 @@ export const ACTIVITY_CLIP: Record<GirlActivity, GirlClipId> = {
   pet: "happy",
   eat: "happy",
   play: "wave",
+  rest: "sit",
   drag: "stretch",
   thrown: "stretch",
 };

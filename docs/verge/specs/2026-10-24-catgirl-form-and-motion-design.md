@@ -546,3 +546,43 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
   full 0.091–0.118 / round 0.136–0.142 / wide 0.058（n=83/30/17/15/1）；146 张重出 1267.3 KB。
 - 命中：girl 墨 bbox 三档 1.56/1.32/1.09u 宽、2.19/2.00/1.79u 高，中心在钉位下方 0.40–0.59u。
 - 表情：`MIN_PIXEL_DIFF` 按形态分列（cat 0.5%、girl 0.15%）；撞车的 5 对 mood 已改姿态拉开。
+
+---
+
+## 15. v1.7.0 猫娘专项（2026-10-25）
+
+> 用户令：只提猫娘、要巨量。所有新能力只在 `form === "girl"` 生效，四足路径原样不动。
+> 实施台账与量测见 `docs/verge/notes/progress.md` 的「v1.7.0」一节。
+
+### 15.1 新增的四个模块
+
+| 模块 | 职责 | 关键常量/契约 |
+|---|---|---|
+| `girl-face-meta.ts` | 146 帧的脸块与墨框（格内 0..1，构建期实测） | `GIRL_FACE` / `GIRL_INK_BOX`；由 `build-girl-face.py` 生成，禁止手改 |
+| `girl-presence.ts` | 注视存在感：倾斜、侧移、迟滞转身、注意边沿 | `near 60 / far 300 / turn 10px / hold 380ms / lock 900ms / notice 0.86 / cooldown 12s / lean 4.2° / shift 2.2px` |
+| `girl-fx.ts` | 屏幕记号层：投影 / 腮红 / `!` / 晕星 / 音符 / 蒸汽 / 尘 | `NOTICE_FX_MS 1800` / `DIZZY_FX_MS 3200`；`below` 只放投影，其余在 `above` |
+| `girl-zones.ts` | 三区分界与连点计数 | `headEnd 0.36 / feetStart 0.76`；`2.4s / 4 下 / 冷却 6s` |
+
+### 15.2 行为与渲染契约
+
+- **静息**：`REST_AFTER_MS 40s` → 坐 `18s + 0..12s` → `stretch 2.2s`；判据排在 `canRoam` 之前，
+  且 `userActive`（光标在窗内）每拍把 `lastUserAt` 按到 `now`。歇完重置秒表。
+- **记号跟帧**：`girlCellPoint` 按 `paintGirlFrame` 的同一顺序折进朝向/缩放/旋转；腮红、
+  「！」、晕星、音符、蒸汽的落点全部来自 `girlFaceBox(frame)`，不按固定比例猜脸。
+- **双色纪律**：画在桌布上的一笔先铺 `PAPER` 光边再压深色（native #69 同一条）。
+- **直点反应**：`say(text, priority, now, replaceSame)`；`replaceSame` 只给用户动作，
+  ≥3 的播报仍不可抢。
+- **点击入口**：`renderer.tapAt(cssX, cssY, heldMs)`。四足原路 `clickKindFor → touch`；
+  猫娘长按仍是摩挲，轻点按分区，晕只跟点多快有关。
+- **调试面**：`getLayoutInfo()` 增 `zoom`（绘制空间→窗口 CSS 的唯一系数）；
+  `getGirlDiagnostics()` 报 presence/noticeAgeMs/dizzyLeft/blush/clip/fx；
+  `__cyrene.setGazeFrozen` 只停探针那一轮的光标轮询。
+
+### 15.3 验收
+
+- 单测：猫娘 7 个文件 117 条绿；全仓 664 文件 / 7057 通过（1 skipped）。
+- 真窗：`scripts/verify/pet-girl-cdp.mjs` 18 条判据 `all clear`——倾斜 −3.96° / 转身 −1 /
+  松开 −0.15°；注意 422.6ms；头 tap：`shy` + `coverFace` + 腮红 0.72；脚 tap：`wink` +
+  `shiver` + 换句；晕 3169.3ms / 记号 16 笔；坐：`rest` + `sit`。
+- 未覆盖：记号层只查了状态与笔数（外加截图目检），没有逐像素尺；眩晕冷却 6s 与注意冷却
+  12s 没有在真窗里等满，由单测锁住。

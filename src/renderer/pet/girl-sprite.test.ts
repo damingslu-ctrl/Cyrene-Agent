@@ -7,12 +7,17 @@ import {
   GIRL_INK_VB_HEIGHT,
   GIRL_OVERLAY_LIFT_VB,
   buildGirlOverlayOps,
+  girlAnimBodyFor,
   girlBadgeMap,
   girlBodyFor,
+  girlCellPoint,
+  girlFaceBox,
+  girlInkBox,
   girlOverlayCenter,
   girlSpriteRect,
 } from "./girl-sprite";
 import { GIRL_SPRITE } from "./girl-sprite-meta";
+import { GIRL_ANIM } from "./girl-anim-meta";
 
 const SIZE_TIERS: SizeTier[] = ["small", "standard", "large"];
 
@@ -150,6 +155,71 @@ describe("猫娘屏幕记号", () => {
     if (catCrescent.kind === "crescent" && girlCrescent.kind === "crescent") {
       expect(girlCrescent.cy).toBeLessThan(catCrescent.cy);
     }
+  });
+});
+
+describe("猫娘帧动画的位姿与落点", () => {
+  const bodyAt = (over: Partial<CatInput> = {}, presence?: Parameters<typeof girlAnimBodyFor>[1]) =>
+    girlAnimBodyFor(mk(over), presence);
+
+  it("没有存在感时与旧刚体逐字相同；有存在感才加上倾斜/侧移/朝向", () => {
+    const plain = bodyAt();
+    expect(plain.pivot).toEqual({ x: 100, y: 200 });
+    // 旧口径：走路摆动的 1° 是帧动画唯一的外加旋转。
+    expect(plain.rot).toBeCloseTo(0, 6);
+
+    const leaning = bodyAt({}, { leanDeg: 4.2, shiftX: 2.2, facing: -1 });
+    expect(leaning.pivot.x).toBeCloseTo(102.2, 6);
+    expect(leaning.rot).toBeCloseTo((4.2 * Math.PI) / 180, 6);
+    expect(leaning.facing).toBe(-1);
+  });
+
+  it("连点眩晕只加抖动，不挪脚", () => {
+    const calm = bodyAt({ t: 0.35 });
+    const dizzy = bodyAt({ t: 0.35 }, { dizzy: 1 });
+    expect(dizzy.pivot).toEqual(calm.pivot);
+    expect(Math.abs(dizzy.rot - calm.rot)).toBeGreaterThan(0.005);
+    expect(dizzy.sy).toBeLessThan(calm.sy);
+  });
+
+  it("格子锚点正好落在支点上（贴图与记号共用同一套变换）", () => {
+    const body = bodyAt({}, { leanDeg: 3, shiftX: 1.5 });
+    const anchor = girlCellPoint(body, GIRL_ANIM.anchorX, GIRL_ANIM.anchorY);
+    expect(anchor.x).toBeCloseTo(body.pivot.x, 6);
+    expect(anchor.y).toBeCloseTo(body.pivot.y, 6);
+  });
+
+  it("翻身时脸跟着挪到另一侧，且脸框永远在墨框里", () => {
+    const right = bodyAt({ facing: 1 });
+    const left = bodyAt({ facing: -1 });
+    const frame = 72;
+    const faceR = girlFaceBox(right, frame);
+    const faceL = girlFaceBox(left, frame);
+    const offR = faceR.cx - right.pivot.x;
+    const offL = faceL.cx - left.pivot.x;
+    expect(Math.abs(offR)).toBeGreaterThan(1);
+    expect(Math.sign(offR)).toBe(-Math.sign(offL));
+
+    for (let f = 0; f < GIRL_ANIM.count; f += 1) {
+      for (const body of [right, left]) {
+        const face = girlFaceBox(body, f);
+        const ink = girlInkBox(body, f);
+        expect(face.left, `frame ${f} 左缘`).toBeGreaterThanOrEqual(ink.left - 0.5);
+        expect(face.right, `frame ${f} 右缘`).toBeLessThanOrEqual(ink.right + 0.5);
+        expect(face.top, `frame ${f} 上缘`).toBeGreaterThanOrEqual(ink.top - 0.5);
+        expect(face.bottom, `frame ${f} 下缘`).toBeLessThanOrEqual(ink.bottom + 0.5);
+      }
+    }
+  });
+
+  it("帧 0 的脸心落在角色上半身，而不是头顶之外的空气里", () => {
+    const body = bodyAt();
+    const face = girlFaceBox(body, 0);
+    const ink = girlInkBox(body, 0);
+    expect(face.cy).toBeGreaterThan(ink.top);
+    expect(face.cy).toBeLessThan(ink.top + ink.h * 0.45);
+    // 82px 宽的窗口里，站立帧的墨宽应占 35px 以上，不然桌宠太小。
+    expect(ink.w).toBeGreaterThan(35);
   });
 });
 
