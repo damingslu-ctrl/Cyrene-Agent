@@ -33,6 +33,7 @@ describe("buildPetMenuItems", () => {
       "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样",
       "给她打扮", "放只小虫逗逗她", "陪她散散步",
       "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来", "猜拳",
+      "纸箱躲猫猫", "照个红点点", "给她梳梳毛", "闻闻猫薄荷", "放架纸飞机", "请小鸟来做客", "成长记录",
       "让它做个动作",
       "打开网络面板",
       "形象：像素猫", "形象：猫娘",
@@ -44,17 +45,23 @@ describe("buildPetMenuItems", () => {
     expect(items.filter((item) => item.separatorBefore).map((item) => item.label)).toEqual(["形象：像素猫", "隐藏"]);
   });
 
-  it("猫娘专属六条：四足形态下置灰，切到猫娘后可点；装扮子菜单列全六件", () => {
+  it("猫娘专属动作：四足形态下置灰，切到猫娘后可点；装扮子菜单列全六件", () => {
     const catItems = buildPetMenuItems(input({ form: "cat" }), {
       accessory: () => {}, critter: () => {}, wander: () => {},
       wand: () => {}, bubbles: () => {}, leaves: () => {}, follow: () => {}, rps: () => {},
+      box: () => {}, laser: () => {}, brush: () => {}, catnip: () => {}, plane: () => {}, bird: () => {}, growth: () => {},
     });
     const girlItems = buildPetMenuItems(input({ form: "girl" }), {
       accessory: () => {}, critter: () => {}, wander: () => {},
       wand: () => {}, bubbles: () => {}, leaves: () => {}, follow: () => {}, rps: () => {},
+      box: () => {}, laser: () => {}, brush: () => {}, catnip: () => {}, plane: () => {}, bird: () => {}, growth: () => {},
     });
     const find = (items: typeof catItems, label: string) => items.find((i) => i.label === label)!;
-    for (const label of ["给她打扮", "放只小虫逗逗她", "陪她散散步", "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来", "猜拳"]) {
+    for (const label of [
+      "给她打扮", "放只小虫逗逗她", "陪她散散步",
+      "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来", "猜拳",
+      "纸箱躲猫猫", "照个红点点", "给她梳梳毛", "闻闻猫薄荷", "放架纸飞机", "请小鸟来做客", "成长记录",
+    ]) {
       expect(find(catItems, label).enabled, label).toBe(false);
       expect(find(girlItems, label).enabled, label).toBe(true);
     }
@@ -74,11 +81,21 @@ describe("buildPetMenuItems", () => {
       leaves: () => sent.push("leaves"),
       follow: () => sent.push("follow"),
       rps: (sign) => sent.push(`rps:${sign}`),
+      box: () => sent.push("box"),
+      laser: () => sent.push("laser"),
+      brush: () => sent.push("brush"),
+      catnip: () => sent.push("catnip"),
+      plane: () => sent.push("plane"),
+      bird: () => sent.push("bird"),
+      growth: () => sent.push("growth"),
     });
     for (const child of items.find((i) => i.label === "给她打扮")!.submenu!) child.action?.();
     items.find((i) => i.label === "放只小虫逗逗她")!.action?.();
     items.find((i) => i.label === "陪她散散步")!.action?.();
-    for (const label of ["挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来"]) {
+    for (const label of [
+      "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来",
+      "纸箱躲猫猫", "照个红点点", "给她梳梳毛", "闻闻猫薄荷", "放架纸飞机", "请小鸟来做客", "成长记录",
+    ]) {
       items.find((i) => i.label === label)!.action?.();
     }
     for (const child of items.find((i) => i.label === "猜拳")!.submenu!) child.action?.();
@@ -87,8 +104,20 @@ describe("buildPetMenuItems", () => {
       "accessory:scarf", "accessory:flower", "accessory:star",
       "summon-critter", "wander",
       "wand", "bubbles", "leaves", "follow",
+      "box", "laser", "brush", "catnip", "plane", "bird", "growth",
       "rps:rock", "rps:scissors", "rps:paper",
     ]);
+  });
+
+  it("手势子菜单七条，命令与手势同名", () => {
+    const sent: string[] = [];
+    const items = buildPetMenuItems(input({ form: "girl" }), { gesture: (cmd) => sent.push(cmd) });
+    const submenu = items.find((i) => i.label === "让它做个动作")!.submenu!;
+    expect(submenu.map((i) => i.label)).toEqual([
+      "招招手", "跳一下", "鼓鼓掌", "鞠个躬", "点点头", "歪歪头", "伸个懒腰",
+    ]);
+    for (const child of submenu) child.action?.();
+    expect(sent).toEqual(["wave", "hop", "clap", "bow", "nod", "tilt", "stretch"]);
   });
 
   it("形态两档 + 身形三档：当前项勾上，且只有该组一项勾（藏身那颗不算）", () => {

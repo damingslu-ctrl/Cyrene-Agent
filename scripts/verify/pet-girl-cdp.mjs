@@ -32,6 +32,9 @@
 // - v1.10 玩具箱：逗猫棒生出 → 点中 → stats/成就/落盘 → 7s 自收；泡泡六颗 → 点破一颗；
 //   落叶一笔；猜拳读数与判词同源；跟随真的挪位置、点她就收工；走路留爪印并自行褪去；
 //   睡熟 1.8s 出梦话云、醒来抹掉；首次解锁成就时徽章压过普通台词（与单测同一口径）。
+// - v1.11 六件玩具：纸箱（敲箱→探头点头→收箱）、激光（同拍点中红点）、梳毛（起手一道→点击加速→
+//   整轮记一次）、薄荷（戳叶吸一口→整轮记一次）、纸飞机（同拍点中）、小鸟（停稳才可点、受惊飞走、
+//   不产数值）；每件的计数都要当场落盘，并在整页重载后还在；成长记录两行与徽章/互动读数同源。
 // 任一条不成立就红；环境问题（没窗/没墨）报 ENV，不冒充产品红。
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -72,6 +75,14 @@ function sourceFieldLines(name, field) {
 
 const ACCESSORY_BOW_LINES = sourceFieldLines("GIRL_ACCESSORY_LINES", "bow");
 const ACCESSORY_NONE_LINES = sourceFieldLines("GIRL_ACCESSORY_LINES", "none");
+/** 整块台词表的所有句子（含分组字典，如按羁绊档分行的 GIRL_BOND_LINES）。 */
+function sourceBlockLines(name) {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/companion.ts"), "utf8");
+  const block = src.match(new RegExp(`const\\s+${name}[^=]*=\\s*\\{([\\s\\S]*?)\\n\\};`))?.[1];
+  if (!block) throw new Error(`[ENV] 读不出 ${name}：验收句子表都没了，先看源码`);
+  return [...block.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
+}
+const BOND_UP_LINES = sourceBlockLines("GIRL_BOND_LINES");
 const BUBBLE_LINES = sourceLines("GIRL_BUBBLE_LINES");
 const LEAF_LINES = sourceLines("GIRL_LEAF_LINES");
 const FOLLOW_LINES = sourceLines("GIRL_FOLLOW_LINES");
@@ -80,6 +91,14 @@ const RPS_LINES = {
   lose: sourceFieldLines("GIRL_RPS_LINES", "lose"),
   draw: sourceFieldLines("GIRL_RPS_LINES", "draw"),
 };
+const BOX_KNOCK_LINES = sourceLines("GIRL_BOX_KNOCK_LINES");
+const BOX_CATCH_LINES = sourceLines("GIRL_BOX_CATCH_LINES");
+const LASER_LINES = sourceLines("GIRL_LASER_LINES");
+const BRUSH_LINES = sourceLines("GIRL_BRUSH_LINES");
+const CATNIP_LINES = sourceLines("GIRL_CATNIP_LINES");
+const PLANE_LINES = sourceLines("GIRL_PLANE_LINES");
+const BIRD_LINES = sourceLines("GIRL_BIRD_LINES");
+const BIRD_AWAY_LINES = sourceLines("GIRL_BIRD_AWAY_LINES");
 
 /** 成就台词在 girl-achievements.ts：验收按表认，不在探针里另抄。 */
 function sourceAchievementLine(id) {
@@ -1138,6 +1157,356 @@ async function main() {
     results.dream.wake = { activity: dreamWokeSnap.activity, sleepSince: dreamWokeDiag.girl.sleepSince };
     check("dream.wake", dreamWokeSnap.activity !== "sleep" && dreamWokeDiag.girl.sleepSince < 0,
       `activity=${dreamWokeSnap.activity} sleepSince=${dreamWokeDiag.girl.sleepSince}`);
+
+    // —— O. v1.11.0：纸箱 / 激光 / 梳毛 / 薄荷 / 纸飞机 / 小鸟 / 成长记录 ——
+    // 新五枚成就的第一道门槛都压在「多轮」上（box≥2 / laser≥3 / brush≥10 / catnip≥2 / plane≥2），
+    // 所以这一轮验的是玩具回执、计数与落盘；成就与跨重启由后面的 reload 段一并收。
+    const bondNow = () => evaluate(s, `(() => {
+      try { return JSON.parse(localStorage.getItem("cyrene.pet.bond.v1") ?? "null"); } catch { return null; }
+    })()`);
+    const v11Before = (await diag()).girl.stats;
+
+    // O1 纸箱：先躲进去 → 敲箱（箱身）→ 等到探头窗口 → 点头框 → 计数/落盘/收箱。
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("box")`);
+    await wait(240);
+    const boxA = await diag();
+    const boxASnap = await snap();
+    results.box = { a: boxA.girl.box, bubble: boxASnap.bubble?.text ?? null };
+    await shot("girl-box.png");
+    check("box.spawn",
+      !!boxA.girl.box && boxA.girl.box.phase !== "peek" && boxA.girl.box.left > 5_000
+        && !!boxA.girl.box.head,
+      `box=${JSON.stringify(boxA.girl.box)}`);
+    const boxKnock = await evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const b = d.girl.box;
+      if (!b) return { ok: false, why: "box gone" };
+      const z = d.layout.zoom;
+      const x = b.x + b.w / 2;
+      const y = b.y + b.h * 0.5;
+      window.__cyrene.renderer.tapAt(x * z, y * z, 40);
+      return { ok: true, x, y, phase: b.phase };
+    })()`);
+    await wait(200);
+    const boxB = await diag();
+    const boxBSnap = await snap();
+    results.box.knock = { attempt: boxKnock, box: boxB.girl.box, bubble: boxBSnap.bubble?.text ?? null };
+    check("box.knock", !!boxKnock?.ok && (boxB.girl.box?.knocks ?? 0) >= 1,
+      `attempt=${JSON.stringify(boxKnock)} box=${JSON.stringify(boxB.girl.box)}`);
+    check("box.knock-line", !!boxBSnap.bubble && BOX_KNOCK_LINES.includes(boxBSnap.bubble.text),
+      `bubble=${boxBSnap.bubble?.text ?? "null"}`);
+
+    let boxPeek = null;
+    const boxPeekDeadline = Date.now() + 4_500;
+    while (Date.now() < boxPeekDeadline) {
+      boxPeek = (await diag()).girl.box;
+      if (boxPeek?.phase === "peek" && boxPeek.head) break;
+      await wait(110);
+    }
+    results.box.peek = boxPeek;
+    check("box.peek", !!boxPeek && boxPeek.phase === "peek" && !!boxPeek.head,
+      `box=${JSON.stringify(boxPeek)}`);
+    const boxCatch = boxPeek?.head ? await evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const b = d.girl.box;
+      if (!b || !b.head) return { ok: false, why: "no head box" };
+      const z = d.layout.zoom;
+      window.__cyrene.renderer.tapAt(b.head.x * z, b.head.y * z, 40);
+      return { ok: true, x: b.head.x, y: b.head.y, phase: b.phase };
+    })()`) : null;
+    await wait(220);
+    const boxC = await diag();
+    const boxCSnap = await snap();
+    const bondAfterBox = await bondNow();
+    results.box.catch = {
+      attempt: boxCatch, box: boxC.girl.box, stats: boxC.girl.stats, bubble: boxCSnap.bubble?.text ?? null,
+    };
+    await shot("girl-box-caught.png");
+    check("box.catch",
+      !!boxCatch?.ok && boxC.girl.box?.caught === true && boxC.girl.stats.boxes === v11Before.boxes + 1,
+      `attempt=${JSON.stringify(boxCatch)} box=${JSON.stringify(boxC.girl.box)} stats=${JSON.stringify(boxC.girl.stats)}`);
+    check("box.line", !!boxCSnap.bubble && BOX_CATCH_LINES.includes(boxCSnap.bubble.text),
+      `bubble=${boxCSnap.bubble?.text ?? "null"}`);
+    check("box.persist", bondAfterBox?.stats?.boxes === boxC.girl.stats.boxes,
+      `bond.stats=${JSON.stringify(bondAfterBox?.stats ?? null)}`);
+    const boxDeadline = Date.now() + 4_000;
+    let boxLast = boxC.girl.box;
+    while (Date.now() < boxDeadline) {
+      boxLast = (await diag()).girl.box;
+      if (!boxLast) break;
+      await wait(180);
+    }
+    check("box.gone", !boxLast, `box=${JSON.stringify(boxLast)}`);
+
+    // O2 激光：红点在眼前画 Lissajous → 同一拍点击 → 计数/落盘 → 700ms 收场。
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("laser")`);
+    await wait(240);
+    const laserA = await diag();
+    const laserASnap = await snap();
+    results.laser = { a: laserA.girl.laser, bubble: laserASnap.bubble?.text ?? null };
+    await shot("girl-laser.png");
+    check("laser.spawn",
+      !!laserA.girl.laser && laserA.girl.laser.caught === false && laserA.girl.laser.left > 6_500,
+      `laser=${JSON.stringify(laserA.girl.laser)}`);
+    let laserTap = null;
+    for (let i = 0; i < 3; i += 1) {
+      laserTap = await evaluate(s, `(() => {
+        const d = window.__cyrene.getPetDiagnostics();
+        const l = d.girl.laser;
+        if (!l || l.caught) return { ok: false, why: "laser gone/caught" };
+        const z = d.layout.zoom;
+        window.__cyrene.renderer.tapAt(l.x * z, l.y * z, 40);
+        return { ok: true, x: l.x, y: l.y };
+      })()`);
+      await wait(140);
+      if ((await diag()).girl.laser?.caught) break;
+    }
+    const laserC = await diag();
+    const laserCSnap = await snap();
+    const bondAfterLaser = await bondNow();
+    results.laser.catch = {
+      attempt: laserTap, laser: laserC.girl.laser, stats: laserC.girl.stats, bubble: laserCSnap.bubble?.text ?? null,
+    };
+    check("laser.caught",
+      !!laserTap?.ok && laserC.girl.laser?.caught === true && laserC.girl.stats.lasers === v11Before.lasers + 1,
+      `attempt=${JSON.stringify(laserTap)} laser=${JSON.stringify(laserC.girl.laser)} stats=${JSON.stringify(laserC.girl.stats)}`);
+    check("laser.line", !!laserCSnap.bubble && LASER_LINES.includes(laserCSnap.bubble.text),
+      `bubble=${laserCSnap.bubble?.text ?? "null"}`);
+    check("laser.persist", bondAfterLaser?.stats?.lasers === laserC.girl.stats.lasers,
+      `bond.stats=${JSON.stringify(bondAfterLaser?.stats ?? null)}`);
+    const laserDeadline = Date.now() + 3_000;
+    let laserLast = laserC.girl.laser;
+    while (Date.now() < laserDeadline) {
+      laserLast = (await diag()).girl.laser;
+      if (!laserLast) break;
+      await wait(160);
+    }
+    check("laser.gone", !laserLast, `laser=${JSON.stringify(laserLast)}`);
+
+    // O3 梳毛：梳子沿她身上扫 → 1.4s 后已有第一道 → 点梳子加速 → 整轮 6s 才记一次。
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("brush")`);
+    await wait(240);
+    const brushA = await diag();
+    const brushASnap = await snap();
+    results.brush = { a: brushA.girl.brush, bubble: brushASnap.bubble?.text ?? null };
+    await shot("girl-brush.png");
+    check("brush.spawn",
+      !!brushA.girl.brush && brushA.girl.brush.left > 5_000 && brushA.girl.brush.strokes === 0,
+      `brush=${JSON.stringify(brushA.girl.brush)}`);
+    await wait(1_400);
+    const brushB = await diag();
+    results.brush.mid = brushB.girl.brush;
+    check("brush.strokes", (brushB.girl.brush?.strokes ?? 0) >= 1,
+      `brush=${JSON.stringify(brushB.girl.brush)}`);
+    const brushTap = await evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const b = d.girl.brush;
+      if (!b) return { ok: false, why: "brush gone" };
+      const z = d.layout.zoom;
+      window.__cyrene.renderer.tapAt(b.x * z, b.y * z, 40);
+      return { ok: true, x: b.x, y: b.y, strokes: b.strokes };
+    })()`);
+    await wait(180);
+    const brushC = await diag();
+    results.brush.tap = { attempt: brushTap, brush: brushC.girl.brush };
+    check("brush.boost", !!brushTap?.ok && (brushC.girl.brush?.boosts ?? 0) >= 1,
+      `attempt=${JSON.stringify(brushTap)} brush=${JSON.stringify(brushC.girl.brush)}`);
+    const brushDeadline = Date.now() + 7_000;
+    let brushLast = brushC.girl.brush;
+    while (Date.now() < brushDeadline) {
+      brushLast = (await diag()).girl.brush;
+      if (!brushLast) break;
+      await wait(220);
+    }
+    const brushDone = await diag();
+    const brushDoneSnap = await snap();
+    const bondAfterBrush = await bondNow();
+    results.brush.done = { stats: brushDone.girl.stats, bubble: brushDoneSnap.bubble?.text ?? null };
+    check("brush.done", !brushLast && brushDone.girl.stats.brushes === v11Before.brushes + 1,
+      `brush=${JSON.stringify(brushLast)} stats=${JSON.stringify(brushDone.girl.stats)}`);
+    check("brush.line", !!brushDoneSnap.bubble
+      && (BRUSH_LINES.includes(brushDoneSnap.bubble.text) || BOND_UP_LINES.includes(brushDoneSnap.bubble.text)),
+      `bubble=${brushDoneSnap.bubble?.text ?? "null"}`
+        + (BOND_UP_LINES.includes(brushDoneSnap.bubble?.text) ? "（升档优先，梳完那句按设计让位）" : ""));
+    check("brush.persist", bondAfterBrush?.stats?.brushes === brushDone.girl.stats.brushes,
+      `bond.stats=${JSON.stringify(bondAfterBrush?.stats ?? null)}`);
+
+    // O4 薄荷：叶束在脚边 → 戳一下多吸一口（只涨亲密度不计数）→ 整轮结束才记一次。
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("catnip")`);
+    await wait(240);
+    const catnipA = await diag();
+    const catnipASnap = await snap();
+    results.catnip = { a: catnipA.girl.catnip, bubble: catnipASnap.bubble?.text ?? null };
+    await shot("girl-catnip.png");
+    check("catnip.spawn",
+      !!catnipA.girl.catnip && ["sniff", "roll"].includes(catnipA.girl.catnip.phase)
+        && catnipA.girl.catnip.left > 5_000,
+      `catnip=${JSON.stringify(catnipA.girl.catnip)}`);
+    const catnipTap = await evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const c = d.girl.catnip;
+      if (!c) return { ok: false, why: "catnip gone" };
+      const z = d.layout.zoom;
+      window.__cyrene.renderer.tapAt(c.x * z, c.y * z, 40);
+      return { ok: true, x: c.x, y: c.y, phase: c.phase };
+    })()`);
+    await wait(200);
+    const catnipB = await diag();
+    results.catnip.puff = { attempt: catnipTap, catnip: catnipB.girl.catnip };
+    check("catnip.puff",
+      !!catnipTap?.ok && (catnipB.girl.catnip?.puffs ?? 0) >= 1 && catnipB.girl.stats.catnips === v11Before.catnips,
+      `attempt=${JSON.stringify(catnipTap)} catnip=${JSON.stringify(catnipB.girl.catnip)} stats=${JSON.stringify(catnipB.girl.stats)}`);
+    const catnipDeadline = Date.now() + 7_500;
+    let catnipLast = catnipB.girl.catnip;
+    while (Date.now() < catnipDeadline) {
+      catnipLast = (await diag()).girl.catnip;
+      if (!catnipLast) break;
+      await wait(220);
+    }
+    const catnipDone = await diag();
+    const catnipDoneSnap = await snap();
+    const bondAfterCatnip = await bondNow();
+    results.catnip.done = { stats: catnipDone.girl.stats, bubble: catnipDoneSnap.bubble?.text ?? null };
+    check("catnip.done", !catnipLast && catnipDone.girl.stats.catnips === v11Before.catnips + 1,
+      `catnip=${JSON.stringify(catnipLast)} stats=${JSON.stringify(catnipDone.girl.stats)}`);
+    check("catnip.line", !!catnipDoneSnap.bubble && CATNIP_LINES.includes(catnipDoneSnap.bubble.text),
+      `bubble=${catnipDoneSnap.bubble?.text ?? "null"}`);
+    check("catnip.persist", bondAfterCatnip?.stats?.catnips === catnipDone.girl.stats.catnips,
+      `bond.stats=${JSON.stringify(bondAfterCatnip?.stats ?? null)}`);
+
+    // O5 纸飞机：从窗一侧飞过整扇窗 → 同一拍点中 → 计数/落盘 → 900ms 收场。
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("plane")`);
+    await wait(320);
+    const planeA = await diag();
+    const planeASnap = await snap();
+    results.plane = { a: planeA.girl.plane, bubble: planeASnap.bubble?.text ?? null };
+    await shot("girl-plane.png");
+    check("plane.spawn",
+      !!planeA.girl.plane && planeA.girl.plane.caught === false && planeA.girl.plane.left > 6_000,
+      `plane=${JSON.stringify(planeA.girl.plane)}`);
+    let planeTap = null;
+    for (let i = 0; i < 3; i += 1) {
+      planeTap = await evaluate(s, `(() => {
+        const d = window.__cyrene.getPetDiagnostics();
+        const p = d.girl.plane;
+        if (!p || p.caught) return { ok: false, why: "plane gone/caught" };
+        const z = d.layout.zoom;
+        window.__cyrene.renderer.tapAt(p.x * z, p.y * z, 40);
+        return { ok: true, x: p.x, y: p.y };
+      })()`);
+      await wait(140);
+      if ((await diag()).girl.plane?.caught) break;
+    }
+    const planeC = await diag();
+    const planeCSnap = await snap();
+    const bondAfterPlane = await bondNow();
+    results.plane.catch = {
+      attempt: planeTap, plane: planeC.girl.plane, stats: planeC.girl.stats, bubble: planeCSnap.bubble?.text ?? null,
+    };
+    check("plane.caught",
+      !!planeTap?.ok && planeC.girl.plane?.caught === true && planeC.girl.stats.planes === v11Before.planes + 1,
+      `attempt=${JSON.stringify(planeTap)} plane=${JSON.stringify(planeC.girl.plane)} stats=${JSON.stringify(planeC.girl.stats)}`);
+    check("plane.line", !!planeCSnap.bubble && PLANE_LINES.includes(planeCSnap.bubble.text),
+      `bubble=${planeCSnap.bubble?.text ?? "null"}`);
+    check("plane.persist", bondAfterPlane?.stats?.planes === planeC.girl.stats.planes,
+      `bond.stats=${JSON.stringify(bondAfterPlane?.stats ?? null)}`);
+    const planeDeadline = Date.now() + 3_000;
+    let planeLast = planeC.girl.plane;
+    while (Date.now() < planeDeadline) {
+      planeLast = (await diag()).girl.plane;
+      if (!planeLast) break;
+      await wait(160);
+    }
+    check("plane.gone", !planeLast, `plane=${JSON.stringify(planeLast)}`);
+
+    // O6 小鸟：飞进来 → 停稳才可点 → 点它受惊飞走；全程不产数值。
+    await dismissBubble();
+    await wait(260);
+    const birdBefore = (await diag()).girl.stats;
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("bird")`);
+    await wait(220);
+    const birdA = await diag();
+    const birdASnap = await snap();
+    results.bird = { a: birdA.girl.bird, bubble: birdASnap.bubble?.text ?? null };
+    check("bird.spawn",
+      !!birdA.girl.bird && birdA.girl.bird.pose === "in" && birdA.girl.bird.clickable === false
+        && birdA.girl.bird.left > 6_000,
+      `bird=${JSON.stringify(birdA.girl.bird)}`);
+    check("bird.call", !!birdASnap.bubble && BIRD_LINES.includes(birdASnap.bubble.text),
+      `bubble=${birdASnap.bubble?.text ?? "null"}`);
+    let birdPerch = null;
+    const birdPerchDeadline = Date.now() + 4_000;
+    while (Date.now() < birdPerchDeadline) {
+      birdPerch = (await diag()).girl.bird;
+      if (birdPerch?.pose === "perch" && birdPerch.clickable) break;
+      await wait(110);
+    }
+    results.bird.perch = birdPerch;
+    check("bird.perch", !!birdPerch && birdPerch.pose === "perch" && birdPerch.clickable === true,
+      `bird=${JSON.stringify(birdPerch)}`);
+    await shot("girl-bird.png");
+    const birdTap = birdPerch ? await evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const b = d.girl.bird;
+      if (!b) return { ok: false, why: "bird gone" };
+      const z = d.layout.zoom;
+      window.__cyrene.renderer.tapAt(b.x * z, b.y * z, 40);
+      return { ok: true, x: b.x, y: b.y, pose: b.pose };
+    })()`) : null;
+    await wait(200);
+    const birdB = await diag();
+    const birdBSnap = await snap();
+    const birdAfter = birdB.girl.stats;
+    results.bird.flee = { attempt: birdTap, bird: birdB.girl.bird, bubble: birdBSnap.bubble?.text ?? null, stats: birdAfter };
+    await shot("girl-bird-away.png");
+    check("bird.flee", !!birdTap?.ok && !!birdB.girl.bird && birdB.girl.bird.pose === "away",
+      `attempt=${JSON.stringify(birdTap)} bird=${JSON.stringify(birdB.girl.bird)}`);
+    check("bird.line", !!birdBSnap.bubble && BIRD_AWAY_LINES.includes(birdBSnap.bubble.text),
+      `bubble=${birdBSnap.bubble?.text ?? "null"}`);
+    check("bird.no-stats", JSON.stringify(birdAfter) === JSON.stringify(birdBefore),
+      `before=${JSON.stringify(birdBefore)} after=${JSON.stringify(birdAfter)}`);
+    const birdDeadline = Date.now() + 3_000;
+    let birdLast = birdB.girl.bird;
+    while (Date.now() < birdDeadline) {
+      birdLast = (await diag()).girl.bird;
+      if (!birdLast) break;
+      await wait(160);
+    }
+
+    // O7 成长记录：两行以内、徽章数与互动总数与读数同源（不许另算一套）。
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("growth")`);
+    await wait(200);
+    const growthSnap = await snap();
+    const growthDiag = await diag();
+    const growthText = growthSnap.bubble?.text ?? "";
+    const growthLines = growthText.split("\n");
+    const growthStats = growthDiag.girl.stats;
+    const growthTotal = Object.values(growthStats).reduce((acc, n) => acc + n, 0);
+    const growthTail = growthLines[1]?.match(/^徽章 (\d+)\/10 · 互动 (\d+) 次$/);
+    results.growth = {
+      text: growthText,
+      achievements: growthDiag.girl.achievements.length,
+      total: growthTotal,
+      stats: growthStats,
+    };
+    await shot("girl-growth.png");
+    check("growth.lines",
+      growthLines.length === 2 && / · 第 \d+ 天$/.test(growthLines[0] ?? "") && !!growthTail,
+      `bubble=${JSON.stringify(growthText)}`);
+    check("growth.agrees",
+      !!growthTail && Number(growthTail[1]) === growthDiag.girl.achievements.length
+        && Number(growthTail[2]) === growthTotal,
+      `徽章=${growthTail?.[1]} achievements=${growthDiag.girl.achievements.length} 互动=${growthTail?.[2]} total=${growthTotal}`);
   }
 
   // —— M. v1.9.0：纪念日与久别重逢 ——
@@ -1197,6 +1566,7 @@ async function main() {
           daysShown: d.girl.milestoneDays,
           above: d.girl.fx.above,
           achievements: d.girl.achievements ?? [],
+          stats: d.girl.stats,
         };
       })()`, 5_000).catch(() => null);
       const deadline = Date.now() + 25_000;
@@ -1230,6 +1600,7 @@ async function main() {
       daysShown: m.daysShown,
       above: m.above,
       achievements: m.achievements ?? [],
+      stats: m.stats ?? null,
       matched: milestone.ok,
     };
     check("milestone.days", m.days === 7, `days=${m.days}`);
@@ -1242,6 +1613,10 @@ async function main() {
     check("milestone.achievements",
       ["first-catch", "first-wand", "seven-days"].every((id) => (m.achievements ?? []).includes(id)),
       `achievements=${JSON.stringify(m.achievements)}`);
+    // v1.11：六件新玩具的计数也必须在整页重载后从 bond 盘上回来（各自正好一轮）。
+    check("milestone.stats",
+      ["boxes", "lasers", "brushes", "catnips", "planes"].every((k) => (m.stats?.[k] ?? -1) === 1),
+      `stats=${JSON.stringify(m.stats ?? null)}`);
 
     await patchBondAndReload(`
       bond.metAt = now;

@@ -132,7 +132,10 @@ describe("玩具箱的闸门与存档", () => {
     expect(engine.leafToss(T0)).toBe(false);
     expect(engine.followStart(T0)).toBe(false);
     expect(engine.rpsPlay("rock", T0)).toBeNull();
-    expect(engine.getSnapshot().stats).toEqual({ pats: 0, catches: 0, wand: 0, bubbles: 0, pounces: 0 });
+    expect(engine.getSnapshot().stats).toEqual({
+      pats: 0, catches: 0, wand: 0, bubbles: 0, pounces: 0,
+      boxes: 0, lasers: 0, brushes: 0, catnips: 0, planes: 0,
+    });
   });
 
   it("睡着时同样不接（叫醒只能靠摸/戳）", () => {
@@ -156,7 +159,10 @@ describe("玩具箱的闸门与存档", () => {
 
     const again = new CompanionEngine({ storage, now: () => T0, random: seq([0.5]) });
     again.setForm("girl");
-    expect(again.getSnapshot().stats).toEqual({ pats: 0, catches: 1, wand: 1, bubbles: 0, pounces: 0 });
+    expect(again.getSnapshot().stats).toEqual({
+      pats: 0, catches: 1, wand: 1, bubbles: 0, pounces: 0,
+      boxes: 0, lasers: 0, brushes: 0, catnips: 0, planes: 0,
+    });
     expect(again.getSnapshot().achievements).toEqual(["first-wand", "first-catch"]);
     expect(again.getSnapshot().achievementId).toBeNull();
 

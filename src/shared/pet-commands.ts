@@ -13,6 +13,8 @@ export type PetCommand =
   | "summon-critter" | "wander"
   /** 猫娘专属玩具：逗猫棒 / 泡泡 / 落叶 / 跟着光标走 / 猜拳。 */
   | "wand" | "bubbles" | "leaves" | "follow"
+  /** 猫娘专属玩具 V：纸箱 / 激光笔 / 梳毛 / 猫薄荷 / 纸飞机 / 小鸟来访 / 成长记录。 */
+  | "box" | "laser" | "brush" | "catnip" | "plane" | "bird" | "growth"
   | RpsCommand
   | AccessoryCommand;
 
@@ -26,6 +28,7 @@ const BASE_COMMANDS: ReadonlyArray<PetCommand> = [
   "wave", "bow", "nod", "tilt", "hop", "stretch", "clap",
   "summon-critter", "wander",
   "wand", "bubbles", "leaves", "follow",
+  "box", "laser", "brush", "catnip", "plane", "bird", "growth",
 ];
 
 export const PET_COMMANDS: ReadonlyArray<PetCommand> = [
@@ -47,8 +50,8 @@ export function accessoryCommandFor(id: AccessoryId): AccessoryCommand {
  * 手势命令 → 手势 id（`motion.ts` 的 GESTURE_IDS 子集）。
  *
  * 只收「纯表演、不牵动身体状态」的几个：招手/鞠躬/点头/歪头/跳一下/伸懒腰/鼓掌。
- * 睡觉与吃东西不在这里——它们会改 vitals 或进入长动作，混进「做个动作」会被当成
- * 真的喂食/催眠，用户点一下只是想让猫动一下而已。
+ * 睡觉与吃东西不在这里——它们会改 vitals 或进入长动作，混进「做个动作」
+ * 会被当成真的喂食/催眠，用户点一下只是想让猫动一下而已。
  */
 export const GESTURE_COMMANDS: Readonly<Partial<Record<PetCommand, string>>> = {
   wave: "wave",

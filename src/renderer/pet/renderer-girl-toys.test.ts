@@ -178,7 +178,10 @@ describe("v1.10.0 玩具箱接缝", () => {
     }
     const d = r.getGirlDiagnostics(clock.ms);
     expect([d.wand, d.bubbles, d.leaves, d.rps, d.follow]).toEqual([null, null, null, null, null]);
-    expect(d.stats).toEqual({ pats: 0, catches: 0, wand: 0, bubbles: 0, pounces: 0 });
+    expect(d.stats).toEqual({
+      pats: 0, catches: 0, wand: 0, bubbles: 0, pounces: 0,
+      boxes: 0, lasers: 0, brushes: 0, catnips: 0, planes: 0,
+    });
     r.dispose();
   });
 

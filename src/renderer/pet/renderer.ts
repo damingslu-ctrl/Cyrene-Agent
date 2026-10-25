@@ -91,6 +91,76 @@ import { FOLLOW_MS, followArrived, followNeedsStep, followTargetX } from "./girl
 import { ACHIEVEMENT_MS, buildAchievementOps } from "./girl-achievements";
 import { buildDreamOps } from "./girl-dream";
 import { buildRpsOps, buildRpsPlayerOps, RPS_MS, type RpsState } from "./girl-rps";
+import {
+  BOX_MS,
+  BOX_POP_MS,
+  buildBoxOps,
+  boxAlive,
+  boxAt,
+  boxHeadRect,
+  boxPhase,
+  boxRectFor,
+  catchBox,
+  createBox,
+  knockBox,
+  type BoxState,
+} from "./girl-box";
+import {
+  LASER_MS,
+  LASER_CATCH_MS,
+  buildLaserOps,
+  catchLaser,
+  createLaser,
+  laserAlive,
+  laserAt,
+  laserAtPoint,
+  laserBoundsFor,
+  type LaserState,
+} from "./girl-laser";
+import {
+  BRUSH_MS,
+  buildBrushOps,
+  boostBrush,
+  brushAlive,
+  brushAt,
+  brushStrokes,
+  brushSweep,
+  createBrush,
+  type BrushState,
+} from "./girl-brush";
+import {
+  CATNIP_MS,
+  buildCatnipOps,
+  catnipAlive,
+  catnipAt,
+  catnipAtPoint,
+  catnipPhase,
+  createCatnip,
+  puffCatnip,
+  type CatnipState,
+} from "./girl-catnip";
+import {
+  PLANE_MS,
+  PLANE_CATCH_MS,
+  buildPlaneOps,
+  catchPlane,
+  createPlane,
+  planeAlive,
+  planeAt,
+  planeAtPoint,
+  type PlaneState,
+} from "./girl-plane";
+import {
+  BIRD_MS,
+  buildBirdOps,
+  birdAlive,
+  birdAt,
+  birdAtPoint,
+  birdClickable,
+  createBird,
+  scareBird,
+  type BirdState,
+} from "./girl-bird";
 import { rpsFromCommand } from "../../shared/pet-rps";
 import { GESTURE_COMMANDS, accessoryFromCommand, type PetCommand } from "../../shared/pet-commands";
 import type { WorkStatusTier } from "../../shared/work-status-types";
@@ -260,11 +330,17 @@ export class PixelPetRenderer {
   private nextCritterAt = 0;
   /** 喂食的小鱼干道具；null = 没在演。 */
   private snack: SnackState | null = null;
-  /** 逗猫棒 / 泡泡 / 落叶 / 猜拳：各自一条时间线，命令或点击推进。 */
+  /** 逗猫棒 / 泡泡 / 落叶 / 猜拳 / 纸箱 / 激光 / 梳毛 / 薄荷 / 纸飞机 / 小鸟：各自一条时间线。 */
   private wand: WandState | null = null;
   private bubbles: BubbleState | null = null;
   private leaves: LeafState | null = null;
   private rps: RpsState | null = null;
+  private box: BoxState | null = null;
+  private laser: LaserState | null = null;
+  private brush: BrushState | null = null;
+  private catnip: CatnipState | null = null;
+  private plane: PlaneState | null = null;
+  private bird: BirdState | null = null;
   /** 走路留下的爪印（屏幕坐标，窗口搬走时留在桌布上）。 */
   private prints: PawMark[] = [];
   private lastPrintAt = 0;
@@ -526,6 +602,26 @@ export class PixelPetRenderer {
       else this.startFollow(now);
       return;
     }
+    if (command === "box" || command === "laser" || command === "brush"
+      || command === "catnip" || command === "plane" || command === "bird") {
+      const now = performance.now();
+      if (command === "box") this.startBox(now);
+      else if (command === "laser") this.startLaser(now);
+      else if (command === "brush") this.startBrush(now);
+      else if (command === "catnip") this.startCatnip(now);
+      else if (command === "plane") this.startPlane(now);
+      else this.startBird(now);
+      return;
+    }
+    if (command === "growth") {
+      // 成长记录只是说一句：数值口径全在引擎里，渲染端不另算一份。
+      const now = performance.now();
+      if (this.engine?.growthReport(now)) {
+        this.engine.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
     const accessory = accessoryFromCommand(command);
     if (accessory) {
       const now = performance.now();
@@ -617,6 +713,17 @@ export class PixelPetRenderer {
     bubbles: { live: number; left: number; spots: Array<{ x: number; y: number; r: number }> } | null;
     leaves: { left: number } | null;
     rps: { player: string; her: string; outcome: string; left: number } | null;
+    /** v1.11.0：纸箱/激光/梳毛/薄荷/纸飞机/小鸟的读数口（探针与点击同一拍坐标）。 */
+    box: {
+      x: number; y: number; w: number; h: number; phase: string;
+      head: { x: number; y: number; w: number; h: number } | null;
+      knocks: number; caught: boolean; left: number;
+    } | null;
+    laser: { x: number; y: number; caught: boolean; left: number } | null;
+    brush: { x: number; y: number; s: number; strokes: number; boosts: number; left: number } | null;
+    catnip: { x: number; y: number; phase: string; puffs: number; left: number } | null;
+    plane: { x: number; y: number; caught: boolean; left: number } | null;
+    bird: { x: number; y: number; pose: string; clickable: boolean; left: number } | null;
     prints: number;
     follow: { left: number; lastTargetX: number; arrived: boolean } | null;
     achievements: string[];
@@ -628,6 +735,97 @@ export class PixelPetRenderer {
     nightCheckInMs: number;
   } {
     const snapshot = this.engine?.getSnapshot();
+    const face = this.girlFaceAt(now);
+    const floorY = this.cat.center.y;
+    const facing = this.cat.facing ?? 1;
+    let boxDiag: {
+      x: number; y: number; w: number; h: number; phase: string;
+      head: { x: number; y: number; w: number; h: number } | null;
+      knocks: number; caught: boolean; left: number;
+    } | null = null;
+    if (this.box) {
+      const phase = boxPhase(this.box, now);
+      if (phase !== "gone") {
+        const rect = boxRectFor(this.box, now, face, floorY);
+        const head = boxHeadRect(this.box, now, face);
+        boxDiag = {
+          x: rect.x + rect.w / 2,
+          y: rect.y + rect.h / 2,
+          w: rect.w,
+          h: rect.h,
+          phase,
+          head: { x: head.x + head.w / 2, y: head.y + head.h / 2, w: head.w, h: head.h },
+          knocks: this.box.knocks,
+          caught: this.box.poppedAt >= 0,
+          left: this.box.poppedAt >= 0
+            ? Math.max(0, BOX_POP_MS - (now - this.box.poppedAt))
+            : Math.max(0, BOX_MS - (now - this.box.bornAt)),
+        };
+      }
+    }
+    let laserDiag: { x: number; y: number; caught: boolean; left: number } | null = null;
+    if (this.laser && laserAlive(this.laser, now)) {
+      const dot = laserAt(this.laser, now, laserBoundsFor(face, floorY));
+      laserDiag = {
+        x: dot.x,
+        y: dot.y,
+        caught: this.laser.caughtAt >= 0,
+        left: this.laser.caughtAt >= 0
+          ? Math.max(0, LASER_CATCH_MS - (now - this.laser.caughtAt))
+          : Math.max(0, LASER_MS - (now - this.laser.bornAt)),
+      };
+    }
+    let brushDiag: { x: number; y: number; s: number; strokes: number; boosts: number; left: number } | null = null;
+    if (this.brush && brushAlive(this.brush, now)) {
+      const sweep = brushSweep(this.brush, now, face, facing, floorY);
+      brushDiag = {
+        x: sweep.x,
+        y: sweep.y,
+        s: sweep.s,
+        strokes: brushStrokes(this.brush, now),
+        boosts: this.brush.boosts,
+        left: Math.max(0, BRUSH_MS - (now - this.brush.bornAt)),
+      };
+    }
+    let catnipDiag: { x: number; y: number; phase: string; puffs: number; left: number } | null = null;
+    if (this.catnip) {
+      const phase = catnipPhase(this.catnip, now);
+      if (phase !== "gone") {
+        const sprig = catnipAt(this.catnip, now, face, floorY, facing);
+        catnipDiag = {
+          x: sprig.x,
+          y: sprig.y,
+          phase,
+          puffs: this.catnip.puffs,
+          left: Math.max(0, CATNIP_MS - (now - this.catnip.bornAt)),
+        };
+      }
+    }
+    let planeDiag: { x: number; y: number; caught: boolean; left: number } | null = null;
+    if (this.plane && planeAlive(this.plane, now)) {
+      const pos = planeAt(this.plane, now, face, floorY);
+      planeDiag = {
+        x: pos.x,
+        y: pos.y,
+        caught: this.plane.caughtAt >= 0,
+        left: this.plane.caughtAt >= 0
+          ? Math.max(0, PLANE_CATCH_MS - (now - this.plane.caughtAt))
+          : Math.max(0, PLANE_MS - (now - this.plane.bornAt)),
+      };
+    }
+    let birdDiag: { x: number; y: number; pose: string; clickable: boolean; left: number } | null = null;
+    if (this.bird) {
+      const pos = birdAt(this.bird, now, face);
+      if (pos.pose !== "gone") {
+        birdDiag = {
+          x: pos.x,
+          y: pos.y,
+          pose: pos.pose,
+          clickable: birdClickable(this.bird, now, face),
+          left: Math.max(0, BIRD_MS - (now - this.bird.bornAt)),
+        };
+      }
+    }
     return {
       presence: { ...this.presencePose },
       noticeAgeMs: this.noticeAt < 0 ? -1 : now - this.noticeAt,
@@ -687,6 +885,12 @@ export class PixelPetRenderer {
       rps: this.rps && now - this.rps.bornAt < RPS_MS
         ? { ...this.rps, left: Math.max(0, RPS_MS - (now - this.rps.bornAt)) }
         : null,
+      box: boxDiag,
+      laser: laserDiag,
+      brush: brushDiag,
+      catnip: catnipDiag,
+      plane: planeDiag,
+      bird: birdDiag,
       prints: this.prints.length,
       follow: this.follow
         ? { left: Math.max(0, this.follow.until - now), lastTargetX: this.follow.lastTargetX, arrived: this.follow.arrived }
@@ -695,7 +899,10 @@ export class PixelPetRenderer {
       achievement: snapshot?.achievementId && snapshot.achievementLeft > 0
         ? { id: snapshot.achievementId, left: snapshot.achievementLeft }
         : null,
-      stats: snapshot?.stats ?? { pats: 0, catches: 0, wand: 0, bubbles: 0, pounces: 0 },
+      stats: snapshot?.stats ?? {
+        pats: 0, catches: 0, wand: 0, bubbles: 0, pounces: 0,
+        boxes: 0, lasers: 0, brushes: 0, catnips: 0, planes: 0,
+      },
       sleepSince: this.sleepSince,
       nightCheckInMs: Math.max(0, NIGHT_NUDGE_POLL_MS - (now - this.lastNightNudgeCheckAt)),
     };
@@ -1023,37 +1230,118 @@ export class PixelPetRenderer {
     return this.cat.mood === "sleep" || activity === "sleep" || activity === "drag" || activity === "thrown";
   }
 
-  private startWand(now: number): boolean {
-    if (this.form !== "girl" || this.quiet || this.dragging || this.girlBusyForToys()) return false;
-    this.wand = createWand(now);
+  /**
+   * 起一件独演玩具前，先把上一件收干净：头顶/脚边只留一条时间线。
+   * 被顶掉的那一件不结算（梳毛中途换玩具＝没梳完，不计数也不说话）。
+   */
+  private clearSoloToys(): void {
+    this.wand = null;
     this.bubbles = null;
+    this.leaves = null;
+    this.rps = null;
+    this.box = null;
+    this.laser = null;
+    this.brush = null;
+    this.catnip = null;
+    this.plane = null;
+    this.bird = null;
+  }
+
+  /** 本地闸门（安静/拖拽/睡着/被抛）；引擎另有更细的闸（眩晕/活动中）。 */
+  private soloToyAllowed(): boolean {
+    return this.form === "girl" && !this.quiet && !this.dragging && !this.girlBusyForToys();
+  }
+
+  private startWand(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    this.clearSoloToys();
+    this.wand = createWand(now);
     this.engine?.say("羽毛在这儿——", 1, now, true);
     if (!this.paused) this.draw(now);
     return true;
   }
 
   private startBubbles(now: number): boolean {
-    if (this.form !== "girl" || this.quiet || this.dragging || this.girlBusyForToys()) return false;
+    if (!this.soloToyAllowed()) return false;
+    this.clearSoloToys();
     this.bubbles = createBubbles(now, this.girlFaceAt(now));
-    this.wand = null;
     this.engine?.say("看，泡泡——", 1, now, true);
     if (!this.paused) this.draw(now);
     return true;
   }
 
   private startLeaves(now: number): boolean {
-    if (this.form !== "girl" || this.quiet || this.dragging || this.girlBusyForToys()) return false;
+    if (!this.soloToyAllowed()) return false;
     if (!this.engine?.leafToss(now)) return false;
+    this.clearSoloToys();
     this.leaves = createLeaves(now, this.girlFaceAt(now));
     if (!this.paused) this.draw(now);
     return true;
   }
 
   private startRps(sign: "rock" | "scissors" | "paper", now: number): boolean {
-    if (this.form !== "girl" || this.quiet || this.dragging || this.girlBusyForToys()) return false;
+    if (!this.soloToyAllowed()) return false;
     const result = this.engine?.rpsPlay(sign, now);
     if (!result) return false;
+    this.clearSoloToys();
     this.rps = { ...result, bornAt: now };
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startBox(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.boxStart(now)) return false;
+    this.clearSoloToys();
+    this.box = createBox(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startLaser(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.laserStart(now)) return false;
+    this.clearSoloToys();
+    this.laser = createLaser(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startBrush(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.brushStart(now)) return false;
+    this.clearSoloToys();
+    this.brush = createBrush(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startCatnip(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.catnipStart(now)) return false;
+    this.clearSoloToys();
+    this.catnip = createCatnip(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startPlane(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.planeStart(now)) return false;
+    this.clearSoloToys();
+    this.plane = createPlane(now, this.cat.facing ?? 1);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startBird(now: number): boolean {
+    // 小鸟只是来看她一眼：睡着也允许落在窗框上，只有被拖/被抛时不许。
+    if (this.form !== "girl" || this.quiet || this.dragging) return false;
+    const activity = this.engine?.getSnapshot().activity;
+    if (activity === "drag" || activity === "thrown") return false;
+    if (this.engine && !this.engine.birdVisit(now)) return false;
+    this.clearSoloToys();
+    this.bird = createBird(now);
     if (!this.paused) this.draw(now);
     return true;
   }
@@ -1160,6 +1448,85 @@ export class PixelPetRenderer {
     return ops;
   }
 
+  private tickBox(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.box) {
+      this.box = null;
+      return [];
+    }
+    if (!boxAlive(this.box, now)) {
+      this.box = null;
+      return [];
+    }
+    return buildBoxOps(this.box, now, face, this.cat.center.y);
+  }
+
+  private tickLaser(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.laser) {
+      this.laser = null;
+      return [];
+    }
+    if (!laserAlive(this.laser, now)) {
+      const missed = this.laser.caughtAt < 0;
+      this.laser = null;
+      if (missed) this.engine?.laserEnd(now, false);
+      return [];
+    }
+    return buildLaserOps(this.laser, now, face, this.cat.center.y);
+  }
+
+  private tickBrush(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.brush) {
+      this.brush = null;
+      return [];
+    }
+    if (!brushAlive(this.brush, now)) {
+      // 六秒正好四趟：走到自然收尾就是整轮梳完；中途被别的玩具顶掉的不结算。
+      this.brush = null;
+      this.engine?.brushEnd(now, true);
+      return [];
+    }
+    return buildBrushOps(this.brush, now, face, this.cat.facing ?? 1, this.cat.center.y);
+  }
+
+  private tickCatnip(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.catnip) {
+      this.catnip = null;
+      return [];
+    }
+    if (!catnipAlive(this.catnip, now)) {
+      this.catnip = null;
+      this.engine?.catnipEnd(now, true);
+      return [];
+    }
+    return buildCatnipOps(this.catnip, now, face, this.cat.center.y, this.cat.facing ?? 1);
+  }
+
+  private tickPlane(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.plane) {
+      this.plane = null;
+      return [];
+    }
+    if (!planeAlive(this.plane, now)) {
+      const missed = this.plane.caughtAt < 0;
+      this.plane = null;
+      if (missed) this.engine?.planeEnd(now, false);
+      return [];
+    }
+    return buildPlaneOps(this.plane, now, face, this.cat.center.y);
+  }
+
+  private tickBird(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.bird) {
+      this.bird = null;
+      return [];
+    }
+    if (!birdAlive(this.bird, now, face)) {
+      this.bird = null;
+      return [];
+    }
+    return buildBirdOps(this.bird, now, face);
+  }
+
   private tickPrints(now: number, snapshot: CompanionSnapshot | null): DrawOp[] {
     stepPrints(this.prints, now);
     if (this.form !== "girl" || !this.catOrigin) {
@@ -1187,6 +1554,13 @@ export class PixelPetRenderer {
       ...this.tickBubbles(now),
       ...this.tickLeaves(now),
       ...this.tickRps(now, face),
+      ...this.tickLaser(now, face),
+      ...this.tickBrush(now, face),
+      ...this.tickCatnip(now, face),
+      ...this.tickPlane(now, face),
+      ...this.tickBird(now, face),
+      // 纸箱压在所有道具之上：她钻进去时箱身必须挡住整个人。
+      ...this.tickBox(now, face),
     ];
     ops.push(...buildDreamOps(now, this.sleepSince, face, this.quiet, this.cat.mood));
     if (snapshot?.achievementId && snapshot.achievementLeft > 0) {
@@ -1571,6 +1945,8 @@ export class PixelPetRenderer {
     const propAnimating = this.form === "girl" && (
       this.wand !== null || this.bubbles !== null || this.leaves !== null
       || this.rps !== null || this.prints.length > 0
+      || this.box !== null || this.laser !== null || this.brush !== null
+      || this.catnip !== null || this.plane !== null || this.bird !== null
       || (snapshot !== null && snapshot.achievementLeft > 0)
     );
     if (moving || toyMoving) this.fps = FPS_HOVER;
@@ -1629,9 +2005,14 @@ export class PixelPetRenderer {
         const baseFace = girlFaceBox(baseBody, sample.index);
         const zoom = this.zoom || 1;
         // 注视目标是窗口内容 css 坐标，绘制空间要除 zoom（与 isPointOnBubble/tapAt 同口径）。
-        const gaze: Point2 | null = this.gazeTarget && dizzyLeft <= 0
+        let gaze: Point2 | null = this.gazeTarget && dizzyLeft <= 0
           ? [this.gazeTarget[0] / zoom, this.gazeTarget[1] / zoom]
           : null;
+        // 激光笔在眼前晃：她的视线归红点，不归用户光标。
+        if (this.laser && this.laser.caughtAt < 0) {
+          const dot = laserAt(this.laser, now, laserBoundsFor(baseFace, this.cat.center.y));
+          gaze = [dot.x, dot.y];
+        }
         // 走路/拖拽/投掷的方向归物理，睡着与被逗晕时不跟。
         const allowTurn = (activity === "idle" || activity === "rest") && dizzyLeft <= 0;
         const awake = this.cat.mood !== "sleep" && !this.quiet;
@@ -1790,6 +2171,12 @@ export class PixelPetRenderer {
     this.bubbles = null;
     this.leaves = null;
     this.rps = null;
+    this.box = null;
+    this.laser = null;
+    this.brush = null;
+    this.catnip = null;
+    this.plane = null;
+    this.bird = null;
     this.prints = [];
     this.lastPrintAt = 0;
     this.follow = null;
@@ -1868,9 +2255,71 @@ export class PixelPetRenderer {
         return;
       }
     }
-    // 伴飞小虫先截：它绕着脸飞，落在「头」分区里；不先拦，捉虫会被读成摸头。
     const tapFrame = this.girlAnimReady ? this.girlPlayer.sample(now).index : 0;
     const tapFace = girlFaceBox(girlAnimBodyFor(this.cat), tapFrame);
+    // v1.11.0 六件新玩具画在小虫和毛线球之上：命中顺序跟绘制顺序走。
+    // 尤其纸箱整只盖住脚边的球，球却先被点中过一次（v1.11 真窗探针 O1 抓到）。
+    const tapFacing = this.cat.facing ?? 1;
+    const tapFloorY = this.cat.center.y;
+    if (this.box) {
+      const hit = boxAt(this.box, now, tapFace, tapFloorY, dx, dy);
+      if (hit === "head" && this.engine?.boxCatch(now)) {
+        catchBox(this.box, now);
+        this.engine.save();
+        if (!this.paused) this.draw(now);
+        return;
+      }
+      if (hit !== null) {
+        // 点箱面＝敲门；冷却期内的连点吞掉，不许穿过箱子摸到她。
+        if (knockBox(this.box, now)) {
+          this.engine?.boxKnock(now);
+          this.engine?.save();
+          if (!this.paused) this.draw(now);
+        }
+        return;
+      }
+    }
+    if (this.laser && laserAtPoint(this.laser, now, laserBoundsFor(tapFace, tapFloorY), tapFace, dx, dy)) {
+      if (this.engine?.laserEnd(now, true)) {
+        catchLaser(this.laser, now);
+        this.engine.save();
+        if (!this.paused) this.draw(now);
+        return;
+      }
+    }
+    if (this.brush && brushAt(this.brush, now, tapFace, tapFacing, tapFloorY, dx, dy)) {
+      if (boostBrush(this.brush, now, dx, dy)) {
+        this.engine?.brushBoost(now);
+        this.engine?.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
+    if (this.catnip && catnipAtPoint(this.catnip, now, tapFace, tapFloorY, tapFacing, dx, dy)) {
+      if (puffCatnip(this.catnip, now)) {
+        this.engine?.catnipPuff(now);
+        this.engine?.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
+    if (this.plane && planeAtPoint(this.plane, now, tapFace, tapFloorY, dx, dy)) {
+      if (this.engine?.planeEnd(now, true)) {
+        catchPlane(this.plane, now, tapFace, tapFloorY);
+        this.engine.save();
+        if (!this.paused) this.draw(now);
+        return;
+      }
+    }
+    if (this.bird && birdAtPoint(this.bird, now, tapFace, dx, dy)) {
+      if (scareBird(this.bird, now)) {
+        this.engine?.birdFlee(now);
+        this.engine?.save();
+        if (!this.paused) this.draw(now);
+        return;
+      }
+    }
+    // 伴飞小虫先截：它绕着脸飞，落在「头」分区里；不先拦，捉虫会被读成摸头。
     if (this.critter && critterAt(this.critter, now, tapFace, dx, dy)) {
       // 先问引擎：睡着/被拖着时捉不到，这一下应该继续走分区而不是被吞掉。
       if (this.engine?.catchCritter(now)) {

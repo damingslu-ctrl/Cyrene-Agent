@@ -39,9 +39,13 @@ describe("右键菜单命令表", () => {
     }
   });
 
-  it("玩具箱四条与猜拳三条都在命令表里，猜拳走 `rps:<手型>`", () => {
-    for (const command of ["wand", "bubbles", "leaves", "follow"]) {
+  it("玩具箱两条线都在命令表里：v1.10 四条 + v1.11 六件 + 成长记录，猜拳走 `rps:<手型>`", () => {
+    for (const command of [
+      "wand", "bubbles", "leaves", "follow",
+      "box", "laser", "brush", "catnip", "plane", "bird", "growth",
+    ]) {
       expect(PET_COMMANDS as readonly string[]).toContain(command);
+      expect(isPetCommand(command), command).toBe(true);
     }
     expect(RPS_COMMANDS).toEqual(RPS_SIGNS.map((sign) => `rps:${sign}`));
     for (const command of RPS_COMMANDS) expect(isPetCommand(command), command).toBe(true);

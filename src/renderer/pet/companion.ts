@@ -21,6 +21,7 @@ import {
 import { normalizeAccessory, type AccessoryId } from "../../shared/pet-accessory";
 import { MILESTONE_MS, milestoneFor, milestoneKey, parseCelebrated } from "./girl-milestone";
 import {
+  ACHIEVEMENT_IDS,
   ACHIEVEMENT_MS,
   achievementById,
   newlyUnlocked,
@@ -247,6 +248,21 @@ export const GIRL_RPS_LINES: Record<RpsOutcome, readonly string[]> = {
   lose: ["呜…输了", "再来一局嘛"],
   draw: ["平局！", "我们想到一块了"],
 };
+export const GIRL_BOX_START_LINES = ["箱子？是给我的吗", "我先钻进去看看"];
+export const GIRL_BOX_KNOCK_LINES = ["谁呀？", "在、在的！"];
+export const GIRL_BOX_CATCH_LINES = ["被、被发现了！", "里面很舒服的"];
+export const GIRL_LASER_START_LINES = ["红点点！别跑——", "那个红的是什么？"];
+export const GIRL_LASER_LINES = ["抓到了！", "红点点被我按住啦"];
+export const GIRL_LASER_MISS_LINES = ["逃掉了…", "红点点去哪儿了"];
+export const GIRL_BRUSH_START_LINES = ["梳毛？好呀…", "轻、轻一点哦"];
+export const GIRL_BRUSH_LINES = ["呼…舒服得想睡", "毛都顺了", "还要再梳"];
+export const GIRL_CATNIP_START_LINES = ["这个味道…有点上头", "薄荷？我只闻一下"];
+export const GIRL_CATNIP_LINES = ["地板…在转圈", "晕乎乎的…好开心"];
+export const GIRL_PLANE_START_LINES = ["纸飞机！等等我——", "飞得好高"];
+export const GIRL_PLANE_LINES = ["接住啦！", "这架归我了"];
+export const GIRL_PLANE_MISS_LINES = ["飞走了…", "纸飞机不等我"];
+export const GIRL_BIRD_LINES = ["有小鸟！嘘——", "快看，窗边"];
+export const GIRL_BIRD_AWAY_LINES = ["飞走了…", "下次还来吗"];
 
 /** 猫娘词表的唯一出口：测试按表锁文案，别在用例里另抄一份。 */
 export const GIRL_LINES = {
@@ -670,7 +686,7 @@ export class CompanionEngine {
   /** 彩带寿命与正在庆祝的天数。 */
   private milestoneUntil = 0;
   private milestoneDays = 0;
-  /** 五枚成就共用的一条计数器；落盘跟羁绊走。 */
+  /** 十枚成就共用的一组计数器；新玩具的计数当场落盘，旧计数器跟既有的存档时机走。 */
   private stats: PetStats = { ...EMPTY_STATS };
   private achievements: AchievementId[] = [];
   private achievementUntil = 0;
@@ -1055,6 +1071,185 @@ export class CompanionEngine {
     else if (outcome === "draw") this.rewardAffinity(0.005, now);
     this.say(this.pickLine([...GIRL_RPS_LINES[outcome]]), 1, now, true);
     return { player, her, outcome };
+  }
+
+  /** 六件新玩具共用的开工闸门：认得人、没被安静、没在睡/被拖/被扔、不在晕。 */
+  private toyReady(now: number): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
+    if (now < this.dizzyUntil) return false;
+    this.lastUserAt = now;
+    this.idleUntil = now + IDLE_MIN_MS;
+    return true;
+  }
+
+  /** 纸箱：她先看一眼再钻进去；敲箱子另有一句。 */
+  boxStart(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 3_200);
+    this.ambientGesture = "peek";
+    this.gestureUntil = now + gestureClip("peek").ms;
+    this.say(this.pickLine([...GIRL_BOX_START_LINES]), 1, now, true);
+    return true;
+  }
+
+  boxKnock(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    this.lastUserAt = now;
+    return this.say(this.pickLine([...GIRL_BOX_KNOCK_LINES]), 1, now, true);
+  }
+
+  /** 从纸箱里探出头被点到：计数、涨亲密度、蹦一下。 */
+  boxCatch(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.stats.boxes += 1;
+    this.saveBond();
+    this.rewardAffinity(0.012, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 2_600);
+    this.ambientGesture = "hop";
+    this.gestureUntil = now + gestureClip("hop").ms;
+    this.say(this.pickLine([...GIRL_BOX_CATCH_LINES]), 1, now, true);
+    this.refreshAchievements(now);
+    return true;
+  }
+
+  laserStart(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 2_400);
+    this.startAction("play", now, 1_000);
+    this.say(this.pickLine([...GIRL_LASER_START_LINES]), 1, now, true);
+    return true;
+  }
+
+  /** 扑中红点；空手一局在收尾时用 `caught=false` 自嘲一句。 */
+  laserEnd(now = this.now(), caught = true): boolean {
+    if (!this.toyReady(now)) return false;
+    if (!caught) {
+      this.say(this.pickLine([...GIRL_LASER_MISS_LINES]), 1, now, true);
+      return false;
+    }
+    this.stats.lasers += 1;
+    this.saveBond();
+    this.rewardAffinity(0.02, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 2_800);
+    this.ambientGesture = "hop";
+    this.gestureUntil = now + gestureClip("hop").ms;
+    this.say(this.pickLine([...GIRL_LASER_LINES]), 1, now, true);
+    this.refreshAchievements(now);
+    return true;
+  }
+
+  brushStart(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 2_600);
+    this.ambientGesture = "tilt";
+    this.gestureUntil = now + gestureClip("tilt").ms;
+    this.say(this.pickLine([...GIRL_BRUSH_START_LINES]), 1, now, true);
+    return true;
+  }
+
+  /** 梳到一半点她一下：多梳一道、涨一点点；不刷屏说话（梳子每 1.25s 本来就有一道）。 */
+  brushBoost(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 900);
+    this.rewardAffinity(0.004, now);
+    return true;
+  }
+
+  /** 一轮梳完才算一次；中途走开不计数也不说话。 */
+  brushEnd(now = this.now(), completed = true): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (!completed) return false;
+    this.stats.brushes += 1;
+    this.saveBond();
+    this.rewardAffinity(0.02, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 2_400);
+    this.say(this.pickLine([...GIRL_BRUSH_LINES]), 1, now, true);
+    this.refreshAchievements(now);
+    return true;
+  }
+
+  catnipStart(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 3_000);
+    this.ambientGesture = "peek";
+    this.gestureUntil = now + gestureClip("peek").ms;
+    this.say(this.pickLine([...GIRL_CATNIP_START_LINES]), 1, now, true);
+    return true;
+  }
+
+  /** 戳一下薄荷叶：再吸一口，不计数（整轮结束才记一次）。 */
+  catnipPuff(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 1_000);
+    this.rewardAffinity(0.003, now);
+    return true;
+  }
+
+  catnipEnd(now = this.now(), completed = true): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (!completed) return false;
+    this.stats.catnips += 1;
+    this.saveBond();
+    this.rewardAffinity(0.018, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 2_600);
+    this.say(this.pickLine([...GIRL_CATNIP_LINES]), 1, now, true);
+    this.refreshAchievements(now);
+    return true;
+  }
+
+  planeStart(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.happyUntil = Math.max(this.happyUntil, now + 2_200);
+    this.ambientGesture = "peek";
+    this.gestureUntil = now + gestureClip("peek").ms;
+    this.say(this.pickLine([...GIRL_PLANE_START_LINES]), 1, now, true);
+    return true;
+  }
+
+  planeEnd(now = this.now(), caught = true): boolean {
+    if (!this.toyReady(now)) return false;
+    if (!caught) {
+      this.say(this.pickLine([...GIRL_PLANE_MISS_LINES]), 1, now, true);
+      return false;
+    }
+    this.stats.planes += 1;
+    this.saveBond();
+    this.rewardAffinity(0.016, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 2_400);
+    this.ambientGesture = "hop";
+    this.gestureUntil = now + gestureClip("hop").ms;
+    this.say(this.pickLine([...GIRL_PLANE_LINES]), 1, now, true);
+    this.refreshAchievements(now);
+    return true;
+  }
+
+  /** 小鸟落在窗框上：她自己那句不涨数值，纯陪伴。 */
+  birdVisit(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (this.activity === "drag" || this.activity === "thrown") return false;
+    this.lastUserAt = now;
+    return this.say(this.pickLine([...GIRL_BIRD_LINES]), 1, now, true);
+  }
+
+  birdFlee(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    this.lastUserAt = now;
+    return this.say(this.pickLine([...GIRL_BIRD_AWAY_LINES]), 1, now, true);
+  }
+
+  /**
+   * 成长记录：不说数值细节，只说「认识多久、什么档、拿了几枚」。
+   * 两行以内——气泡内宽只有 78px（v1.8 尺 #62），N/10 保证一位数变化不折行。
+   */
+  growthReport(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    const tier = bondTierOf(this.vitals.affinity);
+    const days = daysTogether(this.metAt, this.wallNow());
+    const s = this.stats;
+    const total = s.pats + s.catches + s.wand + s.bubbles + s.pounces + s.boxes + s.lasers + s.brushes + s.catnips + s.planes;
+    this.lastUserAt = now;
+    return this.say(`${tier.name} · 第 ${days} 天\n徽章 ${this.achievements.length}/${ACHIEVEMENT_IDS.length} · 互动 ${total} 次`, 2, now, true);
   }
 
   getSnapshot(): CompanionSnapshot {

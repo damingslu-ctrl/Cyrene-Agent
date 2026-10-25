@@ -24,6 +24,22 @@ describe("成就条件", () => {
       .toEqual(["first-wand"]);
   });
 
+  it("v1.11 五枚新成就各有自己的门槛，且互不串档（差一记不给）", () => {
+    expect(newlyUnlocked(stats({ boxes: 1 }), 1, "new", [])).toEqual([]);
+    expect(newlyUnlocked(stats({ boxes: 2 }), 1, "new", [])).toEqual(["box-hide"]);
+    expect(newlyUnlocked(stats({ lasers: 2 }), 1, "new", [])).toEqual([]);
+    expect(newlyUnlocked(stats({ lasers: 3 }), 1, "new", [])).toEqual(["laser-catch"]);
+    expect(newlyUnlocked(stats({ brushes: 9 }), 1, "new", [])).toEqual([]);
+    expect(newlyUnlocked(stats({ brushes: 10 }), 1, "new", [])).toEqual(["brush-lover"]);
+    expect(newlyUnlocked(stats({ catnips: 1 }), 1, "new", [])).toEqual([]);
+    expect(newlyUnlocked(stats({ catnips: 2 }), 1, "new", [])).toEqual(["catnip-high"]);
+    expect(newlyUnlocked(stats({ planes: 1 }), 1, "new", [])).toEqual([]);
+    expect(newlyUnlocked(stats({ planes: 2 }), 1, "new", [])).toEqual(["plane-catch"]);
+    // 新玩具不碰旧条件：全套新计数拉满也不该把「第一次抓住光」带出来。
+    expect(newlyUnlocked(stats({ boxes: 5, lasers: 5, brushes: 20, catnips: 5, planes: 5 }), 1, "new", []))
+      .toEqual(["box-hide", "laser-catch", "brush-lover", "catnip-high", "plane-catch"]);
+  });
+
   it("成就表与 id 表一一对应，文案不空", () => {
     expect(ACHIEVEMENTS.map((a) => a.id)).toEqual([...ACHIEVEMENT_IDS]);
     for (const id of ACHIEVEMENT_IDS) {
@@ -40,8 +56,11 @@ describe("存档解析", () => {
     expect(parseStats(null)).toEqual(EMPTY_STATS);
     expect(parseStats("x")).toEqual(EMPTY_STATS);
     expect(parseStats({ pats: 3.9, catches: -2, wand: Number.NaN, bubbles: 2, pounces: Number.POSITIVE_INFINITY }))
-      .toEqual({ pats: 3, catches: 0, wand: 0, bubbles: 2, pounces: 0 });
+      .toEqual({ ...EMPTY_STATS, pats: 3, bubbles: 2 });
     expect(parseStats({ pats: 1e9 }).pats).toBe(1_000_000);
+    // v1.11 五条新计数缺省为 0，坏值同样归零。
+    expect(parseStats({ boxes: 2, lasers: -1, brushes: 3.2, catnips: Number.NaN, planes: 4 }))
+      .toEqual({ ...EMPTY_STATS, boxes: 2, brushes: 3, planes: 4 });
   });
 
   it("成就列表去重、去掉不认识的 id 与非字符串", () => {

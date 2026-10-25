@@ -471,3 +471,57 @@
   `isDraft:false`、`isPrerelease:false`、Latest；资产 `Mochi-Setup-1.10.0.exe`
   **296,283,711 B** / `sha256 fd41ca8b65ca70fb4e37ff8280610bd65b866442765a017dee6b5bba54876a08`
   （与 GitHub digest 一致），上传完成 `2026-10-25T17:12:32Z`，公开于 `17:18:10Z`。
+
+### v1.11.0：纸箱、激光、梳毛、薄荷、纸飞机、小鸟与成长记录（2026-10-26）
+
+- 六件新玩具各自成模块（`girl-box` / `girl-laser` / `girl-brush` / `girl-catnip` /
+  `girl-plane` / `girl-bird`），状态只有「出生时刻 + 种子 + 互动时刻」，所有位置、
+  阶段、命中框由 `now` 解析；`girl-prop-art.ts` 只放画法，不持状态。
+- 共享命令 +5（`box` / `laser` / `brush` / `catnip` / `plane`）；小鸟不进菜单，
+  随 `bird` 命令与空闲自访。右键「猫娘」子菜单固定七条（手势），玩具在主菜单。
+- 引擎新增七个事件入口（`boxKnock` / `boxCatch` / `laserEnd` / `brushEnd` /
+  `catnipEnd` / `planeEnd` / `birdFlee`）+ 三个 getter（`birdVisit` / `growthReport` /
+  `achievements` 扩容）；十项互动计数进 `PetStats` 与存档。
+- 五枚新成就：`box-hide`（2 箱）/ `laser-catch`（3 次）/ `brush-lover`（10 轮）/
+  `catnip-high`（2 轮）/ `plane-catch`（2 架）；成就页 10 枚满编。
+- 成长记录：一句两行 `{档} · 第 {days} 天` + `徽章 {n}/10 · 互动 {total} 次`，
+  优先级 2，安静期拒收；`total` 是十项之和，和成就同一份 `PetStats`。
+
+### 口径与裁决（v1.11.0）
+
+- **命中顺序＝绘制顺序**：新六件画在小虫与毛线球之上，命中判断也整组提前；
+  纸箱是组内第一判（它盖住整个人）。真窗 O1 抓到过球偷走敲门的那一下，
+  修的是 `tapAt` 顺序，不是探针坐标。
+- **纸箱敲门冷却 480ms**：连点只算一次，避免按住刷 `boxes` 之外的无效判定；
+  真正计数只在探头窗内抓到脑袋时 +1。
+- **梳毛/薄荷整轮走完才计数**：被别的 solo 道具顶掉不结算（`clearSoloToys`）；
+  点梳子/薄荷只是加演，不额外计数。
+- **小鸟不产出数值**：来访不是玩具，点它只有飞走与羽毛；不入统计、不做成就条件，
+  所以「请小鸟」可以随时点，不构成刷分路径。
+- **升档优先于玩具完成句**：刷毛完成刚好升档时，气泡给「最喜欢你了。真的。」，
+  梳完那句让位；探针按设计行为认账（`brush.line` 接受两组词），不改优先级。
+- **成长记录用十项和**：`互动` 读数必须能被 `PetStats` 复算，探针 `growth.agrees`
+  同时对齐成就数与十项和，防止报表和存档各算一套。
+
+### 量测与门（v1.11.0）
+
+- `CI=true npx vitest run` → **692 文件 / 7242 通过（1 skipped）**，无红，260.88s
+  （v1.10.0 基线 684 / 7185，+8 文件 +57 条）。
+- 新增 8 个文件 **55 条**：box 5 / laser 5 / brush 5 / catnip 4 / plane 6 / bird 5 /
+  companion-girl-toys2 14 / renderer-girl-toys2 11；其余 7 条落在改过的
+  achievements、menu、menu-attach、commands、companion-girl-toys、renderer-girl-toys 上。
+- 十道门全绿（brand/main/preload/renderer/sprites/roster/palette/palette-migrate/
+  plugin-schema/adapted-models）；`build:main` 776 文件 / `build:preload`（144 +
+  learn-exam）/ `build:renderer` 6.53s。
+- `check:renderer` 抓到 `boxHeadRect` 缺 `alpha`（TS2741），补齐后转绿。
+- 回归单测的牙：临时改回旧命中顺序（`this.box && !this.toyState`）→
+  「箱面先敲箱」当场红（knocks 0）；恢复后 `cmp` 与备份逐字节一致，测试转绿。
+- 真窗 **148/148 `all clear`**：纸箱敲门「谁呀？」→ 探头抓住 `boxes=1`
+  「被、被发现了！」；激光 `lasers=1`；梳毛 `brushes=1`（完成句让位升档）；
+  薄荷 `catnips=1`「晕乎乎的…好开心」；纸飞机 `planes=1`「接住啦！」；
+  小鸟 `perch → away` 且十项计数前后不变；成长记录
+  `心意相通 · 第 1 天\n徽章 3/10 · 互动 14 次` 与成就 3 / 十项和 14 双向对齐；
+  第 7 天彩带 20 根；读档重逢后五枚新计数器各为 1。
+- 截图与报告：`D:/cyrene-p5-accept/shots-girl-v111/`（36 张 + `pet-girl-report.json`）。
+- 未覆盖：纸箱三档探头窗边界逐毫秒、激光轨迹逐帧、梳毛四趟单趟漏帧、
+  薄荷打滚完整姿态曲线、纸飞机空手 miss 台词、小鸟跨工作区落脚夹取。

@@ -77,6 +77,14 @@ export interface PetMenuActions {
   leaves: () => void;
   follow: () => void;
   rps: (sign: RpsSign) => void;
+  /** v1.11.0 玩具箱 V：纸箱 / 激光 / 梳毛 / 薄荷 / 纸飞机 / 小鸟 / 成长记录。 */
+  box: () => void;
+  laser: () => void;
+  brush: () => void;
+  catnip: () => void;
+  plane: () => void;
+  bird: () => void;
+  growth: () => void;
   openNetwork: () => void;
   /** v1.5.0：形态与档位切换（落盘 + 广播在装配层，菜单只管发意图）。 */
   setForm: (form: PetForm) => void;
@@ -137,6 +145,14 @@ export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenu
         action: () => actions?.rps?.(sign),
       })),
     },
+    // —— v1.11.0 玩具箱 V：六件新玩具 + 成长记录，四足形态同样置灰 ——
+    { label: "纸箱躲猫猫", enabled: input.form === "girl" && !!actions?.box, ...bind(actions?.box) },
+    { label: "照个红点点", enabled: input.form === "girl" && !!actions?.laser, ...bind(actions?.laser) },
+    { label: "给她梳梳毛", enabled: input.form === "girl" && !!actions?.brush, ...bind(actions?.brush) },
+    { label: "闻闻猫薄荷", enabled: input.form === "girl" && !!actions?.catnip, ...bind(actions?.catnip) },
+    { label: "放架纸飞机", enabled: input.form === "girl" && !!actions?.plane, ...bind(actions?.plane) },
+    { label: "请小鸟来做客", enabled: input.form === "girl" && !!actions?.bird, ...bind(actions?.bird) },
+    { label: "成长记录", enabled: input.form === "girl" && !!actions?.growth, ...bind(actions?.growth) },
     // 「让它做个动作」：只演一次手势，不改数值。放在互动组末尾，与喂/玩区分开。
     {
       label: "让它做个动作",
@@ -257,6 +273,13 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
         leaves: () => onPetCommand("leaves"),
         follow: () => onPetCommand("follow"),
         rps: (sign) => onPetCommand(rpsCommandFor(sign)),
+        box: () => onPetCommand("box"),
+        laser: () => onPetCommand("laser"),
+        brush: () => onPetCommand("brush"),
+        catnip: () => onPetCommand("catnip"),
+        plane: () => onPetCommand("plane"),
+        bird: () => onPetCommand("bird"),
+        growth: () => onPetCommand("growth"),
         openNetwork: () => openNetworkPanel(),
         setForm: (form) => {
           service.setForm(form);
