@@ -150,7 +150,9 @@ const renderer = new PixelPetRenderer({
         // 尺 #71 / #74 的读数口：命中矩形、形态、档位。这三个键从此不许静默改名。
         hitRect: renderer.getHitRect(),
         form: (renderer as unknown as { form: string }).form,
-        tier: (renderer as unknown as { profileForHit?: { tier: string } }).profileForHit?.tier ?? "standard",
+        tier: renderer.getProfileRef().tier,
+        // 同上：基址窗口与绘制原点。尺 #71 要靠它们把「宠物本体」与「气泡」分开量。
+        layout: renderer.getLayoutInfo(),
       }),
     };
   },

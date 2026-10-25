@@ -166,6 +166,96 @@ describe("pet window resource release", () => {
   });
 });
 
+describe("pet intro on first appearance", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    mocks.createdWindows = [];
+    mocks.displayHandlers = [];
+    mocks.createPetWindow.mockImplementation(() => {
+      const window = createFakeWindow();
+      mocks.createdWindows.push(window);
+      return window;
+    });
+  });
+
+  function buildManager(startPetIntro: (bounds: { x: number; y: number; width: number; height: number }, onDone: () => void) => boolean) {
+    return createWindowManager({
+      getCurrentAppIconPath: () => "icon",
+      isDev: false,
+      loadPetWindowSettingsSlice: () => ({ disclaimerAcceptedVersion: "current" }),
+      persistPetWindowPosition: vi.fn(),
+      startPetIntro,
+    });
+  }
+
+  it("首次 ready 先放动画、桌宠不露；动画放完才 show", () => {
+    const done: Array<() => void> = [];
+    const startPetIntro = vi.fn((_bounds: { x: number; y: number; width: number; height: number }, onDone: () => void) => { done.push(onDone); return true; });
+    const manager = buildManager(startPetIntro);
+    const win = manager.createPetWindow();
+
+    win.emit("ready-to-show");
+    expect(startPetIntro).toHaveBeenCalledOnce();
+    expect(startPetIntro.mock.calls[0]?.[0]).toEqual(win.getBounds());
+    expect(win.show).not.toHaveBeenCalled();
+
+    done[0]?.();
+    expect(win.show).toHaveBeenCalledOnce();
+    manager.dispose();
+  });
+
+  it("动画窗没起成 → 立刻显示桌宠，不把猫一直藏着", () => {
+    const manager = buildManager(() => false);
+    const win = manager.createPetWindow();
+
+    win.emit("ready-to-show");
+    expect(win.show).toHaveBeenCalledOnce();
+    manager.dispose();
+  });
+
+  it("动画期间用户藏猫 → 放完也不许把猫拎出来", () => {
+    let finish: (() => void) | null = null;
+    const manager = buildManager((_bounds, onDone) => { finish = onDone; return true; });
+    const win = manager.createPetWindow();
+    win.emit("ready-to-show");
+
+    manager.hidePetWindow();
+    finish?.();
+    expect(win.show).not.toHaveBeenCalled();
+    manager.dispose();
+  });
+
+  it("回调没来也有 15s 看门狗：桌宠最终一定露出来", () => {
+    const manager = buildManager(() => true);
+    const win = manager.createPetWindow();
+    win.emit("ready-to-show");
+    expect(win.show).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(15_000);
+    expect(win.show).toHaveBeenCalledOnce();
+    manager.dispose();
+  });
+
+  it("一个进程只放一次：窗口重建不再放", () => {
+    const startPetIntro = vi.fn(() => true);
+    const manager = buildManager(startPetIntro);
+
+    mocks.createdWindows = [];
+    const first = manager.createPetWindow();
+    first.emit("ready-to-show");
+
+    // 窗口被意外销毁后由托盘救回：这次不该再起动画
+    first.destroy();
+    const second = manager.createPetWindow(true);
+    second.emit("ready-to-show");
+
+    expect(startPetIntro).toHaveBeenCalledOnce();
+    expect(second.show).toHaveBeenCalledOnce();
+    manager.dispose();
+  });
+});
+
 describe("pet window bounds channel", () => {
   beforeEach(() => {
     vi.useRealTimers();

@@ -33,4 +33,12 @@ export type DrawOp =
   | { kind: "fillRoundRect"; fill: string; x: number; y: number; w: number; h: number; r: number; layer?: PetLayer }
   | { kind: "strokeRoundRect"; stroke: string; width: number; x: number; y: number; w: number; h: number; r: number; layer?: PetLayer }
   | { kind: "crescent"; fill: string; cx: number; cy: number; r: number; dx: number; dy: number; cut: number; layer?: PetLayer }
+  | {
+      kind: "image";
+      /** 构建期图像注册表的键（`girl-stills-meta.ts` 的 `src`）。运行时画布不认它。 */
+      src: string;
+      sx: number; sy: number; sw: number; sh: number;
+      x: number; y: number; w: number; h: number;
+      layer?: PetLayer;
+    }
   | { kind: "text"; text: string; x: number; y: number; size: number; color: string; align?: "left" | "right" | "center"; layer?: PetLayer };

@@ -17,6 +17,10 @@ dist/renderer/tasks/index.html
 dist/renderer/index.html
 dist/renderer/react/index.html
 dist/renderer/live2dcubismcore.min.js
+# 启动静态资源的 Vite public 副本（源在 src/renderer/public/pet*/，不入库）
+dist/renderer/pet/
+dist/renderer/pet-intro/
+dist/renderer/pet-intro.html
 dist/sim/
 dist/skills/
 # 聊天渲染性能基线 harness 的两版构建产物（runner 按需重建）
@@ -90,6 +94,13 @@ resources/opencode/
 resources/mingit/
 .cache/mingit/
 .cache/music-component/
+.cache/pet-intro/
+.cache/girl-sprite/
+# 抽帧与图集构建的中间产物（脚本从 public/pet-intro/atlas.webp 重跑即可再生）
+.cache/pet-anim/
+.cache/mpv/
+# 用户给的参考原片；管线读的是 scripts/assets/source/ 的副本
+photo/
 dist/components/
 
 # === 显式产品资源白名单 ===

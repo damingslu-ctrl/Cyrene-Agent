@@ -192,7 +192,7 @@ export interface CatRectInput {
 /**
  * 交互区：以钉位点为基准的矩形。
  * 猫：中心 (pin.x, pin.y − 1.5s)、宽 2u、高 1.85u——与 v1.4 的四个数逐字节相等；
- * 猫娘：中心 (pin.x, pin.y − 45.75s)、宽 0.86u、高 1.55u（Task 26 的尺 #71 实测反钉）。
+ * 猫娘：中心 (pin.x + 2.6s, pin.y + 37.0s)、宽 1.24u、高 1.71u（2026-10-25 重画后的尺 #71 实测反钉）。
  */
 export function computeCatRect(input: CatRectInput): Rect {
   const profile = input.profile ?? defaultProfile();

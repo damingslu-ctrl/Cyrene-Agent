@@ -12,9 +12,10 @@ import { VB, buildCatOps, type CatInput, type Mood, type Pose } from "./art";
 import type { DrawOp, PetLayer } from "./ops";
 import { coatOf, type CoatName } from "../../shared/cat-coats";
 import type { PetForm } from "../../shared/pet-profile";
-import { buildGirlOps } from "./girl";
-import { MOOD_TO_EXPRESSION } from "./face";
-import { bodyClip, gestureClip, sampleClip } from "./motion";
+import {
+  GIRL_MASTER, GIRL_STILLS, GIRL_STILL_FRAMES, type GirlFrame,
+} from "./girl-stills-meta";
+import { GIRL_HIRES, GIRL_POSE_CELLS, GIRL_POSE_FROM_HIRES, type GirlPoseName } from "./girl-poses-meta";
 import type { CropName, PoseName } from "../../shared/cat-types";
 
 export type { CropName, PoseName } from "../../shared/cat-types";
@@ -94,32 +95,22 @@ export const CAT_CROPS: Record<CropName, CatCrop> = {
 
 
 /**
- * 12 个 PoseName 在猫娘上的重写（spec §9：卧→侧卧、趴→伏案、炸毛→发蓬＋生气；
- * PoseName 联合不动）。取 clip 的「特征帧」出静帧，而不是 p=0 的 rest——
- * peek 的 rest 是「收回来」的状态，立绘要探出去那一帧。
+ * 12 个 PoseName → 静帧。帧来自用户参考视频切出的 30 格静帧表（每格一个角度/动作），
+ * 不再走矢量重画：`GIRL_STILL_FRAMES.pose` 由 `scripts/assets/build-girl-anim.py` 生成。
  */
-export interface GirlSpritePose {
-  body: string;
-  gesture?: string;
-  p?: number;
-  gestureP?: number;
-  blink: number;
-  energy: number;
-}
-
-export const GIRL_POSES: Record<PoseName, () => GirlSpritePose> = {
-  sit:     () => ({ body: "sit", blink: 0, energy: 0.4 }),
-  lie:     () => ({ body: "sleep", blink: 0.35, energy: 0.3 }),
-  prone:   () => ({ body: "sit", gesture: "typeCode", blink: 0.2, energy: 0.5 }),
-  peek:    () => ({ body: "stand", gesture: "peek", gestureP: 0.5, blink: 0, energy: 0.6 }),
-  stretch: () => ({ body: "stand", gesture: "stretch", gestureP: 0.5, blink: 0, energy: 0.5 }),
-  wash:    () => ({ body: "stand", gesture: "groom", gestureP: 0.5, blink: 0, energy: 0.4 }),
-  yawn:    () => ({ body: "stand", gesture: "yawn", gestureP: 0.5, blink: 0.2, energy: 0.2 }),
-  tilt:    () => ({ body: "stand", gesture: "tilt", gestureP: 0.5, blink: 0, energy: 0.5 }),
-  sleep:   () => ({ body: "sleep", blink: 1, energy: 0.05 }),
-  puff:    () => ({ body: "stand", gesture: "shiver", gestureP: 0.3, blink: 0, energy: 1 }),
-  pout:    () => ({ body: "stand", blink: 0.55, energy: 0.2 }),
-  happy:   () => ({ body: "stand", gesture: "hop", gestureP: 0.5, blink: 0, energy: 0.8 }),
+export const GIRL_POSES: Record<PoseName, GirlFrame> = {
+  sit: { pose: "sit" },
+  lie: { pose: "lie" },
+  prone: { pose: "prone" },
+  peek: { pose: "peek" },
+  stretch: { pose: "stretch" },
+  wash: { pose: "wash" },
+  yawn: { pose: "yawn" },
+  tilt: { pose: "tilt" },
+  sleep: { pose: "sleep" },
+  puff: { pose: "puff" },
+  pout: { pose: "pout" },
+  happy: { pose: "happy" },
 };
 
 /**
@@ -147,6 +138,8 @@ export interface SpriteSpec {
   crop: CropName;
   /** 形态轴（v1.5.0 Task 24）：缺省 cat——146 张资产在 Task 25 才翻。 */
   form?: PetForm;
+  /** 猫娘静帧：按情绪 / 按姿态 / 参考图母版（横幅）。缺省回落该姿态的帧。 */
+  frame?: GirlFrame;
   /** 逐张覆盖：省略时回落 `CAT_POSES[pose]()` 的基态。 */
   mood?: Mood;
   blink?: number;
@@ -204,26 +197,74 @@ export function buildSpriteOps(spec: SpriteSpec, size: { w: number; h: number })
 }
 
 /**
- * 猫娘静帧：clip 的特征帧 → channels → buildGirlOps。
- * 与 cat 路径共用 placeCrop/丢弃表/落点口径；脸走 MOOD_TO_EXPRESSION 级联。
+ * 猫娘静帧 = 一张 `image` 图元（30 格全尺寸静帧表里的一格），不再走矢量重画。
+ *
+ * 坐标口径：静帧格与桌宠图集同一条尺——躯干轴 x=170、脚线 y=238，
+ * 像素/viewBox 单位 k = inkRefPx/inkVb（站立帧墨高 229px ↔ 91vb）。
+ * `placeCrop` 先给「viewBox(60,100) 落在画布哪里」和每 vb 多少像素 s，
+ * 再把取景窗口这块从静帧格里裁出来贴过去；两边用同一组 viewBox 坐标，
+ * 所以 145 张图之间只有「取哪一格 × 哪个取景」在变，脚线/身高始终一致。
  */
 function buildGirlSpriteOps(spec: SpriteSpec, size: { w: number; h: number }): DrawOp[] {
-  const p = GIRL_POSES[spec.pose]();
-  const channels: Record<string, number> = {
-    ...sampleClip(bodyClip(p.body), p.p ?? 0),
-    ...(p.gesture ? sampleClip(gestureClip(p.gesture), p.gestureP ?? 0) : {}),
+  const frame = spec.frame ?? GIRL_POSES[spec.pose];
+  const crop = GIRL_CROPS[spec.crop];
+  const place = placeCrop(crop, size, "girl");
+  const s = (place.u * 2) / VB;
+  const [x0, y0, x1, y1] = crop.window;
+  const dest = {
+    x: place.center.x + (x0 - 60) * s,
+    y: place.center.y + (y0 - 100) * s,
+    w: (x1 - x0) * s,
+    h: (y1 - y0) * s,
   };
-  const input = {
-    ...placeCrop(GIRL_CROPS[spec.crop], size, "girl"),
-    form: "girl" as const,
-    coat: coatOf(spec.coat),
-    mood: spec.mood ?? "idle",
-    t: 0, energy: spec.energy ?? p.energy, mouse: null,
-    blink: spec.blink ?? p.blink, jumpY: 0, pet: spec.pet ?? 0, quiet: false,
-    pose: { paw: 0, yawn: 0, stretch: 0, tilt: 0, engagement: 0 },
-    channels,
-    expression: MOOD_TO_EXPRESSION[spec.mood ?? "idle"],
-  };
-  const dropped = new Set<string>(SPRITE_DROPPED_LAYERS);
-  return buildGirlOps(input).filter((op) => op.layer === undefined || !dropped.has(op.layer));
+
+  if (frame === "master") {
+    // 横幅用参考图母版（1024×1536）：按「全身墨高 = 91vb」摆，脚底落在脚线上。
+    const scale = (GIRL_MASTER.inkVb * s) / GIRL_MASTER.inkH;
+    const w = GIRL_MASTER.inkW * scale;
+    const h = GIRL_MASTER.inkH * scale;
+    return [{
+      kind: "image",
+      src: GIRL_MASTER.src,
+      sx: GIRL_MASTER.inkX, sy: GIRL_MASTER.inkY,
+      sw: GIRL_MASTER.inkW, sh: GIRL_MASTER.inkH,
+      x: place.center.x - (GIRL_MASTER.feetX - GIRL_MASTER.inkX) * scale,
+      y: place.center.y - h,
+      w, h,
+    }];
+  }
+
+  // 姿态优先用高清参考图集（用户给的 7 张 1136×912 立绘，同一格的尺与静帧表一致）；
+  // 参考图没覆盖的姿势与所有情绪档仍取 30 格静帧表。
+  const hiresPose = "pose" in frame ? GIRL_POSE_FROM_HIRES[frame.pose] : undefined;
+  const usePoses = hiresPose !== undefined;
+  const atlas = usePoses ? GIRL_HIRES : GIRL_STILLS;
+  const cell = usePoses
+    ? GIRL_POSE_CELLS[hiresPose as GirlPoseName]
+    : "mood" in frame ? GIRL_STILL_FRAMES.mood[frame.mood] : GIRL_STILL_FRAMES.pose[frame.pose];
+  const k = atlas.inkRefPx / atlas.inkVb;
+  const cellX = (cell % atlas.cols) * atlas.cellW;
+  const cellY = Math.floor(cell / atlas.cols) * atlas.cellH;
+  const ax = atlas.anchorX * atlas.cellW;
+  const ay = atlas.anchorY * atlas.cellH;
+  let sx = cellX + ax + (x0 - 60) * k;
+  let sy = cellY + ay - (100 - y0) * k;
+  let sw = (x1 - x0) * k;
+  let sh = (y1 - y0) * k;
+  let { x, y, w, h } = dest;
+  // `full`/`square`/`round` 的窗口顶端落在脚线以上 ~242px，比格子的 238px 高出 3.6px：
+  // 不夹回本格就会从上一行格子的底部取样（横向同理）。被夹掉的那条是发顶之上的透明带，
+  // 目标矩形按同一比例削掉，画面像素不变，但源矩形不再跨格。
+  const cellL = cellX, cellT = cellY;
+  const cellR = cellX + atlas.cellW, cellB = cellY + atlas.cellH;
+  if (sy < cellT) { const cut = cellT - sy; const f = cut / sh; sy = cellT; y += h * f; h -= h * f; sh -= cut; }
+  if (sy + sh > cellB) { const cut = sy + sh - cellB; const f = cut / sh; sh -= cut; h -= h * f; }
+  if (sx < cellL) { const cut = cellL - sx; const f = cut / sw; sx = cellL; x += w * f; w -= w * f; sw -= cut; }
+  if (sx + sw > cellR) { const cut = sx + sw - cellR; const f = cut / sw; sw -= cut; w -= w * f; }
+  return [{
+    kind: "image",
+    src: atlas.src,
+    sx, sy, sw, sh,
+    x, y, w, h,
+  }];
 }

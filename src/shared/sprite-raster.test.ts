@@ -89,6 +89,37 @@ describe("软件光栅化器", () => {
     expect(alphaAt(rr.rgba, 20, 10, 10)).toBe(0);
   });
 
+  it("image 图元：1:1 采样保持源像素、支持 crop、缺图当场报错", () => {
+    const rgba = new Uint8Array(16 * 4);
+    const put = (x: number, y: number, c: number[]) => rgba.set(c, (y * 4 + x) * 4);
+    for (let y = 0; y < 2; y += 1) for (let x = 0; x < 2; x += 1) put(x, y, [255, 0, 0, 255]);
+    for (let y = 0; y < 2; y += 1) for (let x = 2; x < 4; x += 1) put(x, y, [0, 255, 0, 255]);
+    for (let y = 2; y < 4; y += 1) for (let x = 0; x < 2; x += 1) put(x, y, [0, 0, 255, 255]);
+    for (let y = 2; y < 4; y += 1) for (let x = 2; x < 4; x += 1) put(x, y, [255, 255, 0, 255]);
+    const src = { width: 4, height: 4, rgba };
+    const op: DrawOp = { kind: "image", src: "q", sx: 0, sy: 0, sw: 4, sh: 4, x: 0, y: 0, w: 4, h: 4 };
+    const r = renderOps([op], 4, 4, { ss: 1, images: { q: src } });
+    expect([...r.rgba.subarray(0, 4)]).toEqual([255, 0, 0, 255]);
+    expect([...r.rgba.subarray(12, 16)]).toEqual([0, 255, 0, 255]);
+    expect([...r.rgba.subarray(48, 52)]).toEqual([0, 0, 255, 255]);
+    expect([...r.rgba.subarray(60, 64)]).toEqual([255, 255, 0, 255]);
+
+    // crop 左上 2×2 再放大到 4×4：四角依然是红
+    const crop = renderOps([{ ...op, sx: 0, sy: 0, sw: 2, sh: 2 }], 4, 4, { ss: 1, images: { q: src } });
+    expect([...crop.rgba.subarray(0, 4)]).toEqual([255, 0, 0, 255]);
+    expect([...crop.rgba.subarray(60, 64)]).toEqual([255, 0, 0, 255]);
+
+    expect(() => renderOps([op], 4, 4, { ss: 1 })).toThrow(/缺少源图：q/);
+  });
+
+  it("image 图元也吃 disc 遮罩（圆头像档）", () => {
+    const src = { width: 2, height: 2, rgba: new Uint8Array(16).fill(255) };
+    const op: DrawOp = { kind: "image", src: "w", sx: 0, sy: 0, sw: 2, sh: 2, x: 0, y: 0, w: 16, h: 16 };
+    const r = renderOps([op], 16, 16, { mask: "disc", ss: 1, images: { w: src } });
+    expect(r.rgba[3]).toBe(0);
+    expect(r.rgba[(8 * 16 + 8) * 4 + 3]).toBe(255);
+  });
+
   it("稳健量：覆盖度与 alpha 加权质心", () => {
     const sq: DrawOp = { kind: "fillPath", fill: "#000000", points: [[0,10],[20,10],[20,20],[0,20]] };
     const r = renderOps([sq], 20, 20);

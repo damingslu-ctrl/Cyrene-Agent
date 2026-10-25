@@ -21,6 +21,11 @@ export interface PetResizePayload extends PetBounds {
   peekDx?: number;
   /** 当前展开进度 e。 */
   e?: number;
+  /**
+   * 当前形态×档位的收起态基址（未乘 zoom）。窗口层拿它当 applyPetWindowZoom 的
+   * 放大基线——没有这一列，切到「大」之后再调缩放会按 82×108 把窗缩回去。
+   */
+  base?: { width: number; height: number };
 }
 
 export interface BoundsDelta {

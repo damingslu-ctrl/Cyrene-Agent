@@ -1056,6 +1056,7 @@ type PetResizePayload = PetRect & {
   center?: { x: number; y: number };
   peekDx?: number;
   e?: number;
+  base?: { width: number; height: number };
 };
 
 const vergeApi = {

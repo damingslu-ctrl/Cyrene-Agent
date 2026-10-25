@@ -63,6 +63,9 @@ export function paintOps(ctx: CanvasRenderingContext2D, ops: DrawOp[]): void {
         ctx.restore();
         break;
       }
+      case "image":
+        // 位图猫娘的静帧只在构建期光栅化；运行时猫娘走图集（renderer.paintGirlFrame）。
+        throw new RangeError("image 图元只由构建期光栅器渲染（sprite-raster）");
       case "text":
         ctx.fillStyle = op.color;
         ctx.font = `${op.size}px sans-serif`;
@@ -126,7 +129,7 @@ export function opsBounds(ops: DrawOp[]): Rect | null {
       eat(op.cx - op.r, op.cy - op.r);
       eat(op.cx + op.r, op.cy + op.r);
     }
-    if (op.kind === "fillRoundRect" || op.kind === "strokeRoundRect") {
+    if (op.kind === "fillRoundRect" || op.kind === "strokeRoundRect" || op.kind === "image") {
       eat(op.x, op.y);
       eat(op.x + op.w, op.y + op.h);
     }

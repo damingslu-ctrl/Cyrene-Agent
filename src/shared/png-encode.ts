@@ -2,8 +2,11 @@
  * 最小位图容器编解码（无新依赖：`node:zlib` + 自己算 CRC32）。
  * 为什么不用 `sharp`：它在 asarUnpack 里是给 Transformers.js 用的**运行时**依赖，
  * 构建脚本引它会把打包面搅浑（Task 11 原文的裁决，仍然成立）。
- * 只写 filter 0。平色加抗锯齿边缘的 deflate 结果已在预算内（单张 ≤ 60 KB 由 --check 卡）；
- * 真超了再上 per-row best-of-{0,1,2}，别提前复杂化。
+ *
+ * 编：逐行在 filter 0..4 里挑「残差绝对值之和」最小的那条（Painter 的经典启发式）。
+ * 位图猫娘的帧图是照片式渐变，filter 0 的 deflate 比自适应高一倍以上；平色矢量图
+ * 自适应也不会更差，所以不再保留「只写 0」的特例。
+ * 解：五种 filter 全认——Pillow / Chromium 写出来的源图默认就是自适应。
  */
 import { deflateSync, inflateSync } from "node:zlib";
 
@@ -40,13 +43,56 @@ function chunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([head, data, tail]);
 }
 
+function paeth(a: number, b: number, c: number): number {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+}
+
+/** 逐行挑 filter：score 用「残差当有符号字节的绝对值之和」——PNG 的经典启发式，不用真压一遍。 */
+function bestFilterRow(row: Uint8Array, prev: Uint8Array | null): { filter: number; bytes: Uint8Array } {
+  const stride = row.length;
+  let bestFilter = 0;
+  let bestBytes = Uint8Array.from(row);
+  let bestScore = Infinity;
+  for (let filter = 0; filter <= 4; filter += 1) {
+    const bytes = new Uint8Array(stride);
+    let score = 0;
+    for (let i = 0; i < stride; i += 1) {
+      const a = i >= 4 ? row[i - 4] : 0;
+      const b = prev ? prev[i] : 0;
+      const c = prev && i >= 4 ? prev[i - 4] : 0;
+      const pred =
+        filter === 0 ? 0
+        : filter === 1 ? a
+        : filter === 2 ? b
+        : filter === 3 ? (a + b) >> 1
+        : paeth(a, b, c);
+      const v = (row[i] - pred) & 0xff;
+      bytes[i] = v;
+      score += v < 128 ? v : 256 - v;
+    }
+    if (score < bestScore) {
+      bestScore = score;
+      bestFilter = filter;
+      bestBytes = bytes;
+    }
+  }
+  return { filter: bestFilter, bytes: bestBytes };
+}
+
 export function encodePng(width: number, height: number, rgba: Uint8Array): Buffer {
   if (rgba.length !== width * height * 4) throw new RangeError(`rgba 长度不对：${rgba.length} vs ${width}×${height}`);
-  const raw = Buffer.alloc(height * (width * 4 + 1));
+  const stride = width * 4;
+  const raw = Buffer.alloc(height * (stride + 1));
   for (let y = 0; y < height; y += 1) {
-    raw[y * (width * 4 + 1)] = 0; // filter byte
-    Buffer.from(rgba.buffer, rgba.byteOffset + y * width * 4, width * 4)
-      .copy(raw, y * (width * 4 + 1) + 1);
+    const row = rgba.subarray(y * stride, (y + 1) * stride);
+    const prev = y > 0 ? rgba.subarray((y - 1) * stride, y * stride) : null;
+    const best = bestFilterRow(row, prev);
+    raw[y * (stride + 1)] = best.filter;
+    raw.set(best.bytes, y * (stride + 1) + 1);
   }
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
@@ -60,7 +106,7 @@ export function encodePng(width: number, height: number, rgba: Uint8Array): Buff
   ]);
 }
 
-/** 只为本期的自产图而写：单测 round-trip 与 `--check` 的像素尺都靠它。 */
+/** 只为本期的自产图与参考素材而写：单测 round-trip、`--check` 的像素尺都靠它。 */
 export function decodePng(buf: Buffer): DecodedPng {
   if (!buf.subarray(0, 8).equals(SIGN)) throw new RangeError("PNG 签名不对");
   let p = 8;
@@ -91,12 +137,27 @@ export function decodePng(buf: Buffer): DecodedPng {
   if (!sawEnd) throw new RangeError("缺 IEND");
   if (!width || !height) throw new RangeError("缺 IHDR");
   const raw = inflateSync(Buffer.concat(idat));
-  const stride = width * 4 + 1;
-  if (raw.length !== height * stride) throw new RangeError(`IDAT 解压后长度不对：${raw.length} vs ${height * stride}`);
+  const stride = width * 4;
+  const rawStride = stride + 1;
+  if (raw.length !== height * rawStride) throw new RangeError(`IDAT 解压后长度不对：${raw.length} vs ${height * rawStride}`);
   const rgba = new Uint8Array(width * height * 4);
   for (let y = 0; y < height; y += 1) {
-    if (raw[y * stride] !== 0) throw new RangeError(`行 ${y} 的 filter byte 不是 0`);
-    rgba.set(raw.subarray(y * stride + 1, (y + 1) * stride), y * width * 4);
+    const filter = raw[y * rawStride];
+    if (filter > 4) throw new RangeError(`行 ${y} 的 filter byte ${filter} 不合法（只支持 0..4）`);
+    const src = y * rawStride + 1;
+    const dst = y * stride;
+    for (let i = 0; i < stride; i += 1) {
+      const a = i >= 4 ? rgba[dst + i - 4] : 0;
+      const b = y > 0 ? rgba[dst - stride + i] : 0;
+      const c = y > 0 && i >= 4 ? rgba[dst - stride + i - 4] : 0;
+      const pred =
+        filter === 0 ? 0
+        : filter === 1 ? a
+        : filter === 2 ? b
+        : filter === 3 ? (a + b) >> 1
+        : paeth(a, b, c);
+      rgba[dst + i] = (raw[src + i] + pred) & 0xff;
+    }
   }
   return { width, height, rgba };
 }

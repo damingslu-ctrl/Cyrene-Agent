@@ -1,14 +1,9 @@
 /// <reference path="../types/cyrene.d.ts" />
 import {
-  BUB_W,
   clampRestoreOrigin,
   computeCatRect,
   computePetLayout,
-  PET_H,
-  PET_W,
-  PIN,
   resolveGrowthDirection,
-  scaleFor,
   type Point,
   type WorkArea,
 } from "../../shared/pet-geometry";
@@ -21,14 +16,27 @@ import {
   tuckStep,
   unTuckForDrag,
 } from "../../main/verge/tuck-clock";
-import { paintOps } from "./ops";
+import { paintOps, type DrawOp } from "./ops";
 import { buildBubbleOps, bubbleBoxRect, type BubbleBox, type CatInput } from "./art";
 import { buildPetOps } from "./form";
+import { buildGirlOverlayOps, girlAnimBodyFor, girlBodyFor, type GirlAnimBody } from "./girl-sprite";
+import { GIRL_SPRITE } from "./girl-sprite-meta";
+import { GIRL_ANIM } from "./girl-anim-meta";
+import {
+  GIRL_CLIP_PLAY,
+  GirlClipPlayer,
+  baseClipFor,
+  frameSourceRect,
+  gestureClipFor,
+  redrawFloorFor,
+  type GirlActivity,
+  type GirlClipId,
+} from "./girl-anim";
 import { blinkAt, bodyClip, gestureClip, mixPose, sampleClip, type Slots } from "./motion";
 import { faceOf, MOOD_TO_EXPRESSION, type Expression } from "./face";
 import { CompanionEngine, type CompanionSnapshot, type TouchKind } from "./companion";
 import type { PetCommand } from "../../shared/pet-commands";
-import { profileFor, type PetForm } from "../../shared/pet-profile";
+import { formGeometry, profileFor, type PetForm, type PetProfile } from "../../shared/pet-profile";
 
 export interface HitAreaDef {
   name: string;
@@ -86,6 +94,27 @@ export class PixelPetRenderer {
   private lastDrawAt = 0;
   /** 免打扰（Task 11）：true 时猫画月牙、不许睡着（月牙与 Zzz 屏幕互斥，native #67）。 */
   private quiet = false;
+  /**
+   * 猫娘立绘。图在构造时就开拉（37 KB 本地 WebP），切到 girl 时通常已解码完：
+   * girl 形态的每一帧只画这一张图 + 记号，不再走 buildGirlOps 的矢量路径。
+   * 未就绪的 1–2 帧宁可不画身子，也不许拿旧矢量形象顶——那会变成「一开机两个形象」。
+   */
+  private readonly girlSprite = new Image();
+  private girlSpriteReady = false;
+  /** 图真的拉坏了（不是还没到）：此时回退到矢量猫娘，宁可旧形象也不要空窗。 */
+  private girlSpriteFailed = false;
+
+  /**
+   * 多帧动作图集（dsh-pet 同路线）：同一段开场视频切出的 16 段动作。
+   * 与静态立绘同时开拉，谁先到用谁——壳是同一个形象，不存在「开机两个形象」。
+   */
+  private readonly girlAnim = new Image();
+  private girlAnimReady = false;
+  /** 帧动画时钟：所有时间参数由 draw 的绝对 now 注入，暂停/拖窗不会偷跑。 */
+  private readonly girlPlayer = new GirlClipPlayer("idle", 0);
+  /** 正在演的手势段（显式 playGesture 或 companion 抽到的 ambient），播完回基础动作。 */
+  private animGesture: { clipId: GirlClipId; startedAt: number } | null = null;
+  private lastAmbientGesture: string | null = null;
 
   // —— Task 12 贴边藏身状态机（对位 native ui-thread App 状态：pet_pos/peek_dx/idle_t/user_active）——
   // 渲染端不是位置权威：catOrigin 只跟三条合法来源走——起帧 invoke 拉取、
@@ -130,11 +159,14 @@ export class PixelPetRenderer {
   constructor(private readonly opts: PixelPetRendererOptions) {
     // willReadFrequently：点击穿透逐像素读 alpha（getImageData），不建这张快路径会退回 GPU 读回。
     this.ctx = opts.canvas.getContext("2d", { willReadFrequently: true, alpha: true })!;
-    const { u, s } = scaleFor(0);
-    // 绘制中心 = 窗口内钉位点 + (-17s, +4.5s)（native main.rs:4373-4384：猫内容在 viewBox 里偏右下）。
-    // P1 窗口恒为 82×108 收起档，pinInWin 恒等于 PIN；Task 12 展开几何后再随 pin 走。
+    // 立绘是 512 高的位图，缩到 ~56px：高质量降采样少一圈锯齿，4fps 档也不吃性能。
+    this.ctx.imageSmoothingEnabled = true;
+    this.ctx.imageSmoothingQuality = "high";
+    const { u, s } = this.profile.catScale(0);
+    // 绘制中心 = 窗口内钉位点 + 该形态的 centerOffset·s（猫 −17/+4.5；猫娘 0/+79）。
+    // 窗口内钉位点与基址一样归 profile：standard 档就是 82×108 与 (41,39)，逐字节等于旧常量。
     this.cat = {
-      center: { x: PIN.x - 17 * s, y: PIN.y + 4.5 * s },
+      center: this.centerFor(this.profile.pin, s),
       u,
       mood: "idle",
       t: 0,
@@ -157,6 +189,27 @@ export class PixelPetRenderer {
         onSettle: (position) => this.onCompanionSettle(position),
       });
     }
+    this.girlSprite.addEventListener("load", () => {
+      this.girlSpriteReady = true;
+      // 不等 fps 闸：4fps 档最坏要 250ms，开机第一眼就在那儿空着。
+      if (this.form === "girl" && !this.paused) this.draw(performance.now());
+    }, { once: true });
+    this.girlSprite.addEventListener("error", () => {
+      this.girlSpriteFailed = true;
+      if (this.form === "girl" && !this.paused) this.draw(performance.now());
+    }, { once: true });
+    this.girlSprite.src = GIRL_SPRITE.src;
+
+    this.girlAnim.addEventListener("load", () => {
+      this.girlAnimReady = true;
+      if (this.form === "girl" && !this.paused) this.draw(performance.now());
+    }, { once: true });
+    this.girlAnim.addEventListener("error", () => {
+      // 图集坏了不是灾难：静态立绘还在，动作退回刚体变换。
+      console.warn("[verge] girl-anim 图集加载失败，退回静态立绘");
+      if (this.form === "girl" && !this.paused) this.draw(performance.now());
+    }, { once: true });
+    this.girlAnim.src = GIRL_ANIM.src;
   }
 
   async init(): Promise<void> {
@@ -171,8 +224,8 @@ export class PixelPetRenderer {
 
   /**
    * 主进程把窗口尺寸放大到 基址 × zoom（window-manager.ts 的 applyPetWindowZoom），
-   * 这里把 zoom 折进 ctx 变换：绘制空间恒回 82×108 基址几何，PIN 在缩放后
-   * 仍落在窗口内容的 (41, 39)——对位 Live2D 时代「模型缩放去匹配窗口」的职责。
+   * 这里把 zoom 折进 ctx 变换：绘制空间恒回 `profile.base`（标准档＝82×108）的
+   * 基址几何，钉位在缩放后仍落在同一比例点上——对位 Live2D 时代「模型缩放去匹配窗口」。
    */
   applyZoom(zoom: number): void {
     this.zoom = zoom > 0 ? zoom : 1;
@@ -392,7 +445,7 @@ export class PixelPetRenderer {
     if (Math.abs(this.peekDx) > 0.5) return false;
     if (this.tuckEnabled) {
       const right = this.workArea.x + this.workArea.width;
-      const nearRight = right - (this.catOrigin.x + this.profileForHit.base.width) < EDGE_NEAR_PX;
+      const nearRight = right - (this.catOrigin.x + this.profile.base.width) < EDGE_NEAR_PX;
       const nearLeft = this.catOrigin.x - this.workArea.x < EDGE_NEAR_PX;
       if (nearRight || nearLeft) return false;
     }
@@ -411,8 +464,8 @@ export class PixelPetRenderer {
 
     const snapshot = engine.update(now, {
       workArea: this.workArea,
-      // 漫游夹的是「窗口」不是「猫」：catOrigin 是窗口原点，尺寸含 zoom。
-      size: { width: this.profileForHit.base.width * this.zoom, height: this.profileForHit.base.height * this.zoom },
+      // 漫游夹的是「窗口」不是「猫」：catOrigin 是窗口原点，尺寸含档位与 zoom。
+      size: { width: this.profile.base.width * this.zoom, height: this.profile.base.height * this.zoom },
       canRoam: this.canRoam(),
     });
 
@@ -425,7 +478,8 @@ export class PixelPetRenderer {
           catOrigin: this.catOrigin,
           workArea: this.workArea,
           current: { growUp: false, growLeft: this.bubbleGrowLeft },
-          targetWidth: BUB_W,
+          targetWidth: this.profile.bubbleWidth,
+          profile: this.profile,
         }).growLeft;
       }
     }
@@ -441,8 +495,8 @@ export class PixelPetRenderer {
       this.bubbleExpand = Math.max(target, this.bubbleExpand - step);
     }
 
-    const baseW = this.profileForHit.base.width;
-    const rectW = baseW + (this.profileForHit.bubbleWidth - baseW) * this.bubbleExpand;
+    const baseW = this.profile.base.width;
+    const rectW = baseW + (this.profile.bubbleWidth - baseW) * this.bubbleExpand;
     this.bubbleBox = bubble && this.bubbleExpand > 0
       ? bubbleBoxRect(rectW, this.bubbleGrowLeft, bubble.text)
       : null;
@@ -466,24 +520,61 @@ export class PixelPetRenderer {
 
   /**
    * 当前命中矩形（css px，窗口内坐标）：吃**活的** pinInWin/e/profile。
-   * 此前 getHitAreaDefs 钉死 PIN/e:0 且零消费方；尺 #71 是它第一个真读者。
+   * 此前 getHitAreaDefs 钉死 pin/e:0 且零消费方；尺 #71 是它第一个真读者。
    */
   getHitRect(): { x: number; y: number; width: number; height: number } {
     return computeCatRect({
-      pinInWin: this.lastSent?.pinInWin ?? { x: PIN.x, y: PIN.y },
+      pinInWin: this.lastSent?.pinInWin ?? this.profile.pin,
       e: this.lastSent?.e ?? 0,
-      profile: this.profileForHit,
+      profile: this.profile,
     });
   }
 
-  /** 形态×档位给命中几何用；P1–P4 恒缺省，Task 27 由 setProfile 顶正。 */
-  private profileForHit = profileFor("cat", "standard");
+  /**
+   * 绘制原点 = 钉位 + 该形态的 `centerOffset·s`。
+   * ⚠️ 之前这里写死猫的 (−17, +4.5)，猫娘也吃同一组数：她的脚支点在 viewBox (60,100)、
+   * 墨高达 78 单位，按猫的原点画出去会顶到窗顶被裁掉（2026-10-25 真窗 CDP 实测 y=0）。
+   * `FORM_GEOMETRY.girl.centerOffset` 是给这个函数用的，不是给测试用的。
+   */
+  private centerFor(pinInWin: Point, s: number): Point {
+    const g = formGeometry(this.form);
+    return { x: pinInWin.x + g.centerOffset.dx * s, y: pinInWin.y + g.centerOffset.dy * s };
+  }
 
-  /** 形态/档位入口（Task 27 接 boot 读与下行）。 */
+  /**
+   * 尺的前提读数（R-D11 的「读数口」同源）：基址窗口尺寸与当前绘制原点。
+   * 命中尺要判「墨是不是全在宠物基址里」，没有这两列就分不清
+   * 「墨超界=画歪了」和「墨超界=气泡把窗口撑宽了」。
+   */
+  getLayoutInfo(): { base: { width: number; height: number }; center: Point; s: number } {
+    const { s } = this.profile.catScale(this.lastSent?.e ?? 0);
+    return { base: { ...this.profile.base }, center: { ...this.cat.center }, s };
+  }
+
+  /**
+   * 形态×档位的唯一几何来源：基址、钉位、`u/s`、命中框、气泡宽度全部从这里算。
+   * standard 档的每个数都等于旧常量（82×108 / (41,39) / scaleFor），所以默认档逐字节不变。
+   */
+  private profile: PetProfile = profileFor("cat", "standard");
+
+  /** 形态/档位入口（Task 27 接 boot 读与下行）：换档必须当帧重发几何，窗口才会真的变大变小。 */
   setProfile(ref: { form: PetForm; tier: "small" | "standard" | "large" }): void {
-    this.profileForHit = profileFor(ref.form, ref.tier);
-    this.setForm(ref.form);
+    const next = profileFor(ref.form, ref.tier);
+    if (next.form === this.profile.form && next.tier === this.profile.tier) return;
+    this.profile = next;
+    // 绘制中心与字号都吃当前档，先按最后一帧的 e 归位，再让 requestBounds 发新基址。
+    const { u, s } = this.profile.catScale(this.lastSent?.e ?? 0);
+    this.cat.u = u;
+    this.cat.center = this.centerFor(this.lastSent?.pinInWin ?? this.profile.pin, s);
+    this.setForm(next.form);
+    if (this.catOrigin && this.workArea) {
+      this.requestBounds("pet", 0, this.catOrigin, this.workArea, this.peekDx);
+    }
     if (!this.paused) this.draw(performance.now());
+  }
+
+  getProfileRef(): { form: PetForm; tier: "small" | "standard" | "large" } {
+    return { form: this.profile.form, tier: this.profile.tier };
   }
 
   /** CSS 坐标 → 设备像素的单点 alpha 采样，点击穿透的判据源。越界返回 0（= 穿透）。 */
@@ -523,12 +614,12 @@ export class PixelPetRenderer {
       growUp: false,
       workArea,
       peekDx,
+      profile: this.profile,
     });
-    const { u, s } = scaleFor(e);
+    const { u, s } = this.profile.catScale(e);
     this.cat.u = u;
-    // 绘制中心 = 窗口内钉位点 + (-17s, +4.5s)（native main.rs:4373-4384）；
     // pinInWin 已含 peek_off（computePetLayout :121-123），猫随藏身走进窗口右侧。
-    this.cat.center = { x: layout.pinInWin.x - 17 * s, y: layout.pinInWin.y + 4.5 * s };
+    this.cat.center = this.centerFor(layout.pinInWin, s);
     const payload = {
       x: Math.round(layout.pos.x),
       y: Math.round(layout.pos.y),
@@ -538,6 +629,7 @@ export class PixelPetRenderer {
       center: this.cat.center,
       peekDx,
       e,
+      base: { width: this.profile.base.width, height: this.profile.base.height },
     };
     const last = this.lastSent;
     const boundsStill =
@@ -578,7 +670,7 @@ export class PixelPetRenderer {
     const clamped = clampRestoreOrigin({
       saved: this.catOrigin,
       workArea: this.workArea,
-      size: { width: this.profileForHit.base.width, height: this.profileForHit.base.height },
+      size: { width: this.profile.base.width, height: this.profile.base.height },
     });
     if (Math.hypot(clamped.x - this.catOrigin.x, clamped.y - this.catOrigin.y) > 0.5) {
       this.catOrigin = clamped;
@@ -597,7 +689,7 @@ export class PixelPetRenderer {
       bubbleOpen: this.bubbleActive || this.bubbleExpand > 0.001,
     })) {
       // 贴边判定看基准位（含 peek 会翻转目标、边缘来回抖，:4934-4935）。
-      const rightGap = this.workArea.x + this.workArea.width - (this.catOrigin.x + this.profileForHit.base.width);
+      const rightGap = this.workArea.x + this.workArea.width - (this.catOrigin.x + this.profile.base.width);
       const leftGap = this.catOrigin.x - this.workArea.x;
       if (Math.abs(rightGap) < EDGE_NEAR_PX) {
         this.peekSign = 1;
@@ -669,6 +761,80 @@ export class PixelPetRenderer {
     this.ticker = 0;
   }
 
+  /**
+   * 猫娘立绘：绕脚心（center + jumpY − 走路起伏）旋转/缩放后贴图。
+   * 支点必须与命中框、记号的基准同一条线（脚线），否则呼吸时脚会「离地漂」。
+   */
+  private paintGirlSprite(): void {
+    const b = girlBodyFor(this.cat);
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(b.pivot.x, b.pivot.y);
+    ctx.rotate(b.rot);
+    ctx.scale(b.sx * b.facing, b.sy);
+    ctx.drawImage(this.girlSprite, -GIRL_SPRITE.anchorX * b.w, -b.h, b.w, b.h);
+    ctx.restore();
+  }
+
+  /**
+   * 图集里的一帧：脚心（anchorX/anchorY）对齐同一个支点。
+   * k 把图集像素换算成绘制单位（inkRefPx → inkVb），与静态立绘是同一条 91vb 的尺，
+   * 所以两套图切换时脚下不跳、身高不变。alpha 给交叉淡化用。
+   */
+  private paintGirlFrame(index: number, alpha: number, body: GirlAnimBody): void {
+    const { sx, sy, sw, sh } = frameSourceRect(index);
+    const w = GIRL_ANIM.cellW * body.k;
+    const h = GIRL_ANIM.cellH * body.k;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(body.pivot.x, body.pivot.y);
+    ctx.rotate(body.rot);
+    ctx.scale(body.sx * body.facing, body.sy);
+    ctx.drawImage(
+      this.girlAnim, sx, sy, sw, sh,
+      -GIRL_ANIM.anchorX * w, -GIRL_ANIM.anchorY * h, w, h,
+    );
+    ctx.restore();
+  }
+
+  /**
+   * 每帧把「活动/环境手势/显式手势」翻译成要播的帧段（dsh-pet 的加权状态链）：
+   * 1. 显式手势（点击反馈/workStatus）最高优先，一次性播完就回基础动作；
+   * 2. 引擎自主抽到的小动作（snapshot.gesture，权重 80）只在换 id 时起播，
+   *    否则每帧重置会把同一段动作钉在第一帧；
+   * 3. 其余时间播活动对应的循环/长段（待机/走路/睡觉…）。
+   */
+  private tickGirlClip(now: number, snapshot: CompanionSnapshot | null): void {
+    const activity = (snapshot?.activity ?? "idle") as GirlActivity;
+    const explicit = this.explicitGesture;
+    if (explicit) {
+      // 与静态路径同口径：显式手势是一次性的，起播即消费，播完自动让位。
+      this.explicitGesture = null;
+      const clipId = gestureClipFor(explicit.id);
+      if (clipId) {
+        this.animGesture = { clipId, startedAt: explicit.startedAt };
+        this.girlPlayer.setClip(clipId, explicit.startedAt, false);
+      }
+    } else {
+      const ambient = snapshot?.gesture ?? null;
+      if (ambient && ambient !== this.lastAmbientGesture) {
+        const clipId = gestureClipFor(ambient);
+        if (clipId) {
+          this.animGesture = { clipId, startedAt: now };
+          this.girlPlayer.setClip(clipId, now, false);
+        }
+      }
+      this.lastAmbientGesture = ambient;
+    }
+
+    if (this.animGesture && this.girlPlayer.isDone(now)) this.animGesture = null;
+    if (!this.animGesture) {
+      const base = baseClipFor(activity, this.quiet);
+      if (base !== this.girlPlayer.clipId) this.girlPlayer.setClip(base, now);
+    }
+  }
+
   private draw(now: number): void {
     // 猫相位 = 绝对时间（native main.rs:3945 `i.time` 直进 draw_cat :4736）：降帧只是
     // 采样稀，相位不许被帧率拖慢——「cat.t += dt 且封顶 50ms」在 4 fps 下时钟会慢 5 倍
@@ -678,6 +844,8 @@ export class PixelPetRenderer {
     // layout-send 与 tick 分两段只是 egui 结构，1 帧差不可观察）。
     const peekAnimating = this.tickTuck(now / 1000);
     const snapshot = this.tickCompanion(now);
+    // 手势/动作段先落定，再算重绘帧率：淡化期要 30fps，循环段至少比片段 fps 快一档。
+    if (this.form === "girl" && this.girlAnimReady) this.tickGirlClip(now, snapshot);
 
     // 三档 fps：走路/投掷要 60，气泡/藏身缓动/计时动作 30，静坐 4。
     const moving = snapshot !== null
@@ -689,6 +857,14 @@ export class PixelPetRenderer {
     if (moving) this.fps = FPS_HOVER;
     else if (peekAnimating || this.bubbleExpand > 0 || animating) this.fps = FPS_ACTIVE;
     else this.fps = FPS_IDLE;
+    // 帧动画自己的播放速率就是重绘下限：12fps 的待机在 4fps 档会让每张画多停两拍。
+    // 下限取片段帧率的两倍（`redrawFloorFor`）：重绘与片段同频会凑成拍频，看起来一顿一顿。
+    if (this.form === "girl" && this.girlAnimReady) {
+      const need = this.girlPlayer.isFading(now)
+        ? FPS_ACTIVE
+        : redrawFloorFor(this.girlPlayer.clipId);
+      this.fps = Math.max(this.fps, need);
+    }
 
     this.lastSnapshot = snapshot ?? null;
     if (snapshot) this.applyCompanionPose(snapshot);
@@ -702,15 +878,38 @@ export class PixelPetRenderer {
     this.cat.quiet = this.quiet;
 
     // 变换里已折 zoom，clear/气泡都要拿到 zoom 归一后的基址几何。
-    const w = (this.opts.canvas.clientWidth || this.profileForHit.base.width) / this.zoom;
-    const h = (this.opts.canvas.clientHeight || this.profileForHit.base.height) / this.zoom;
+    const w = (this.opts.canvas.clientWidth || this.profile.base.width) / this.zoom;
+    const h = (this.opts.canvas.clientHeight || this.profile.base.height) / this.zoom;
     this.ctx.clearRect(0, 0, w, h);
-    let extra: { channels?: Partial<Record<string, number>>; expression?: Expression; blink?: number } = {};
+    let ops: DrawOp[];
     if (this.form === "girl") {
-      const composed = this.composeChannels(now, this.lastSnapshot);
-      extra = { channels: composed.channels, expression: composed.expression, blink: Math.max(this.cat.blink, composed.blink) };
+      if (this.girlAnimReady) {
+        // 帧动画：上一段冻住的那一帧垫底，当前段按淡化进度压上去
+        // （先画 prev 再画当前，中途不会出现整体透明度塌陷）。
+        const sample = this.girlPlayer.sample(now);
+        const body = girlAnimBodyFor(this.cat);
+        if (sample.prev) this.paintGirlFrame(sample.prev.index, 1, body);
+        this.paintGirlFrame(sample.index, sample.fade, body);
+        // 立绘里的脸/身体是画死的；表情层不参与，屏幕记号照旧跟 mood/pet/quiet 走。
+        ops = buildGirlOverlayOps(this.cat);
+      } else if (this.girlSpriteReady) {
+        this.paintGirlSprite();
+        ops = buildGirlOverlayOps(this.cat);
+      } else if (this.girlSpriteFailed) {
+        const composed = this.composeChannels(now, this.lastSnapshot);
+        ops = buildPetOps({
+          ...this.cat,
+          channels: composed.channels,
+          expression: composed.expression,
+          blink: Math.max(this.cat.blink, composed.blink),
+          form: "girl",
+        });
+      } else {
+        ops = [];
+      }
+    } else {
+      ops = buildPetOps({ ...this.cat, form: this.form });
     }
-    const ops = buildPetOps({ ...this.cat, ...extra, form: this.form });
     // 流量胶囊不再常驻：猫说话时窗口横长，气泡占右半边；读数搬进了侧边栏「网络」页。
     if (this.bubbleExpand > 0 && this.bubbleText) {
       ops.push(...buildBubbleOps({
@@ -730,6 +929,15 @@ export class PixelPetRenderer {
     this.form = form;
     this.slots = {};
     this.explicitGesture = null;
+    // 形态也是行为引擎的分岔口：不同步这一步，猫娘的四档加权抽取永远不跑（她只会走四足那张平表）。
+    this.engine?.setForm(form);
+    this.animGesture = null;
+    this.lastAmbientGesture = null;
+    if (form === "girl") this.girlPlayer.reset("idle", performance.now());
+    // 两个形态的绘制原点不同（猫 −17/+4.5s、猫娘 0/+79s）：切形态必须当场重算，
+    // 否则等下一帧 requestBounds 才归位，中间会闪一帧「猫娘浮在猫的位置上」。
+    const { s } = this.profile.catScale(this.lastSent?.e ?? 0);
+    this.cat.center = this.centerFor(this.lastSent?.pinInWin ?? this.profile.pin, s);
     if (!this.paused) this.draw(performance.now());
   }
 

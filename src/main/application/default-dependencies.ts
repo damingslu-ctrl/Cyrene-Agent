@@ -139,6 +139,8 @@ import { migrateVergeUserData } from "../verge-identity-migration";
 import { createWindowManager } from "../windows/window-manager";
 import { createTray } from "../tray";
 import { createSplashWindow } from "../startup/create-splash-window";
+import { shouldSkipStartupSplash } from "../startup/splash-policy";
+import { createPetIntroWindow } from "../startup/create-pet-intro-window";
 import { revealStartupWindows } from "../startup/startup-window-reveal";
 import { bootstrapMusicService } from "../music/bootstrap";
 import { createVergeService } from "../verge/verge-service";
@@ -384,13 +386,20 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
       },
       // 生产组合根：这里才打开 R-D11 的发送方闸门（单测默认不开，见 ipc-scope 注释）。
       createIpcScope: () => createIpcScope(undefined, { senderPolicy: IPC_SENDER_POLICY }),
-      createSplashWindow: (options) => createSplashWindow({ isDev, onShown: options.onShown }),
+      createSplashWindow: (options) =>
+        shouldSkipStartupSplash(loadGeneralSettings())
+          ? null
+          // 有登场动画时连 Loading 窗都不建：启动期只留那一条动画（用户 2026-10-25 点名
+          // 「为什么会有两个启动动画」）。动画的播放条件与这里同口径，见 splash-policy。
+          : createSplashWindow({ isDev, onShown: options.onShown }),
       createWindowManager: () => createWindowManager({
         getCurrentAppIconPath,
         isDev,
         loadPetWindowSettingsSlice: loadGeneralSettings,
         persistPetWindowPosition: ({ x, y }) => saveGeneralSettings({ petWindowX: x, petWindowY: y }),
         attachPetContextMenu: (win) => attachVergePetMenu?.(win),
+        startPetIntro: (petBounds, onDone) =>
+          createPetIntroWindow({ isDev, petBounds, onDone }) !== null,
       }),
       createChatShell: (windowManager) => windowManager.createReactChatWindowShell(),
       registerProtocolHandlers,

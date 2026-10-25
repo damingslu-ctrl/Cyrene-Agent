@@ -35,15 +35,28 @@ async function loadManifest() {
   return import(pathToFileURL(outfile).href);
 }
 
-function render(m, t) {
+/**
+ * 猫娘立绘的源图（`image` 图元）：30 格静帧表 + 参考图母版 + 7 格高清姿态表。
+ * 由 `build-girl-anim.py` / `build-girl-poses.py` 生成，只进构建期，不进渲染器包。
+ */
+function loadImages(m) {
+  const read = (rel) => m.decodePng(fs.readFileSync(path.join(ROOT, rel)));
+  return {
+    [m.GIRL_STILLS.src]: read("scripts/assets/generated/girl-stills.png"),
+    [m.GIRL_MASTER.src]: read("scripts/assets/generated/girl-master.png"),
+    [m.GIRL_HIRES.src]: read("scripts/assets/generated/girl-poses.png"),
+  };
+}
+
+function render(m, t, images) {
   const size = { w: t.size, h: t.height ?? t.size };
   const crops = m.cropsForForm(t.form ?? "cat");
   const mask = crops[t.crop].mask === "disc" ? "disc" : "none";
   const ops = m.buildSpriteOps(
-    { coat: t.coat, pose: t.pose, crop: t.crop, mood: t.mood, blink: t.blink, pet: t.pet, energy: t.energy, form: t.form },
+    { coat: t.coat, pose: t.pose, crop: t.crop, mood: t.mood, blink: t.blink, pet: t.pet, energy: t.energy, form: t.form, frame: t.frame },
     size,
   );
-  const raster = m.renderOps(ops, size.w, size.h, { mask });
+  const raster = m.renderOps(ops, size.w, size.h, { mask, images });
   return { raster, png: m.encodePng(raster.width, raster.height, raster.rgba) };
 }
 
@@ -81,10 +94,10 @@ function allTargets(m) {
   return [...m.SPRITE_TARGETS, ...m.NON_CHARACTER_TARGETS, ...stickerTargets(m)];
 }
 
-async function writeTargets(m, targets) {
+async function writeTargets(m, targets, images) {
   let kb = 0;
   for (const t of targets) {
-    const { png } = render(m, t);
+    const { png } = render(m, t, images);
     const full = path.join(ROOT, t.out);
     await fs.promises.mkdir(path.dirname(full), { recursive: true });
     fs.writeFileSync(full, png);
@@ -95,15 +108,16 @@ async function writeTargets(m, targets) {
 
 async function generate() {
   const m = await loadManifest();
+  const images = loadImages(m);
   const targets = allTargets(m);
-  const kb = await writeTargets(m, targets);
+  const kb = await writeTargets(m, targets, images);
   console.log(`wrote ${targets.length} PNGs · ${kb.toFixed(1)} KB`);
 }
 
 async function generateStickers() {
   const m = await loadManifest();
   const targets = stickerTargets(m);
-  const kb = await writeTargets(m, targets);
+  const kb = await writeTargets(m, targets, undefined);
   console.log(`wrote ${targets.length} stickers · ${kb.toFixed(1)} KB`);
 }
 
@@ -113,29 +127,34 @@ async function generateStickers() {
  */
 async function measure() {
   const m = await loadManifest();
-  const rows = [...m.SPRITE_TARGETS, ...m.NON_CHARACTER_TARGETS].map((t) => ({ t, ...render(m, t) }));
+  const images = loadImages(m);
+  const rows = [...m.SPRITE_TARGETS, ...m.NON_CHARACTER_TARGETS].map((t) => ({ t, ...render(m, t, images) }));
   const groups = new Map();
-  for (const { t, raster } of rows) {
+  for (const { t, raster, png } of rows) {
     const key = `${t.form ?? "cat"}/${t.crop}`;
     const cov = m.alphaCoverage(raster);
     const c = m.inkCentroid(raster);
     const off = Math.hypot(c.x - raster.width / 2, c.y - raster.height / 2) / raster.width;
-    const g = groups.get(key) ?? { count: 0, covMin: 1, covMax: 0, offMax: 0 };
+    const kb = png.length / 1024;
+    const g = groups.get(key) ?? { count: 0, covMin: 1, covMax: 0, offMax: 0, kbMin: Infinity, kbMax: 0 };
     g.count += 1;
     g.covMin = Math.min(g.covMin, cov);
     g.covMax = Math.max(g.covMax, cov);
     g.offMax = Math.max(g.offMax, off);
+    g.kbMin = Math.min(g.kbMin, kb);
+    g.kbMax = Math.max(g.kbMax, kb);
     groups.set(key, g);
   }
   for (const [key, g] of [...groups.entries()].sort()) {
     if (g.count === 0) throw new Error(`${key} 组是空的——量不出来不许进下一步`);
-    console.log(`${key}  n=${g.count}  cov ${g.covMin.toFixed(3)}..${g.covMax.toFixed(3)}  off<=${(g.offMax * 100).toFixed(1)}%`);
+    console.log(`${key}  n=${g.count}  cov ${g.covMin.toFixed(3)}..${g.covMax.toFixed(3)}  off<=${(g.offMax * 100).toFixed(1)}%  kb ${g.kbMin.toFixed(0)}..${g.kbMax.toFixed(0)}`);
   }
 }
 
 async function check() {
   const m = await loadManifest();
-  const rows = allTargets(m).map((t) => ({ t, ...render(m, t) }));
+  const images = loadImages(m);
+  const rows = allTargets(m).map((t) => ({ t, ...render(m, t, images) }));
   const bad = [];
 
   for (const row of rows) {

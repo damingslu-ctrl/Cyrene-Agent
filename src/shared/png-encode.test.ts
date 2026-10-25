@@ -35,26 +35,60 @@ function chunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([head, data, tail]);
 }
 
-/** 把一张自产 PNG 的行 0 filter byte 改成别的值——用来验 decode 的拒绝分支。 */
-function withFirstFilterByte(png: Buffer, filter: number): Buffer {
-  const chunks: Buffer[] = [png.subarray(0, 8)];
+function paeth(a: number, b: number, c: number): number {
+  const p = a + b - c;
+  const pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+  return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+}
+
+/** 按指定 filter 重写整张图——验 decode 的五种分支，也验选行启发式。 */
+function pngWithFilter(width: number, height: number, rgba: Uint8Array, filter: number): Buffer {
+  const stride = width * 4;
+  const raw = Buffer.alloc(height * (stride + 1));
+  for (let y = 0; y < height; y += 1) {
+    raw[y * (stride + 1)] = filter;
+    for (let i = 0; i < stride; i += 1) {
+      const cur = rgba[y * stride + i];
+      const a = i >= 4 ? rgba[y * stride + i - 4] : 0;
+      const b = y > 0 ? rgba[(y - 1) * stride + i] : 0;
+      const c = y > 0 && i >= 4 ? rgba[(y - 1) * stride + i - 4] : 0;
+      const pred =
+        filter === 0 ? 0
+        : filter === 1 ? a
+        : filter === 2 ? b
+        : filter === 3 ? (a + b) >> 1
+        : filter === 4 ? paeth(a, b, c)
+        : 0;
+      raw[y * (stride + 1) + 1 + i] = (cur - pred) & 0xff;
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; ihdr[9] = 6;
+  return Buffer.concat([
+    pngHeader(),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function pngHeader(): Buffer {
+  return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+}
+
+function collectIdat(png: Buffer): Buffer {
+  const parts: Buffer[] = [];
   let p = 8;
   while (p < png.length) {
     const len = png.readUInt32BE(p);
     const type = png.subarray(p + 4, p + 8).toString("ascii");
-    const body = Buffer.from(png.subarray(p + 8, p + 8 + len));
-    chunks.push(type === "IDAT" ? chunk("IDAT", mutateFirstRaw(body, filter))
-      : png.subarray(p, p + 12 + len));
+    if (type === "IDAT") parts.push(png.subarray(p + 8, p + 8 + len));
     p += 12 + len;
     if (type === "IEND") break;
   }
-  return Buffer.concat(chunks);
-}
-
-function mutateFirstRaw(idat: Buffer, filter: number): Buffer {
-  const raw = inflateSync(idat);
-  raw[0] = filter;
-  return deflateSync(raw);
+  return Buffer.concat(parts);
 }
 
 describe("最小 PNG/ICO/BMP 编码", () => {
@@ -77,13 +111,34 @@ describe("最小 PNG/ICO/BMP 编码", () => {
     expect([...decodePng(encodePng(w, h, buf)).rgba]).toEqual([...buf]);
   });
 
-  it("正对照：IEND 之后有字节、签名不对、filter byte 非 0 都必须被拒", () => {
+  it("decode 认全部五种 filter（源图来自 Pillow / Chromium，不可能只有 0）", () => {
+    const w = 5, h = 4;
+    const rgba = new Uint8Array(rnd(w * h * 4));
+    for (let i = 3; i < rgba.length; i += 4) rgba[i] = 128 + (i % 7) * 9;
+    for (let filter = 0; filter <= 4; filter += 1) {
+      expect([...decodePng(pngWithFilter(w, h, rgba, filter)).rgba], `filter ${filter}`).toEqual([...rgba]);
+    }
+    expect(() => decodePng(pngWithFilter(w, h, rgba, 5))).toThrow(/filter byte 5/);
+  });
+
+  it("正对照：IEND 之后有字节、签名不对仍被拒；自适应编码真的不用满行 filter 0", () => {
     const png = encodePng(1, 1, new Uint8Array([1, 2, 3, 255]));
     expect(() => decodePng(Buffer.concat([png, Buffer.from("junk")]))).toThrow(/IEND 之后/);
     expect(() => decodePng(Buffer.from([0, 1, 2, 3]))).toThrow(/签名/);
-    expect(() => decodePng(withFirstFilterByte(png, 1))).toThrow(/filter byte/);
-    // 正对照的反面：同一张图 filter 保持 0 时解得开
-    expect(() => decodePng(withFirstFilterByte(png, 0))).not.toThrow();
+
+    // 横向渐变：Sub 的残差几乎全 0，启发式一定会选非 0 的 filter。
+    const w = 64, h = 2;
+    const grad = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        const i = (y * w + x) * 4;
+        grad[i] = x * 4; grad[i + 1] = 128; grad[i + 2] = 255 - x * 4; grad[i + 3] = 255;
+      }
+    }
+    const encoded = encodePng(w, h, grad);
+    const raw = inflateSync(collectIdat(encoded));
+    expect([...raw.subarray(0, 2)].some((f) => f !== 0), "两行都选了 filter 0").toBe(true);
+    expect([...decodePng(encoded).rgba]).toEqual([...grad]);
   });
 
   it("ICO 容器带 7 档尺寸且每档 payload 就是那张 PNG；256 记 0", () => {

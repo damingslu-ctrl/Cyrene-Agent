@@ -18,6 +18,8 @@ export interface Raster {
 export interface RenderOpts {
   mask?: "none" | "disc";
   ss?: number;
+  /** `image` 图元的源图；键就是 `DrawOp.src`。缺这张图当场报错，不许静默画空。 */
+  images?: Readonly<Record<string, Raster>>;
 }
 
 type Span = [number, number]; // 行内 [x0, x1)，像素下标，已夹进行宽
@@ -32,7 +34,7 @@ export function renderOps(ops: DrawOp[], width: number, height: number, opts: Re
   const buf = new Float64Array(w * h * 4);
   const mask = opts.mask ?? "none";
 
-  for (const op of ops) paintOp(buf, w, h, op, mask, ss);
+  for (const op of ops) paintOp(buf, w, h, op, mask, ss, opts.images);
 
   const rgba = new Uint8Array(width * height * 4);
   const n = ss * ss;
@@ -63,8 +65,20 @@ function clamp255(v: number): number {
   return Math.max(0, Math.min(255, Math.round(v)));
 }
 
-function paintOp(buf: Float64Array, w: number, h: number, op: DrawOp, mask: "none" | "disc", ss: number): void {
+function paintOp(
+  buf: Float64Array,
+  w: number,
+  h: number,
+  op: DrawOp,
+  mask: "none" | "disc",
+  ss: number,
+  images: Readonly<Record<string, Raster>> | undefined,
+): void {
   if (op.kind === "text") throw new RangeError("位图管线不支持 text 图元（R-D10）");
+  if (op.kind === "image") {
+    paintImage(buf, w, h, op, mask, ss, images);
+    return;
+  }
   const spans = spansOf(op, w, h, ss);
   const solid = op.kind === "gradPath" ? null : toRgba(colorOfRaw(op));
   const grad = op.kind === "gradPath" ? prepareGradient(op) : null;
@@ -90,6 +104,111 @@ function paintOp(buf: Float64Array, w: number, h: number, op: DrawOp, mask: "non
   }
 }
 
+/**
+ * `image` 图元：把源图的一块（sx/sy/sw/sh）双三次（Catmull-Rom）重采样到画布矩形。
+ * 源缓冲区先转**预乘** Float32——每帧有几十万次采样，逐次乘 alpha 会把构建时间翻几倍。
+ * 透明边缘的 overshoot 必须夹到 [0, a·255]，否则重采样会在头发/耳朵外圈拉出暗边。
+ */
+function paintImage(
+  buf: Float64Array,
+  w: number,
+  h: number,
+  op: Extract<DrawOp, { kind: "image" }>,
+  mask: "none" | "disc",
+  ss: number,
+  images: Readonly<Record<string, Raster>> | undefined,
+): void {
+  const img = images?.[op.src];
+  if (!img) throw new RangeError(`image 图元缺少源图：${op.src}`);
+  const src = premultiplied(img);
+  const IW = img.width;
+  const IH = img.height;
+  // 双三次的 4 个 tap 必须夹在 crop 里（夹到整张图会在裁切边吸进邻居像素——
+  // 图集里相邻格子是完全不同的一帧，吸进来就是一圈脏边）。
+  const loX = Math.max(0, Math.floor(op.sx));
+  const hiX = Math.min(IW - 1, Math.ceil(op.sx + op.sw) - 1);
+  const loY = Math.max(0, Math.floor(op.sy));
+  const hiY = Math.min(IH - 1, Math.ceil(op.sy + op.sh) - 1);
+  const wx = new Float64Array(4);
+  const wy = new Float64Array(4);
+  const y0 = Math.max(0, Math.floor(op.y * ss));
+  const y1 = Math.min(h, Math.ceil((op.y + op.h) * ss));
+  const x0 = Math.max(0, Math.floor(op.x * ss));
+  const x1 = Math.min(w, Math.ceil((op.x + op.w) * ss));
+  for (let y = y0; y < y1; y += 1) {
+    const dy = (y + 0.5) / ss;
+    const v = op.sy + ((dy - op.y) / op.h) * op.sh - 0.5;
+    const iy = Math.floor(v);
+    catmullWeights(v - iy, wy);
+    for (let x = x0; x < x1; x += 1) {
+      if (mask === "disc") {
+        const dx = x + 0.5 - w / 2;
+        const half = Math.min(w, h) / 2;
+        if (dx * dx + (dy - h / 2) ** 2 > half * half) continue;
+      }
+      const dx = (x + 0.5) / ss;
+      const u = op.sx + ((dx - op.x) / op.w) * op.sw - 0.5;
+      const ix = Math.floor(u);
+      catmullWeights(u - ix, wx);
+      let r = 0, g = 0, b = 0, a = 0;
+      for (let j = 0; j < 4; j += 1) {
+        const sy = clampRange(iy - 1 + j, loY, hiY);
+        const wj = wy[j];
+        for (let i = 0; i < 4; i += 1) {
+          const sx = clampRange(ix - 1 + i, loX, hiX);
+          const wt = wj * wx[i];
+          const s = (sy * IW + sx) * 4;
+          r += src[s] * wt;
+          g += src[s + 1] * wt;
+          b += src[s + 2] * wt;
+          a += src[s + 3] * wt;
+        }
+      }
+      a = Math.max(0, Math.min(1, a));
+      if (a <= 1e-6) continue;
+      const cap = a * 255;
+      r = Math.max(0, Math.min(cap, r));
+      g = Math.max(0, Math.min(cap, g));
+      b = Math.max(0, Math.min(cap, b));
+      const o = (y * w + x) * 4;
+      buf[o] = r + buf[o] * (1 - a);
+      buf[o + 1] = g + buf[o + 1] * (1 - a);
+      buf[o + 2] = b + buf[o + 2] * (1 - a);
+      buf[o + 3] = a + buf[o + 3] * (1 - a);
+    }
+  }
+}
+
+const PREMUL = new WeakMap<Raster, Float32Array>();
+
+function premultiplied(img: Raster): Float32Array {
+  const hit = PREMUL.get(img);
+  if (hit) return hit;
+  const out = new Float32Array(img.width * img.height * 4);
+  for (let i = 0; i < out.length; i += 4) {
+    const a = img.rgba[i + 3] / 255;
+    out[i] = img.rgba[i] * a;
+    out[i + 1] = img.rgba[i + 1] * a;
+    out[i + 2] = img.rgba[i + 2] * a;
+    out[i + 3] = a;
+  }
+  PREMUL.set(img, out);
+  return out;
+}
+
+function catmullWeights(t: number, w: Float64Array): void {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  w[0] = -0.5 * t3 + t2 - 0.5 * t;
+  w[1] = 1.5 * t3 - 2.5 * t2 + 1;
+  w[2] = -1.5 * t3 + 2 * t2 + 0.5 * t;
+  w[3] = 0.5 * t3 - 0.5 * t2;
+}
+
+function clampRange(i: number, lo: number, hi: number): number {
+  return i < lo ? lo : i > hi ? hi : i;
+}
+
 function colorOfRaw(op: DrawOp): string {
   switch (op.kind) {
     case "strokePath": return op.stroke;
@@ -97,6 +216,7 @@ function colorOfRaw(op: DrawOp): string {
     case "strokeRoundRect": return op.stroke;
     case "gradPath": return op.stops[0]?.color ?? "#000000"; // 只为类型闭合；真正取色走 gradientAt
     case "text": return op.color;
+    case "image": throw new RangeError("image 图元不该走纯色路径");
     default: return op.fill;
   }
 }
@@ -187,6 +307,8 @@ function spansOf(op: DrawOp, w: number, h: number, s: number): Map<number, Span[
         ellipseSpans(op.cx * s, op.cy * s, op.r * s, op.r * s, w, h),
         ellipseSpans((op.cx + op.dx) * s, (op.cy + op.dy) * s, op.cut * s, op.cut * s, w, h),
       );
+    case "image":
+      throw new RangeError("image 图元由 paintImage 单独处理");
     case "text":
       throw new RangeError("位图管线不支持 text 图元（R-D10）");
   }

@@ -9,7 +9,7 @@ export interface CreateSplashWindowContext {
   now?: () => number;
 }
 
-const SPLASH_SIZE = 520;
+const SPLASH_SIZE = 260;
 
 /**
  * 创建 Loading（splash）窗口。创建失败返回 null（启动编排器会跳过最短展示时长，

@@ -1,8 +1,37 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildCatOps, type CatInput } from "./art";
 import { opsBounds } from "./ops";
 import { CAT_COATS } from "../../shared/cat-coats";
-import { CAT_CROPS, CAT_POSES, SPRITE_DROPPED_LAYERS, buildSpriteOps, placeCrop, type CropName, type PoseName, GIRL_CROPS, GIRL_POSES, cropsForForm } from "./cat-variants";
+import { decodePng } from "../../shared/png-encode";
+import { renderOps, type Raster } from "../../shared/sprite-raster";
+import { pixelDiffRatio } from "../../shared/min-pixel-diff";
+import { GIRL_MASTER, GIRL_STILLS, GIRL_STILL_FRAMES } from "./girl-stills-meta";
+import { GIRL_HIRES, GIRL_POSE_CELLS, GIRL_POSE_FROM_HIRES } from "./girl-poses-meta";
+import { CAT_CROPS, CAT_POSES, SPRITE_DROPPED_LAYERS, buildSpriteOps, placeCrop, type CropName, type PoseName, type SpriteSpec, GIRL_CROPS, GIRL_POSES, cropsForForm } from "./cat-variants";
+
+/** 与 `cat-sprite-manifest.test.ts` 同一条解码通路：静帧表 + 参考图母版 + 高清姿态表。 */
+const IMAGES = {
+  [GIRL_STILLS.src]: decodePng(readFileSync(new URL("../../../scripts/assets/generated/girl-stills.png", import.meta.url))),
+  [GIRL_MASTER.src]: decodePng(readFileSync(new URL("../../../scripts/assets/generated/girl-master.png", import.meta.url))),
+  [GIRL_HIRES.src]: decodePng(readFileSync(new URL("../../../scripts/assets/generated/girl-poses.png", import.meta.url))),
+};
+
+function inkBox(r: Raster) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let y = 0; y < r.height; y += 1) {
+    for (let x = 0; x < r.width; x += 1) {
+      if (r.rgba[(y * r.width + x) * 4 + 3] > 8) {
+        if (x < x0) x0 = x;
+        if (y < y0) y0 = y;
+        if (x > x1) x1 = x;
+        if (y > y1) y1 = y;
+      }
+    }
+  }
+  if (x0 === Infinity) throw new Error("渲染结果全透明");
+  return { x0, y0, x1, y1, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
 
 const POSES: PoseName[] = ["sit", "lie", "prone", "peek", "stretch", "wash", "yawn", "tilt",
   "sleep", "puff", "pout", "happy"];
@@ -98,21 +127,73 @@ describe("姿态与取景轴", () => {
 // ===========================================================================
 describe("girl 资产轴 (Task 24)", () => {
   const GIRL_SPEC = (pose: PoseName): SpriteSpec => ({ coat: "ink", pose, crop: "full", form: "girl" });
-  const hash = (ops: unknown) => JSON.stringify(ops);
+  const renderGirl = (spec: SpriteSpec, size: { w: number; h: number }) => {
+    const ops = buildSpriteOps(spec, size);
+    const mask = GIRL_CROPS[spec.crop].mask === "disc" ? "disc" : "none";
+    return { ops, raster: renderOps(ops, size.w, size.h, { mask, images: IMAGES }) };
+  };
 
   it("GIRL_POSES 恰好覆盖 12 个 PoseName（与 CAT_POSES 同一个联合）", () => {
     expect(Object.keys(GIRL_POSES).sort()).toEqual(Object.keys(CAT_POSES).sort());
   });
 
-  it("12 个 girl 姿态两两 ops 互异（spec §10 对 12 姿态哈希锁的重钉对象）", () => {
-    const hashes = (Object.keys(GIRL_POSES) as PoseName[]).map((pose) => hash(buildSpriteOps(GIRL_SPEC(pose), { w: 256, h: 256 })));
-    expect(new Set(hashes).size, "有两个人形立绘其实是同一张").toBe(12);
+  it("12 个 girl 姿态各贴一张相异静帧，渲染出来也两两可分辨", () => {
+    const poses = Object.keys(GIRL_POSES) as PoseName[];
+    const cells = new Set<string>();
+    const rasters: Raster[] = [];
+    for (const pose of poses) {
+      const { ops, raster } = renderGirl(GIRL_SPEC(pose), { w: 256, h: 256 });
+      expect(ops, pose).toHaveLength(1);
+      const op = ops[0];
+      expect(op.kind, pose).toBe("image");
+      if (op.kind !== "image") throw new Error("unreachable");
+      // 姿态优先取高清参考图集，没覆盖的仍取 30 格静帧表——两边都要按实际图集验。
+      const hires = GIRL_POSE_FROM_HIRES[pose];
+      const atlas = hires ? GIRL_HIRES : GIRL_STILLS;
+      const cell = hires ? GIRL_POSE_CELLS[hires] : GIRL_STILL_FRAMES.pose[pose];
+      expect(op.src, pose).toBe(atlas.src);
+      // 源矩形必须落在**本格**里：越到邻格就会把隔壁动作的裙摆/发梢带进来。
+      const cellX = (cell % atlas.cols) * atlas.cellW;
+      const cellY = Math.floor(cell / atlas.cols) * atlas.cellH;
+      expect(op.sx, pose).toBeGreaterThanOrEqual(cellX);
+      expect(op.sy, pose).toBeGreaterThanOrEqual(cellY);
+      expect(op.sx + op.sw, pose).toBeLessThanOrEqual(cellX + atlas.cellW);
+      expect(op.sy + op.sh, pose).toBeLessThanOrEqual(cellY + atlas.cellH);
+      cells.add(`${atlas.src}#${cell}`);
+      rasters.push(raster);
+    }
+    expect(cells.size, "有两个人形立绘其实是同一格").toBe(poses.length);
+    // 判据是像素：48.4% 是实测最小的一对（prone ↔ peek），门槛只要证明「不是同一张」。
+    for (let i = 0; i < rasters.length; i += 1) {
+      for (let j = i + 1; j < rasters.length; j += 1) {
+        expect(pixelDiffRatio(rasters[i], rasters[j]), `${poses[i]} ↔ ${poses[j]}`).toBeGreaterThan(0.02);
+      }
+    }
   });
 
-  it("语义重写三处硬钉：趴→伏案、炸毛→生气、卧≠睡", () => {
-    expect(GIRL_POSES.prone().gesture, "趴→伏案：typeCode 的持片").toBe("typeCode");
-    expect(GIRL_POSES.puff().gesture, "炸毛→发蓬（shiver 的抖）").toBe("shiver");
-    expect(GIRL_POSES.lie().blink).not.toBe(GIRL_POSES.sleep().blink);
+  it("25 档情绪各贴一张相异静帧，且与 12 姿态合起来刚好 30 格（没有回落成 sit）", () => {
+    const moods = Object.values(GIRL_STILL_FRAMES.mood);
+    const gesture = Object.values(GIRL_STILL_FRAMES.pose);
+    expect(moods).toHaveLength(25);
+    expect(new Set(moods).size, "两档情绪指向同一格").toBe(25);
+    expect(new Set([...moods, ...gesture]).size, "静帧表应刚好 30 格").toBe(30);
+    const rasters = Object.keys(GIRL_STILL_FRAMES.mood).map((mood) =>
+      renderGirl({ coat: "ink", pose: "sit", crop: "square", form: "girl", frame: { mood: mood as never } }, { w: 256, h: 256 }).raster);
+    // 实测最小 43.0%（平静 ↔ 陪伴中）；门槛只抓「退回同一张」。
+    for (let i = 0; i < rasters.length; i += 1) {
+      for (let j = i + 1; j < rasters.length; j += 1) {
+        expect(pixelDiffRatio(rasters[i], rasters[j]), `${i} ↔ ${j}`).toBeGreaterThan(0.02);
+      }
+    }
+  });
+
+  it("语义重写三处硬钉换成新的帧表口径：趴/炸毛各归其位，卧≠睡", () => {
+    expect(GIRL_POSES.prone).toEqual({ pose: "prone" });
+    expect(GIRL_POSES.puff).toEqual({ pose: "puff" });
+    expect(GIRL_STILL_FRAMES.pose.prone).not.toBe(GIRL_STILL_FRAMES.pose.sit);
+    expect(GIRL_STILL_FRAMES.pose.puff).not.toBe(GIRL_STILL_FRAMES.pose.happy);
+    expect(GIRL_POSES.lie).not.toEqual(GIRL_POSES.sleep);
+    expect(GIRL_STILL_FRAMES.pose.lie).not.toBe(GIRL_STILL_FRAMES.pose.sleep);
   });
 
   it("R-D10 两形态同锁：girl 位图无 text 层、无 SPRITE_DROPPED_LAYERS 成员", () => {
@@ -136,38 +217,46 @@ describe("girl 资产轴 (Task 24)", () => {
     expect(cropsForForm("girl")).toBe(GIRL_CROPS);
   });
 
-  it("girl 五档取景：头部（发顶→下巴）永远完整在框内，且非圆图不压边", () => {
-    // 旧版这条要求「整只都在画布内」，那是按「五档其实一样大」的暂行取景写的。
-    // 2026-10-24 重画后五档真的分开了（full 0.34 ＜ round 0.55 ＜ bust 0.58 ＜ square 0.64），
-    // bust/square/round 按定义就要裁掉裙摆——再要求整体装下等于逼五档变回一张图。
-    //
-    // 真正不能破的是：**脸不许被裁**。所以判据改成
-    //   ① 头部（crown 到下巴，含猫耳与外圈白饰）在每一档都必须完整在框内；
-    //   ② 非圆图不许贴到左右边（压边会被读成画坏了）；
-    //   ③ `full` 与 `wide` 这两档的语义就是「全身」，仍然要求整只装下。
-    for (const crop of ["full", "bust", "square", "round", "wide"] as const) {
-      const size = crop === "wide" ? { w: 1280, h: 720 } : { w: 256, h: 256 };
-      const ops = buildSpriteOps({ coat: "paper", pose: "sit", crop, form: "girl" }, size);
-      const b = opsBounds(ops)!;
-      // 头部：只取 y 在上半段的图元（头箍、耳、眼、脸都在这里）
-      const headOps = ops.filter((o) => {
-        const bb = opsBounds([o]);
-        return bb && bb.y + bb.height <= size.h * 0.72;
-      });
-      const hb = opsBounds(headOps)!;
-      // 头部的上沿必须 ≥ 0（发顶没被切）
-      expect(hb.y, `${crop}: 发顶被切`).toBeGreaterThanOrEqual(-0.5);
-      // 头部的左右必须在框内（头是最宽处，它装下＝整只装得下）
-      expect(hb.x, `${crop}: 头左侧被切`).toBeGreaterThanOrEqual(-0.5);
-      expect(hb.x + hb.width, `${crop}: 头右侧被切`).toBeLessThanOrEqual(size.w + 0.5);
-      if (crop !== "round" && crop !== "wide") {
-        expect(b.x, `${crop}: 压到左边`).toBeGreaterThan(1);
-        expect(b.x + b.width, `${crop}: 压到右边`).toBeLessThan(size.w - 1);
-      }
-      if (crop === "full" || crop === "wide") {
-        expect(b.y, `${crop}: 全身档不许裁顶`).toBeGreaterThanOrEqual(-0.5);
-        expect(b.y + b.height, `${crop}: 全身档不许裁脚`).toBeLessThanOrEqual(size.h + 0.5);
+  it("girl 五档取景：发顶永远在框内，非圆图不压边，full/横幅不裁脚", () => {
+    // Task 25 起猫娘是位图，`opsBounds` 只报取景窗口（整块矩形），量不到墨在哪。
+    // 判据改成**栅格化后的 alpha 包围盒**：发顶不许贴 0，左右留白，full 与横幅四边都在画布内。
+    for (const crop of ["full", "bust", "square", "round"] as const) {
+      const size = { w: 256, h: 256 };
+      for (const pose of Object.keys(GIRL_POSES) as PoseName[]) {
+        const { raster } = renderGirl({ coat: "paper", pose, crop, form: "girl" }, size);
+        const b = inkBox(raster);
+        const where = `${crop}/${pose}`;
+        expect(b.y0, `${where}: 发顶被切`).toBeGreaterThan(0);
+        if (crop !== "round") {
+          expect(b.x0, `${where}: 压到左边`).toBeGreaterThan(0);
+          expect(b.x1, `${where}: 压到右边`).toBeLessThan(size.w - 1);
+        }
+        if (crop === "full") {
+          expect(b.y1, `${where}: 全身档不许裁脚`).toBeLessThan(size.h);
+          expect(b.y0, `${where}: 全身档留白太少`).toBeGreaterThan(4);
+        }
       }
     }
+    // 半身/圆图的语义是「下沿被裁」：用站姿那格验（`lie` 这类横躺的帧本来就矮，
+    // 要求它们顶到下沿等于逼画面出框）。
+    for (const crop of ["bust", "round"] as const) {
+      const b = inkBox(renderGirl({ coat: "paper", pose: "sit", crop, form: "girl" }, { w: 256, h: 256 }).raster);
+      expect(b.y1, `${crop}/sit: 下沿没被裁（取景没起作用）`).toBeGreaterThan(256 - 12);
+    }
+    // wide 只服务横幅，而横幅用参考图母版（frame: "master"），所以拿母版量。
+    const banner = inkBox(renderGirl({ coat: "paper", pose: "happy", crop: "wide", form: "girl", frame: "master" }, { w: 1280, h: 720 }).raster);
+    expect(banner.x0).toBeGreaterThan(12);
+    expect(banner.x1).toBeLessThan(1280 - 12);
+    expect(banner.y0).toBeGreaterThan(12);
+    expect(banner.y1).toBeLessThan(720 - 12);
+    expect(banner.h).toBeGreaterThan(720 * 0.6);
+  });
+
+  it("正对照：把 full 往上推 60px 会判「发顶被切」（alpha 尺真的在量，不是恒真）", () => {
+    const size = { w: 256, h: 256 };
+    const { ops } = renderGirl(GIRL_SPEC("sit"), size);
+    const shifted = ops.map((op) => (op.kind === "image" ? { ...op, y: op.y - 60 } : op));
+    const b = inkBox(renderOps(shifted, size.w, size.h, { mask: "none", images: IMAGES }));
+    expect(b.y0).toBeLessThan(1);
   });
 });

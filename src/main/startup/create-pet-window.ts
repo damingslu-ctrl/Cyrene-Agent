@@ -1,4 +1,5 @@
 import { CONSOLE_PREFIX } from "../../shared/brand";
+import { forgetWebContents, markWebContents } from "../application/window-kind";
 import { app, BrowserWindow, screen } from "electron";
 import path from "node:path";
 import { IPC } from "../../shared/ipc-channels";
@@ -125,6 +126,13 @@ export function createPetWindow(
   // 注：82×108 上点透明区的实测项仍未做，记在 docs/verge/spikes/p1-window.md 待验证项，
   // 随 Task 10 的首次 dev 一起验，不许在这里当已证结论引用。
   win.setIgnoreMouseEvents(true, { forward: true });
+
+  // ⚠️ 必须在这里登记窗口类别（R-D11）。发送方闸门按 webContents.id 判「这个窗是不是宠物窗」，
+  // 没登记就一律 unknown —— `VERGE_PROFILE_GET` 等九条 channel 会当场抛
+  // `IPC sender denied`，而渲染端那条 `.catch()` 把它咽掉了，于是**真实用户永远看到默认的
+  // cat/standard**：v1.5.0 的猫娘在所有装机上是看不见的（2026-10-24 CDP 尺抓到）。
+  markWebContents(win.webContents.id, "pet");
+  win.on("closed", () => forgetWebContents(win.webContents.id));
 
   win.on("hide", () => {
     win.webContents.send(IPC.PET_VISIBILITY_CHANGED, false);

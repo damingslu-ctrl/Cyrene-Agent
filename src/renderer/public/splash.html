@@ -19,19 +19,19 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 28px;
+      gap: 18px;
     }
 
     .splash__logo {
-      width: 160px;
-      height: 160px;
+      height: 190px;
+      width: auto;
       object-fit: contain;
     }
 
     .loader {
       position: relative;
       display: flex;
-      gap: 0.3em;
+      gap: 0.15em;
     }
 
     .loader::before {
@@ -41,14 +41,14 @@
       top: 0;
       width: 100%;
       height: 2em;
-      filter: blur(45px);
+      filter: blur(22px);
       background-color: #e299ff;
       background-image: radial-gradient(at 52% 57%, hsla(11, 83%, 72%, 1) 0px, transparent 50%),
         radial-gradient(at 37% 57%, hsla(175, 78%, 66%, 1) 0px, transparent 50%);
     }
 
     .loader__circle {
-      --size__loader: 0.6em;
+      --size__loader: 0.3em;
       width: var(--size__loader);
       height: var(--size__loader);
       border-radius: 50%;
@@ -67,15 +67,15 @@
 
     @keyframes loader__jumping {
       0%, 100% { transform: translateY(0px); }
-      25% { transform: translateY(-15px) scale(0.5); }
+      25% { transform: translateY(-7.5px) scale(0.5); }
       50% { transform: translateY(0px); }
-      75% { transform: translateY(5px) scale(0.9); }
+      75% { transform: translateY(2.5px) scale(0.9); }
     }
   </style>
 </head>
 <body>
   <div class="splash">
-    <img class="splash__logo" src="./loading.png" alt="Mochi" />
+    <img class="splash__logo" src="./pet/girl.webp" alt="Mochi" />
     <div class="loader">
       <div class="loader__circle"></div>
       <div class="loader__circle"></div>

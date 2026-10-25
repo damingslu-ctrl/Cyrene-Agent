@@ -18,12 +18,15 @@ import type { CoatName } from "../../shared/cat-coats";
 import type { CropName, Mood, PoseName } from "../../shared/cat-types";
 import type { PetForm } from "../../shared/pet-profile";
 import { alphaCoverage, inkCentroid, renderOps, type Raster } from "../../shared/sprite-raster";
-import { encodeIco, encodePng } from "../../shared/png-encode";
+import { decodePng, encodeIco, encodePng } from "../../shared/png-encode";
 import { CAT_CROPS, CAT_POSES, GIRL_CROPS, GIRL_POSES, buildSpriteOps, cropsForForm } from "./cat-variants";
+import { GIRL_MASTER, GIRL_STILLS, type GirlFrame, type GirlMoodName } from "./girl-stills-meta";
 import type { CharacterStatusMood } from "../react/character-status-moods";
 
-export { CAT_CROPS, buildSpriteOps, alphaCoverage, encodeIco, encodePng, inkCentroid, renderOps };
-export type { Raster };
+export { CAT_CROPS, buildSpriteOps, alphaCoverage, decodePng, encodeIco, encodePng, inkCentroid, renderOps };
+export { GIRL_MASTER, GIRL_STILLS };
+export { GIRL_HIRES } from "./girl-poses-meta";
+export type { Raster, GirlFrame };
 // 52 张表情包的表住在 shared（main 侧的目录测试也要读）；这里只做出口，
 // 好让 `scripts/build/cat-sprites.mjs` 仍然只 import 一个 esbuild 入口。
 export { CAT_STICKERS, STICKER_SIZE } from "../../shared/cat-sticker-set";
@@ -42,22 +45,31 @@ export interface SpriteTarget {
   coat: CoatName;
   pose: PoseName;
   mood: Mood;
-  /** 形态轴（v1.5.0 Task 25）：146 张派生资产翻成 girl；贴纸与图标支路不翻。 */
+  /** 形态轴（v1.5.0 Task 25）：145 张派生资产翻成 girl；贴纸与图标支路不翻。 */
   form?: PetForm;
+  /** 猫娘静帧（mood/pose/master）；cat 形态忽略。 */
+  frame?: GirlFrame;
   blink?: number;
   pet?: number;
   energy?: number;
-  /** R-D1：单文件 ≤60 KB（横幅 120）。默认值在 `checkTarget`。 */
+  /** R-D1：单文件预算（cat 60 KB；girl 位图按档 80/150/280 KB，见 `checkTarget`）。 */
   maxKb?: number;
 }
 
-export type MoodVariant = { mood: Mood; pose: PoseName; blink: number; pet: number; energy: number };
+export type MoodVariant = {
+  mood: Mood; pose: PoseName; blink: number; pet: number; energy: number;
+  /** 猫娘静帧：25 档情绪各占一帧，6 档状态复用同名行。 */
+  frame?: GirlFrame;
+};
 
 /**
  * 25 档散点情绪 → 变体。键是 `react/assets/status-moods/` 的文件名（**R-D2：一个都不能改**）。
  * 6 档 `CharacterStatusMood` 也复用同名行，委托面板与散点状态机因此共用同一批姿态语义。
+ *
+ * `frame` 由键名派生（`GIRL_STILL_FRAMES.mood` 的键与这里逐字相同，测试锁死）：
+ * 位图时代不用再为「两张情绪图长得一样」调姿态参数——25 个键就是 25 格不同的画。
  */
-export const MOOD_TO_VARIANT: Readonly<Record<string, MoodVariant>> = {
+const MOOD_VARIANT_ROWS: Readonly<Record<string, Omit<MoodVariant, "frame">>> = {
   元气: { mood: "happy", pose: "happy", blink: 0, pet: 0.2, energy: 0.8 },
   原生: { mood: "idle", pose: "sit", blink: 0, pet: 0, energy: 0.4 },
   学习: { mood: "thinking", pose: "prone", blink: 0.15, pet: 0, energy: 0.55 },
@@ -87,6 +99,10 @@ export const MOOD_TO_VARIANT: Readonly<Record<string, MoodVariant>> = {
   难过: { mood: "grumpy", pose: "lie", blink: 0.45, pet: 0, energy: 0.2 },
 };
 
+export const MOOD_TO_VARIANT: Readonly<Record<string, MoodVariant>> = Object.fromEntries(
+  Object.entries(MOOD_VARIANT_ROWS).map(([name, row]) => [name, { ...row, frame: { mood: name as GirlMoodName } }]),
+);
+
 const STATUS_MOODS_6: CharacterStatusMood[] = ["连接中", "思考中", "工作中", "提醒", "已处理", "已中断"];
 
 /**
@@ -102,7 +118,7 @@ function variantFor(mood: string): MoodVariant {
 /** 立绘/头像/欢迎页没有「情绪文件名」可对，取该姿态的基态（`t = 0` 静帧，R-D9）。 */
 function poseVariant(pose: PoseName): MoodVariant {
   const p = CAT_POSES[pose]();
-  return { mood: p.mood, pose, blink: p.blink, pet: p.pet, energy: p.energy };
+  return { mood: p.mood, pose, blink: p.blink, pet: p.pet, energy: p.energy, frame: GIRL_POSES[pose] };
 }
 
 /** 4 张状态浮层直接复用同名散点档——它们本来就是同一句话的两种落点。 */
@@ -165,15 +181,20 @@ type NonCharacterRow = {
   coat: CoatName;
   pose: PoseName;
   mood: Mood;
-  /** 形态轴（v1.5.0 Task 25）：146 张派生资产翻成 girl；贴纸与图标支路不翻。 */
+  /** 形态轴（v1.5.0 Task 25）：145 张派生资产翻成 girl；贴纸与图标支路不翻。 */
   form?: PetForm;
+  frame?: GirlFrame;
   maxKb?: number;
 };
 
 /**
- * 界面上的「我」：17 处非角色位图。全部画助手本猫，花色只是每处的性格底色
+ * 界面上的「我」：16 处非角色位图。全部画助手本猫，花色只是每处的性格底色
  * （`rose` 朋友圈 / `azure` 音乐 / `gray` 插件），不是名册里的某只猫。
  * `nickname` 因此统一填助手本名——它只做标注，不参与绘制。
+ *
+ * splash 上的猫娘不在这里：它已换成用户参考图派生的整身位图
+ * （`public/pet/girl.webp`，见 `scripts/assets/build-girl-sprite.cjs`），
+ * 不再由矢量猫娘生成——这张清单只收「画猫」的派生资产。
  *
  * 图标两条（`icons/cyrene-pink|sun.png`）按 `ui-icon.ts` 的标签走墨猫/奶猫，
  * 与 `assets/icon-presets/` 下真正生效的装机图标同图：预视图和被应用的结果必须是同一只猫。
@@ -185,10 +206,9 @@ const NON_CHARACTER_ROWS: readonly NonCharacterRow[] = [
   // 警告档用炸毛而不是红：红是 WARN 语义，本期不动
   { out: "src/renderer/public/context-usage/alert.png", size: 256, crop: "square", coat: "paper", pose: "puff", mood: "grumpy" },
   { out: "src/renderer/public/context-usage/compact.png", size: 256, crop: "square", coat: "paper", pose: "wash", mood: "thinking" },
-  // 全表唯一非方图：WelcomeGate 首屏 `min(860px,100%) × 16/9`（R-D1）
-  { out: "src/renderer/public/cyrene-welcome.png", size: 1280, height: 720, crop: "wide", coat: "paper", pose: "happy", mood: "happy", maxKb: 120 },
-  // splash 直接按文件名 loadFile，不走 vite：这条坏了只能靠真起一次窗口发现
-  { out: "src/renderer/public/loading.png", size: 320, crop: "bust", coat: "paper", pose: "peek", mood: "idle" },
+  // 全表唯一非方图：WelcomeGate 首屏 `min(860px,100%) × 16/9`（R-D1）。
+  // 唯一用参考图母版（1024×1536）的档：横幅是最大的展示面，只有母版有足够像素。
+  { out: "src/renderer/public/cyrene-welcome.png", size: 1280, height: 720, crop: "wide", coat: "paper", pose: "happy", mood: "happy", frame: "master" },
   { out: "src/renderer/public/avatars/cyrene-avatar.png", size: 256, crop: "round", coat: "paper", pose: "sit", mood: "idle" },
   { out: "src/renderer/music/assets/logo.png", size: 256, crop: "round", coat: "azure", pose: "sit", mood: "idle" },
   { out: "src/renderer/music/assets/music2.png", size: 256, crop: "bust", coat: "azure", pose: "tilt", mood: "happy" },
@@ -244,21 +264,23 @@ const CROP_CRITERIA_BY_FORM: Readonly<Record<PetForm, Readonly<Record<CropName, 
     wide: { cov: [0.12, 0.45], off: 0.12 },
   },
   /**
-   * 2026-10-24 重画后按 `--measure` 重钉（旧带是按「头小身长」的旧图量的，全部作废）。
-   * 实测：full 0.298..0.306 / round 0.393..0.532 / bust 0.462..0.537 / square 0.470..0.629 / wide 0.192。
+   * 2026-10-25 位图立绘（视频静帧 + 7 张高清姿态图）按 `--measure` 重标：
+   * bust 0.373..0.497 / full 0.213..0.296 / round 0.349..0.450 /
+   * square 0.409..0.484 / wide 0.141，质心 ≤14.2%。
+   * 位图是照片式连续调，墨比旧矢量更满，但比四足猫仍少（窄高、留白多）。
    *
-   * 带宽取实测量程的两端各放 ~0.03：**这是「换一档花色/姿态仍装得下」的余量**，
+   * 带宽取实测量程的两端各放 ~0.02：**这是「换一帧/换一档仍装得下」的余量**，
    * 不是「随便画什么都放行」。band 之间会重叠——round/bust/square 三档本来就该接近
    * （它们只是裁切框不同，同一个人占画面的比例不该差一倍）；挡「两档取景等价」的
    * 是 `cat-sprite-manifest.test` 的正对照（拿 full 的图去量 bust 必须判红），
-   * 不是这里的带宽。别为了「看起来整齐」把带宽收紧——那只会让换姿态时假红。
+   * 不是这里的带宽。别为了「看起来整齐」把带宽收紧——那只会让换帧时假红。
    */
   girl: {
-    square: { cov: [0.44, 0.64], off: 0.24 },
-    bust: { cov: [0.43, 0.56], off: 0.24 },
-    full: { cov: [0.27, 0.34], off: 0.24 },
-    round: { cov: [0.36, 0.57], off: 0.24 },
-    wide: { cov: [0.15, 0.25], off: 0.16 },
+    square: { cov: [0.39, 0.51], off: 0.24 },
+    bust: { cov: [0.35, 0.52], off: 0.24 },
+    full: { cov: [0.19, 0.32], off: 0.24 },
+    round: { cov: [0.33, 0.47], off: 0.24 },
+    wide: { cov: [0.12, 0.19], off: 0.16 },
   },
 };
 /** 兼容旧读者：`CROP_CRITERIA` 仍指 cat 段。 */
@@ -275,7 +297,10 @@ export function checkTarget(r: Raster, t: SpriteTarget): string[] {
   // wide 只服务横幅：方形却声明 wide 说明清单写错了，先点名，别让更松的横幅带宽替它兜底。
   if (t.height === undefined && t.crop === "wide") bad.push("wide 取景只服务横幅档（缺 height）");
   const kb = encodePng(r.width, r.height, r.rgba).length / 1024;   // 现算，不读磁盘
-  const budget = t.maxKb ?? 60;                              // R-D1：单文件 ≤60 KB（横幅 120）
+  // 位图猫娘是照片式的连续调（旧矢量图是大色块），同一像素尺下 PNG 天然大 2–4 倍；
+  // 预算按实测上限 + ~1.4 倍留白重标（2026-10-25 `--measure`：256 档 33..73 KB、
+  // 512 档 148 KB、横幅 244 KB），cat 支路仍是原来的 60 KB。
+  const budget = t.maxKb ?? (t.form === "girl" ? (t.height ? 280 : t.size >= 512 ? 210 : 100) : 60);
   if (kb > budget) bad.push(`${kb.toFixed(1)} KB > 预算 ${budget} KB`);
   // 分支只看 `height` 是否存在（横幅带宽不按 crop 扩散），方形档按取景查表。
   const table = CROP_CRITERIA_BY_FORM[t.form ?? "cat"];

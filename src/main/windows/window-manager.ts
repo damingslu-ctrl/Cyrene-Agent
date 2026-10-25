@@ -21,12 +21,22 @@ import { clampBoundsToWorkArea } from "../../shared/pet-geometry";
 import { formatGeomProbe } from "../verge/geom-probe";
 
 const PET_WINDOW_RESOURCE_RELEASE_DELAY_MS = 30_000;
+/**
+ * 登场动画最长只许猫藏这么久：动画自身约 6.1s、12s 兜底关窗，
+ * 这一档是「回调根本没来」的最后一道，不许无限期把桌宠按在不可见状态。
+ */
+const PET_INTRO_REVEAL_WATCHDOG_MS = 15_000;
 
 export interface WindowManagerOptions {
   getCurrentAppIconPath: () => string;
   isDev: boolean;
   loadPetWindowSettingsSlice: () => PetWindowSettingsSlice;
   persistPetWindowPosition: (position: { x: number; y: number }) => void;
+  /**
+   * 桌宠首次出现时的登场动画（启动只放一次）。返回 true 表示动画窗已起、
+   * 桌宠先藏着，等 onDone 再露；返回 false 表示没起成，调用方立刻显示桌宠。
+   */
+  startPetIntro?: (petBounds: PetBounds, onDone: () => void) => boolean;
   /**
    * 宠物窗右键菜单挂载（Task 11）：由组合根把 verge 模块的菜单/免打扰装配好后注入。
    * window-manager 不 import verge（依赖窄向），窗壳只负责在每次建窗时喊一声。
@@ -101,11 +111,19 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
   const movedHandlers: Array<(position: { x: number; y: number }) => void> = [];
   let petWindowDragging = false;
   let lastGeomProbeAt = Number.NEGATIVE_INFINITY;
+  // 登场动画：一个进程只放一次；放着的时候桌宠先别露，等动画的 onDone。
+  let petIntroPlayed = false;
+  let petIntroReveal: (() => void) | null = null;
+  let petIntroWatchdog: ReturnType<typeof setTimeout> | null = null;
   // 渲染端的 PET_RESIZE 载荷宽高恒是**基址**（renderer.ts 把 zoom 折进 ctx.setTransform，
   // 不动载荷），主端是物理尺寸的唯一权威：落位前要乘回 zoom。不乘的话，applyPetWindowZoom
   // 刚把窗长到 123×162，渲染端下一帧（约 16ms 后）就把它缩回 82×108——屏幕层⑤实测到的
   // 「petZoom 静默失效」正是这条。native 没有缩放档，这是 fork 侧两条通道的对账。
   let petWindowZoom = 1;
+  // 收起态基址的当前值（形态×档位，未乘 zoom）：renderer 每条 PET_RESIZE 都带上
+  // profile.base，窗口层据此换算。建窗时先归标准档——渲染端 boot 读形态之前发的
+  // 第一帧也是标准档，两条通道从同一个默认起步。
+  let petWindowBase = { width: PET_WINDOW_BASE_WIDTH, height: PET_WINDOW_BASE_HEIGHT };
 
   // native main.rs:4171-4184 的每帧 workArea 夹取搬到事件驱动：显示器拓扑/工作区
   // 一变（拔副屏、改缩放、换任务栏高度）就把窗夹回当前屏，猫不许丢在已消失的坐标上。
@@ -202,12 +220,58 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
       });
   }
 
+  function cancelPetIntroReveal(): void {
+    petIntroReveal = null;
+    if (petIntroWatchdog !== null) {
+      clearTimeout(petIntroWatchdog);
+      petIntroWatchdog = null;
+    }
+  }
+
+  /**
+   * 起登场动画；返回 true 表示这一帧先别 show。
+   * 动画的 onDone 与 15s 看门狗都走同一个 reveal —— 谁先到算谁，只生效一次。
+   */
+  function beginPetIntro(window: BrowserWindow): boolean {
+    if (petIntroPlayed || !options.startPetIntro) return false;
+    petIntroPlayed = true;
+    let settled = false;
+    const reveal = (): void => {
+      if (settled) return;
+      settled = true;
+      const stillWanted = petIntroReveal === reveal;
+      if (stillWanted) {
+        petIntroReveal = null;
+        if (petIntroWatchdog !== null) {
+          clearTimeout(petIntroWatchdog);
+          petIntroWatchdog = null;
+        }
+      }
+      if (stillWanted && petWindow === window && !window.isDestroyed()) window.show();
+    };
+    petIntroReveal = reveal;
+    petIntroWatchdog = setTimeout(reveal, PET_INTRO_REVEAL_WATCHDOG_MS);
+    let started = false;
+    try {
+      started = options.startPetIntro(window.getBounds(), reveal);
+    } catch (err) {
+      console.error("[WindowManager] pet intro failed to start:", err);
+      started = false;
+    }
+    if (!started) {
+      // 交给调用方 show；这里只把看门狗撤掉，不能自己再 reveal 一次（会 show 两遍）。
+      cancelPetIntroReveal();
+      return false;
+    }
+    return true;
+  }
+
   function setPetWindow(window: BrowserWindow, showOnReady = true): void {
     petWindow = window;
     window.once("ready-to-show", () => {
       if (petWindow !== window || window.isDestroyed()) return;
       if (showOnReady) {
-        window.show();
+        if (!beginPetIntro(window)) window.show();
       } else {
         schedulePetWindowResourceRelease(window);
       }
@@ -254,13 +318,19 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
     createPetWindow(showOnReady = true): BrowserWindow {
       if (petWindow && !petWindow.isDestroyed()) return petWindow;
       const shouldShowOnReady = showOnReady && hasCurrentDisclaimerConsent();
+      // 新窗从标准档起步（渲染端 boot 读形态前的第一帧也是标准档）。
+      petWindowBase = { width: PET_WINDOW_BASE_WIDTH, height: PET_WINDOW_BASE_HEIGHT };
+      // 登场动画要独占「第一帧可见」：工厂自己的 ready-to-show 会立刻 show，
+      // 把「等动画 onDone 再露」整条保证绕过去（2026-10-25 真窗 CDP 抓到猫在
+      // 动画播放期间就已可见）。有动画待播时把 show 权全交给 setPetWindow。
+      const introPending = shouldShowOnReady && !petIntroPlayed && !!options.startPetIntro;
       const win = createPetWindow(
         {
           getCurrentAppIconPath: options.getCurrentAppIconPath,
           isDev: options.isDev,
           loadGeneralSettings: options.loadPetWindowSettingsSlice,
         },
-        { showOnReady: shouldShowOnReady },
+        { showOnReady: shouldShowOnReady && !introPending },
       );
       setPetWindow(win, shouldShowOnReady);
       // 右键菜单（Task 11）：每次建窗都重挂一次——窗口销毁时 webContents 上的监听
@@ -346,6 +416,8 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
       this.createPetWindow(true);
     },
     hidePetWindow(): void {
+      // 用户已经要藏了：动画结束时不许再把猫拎出来。
+      cancelPetIntroReveal();
       getUsablePetWindow()?.hide();
     },
     togglePetWindow(): void {
@@ -396,8 +468,9 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
       // 窗口尺寸的两个 setSize 来源之一（另一个见 setPetWindowBounds）：zoom 按
       // 基址等比放大，PET_RESIZE 发的是基址档、由这里同一系数换算成物理尺寸。
       petWindowZoom = normalizePetZoom(zoom);
-      const width = Math.round(PET_WINDOW_BASE_WIDTH * petWindowZoom);
-      const height = Math.round(PET_WINDOW_BASE_HEIGHT * petWindowZoom);
+      // 基线是**当前形态×档位**的基址，不是写死的 82×108（见 petWindowBase 注释）。
+      const width = Math.round(petWindowBase.width * petWindowZoom);
+      const height = Math.round(petWindowBase.height * petWindowZoom);
       // 长窗之后位置要重新夹：贴右边缘的猫从 82 长到 123，物理矩形会探出工作区
       // 41px，而这条通道没有下一帧 PET_RESIZE 替它兜底。用已证的 setSize +
       // setPosition 两条指令，不换成 setBounds（spike 只验过前者在 resizable:false
@@ -420,6 +493,9 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
     setPetWindowBounds(payload: PetResizePayload): void {
       const win = getUsablePetWindow();
       if (!win) return;
+      // 形态/档位切换后的第一条请求就带着新基址：必须先记下来，后续 applyPetWindowZoom
+      // 才有正确的放大基线（否则大档 + zoom 会按标准档算，窗口被缩回 82×108）。
+      if (payload.base) petWindowBase = { ...payload.base };
       const physical: PetBounds = {
         x: payload.x,
         y: payload.y,
@@ -532,6 +608,7 @@ export function createWindowManager(options: WindowManagerOptions): WindowManage
 
     dispose(): void {
       cancelPetWindowResourceRelease();
+      cancelPetIntroReveal();
       petWindowMoveController.dispose();
       screen.off("display-metrics-changed", onDisplayMetricsChanged);
     },

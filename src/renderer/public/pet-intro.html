@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mochi</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+    canvas {
+      display: block;
+      width: 100%; height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="pet-intro"></canvas>
+  <script src="./pet-intro/meta.js"></script>
+  <script>
+    (() => {
+      const meta = window.PET_INTRO;
+      const canvas = document.getElementById("pet-intro");
+
+      // 主进程靠 title 认「放完了」；这个窗没有 preload / IPC，别为此多开一条通道。
+      const finish = () => { document.title = "pet-intro-done"; };
+
+      if (!meta || !canvas) { finish(); return; }
+
+      const image = new Image();
+      image.onload = () => play();
+      image.onerror = finish;
+      image.src = "./pet-intro/atlas.webp";
+
+      function play() {
+        const dpr = window.devicePixelRatio || 1;
+        const cssW = window.innerWidth;
+        const cssH = window.innerHeight;
+        // 窗口按 1.5×304×248 建；这里按可用尺寸再兜一层，缩放/夹取后也不会变形。
+        const scale = Math.min(cssW / meta.frameW, cssH / meta.frameH);
+        const offsetX = (cssW - meta.frameW * scale) / 2;
+        const offsetY = (cssH - meta.frameH * scale) / 2;
+
+        canvas.width = Math.round(cssW * dpr);
+        canvas.height = Math.round(cssH * dpr);
+        const ctx = canvas.getContext("2d");
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+
+        const frameMs = 1000 / meta.fps;
+        const totalMs = meta.count * frameMs;
+        const fadeInMs = 180;
+        const start = performance.now();
+
+        const step = (now) => {
+          const t = now - start;
+          if (t >= totalMs) { finish(); return; }
+
+          const index = Math.min(meta.count - 1, Math.floor(t / frameMs));
+          const sx = (index % meta.cols) * meta.frameW;
+          const sy = Math.floor(index / meta.cols) * meta.frameH;
+
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.clearRect(0, 0, cssW, cssH);
+          ctx.drawImage(
+            image,
+            sx, sy, meta.frameW, meta.frameH,
+            offsetX, offsetY, meta.frameW * scale, meta.frameH * scale,
+          );
+
+          const remain = totalMs - t;
+          const fadeOut = remain < meta.fadeMs ? remain / meta.fadeMs : 1;
+          const fadeIn = t < fadeInMs ? t / fadeInMs : 1;
+          canvas.style.opacity = String(Math.min(fadeIn, fadeOut));
+
+          requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      }
+    })();
+  </script>
+</body>
+</html>

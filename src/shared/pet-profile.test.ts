@@ -64,13 +64,13 @@ describe("形态几何轴", () => {
 
   it("猫娘是竖的、猫是横的；命中框整体上移到身体中线", () => {
     const g = formGeometry("girl");
-    // 判「横/竖」看宽高比而不是绝对高：猫 1.85/2.0 ≈ 0.93（横），猫娘 1.55/0.86 ≈ 1.80（竖）。
+    // 判「横/竖」看宽高比而不是绝对高：猫 1.85/2.0 ≈ 0.93（横），猫娘 1.71/1.24 ≈ 1.38（竖）。
     // 绝对高由 Task 26 的尺 #71 实测反钉，这里只钉方向，不钉数值。
     expect(g.hitAspect.width).toBeLessThan(FORM_GEOMETRY.cat.hitAspect.width);
     expect(g.hitAspect.height / g.hitAspect.width)
       .toBeGreaterThan(FORM_GEOMETRY.cat.hitAspect.height / FORM_GEOMETRY.cat.hitAspect.width);
     expect(g.hitAspect.height).toBeGreaterThan(g.hitAspect.width);
-    // 实测反钉（Task 26）：猫娘的墨中心在**钉位下方** 0.49u（约 29.4s）——
+    // 实测反钉（2026-10-25 重画后）：猫娘的墨中心在**钉位下方** 37.0s（约 0.62u）——
     // 钉位在脚线上，头在它上面，但墨的**面积重心**被裙摆与大头发拽到了脚下半程，
     // 所以框心相对钉位是正的。这与暂行值「整体上移 45.75s」方向相反，实测推翻了它。
     expect(g.hitCenter.dy).toBeGreaterThan(0);

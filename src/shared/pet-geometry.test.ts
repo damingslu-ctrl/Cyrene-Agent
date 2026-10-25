@@ -154,8 +154,8 @@ describe("computeCatRect", () => {
   it("girl 的命中框更窄更高（Task 26 的实测反钉只钉形状，纵向位置由 hitCenter 决定）", () => {
     const cat = computeCatRect({ pinInWin: { x: 50, y: 48 }, e: 0 });
     const girl = computeCatRect({ pinInWin: { x: 50, y: 48 }, e: 0, profile: profileFor("girl", "large") });
-    // 实测：girl 的墨 bbox 是 1.09–1.56u 宽、1.79–2.19u 高（三档各不相同），
-    // 取 standard 的 1.32×2.00 作代表——比猫「窄一点、高一点」这条方向仍成立。
+    // 实测（2026-10-25 重画后）：girl 的墨 bbox 三档均为 1.22–1.24u 宽、1.69–1.73u 高，
+    // 取标准档 1.24×1.71 作代表——比猫「窄一点、高一点」这条方向仍成立。
     expect(girl.height / girl.width).toBeGreaterThan(cat.height / cat.width);
   });
 
