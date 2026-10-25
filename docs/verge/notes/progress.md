@@ -181,3 +181,17 @@
   与 `build:main|preload|cli|renderer` 全绿。
 - 真窗命中尺（`pet-hit-cdp.mjs`，girl/standard）：质心 42.7 对窗轴 41、IoU **0.799**、
   bbox 26,31,39×55、变异对照 shrink 0.167 / shift 0.388（判红）→ `all clear`。
+
+### 发布（2026-10-25）
+
+- 推送：`master` → fork（`2aa41638..67768e37`）、tag `v1.6.0` → fork（只推 fork，未推 upstream）。
+- CI：`gh workflow run package-windows.yml --repo damingslu-ctrl/Cyrene-Agent --ref v1.6.0`
+  → run [40174667242](https://github.com/damingslu-ctrl/Cyrene-Agent/actions/runs/40174667242)
+  `package` 6m8s 全绿（含 `Verify installer artifacts`）。
+- Release：[v1.6.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.6.0)，
+  资产 `Mochi-Setup-1.6.0.exe` **296,245,158 B**，
+  sha256 `3ad1d26567fe4b7a1118d95a0f696fedaacb546de19d228c9861df6427d30e86`。
+- 首次 `gh run download` 在代理下中断（`unexpected EOF`），重试即成功——
+  295MB 级产物走 7896 代理要留重试余地。
+- 与 v1.5.0 相比安装包 +6.9 MB：146 帧图集（1.63 MB）+ 7 格高清姿态（592 KB）
+  + 197 张派生位图增大（8.9 → 9.3 MB）+ 重建的全部页面资产。
