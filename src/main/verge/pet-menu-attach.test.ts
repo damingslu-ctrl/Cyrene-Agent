@@ -112,13 +112,15 @@ beforeEach(() => {
 });
 
 describe("attachPetContextMenu", () => {
-  it("右键弹出互动 + 安静 + 形态/身形 + 窗口动作共 20 项（两条分隔线）", () => {
+  it("右键弹出互动 + 安静 + 形态/身形 + 窗口动作共 25 项（两条分隔线）", () => {
     const { template, popup } = rightClick(makeService({ quietUntil: null, tuckEnabled: true }));
     const labels = template.filter((entry) => entry.type !== "separator").map((entry) => entry.label);
     expect(labels).toEqual([
       "安静半小时", "取消安静", "贴边藏身",
       "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样",
-      "给她打扮", "放只小虫逗逗她", "陪她散散步", "让它做个动作",
+      "给她打扮", "放只小虫逗逗她", "陪她散散步",
+      "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来", "猜拳",
+      "让它做个动作",
       "打开网络面板",
       "形象：像素猫", "形象：猫娘",
       "身形：小巧 (70×92)", "身形：标准 (82×108)", "身形：大 (100×132)",
@@ -206,7 +208,7 @@ describe("attachPetContextMenu", () => {
     expect(hide).toHaveBeenCalledOnce();
   });
 
-  it("五条互动各送一条命令、网络项唤起主窗：不写盘也不惊动 quiet/tuck 收口", () => {
+  it("九条互动各送一条命令、网络项唤起主窗：不写盘也不惊动 quiet/tuck 收口", () => {
     const service = makeService({ quietUntil: null, tuckEnabled: true });
     const { template, onPetCommand, openNetworkPanel, onQuietStateChange, onTuckStateChange } = rightClick(service);
     const cases: Array<[string, string]> = [
@@ -215,6 +217,10 @@ describe("attachPetContextMenu", () => {
       ["陪它玩", "play"],
       ["哄它睡觉", "toggle-sleep"],
       ["它现在怎么样", "status"],
+      ["挥挥逗猫棒", "wand"],
+      ["吹一串泡泡", "bubbles"],
+      ["撒一把落叶", "leaves"],
+      ["跟我来", "follow"],
     ];
     for (const [label, command] of cases) itemByLabel(template, label).click?.();
     expect(onPetCommand.mock.calls).toEqual(cases.map(([, command]) => [command]));

@@ -398,3 +398,66 @@
   （与 GitHub digest 一致），`isDraft:false`、Latest，上传完成 `2026-10-25T16:22:33Z`。
 - 插曲：首轮 upload 404（Release 未真正建立），改 `gh release create` 带资产重建；
   tag/commit 未动，API 复核通过。
+
+### v1.10.0：玩具箱、跟随、爪印、梦话云与五枚成就（2026-10-26）
+
+| # | 能力 | 契约 / 关键值 | 入口 |
+|---|---|---|---|
+| 1 | 逗猫棒 | `WAND_MS 7000`、`WAND_CATCH_MS 520`；尖端半径 `max(6, face.w*0.34)` | 右键 / `wand` |
+| 2 | 泡泡 | `BUBBLES_MS 5600`、6 颗、破 `320ms`、每 4 下说一句 | 右键 / `bubbles` |
+| 3 | 落叶 | `LEAVES_MS 5600`、7 片、纯观众型 | 右键 / `leaves` |
+| 4 | 猜拳 | `RPS_MS 3600`；`judgeRps` 共享判定；赢 +0.012、平 +0.005 | 右键子菜单 / `rps:*` |
+| 5 | 跟我来 | `FOLLOW_MS 12000`、±160px、到位 14px、步进 42px | 右键 / `follow` |
+| 6 | 爪印 | `PRINT_MS 3200`、间隔 260ms、上限 10、屏幕坐标 | 走路自动 |
+| 7 | 梦话云 | 睡熟 `1800ms` 后出，`quiet` 不出，醒来即收 | 睡下自动 |
+| 8 | 五枚成就 | catch / wand / bubbles≥12 / days≥7 / tier heart；徽章 3.6s，台词 TTL 6s | 互动自动 |
+| 9 | 菜单与命令 | 5 个猫娘专属项（猜拳带三手子菜单）；四足置灰/忽略 | `pet-menu.ts` / `pet-commands.ts` |
+| 10 | 诊断口 | `wand/bubbles/leaves/rps/prints/follow/achievements/achievement/stats/sleepSince` | `getGirlDiagnostics()` |
+
+### 口径与裁决（v1.10.0）
+
+- **头顶道具共用一把脸尺**：全部走 `girlFaceAt(now)`，立绘每帧的脸都在动，固定比例锚必飘。
+- **四条时间线无物理**：坐标由出生时刻 + 种子解析，点中只记 `caughtAt/poppedAt`；
+  渲染、诊断、探针同拍同落点。只有毛线球保留原有 8ms 子步物理。
+- **点击路由**：三区 → 头顶道具 → 脚下毛线球；玩具在睡着/被拖/眩晕/安静期拒绝，
+  但**不吞点击**——睡着时点玩具要落到三区，点头叫醒才不失真。
+- **跟随允许边说边走**：`canRoam()` 的气泡闸只在 `follow !== null` 放行；其余气泡照旧。
+  目标是光标横位相对窗心的偏移，夹到 ±160px 与工作区；差 42px 才重发 `roamTo`，
+  否则每帧归零会把她的速度钉死；点她/到时/睡着/被拖/agent 忙立即收工。
+- **爪印记屏幕坐标**：搬窗时脚印留在桌布上，走远自然滑出；窗内坐标会像贴纸一样被拖走。
+- **梦话云不等于免打扰**：`quiet` 时不画——那半小时是陪你不吵，不是她睡下了；
+  自动宣布一个没发生的事比不画更糟。
+- **成就只从既有计数器来**：一次互动最多弹一枚，安静期不弹不记账；首次解锁台词优先级 2，
+  压普通玩具台词（1），但 `< bondUpUntil` 时让位给升档句；`greet` 用 `!said` 让纪念日/重逢
+  先说。`stats`/`achievements` 随 `BOND_KEY` 落盘，跨重启保留。
+- **泡泡每 4 下说一句**：连续动作颗颗配词会变弹幕；第 1/5/9 颗说，保留反馈不刷屏。
+- **猜拳输了不扣分**：陪伴游戏不是排位，保证多玩永远正向。
+- **一条时间线自己收场**：各自 `alive()` + `left` 读数，到寿命 `tick*` 归 null；
+  没有新定时器、没有全局「当前玩具」状态机，生成时清空对方即可互斥。
+- **探针修的是尺，不是产品**：成就首次解锁句合法地压住泡破台词；探针先模拟用户
+  「点掉这句」再验泡泡自己的词，`say()` 优先级未改。
+
+### 量测与门（v1.10.0）
+
+- `CI=true npx vitest run` → **684 文件 / 7185 通过（1 skipped）**，无红
+  （v1.9 基线 673 / 7128，+11 文件 +57 条）。
+- 新增 11 个文件 **55 条**：wand 6 / bubbles 5 / leaves 3 / follow 3 / prints 4 /
+  achievements 6 / dream 3 / rps 4 / pet-rps 2 / companion-girl-toys 11 / renderer-girl-toys 8；
+  改动过的 15 个相关文件合计 **91 条**绿（pet-menu 10 + attach 9 + commands 6 + three 11 等）。
+- 色板棘轮：TS/TSX **22 行 / 上限 22**（RPS 玩家牌三行字面量收回 `girl-rps.ts`
+  token；先红后绿，未抬上限）。`check:brand` / `check:main` / `check:preload` /
+  `check:renderer` / `check:sprites` / `check:roster` / `palette:check` /
+  `palette:migrate:check` / `check:plugin-schema` / `check:adapted-models` 全绿；
+  `build:main`（776 文件）/ `build:preload`（144 + learn-exam）/ `build:renderer`（6.84s）/
+  `build:cli`（v1.10.0）全绿。
+- 真窗 **110/110 `all clear`**（girl/standard，zoom=1）：
+  逗猫棒 `left 6790` 未捉 → 同拍点中 → `stats.wand=1` + `first-wand` + 存档同步，7s 收；
+  泡泡 `6 → 5`、气泡「再吹一串嘛」；落叶 `left 5392`、「哇…下叶子雨了」；
+  猜拳本轮抽到「输了」→「再来一局嘛」，判定与探针同源；
+  跟随 `+49.5px`、`left 11793`，点她后 `follow=null`；爪印 4 枚自行褪去；
+  梦话云 `sleepSince=122289` → 醒 `-1`；捉虫首解锁 `first-catch` 压过普通句、
+  亲密度 `0.700 → 0.720`；第 7 天补解锁 `seven-days`；重逢读档三枚成就在场。
+- 截图与报告：`D:/cyrene-p5-accept/shots-girl-v110/`（27 张 + `pet-girl-report.json`）。
+- 未覆盖：逗猫棒空挥 miss 台词、泡泡连破 12 颗的成就、落叶逐帧旋落曲线、猜拳另外两组
+  胜负词、跟随 12s 到时与跨工作区夹取、搬窗后爪印滑出、梦话云笔数与 1.8s 前静默、
+  `bubble-lover` 与 `heart-bond` 真窗触发——均由对应单测锁条件，未在真窗复演。

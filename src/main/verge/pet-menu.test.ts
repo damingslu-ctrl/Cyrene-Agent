@@ -31,7 +31,9 @@ describe("buildPetMenuItems", () => {
     expect(items.map((item) => item.label)).toEqual([
       "安静半小时", "取消安静", "贴边藏身",
       "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样",
-      "给她打扮", "放只小虫逗逗她", "陪她散散步", "让它做个动作",
+      "给她打扮", "放只小虫逗逗她", "陪她散散步",
+      "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来", "猜拳",
+      "让它做个动作",
       "打开网络面板",
       "形象：像素猫", "形象：猫娘",
       ...(["small", "standard", "large"] as const).map((t) =>
@@ -42,36 +44,50 @@ describe("buildPetMenuItems", () => {
     expect(items.filter((item) => item.separatorBefore).map((item) => item.label)).toEqual(["形象：像素猫", "隐藏"]);
   });
 
-  it("猫娘专属三条：四足形态下置灰，切到猫娘后可点；装扮子菜单列全六件", () => {
+  it("猫娘专属六条：四足形态下置灰，切到猫娘后可点；装扮子菜单列全六件", () => {
     const catItems = buildPetMenuItems(input({ form: "cat" }), {
       accessory: () => {}, critter: () => {}, wander: () => {},
+      wand: () => {}, bubbles: () => {}, leaves: () => {}, follow: () => {}, rps: () => {},
     });
     const girlItems = buildPetMenuItems(input({ form: "girl" }), {
       accessory: () => {}, critter: () => {}, wander: () => {},
+      wand: () => {}, bubbles: () => {}, leaves: () => {}, follow: () => {}, rps: () => {},
     });
     const find = (items: typeof catItems, label: string) => items.find((i) => i.label === label)!;
-    for (const label of ["给她打扮", "放只小虫逗逗她", "陪她散散步"]) {
+    for (const label of ["给她打扮", "放只小虫逗逗她", "陪她散散步", "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来", "猜拳"]) {
       expect(find(catItems, label).enabled, label).toBe(false);
       expect(find(girlItems, label).enabled, label).toBe(true);
     }
     expect(find(girlItems, "给她打扮").submenu?.map((i) => i.label))
       .toEqual(["不戴", "铃铛项圈", "蝴蝶结", "小围巾", "耳边小花", "星星发夹"]);
+    expect(find(girlItems, "猜拳").submenu?.map((i) => i.label)).toEqual(["石头", "剪刀", "布"]);
   });
 
-  it("装扮子项发的是 `accessory:<id>` 命令，小虫/散步各发自己的命令", () => {
+  it("装扮子项发的是 `accessory:<id>` 命令，小虫/散步/玩具各发自己的命令", () => {
     const sent: string[] = [];
     const items = buildPetMenuItems(input({ form: "girl" }), {
       accessory: (id) => sent.push(`accessory:${id}`),
       critter: () => sent.push("summon-critter"),
       wander: () => sent.push("wander"),
+      wand: () => sent.push("wand"),
+      bubbles: () => sent.push("bubbles"),
+      leaves: () => sent.push("leaves"),
+      follow: () => sent.push("follow"),
+      rps: (sign) => sent.push(`rps:${sign}`),
     });
     for (const child of items.find((i) => i.label === "给她打扮")!.submenu!) child.action?.();
     items.find((i) => i.label === "放只小虫逗逗她")!.action?.();
     items.find((i) => i.label === "陪她散散步")!.action?.();
+    for (const label of ["挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来"]) {
+      items.find((i) => i.label === label)!.action?.();
+    }
+    for (const child of items.find((i) => i.label === "猜拳")!.submenu!) child.action?.();
     expect(sent).toEqual([
       "accessory:none", "accessory:bell", "accessory:bow",
       "accessory:scarf", "accessory:flower", "accessory:star",
       "summon-critter", "wander",
+      "wand", "bubbles", "leaves", "follow",
+      "rps:rock", "rps:scissors", "rps:paper",
     ]);
   });
 

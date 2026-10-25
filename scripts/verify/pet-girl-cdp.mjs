@@ -28,7 +28,10 @@
 //   醒来那一块掉回毯子以下的量级（皮肤本身也落在这色段，不按「回到某一帧」判）；
 // - v1.9 散步：wander → 走起来且落点位移在 60–160px 设计窗内；
 // - v1.9 纪念日/重逢：只改本应用自己的 bond 存档（metAt/lastSeenAt）后整页重载，
-//   启动 greet 报「第 7 天」彩带 / 久别台词（不碰用户目录里的其他盘）。
+//   启动 greet 报「第 7 天」彩带 / 久别台词（不碰用户目录里的其他盘）；
+// - v1.10 玩具箱：逗猫棒生出 → 点中 → stats/成就/落盘 → 7s 自收；泡泡六颗 → 点破一颗；
+//   落叶一笔；猜拳读数与判词同源；跟随真的挪位置、点她就收工；走路留爪印并自行褪去；
+//   睡熟 1.8s 出梦话云、醒来抹掉；首次解锁成就时徽章压过普通台词（与单测同一口径）。
 // 任一条不成立就红；环境问题（没窗/没墨）报 ENV，不冒充产品红。
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -69,6 +72,32 @@ function sourceFieldLines(name, field) {
 
 const ACCESSORY_BOW_LINES = sourceFieldLines("GIRL_ACCESSORY_LINES", "bow");
 const ACCESSORY_NONE_LINES = sourceFieldLines("GIRL_ACCESSORY_LINES", "none");
+const BUBBLE_LINES = sourceLines("GIRL_BUBBLE_LINES");
+const LEAF_LINES = sourceLines("GIRL_LEAF_LINES");
+const FOLLOW_LINES = sourceLines("GIRL_FOLLOW_LINES");
+const RPS_LINES = {
+  win: sourceFieldLines("GIRL_RPS_LINES", "win"),
+  lose: sourceFieldLines("GIRL_RPS_LINES", "lose"),
+  draw: sourceFieldLines("GIRL_RPS_LINES", "draw"),
+};
+
+/** 成就台词在 girl-achievements.ts：验收按表认，不在探针里另抄。 */
+function sourceAchievementLine(id) {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/girl-achievements.ts"), "utf8");
+  const hit = src.match(new RegExp(`id:\\s*"${id}"[^}]*?line:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
+  if (!hit) throw new Error(`[ENV] 读不出成就 ${id} 的台词：验收句子表都没了，先看源码`);
+  return JSON.parse(`"${hit[1]}"`);
+}
+
+const FIRST_CATCH_LINE = sourceAchievementLine("first-catch");
+const FIRST_WAND_LINE = sourceAchievementLine("first-wand");
+
+/** 猜拳判词与 shared/pet-rps.ts 同义（探针只认结果，不重复实现偏门规则）。 */
+function judgeRps(a, b) {
+  if (a === b) return "draw";
+  const wins = (a === "rock" && b === "scissors") || (a === "scissors" && b === "paper") || (a === "paper" && b === "rock");
+  return wins ? "win" : "lose";
+}
 
 /** 探针自己的 Electron 子进程；任何失败路径都要带走它，别留一只无头猫占着端口。 */
 let activeChild = null;
@@ -792,8 +821,14 @@ async function main() {
     await shot("girl-critter-caught.png");
     check("critter.caught", caughtDiag.girl.critter?.caught === true,
       `critter=${JSON.stringify(caughtDiag.girl.critter)} attempt=${JSON.stringify(catchAttempt)}`);
-    check("critter.line", !!caughtSnap.bubble && CRITTER_LINES.includes(caughtSnap.bubble.text),
-      `bubble=${caughtSnap.bubble?.text ?? "null"}`);
+    // v1.10：第一次捉住会同时解锁「第一次抓住光」，成就台词（优先级 2）压过普通捉虫台词。
+    check("critter.achievement",
+      (caughtDiag.girl.achievements ?? []).includes("first-catch")
+        && caughtDiag.girl.achievement?.id === "first-catch"
+        && caughtDiag.girl.stats.catches === 1,
+      `achievements=${JSON.stringify(caughtDiag.girl.achievements)} tip=${JSON.stringify(caughtDiag.girl.achievement)} catches=${caughtDiag.girl.stats.catches}`);
+    check("critter.line", !!caughtSnap.bubble && caughtSnap.bubble.text === FIRST_CATCH_LINE,
+      `bubble=${caughtSnap.bubble?.text ?? "null"} expected=${FIRST_CATCH_LINE}（成就首次解锁应压过 ${CRITTER_LINES.length} 句普通台词）`);
     check("critter.affinity", caughtSnap.vitals.affinity > affinityBeforeCatch + 0.005,
       `${affinityBeforeCatch.toFixed(3)} → ${caughtSnap.vitals.affinity.toFixed(3)}`);
     await wait(760);
@@ -873,6 +908,236 @@ async function main() {
     const walked = Math.abs(walkEnd.pos.x - walkBefore.pos.x);
     results.wanderEnd = { x: walkEnd.pos.x, delta: walked, activity: walkEnd.activity };
     check("wander.distance", walked >= 55 && walked <= 165, `delta=${walked}px（设计窗 60–160）`);
+
+    // —— N. v1.10.0：玩具箱 / 跟随 / 爪印 / 梦话云 ——
+    // N1 逗猫棒：生出一根会摆 7s 的羽毛 → 点中尖端 → stats/成就/落盘 → 闪一下自己收走。
+    // 首次捉中也顺带验「成就压过普通台词」：这里必须是 first-wand 的句子，而不是羽毛台词。
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("wand")`);
+    await wait(200);
+    const wandSnapA = await snap();
+    const wandDiagA = await diag();
+    results.wand = { wand: wandDiagA.girl.wand, bubble: wandSnapA.bubble?.text ?? null };
+    await shot("girl-wand.png");
+    check("wand.spawn",
+      !!wandDiagA.girl.wand && wandDiagA.girl.wand.caught === false && wandDiagA.girl.wand.left > 5_000,
+      `wand=${JSON.stringify(wandDiagA.girl.wand)}`);
+    check("wand.call", wandSnapA.bubble?.text === "羽毛在这儿——", `bubble=${wandSnapA.bubble?.text ?? "null"}`);
+
+    // 羽毛在摆（~2.3rad/s），读数与点击必须同一拍；否则隔一次 CDP 往返就落在命中圈外。
+    let wandAttempt = null;
+    for (let i = 0; i < 3; i++) {
+      wandAttempt = await evaluate(s, `(() => {
+        const d = window.__cyrene.getPetDiagnostics();
+        const w = d.girl.wand;
+        if (!w) return { ok: false, why: "wand gone" };
+        const z = d.layout.zoom;
+        window.__cyrene.renderer.tapAt(w.x * z, w.y * z, 40);
+        return { ok: true, x: w.x, y: w.y };
+      })()`);
+      await wait(130);
+      if ((await diag()).girl.wand?.caught) break;
+    }
+    const wandCaught = await diag();
+    const wandCaughtSnap = await snap();
+    const bondAfterWand = await evaluate(s, `(() => {
+      try { return JSON.parse(localStorage.getItem("cyrene.pet.bond.v1") ?? "null"); } catch { return null; }
+    })()`);
+    results.wandCatch = {
+      attempt: wandAttempt,
+      caught: wandCaught.girl.wand?.caught ?? null,
+      bubble: wandCaughtSnap.bubble?.text ?? null,
+      stats: wandCaught.girl.stats,
+      achievements: wandCaught.girl.achievements,
+      tip: wandCaught.girl.achievement,
+      bond: { stats: bondAfterWand?.stats ?? null, achievements: bondAfterWand?.achievements ?? null },
+    };
+    await wait(150);
+    await shot("girl-wand-caught.png");
+    check("wand.caught", wandCaught.girl.wand?.caught === true,
+      `wand=${JSON.stringify(wandCaught.girl.wand)} attempt=${JSON.stringify(wandAttempt)}`);
+    check("wand.stats", wandCaught.girl.stats.wand === 1, `stats=${JSON.stringify(wandCaught.girl.stats)}`);
+    check("wand.achievement",
+      (wandCaught.girl.achievements ?? []).includes("first-wand")
+        && wandCaught.girl.achievement?.id === "first-wand",
+      `achievements=${JSON.stringify(wandCaught.girl.achievements)} tip=${JSON.stringify(wandCaught.girl.achievement)}`);
+    check("wand.line", wandCaughtSnap.bubble?.text === FIRST_WAND_LINE,
+      `bubble=${wandCaughtSnap.bubble?.text ?? "null"} expected=${FIRST_WAND_LINE}`);
+    check("wand.persist",
+      bondAfterWand?.stats?.wand === 1
+        && Array.isArray(bondAfterWand?.achievements) && bondAfterWand.achievements.includes("first-wand"),
+      `bond.stats=${JSON.stringify(bondAfterWand?.stats ?? null)} bond.achievements=${JSON.stringify(bondAfterWand?.achievements ?? null)}`);
+    const wandDeadline = Date.now() + 9_000;
+    let wandLast = wandCaught.girl.wand;
+    while (Date.now() < wandDeadline) {
+      wandLast = (await diag()).girl.wand;
+      if (!wandLast) break;
+      await wait(180);
+    }
+    check("wand.gone", !wandLast, `wand=${JSON.stringify(wandLast)}`);
+
+    // N2 泡泡：六颗一起升起 → 戳破一颗 → 剩五颗 → 5.6s 后整串自己散掉。
+    // 成就句是优先级 2、TTL 6s：她刚拿了徽章，这句会正当地压住玩具台词（wand.line 已验证）。
+    // 先像用户那样点掉它，再验「第一颗泡泡被戳破时她会说泡泡台词」。
+    await dismissBubble();
+    await wait(260);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("bubbles")`);
+    await wait(200);
+    const bubA = await diag();
+    results.bubbles = { a: bubA.girl.bubbles };
+    await shot("girl-bubbles.png");
+    check("bubbles.spawn",
+      !!bubA.girl.bubbles && bubA.girl.bubbles.live === 6 && bubA.girl.bubbles.spots.length === 6
+        && bubA.girl.bubbles.left > 5_000,
+      `bubbles=${JSON.stringify(bubA.girl.bubbles)}`);
+    const bubbleAttempt = bubA.girl.bubbles?.spots[0]
+      ? await evaluate(s, `(() => {
+          const d = window.__cyrene.getPetDiagnostics();
+          const spot = d.girl.bubbles?.spots[0];
+          if (!spot) return { ok: false, why: "no spot" };
+          const z = d.layout.zoom;
+          window.__cyrene.renderer.tapAt(spot.x * z, spot.y * z, 40);
+          return { ok: true, x: spot.x, y: spot.y, r: spot.r };
+        })()`)
+      : null;
+    await wait(220);
+    const bubB = await diag();
+    const bubBSnap = await snap();
+    results.bubbles.b = { bubbles: bubB.girl.bubbles, bubble: bubBSnap.bubble?.text ?? null, attempt: bubbleAttempt };
+    check("bubbles.pop",
+      !!bubbleAttempt?.ok && !!bubB.girl.bubbles && bubB.girl.bubbles.live === 5,
+      `attempt=${JSON.stringify(bubbleAttempt)} bubbles=${JSON.stringify(bubB.girl.bubbles)}`);
+    check("bubbles.stats", bubB.girl.stats.bubbles === 1, `stats=${JSON.stringify(bubB.girl.stats)}`);
+    check("bubbles.line", !!bubBSnap.bubble && BUBBLE_LINES.includes(bubBSnap.bubble.text),
+      `bubble=${bubBSnap.bubble?.text ?? "null"}`);
+    const bubbleDeadline = Date.now() + 8_000;
+    let bubbleLast = bubB.girl.bubbles;
+    while (Date.now() < bubbleDeadline) {
+      bubbleLast = (await diag()).girl.bubbles;
+      if (!bubbleLast) break;
+      await wait(200);
+    }
+    check("bubbles.gone", !bubbleLast, `bubbles=${JSON.stringify(bubbleLast)}`);
+
+    // N3 落叶：一把叶子从头顶撒下来，带一句台词，5.6s 内自己落完。
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("leaves")`);
+    await wait(200);
+    const leafDiag = await diag();
+    const leafSnap = await snap();
+    results.leaves = { left: leafDiag.girl.leaves?.left ?? null, bubble: leafSnap.bubble?.text ?? null };
+    await shot("girl-leaves.png");
+    check("leaves.spawn", !!leafDiag.girl.leaves && leafDiag.girl.leaves.left > 4_000,
+      `leaves=${JSON.stringify(leafDiag.girl.leaves)}`);
+    check("leaves.line", !!leafSnap.bubble && LEAF_LINES.includes(leafSnap.bubble.text),
+      `bubble=${leafSnap.bubble?.text ?? "null"}`);
+    const leafDeadline = Date.now() + 7_000;
+    let leafLast = leafDiag.girl.leaves;
+    while (Date.now() < leafDeadline) {
+      leafLast = (await diag()).girl.leaves;
+      if (!leafLast) break;
+      await wait(200);
+    }
+    check("leaves.gone", !leafLast, `leaves=${JSON.stringify(leafLast)}`);
+
+    // N4 猜拳：玩家出石头 → 读她出的手 → 判词与 shared/pet-rps.ts 同义 → 3.6s 收走。
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("rps:rock")`);
+    await wait(220);
+    const rpsDiag = await diag();
+    const rpsSnap = await snap();
+    const rps = rpsDiag.girl.rps;
+    const rpsOutcome = rps ? judgeRps("rock", rps.her) : null;
+    results.rps = { rps, bubble: rpsSnap.bubble?.text ?? null, expectedOutcome: rpsOutcome };
+    await shot("girl-rps.png");
+    check("rps.spawn",
+      !!rps && rps.player === "rock" && ["rock", "scissors", "paper"].includes(rps.her) && rps.left > 3_000,
+      `rps=${JSON.stringify(rps)}`);
+    check("rps.outcome", !!rps && rps.outcome === rpsOutcome,
+      `her=${rps?.her} outcome=${rps?.outcome} expected=${rpsOutcome}`);
+    check("rps.line",
+      !!rps && !!rpsSnap.bubble && RPS_LINES[rps.outcome].includes(rpsSnap.bubble.text),
+      `bubble=${rpsSnap.bubble?.text ?? "null"} outcome=${rps?.outcome ?? "null"}`);
+    const rpsDeadline = Date.now() + 5_000;
+    let rpsLast = rps;
+    while (Date.now() < rpsDeadline) {
+      rpsLast = (await diag()).girl.rps;
+      if (!rpsLast) break;
+      await wait(200);
+    }
+    check("rps.gone", !rpsLast, `rps=${JSON.stringify(rpsLast)}`);
+
+    // N5 跟随：答应一声 → 光标移到她右侧 120px → 她真的迈步（窗口原点也动）→ 点她收工。
+    const followStartSnap = await snap();
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("follow")`);
+    await wait(200);
+    const followDiagA = await diag();
+    const followSnapA = await snap();
+    results.follow = {
+      start: followStartSnap.pos.x,
+      a: followDiagA.girl.follow,
+      bubble: followSnapA.bubble?.text ?? null,
+    };
+    check("follow.start", !!followDiagA.girl.follow, `follow=${JSON.stringify(followDiagA.girl.follow)}`);
+    check("follow.line", !!followSnapA.bubble && FOLLOW_LINES.includes(followSnapA.bubble.text),
+      `bubble=${followSnapA.bubble?.text ?? "null"}`);
+    g = await readGeo();
+    await setGaze((g.headX + 120) * g.zoom, g.headY * g.zoom);
+    await wait(900);
+    const followDiagB = await diag();
+    const followSnapB = await snap();
+    const followMoved = followSnapB.pos.x - followStartSnap.pos.x;
+    results.follow.b = { follow: followDiagB.girl.follow, x: followSnapB.pos.x, moved: followMoved };
+    check("follow.moves", followMoved > 8,
+      `x ${followStartSnap.pos.x} → ${followSnapB.pos.x}（+${followMoved}px）follow=${JSON.stringify(followDiagB.girl.follow)}`);
+    check("follow.target", !!followDiagB.girl.follow && followDiagB.girl.follow.lastTargetX > followStartSnap.pos.x,
+      `lastTargetX=${followDiagB.girl.follow?.lastTargetX ?? "null"} start=${followStartSnap.pos.x}`);
+    await shot("girl-follow.png");
+    g = await readGeo();
+    await tapAt(g.headX * g.zoom, g.headY * g.zoom);
+    await wait(180);
+    const followDiagC = await diag();
+    results.follow.c = followDiagC.girl.follow;
+    check("follow.stops", followDiagC.girl.follow === null, `follow=${JSON.stringify(followDiagC.girl.follow)}`);
+
+    // N6 爪印：走一段就踩出爪印（屏幕坐标系，窗口搬动不会把印子留在旧位置），3.2s 内褪完。
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("wander")`);
+    await wait(600);
+    const printDiagA = await diag();
+    results.prints = { a: printDiagA.girl.prints };
+    await shot("girl-prints.png");
+    check("prints.spawn", printDiagA.girl.prints > 0, `prints=${printDiagA.girl.prints}`);
+    const printDeadline = Date.now() + 12_000;
+    let printLast = printDiagA.girl.prints;
+    while (Date.now() < printDeadline) {
+      printLast = (await diag()).girl.prints;
+      if (printLast === 0) break;
+      await wait(250);
+    }
+    check("prints.gone", printLast === 0, `prints=${printLast}`);
+
+    // N7 梦话云：睡熟 1.8s 后头顶浮出一朵云（截图取证），醒来 sleepSince 立刻归 -1。
+    await dismissBubble();
+    await wait(600);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("toggle-sleep")`);
+    await wait(2_400);
+    const dreamSnap = await snap();
+    const dreamDiag = await diag();
+    results.dream = {
+      activity: dreamSnap.activity,
+      sleepSince: dreamDiag.girl.sleepSince,
+      mood: dreamSnap.mood,
+      quiet: dreamDiag.quiet,
+    };
+    await shot("girl-dream.png");
+    check("dream.sleep", dreamSnap.activity === "sleep" && dreamDiag.girl.sleepSince >= 0,
+      `activity=${dreamSnap.activity} sleepSince=${Math.round(dreamDiag.girl.sleepSince)}`);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("toggle-sleep")`);
+    await wait(500);
+    const dreamWokeDiag = await diag();
+    const dreamWokeSnap = await snap();
+    results.dream.wake = { activity: dreamWokeSnap.activity, sleepSince: dreamWokeDiag.girl.sleepSince };
+    check("dream.wake", dreamWokeSnap.activity !== "sleep" && dreamWokeDiag.girl.sleepSince < 0,
+      `activity=${dreamWokeSnap.activity} sleepSince=${dreamWokeDiag.girl.sleepSince}`);
   }
 
   // —— M. v1.9.0：纪念日与久别重逢 ——
@@ -931,6 +1196,7 @@ async function main() {
           left: d.girl.milestoneLeft,
           daysShown: d.girl.milestoneDays,
           above: d.girl.fx.above,
+          achievements: d.girl.achievements ?? [],
         };
       })()`, 5_000).catch(() => null);
       const deadline = Date.now() + 25_000;
@@ -963,6 +1229,7 @@ async function main() {
       left: m.left,
       daysShown: m.daysShown,
       above: m.above,
+      achievements: m.achievements ?? [],
       matched: milestone.ok,
     };
     check("milestone.days", m.days === 7, `days=${m.days}`);
@@ -971,6 +1238,10 @@ async function main() {
     check("milestone.window", milestone.ok && m.left > 0 && m.daysShown === 7,
       `left=${Math.round(m.left ?? 0)} days=${m.daysShown}`);
     check("milestone.ribbons", m.above >= 8, `above=${m.above}`);
+    // v1.10：重载后 stats/成就必须从 bond 盘上回来；第 7 天这一档还会静默解锁「七日之约」。
+    check("milestone.achievements",
+      ["first-catch", "first-wand", "seven-days"].every((id) => (m.achievements ?? []).includes(id)),
+      `achievements=${JSON.stringify(m.achievements)}`);
 
     await patchBondAndReload(`
       bond.metAt = now;
@@ -981,10 +1252,20 @@ async function main() {
     await waitPetInk(s, 20_000, appLog, child);
     await shot("girl-reunion.png");
     const r = reunion.settled ?? reunion.first ?? {};
-    results.reunion = { bubble: reunion.first?.text ?? null, days: r.days, form: r.form, matched: reunion.ok };
+    results.reunion = {
+      bubble: reunion.first?.text ?? null,
+      days: r.days,
+      form: r.form,
+      achievements: r.achievements ?? [],
+      matched: reunion.ok,
+    };
     check("reunion.line", !!reunion.first && REUNION_LINES.includes(reunion.first.text),
       `bubble=${reunion.first?.text ?? "null"}`);
     check("reunion.days", r.days === 1, `days=${r.days}`);
+    // 重逢这句优先级 2 会压住别的台词，但不许把已经拿到手的成就洗掉。
+    check("reunion.achievements",
+      ["first-catch", "first-wand"].every((id) => (r.achievements ?? []).includes(id)),
+      `achievements=${JSON.stringify(r.achievements)}`);
   }
 
   const failed = checks.filter((c) => !c.ok);

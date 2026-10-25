@@ -64,6 +64,34 @@ import { SNACK_MS, buildSnackOps, createSnack, snackAlive, stepSnack, type Snack
 import { wanderTarget } from "./girl-wander";
 import { TOY, buildToyOps, createToy, kickToy, stepToy, toyAt, type ToyOps, type ToyState } from "./girl-toy";
 import { TeaseTracker } from "./girl-tease";
+import {
+  WAND_MS,
+  buildWandOps,
+  catchWand,
+  createWand,
+  wandAlive,
+  wandAt,
+  wandTip,
+  type WandState,
+} from "./girl-wand";
+import {
+  BUBBLES_MS,
+  bubbleAt,
+  bubblePos,
+  bubblesAlive,
+  buildBubbleOps as buildToyBubbleOps,
+  createBubbles,
+  liveBubbleCount,
+  popBubble,
+  type BubbleState,
+} from "./girl-bubbles";
+import { LEAVES_MS, buildLeafOps, createLeaves, leavesAlive, type LeafState } from "./girl-leaves";
+import { PRINT_GAP_MS, buildPrintOps, spawnPrint, stepPrints, type PawMark } from "./girl-prints";
+import { FOLLOW_MS, followArrived, followNeedsStep, followTargetX } from "./girl-follow";
+import { ACHIEVEMENT_MS, buildAchievementOps } from "./girl-achievements";
+import { buildDreamOps } from "./girl-dream";
+import { buildRpsOps, buildRpsPlayerOps, RPS_MS, type RpsState } from "./girl-rps";
+import { rpsFromCommand } from "../../shared/pet-rps";
 import { GESTURE_COMMANDS, accessoryFromCommand, type PetCommand } from "../../shared/pet-commands";
 import type { WorkStatusTier } from "../../shared/work-status-types";
 import { presentationOf } from "./work-status-presentation";
@@ -232,6 +260,18 @@ export class PixelPetRenderer {
   private nextCritterAt = 0;
   /** 喂食的小鱼干道具；null = 没在演。 */
   private snack: SnackState | null = null;
+  /** 逗猫棒 / 泡泡 / 落叶 / 猜拳：各自一条时间线，命令或点击推进。 */
+  private wand: WandState | null = null;
+  private bubbles: BubbleState | null = null;
+  private leaves: LeafState | null = null;
+  private rps: RpsState | null = null;
+  /** 走路留下的爪印（屏幕坐标，窗口搬走时留在桌布上）。 */
+  private prints: PawMark[] = [];
+  private lastPrintAt = 0;
+  /** 「跟我来」：起点、截止时刻与上一次下发目标，避免每帧重发把她钉在原地。 */
+  private follow: { startX: number; until: number; lastTargetX: number; arrived: boolean } | null = null;
+  /** 她真正睡着的起点（梦话云要等 1.8s）；-1 = 醒着。 */
+  private sleepSince = -1;
 
   constructor(private readonly opts: PixelPetRendererOptions) {
     // willReadFrequently：点击穿透逐像素读 alpha（getImageData），不建这张快路径会退回 GPU 读回。
@@ -473,6 +513,19 @@ export class PixelPetRenderer {
       this.wander(performance.now());
       return;
     }
+    const rpsSign = rpsFromCommand(command);
+    if (rpsSign) {
+      this.startRps(rpsSign, performance.now());
+      return;
+    }
+    if (command === "wand" || command === "bubbles" || command === "leaves" || command === "follow") {
+      const now = performance.now();
+      if (command === "wand") this.startWand(now);
+      else if (command === "bubbles") this.startBubbles(now);
+      else if (command === "leaves") this.startLeaves(now);
+      else this.startFollow(now);
+      return;
+    }
     const accessory = accessoryFromCommand(command);
     if (accessory) {
       const now = performance.now();
@@ -558,6 +611,19 @@ export class PixelPetRenderer {
     milestoneDays: number;
     critter: { kind: string; caught: boolean; x: number; y: number } | null;
     snack: { x: number; y: number; progress: number } | null;
+    /** v1.10.0：玩具箱、跟随、爪印、梦话云与成就的读数口。 */
+    wand: { x: number; y: number; caught: boolean; left: number } | null;
+    /** `spots` 是真窗探针的点击靶：泡泡每帧在飘，读数与点击必须用同一拍坐标。 */
+    bubbles: { live: number; left: number; spots: Array<{ x: number; y: number; r: number }> } | null;
+    leaves: { left: number } | null;
+    rps: { player: string; her: string; outcome: string; left: number } | null;
+    prints: number;
+    follow: { left: number; lastTargetX: number; arrived: boolean } | null;
+    achievements: string[];
+    achievement: { id: string; left: number } | null;
+    stats: CompanionSnapshot["stats"];
+    /** 她睡着的起点（performance.now）；-1＝醒着。 */
+    sleepSince: number;
     /** 距下一拍深夜提醒询问还有多久（真窗验收要卡在拍点上伪时钟）。 */
     nightCheckInMs: number;
   } {
@@ -599,6 +665,38 @@ export class PixelPetRenderer {
             progress: Math.max(0, Math.min(1, (now - this.snack.bornAt) / SNACK_MS)),
           }
         : null,
+      wand: this.wand
+        ? {
+            ...wandTip(this.wand, now, this.girlFaceAt(now), this.cat.facing ?? 1),
+            caught: this.wand.caughtAt >= 0,
+            left: Math.max(0, WAND_MS - (now - this.wand.bornAt)),
+          }
+        : null,
+      bubbles: this.bubbles
+        ? {
+            live: liveBubbleCount(this.bubbles, now),
+            left: Math.max(0, BUBBLES_MS - (now - this.bubbles.bornAt)),
+            spots: this.bubbles.bubbles
+              .filter((b) => b.poppedAt < 0)
+              .map((b) => bubblePos(this.bubbles!, b, now, this.cat.center.y)),
+          }
+        : null,
+      leaves: this.leaves
+        ? { left: Math.max(0, LEAVES_MS - (now - this.leaves.bornAt)) }
+        : null,
+      rps: this.rps && now - this.rps.bornAt < RPS_MS
+        ? { ...this.rps, left: Math.max(0, RPS_MS - (now - this.rps.bornAt)) }
+        : null,
+      prints: this.prints.length,
+      follow: this.follow
+        ? { left: Math.max(0, this.follow.until - now), lastTargetX: this.follow.lastTargetX, arrived: this.follow.arrived }
+        : null,
+      achievements: snapshot?.achievements ?? [],
+      achievement: snapshot?.achievementId && snapshot.achievementLeft > 0
+        ? { id: snapshot.achievementId, left: snapshot.achievementLeft }
+        : null,
+      stats: snapshot?.stats ?? { pats: 0, catches: 0, wand: 0, bubbles: 0, pounces: 0 },
+      sleepSince: this.sleepSince,
       nightCheckInMs: Math.max(0, NIGHT_NUDGE_POLL_MS - (now - this.lastNightNudgeCheckAt)),
     };
   }
@@ -710,7 +808,10 @@ export class PixelPetRenderer {
     if (this.dragging || this.paused) return false;
     // agent 在干活时站定：她正「忙着呢」，边跑边敲代码读起来是抽帧故障而不是演出。
     if (this.workTier !== null) return false;
-    if (this.bubbleActive || this.bubbleExpand > 0.001) return false;
+    if (this.bubbleActive || this.bubbleExpand > 0.001) {
+      // 「跟我来」就是一路说着话跟过去：气泡开着也得允许迈步。
+      if (this.follow === null) return false;
+    }
     if (Math.abs(this.peekDx) > 0.5) return false;
     if (this.tuckEnabled) {
       const right = this.workArea.x + this.workArea.width;
@@ -744,6 +845,7 @@ export class PixelPetRenderer {
       size: { width: this.profile.base.width * this.zoom, height: this.profile.base.height * this.zoom },
       canRoam: this.canRoam(),
     });
+    this.tickFollow(now, snapshot);
 
     const bubble = snapshot.bubble;
     if (bubble) {
@@ -907,6 +1009,191 @@ export class PixelPetRenderer {
     this.engine.roamTo(target);
     if (!this.paused) this.draw(now);
     return true;
+  }
+
+  /** 当前脸框（绘制空间）：所有头顶道具共用同一把锚尺。 */
+  private girlFaceAt(now: number): ReturnType<typeof girlFaceBox> {
+    const frame = this.girlAnimReady ? this.girlPlayer.sample(now).index : 0;
+    return girlFaceBox(girlAnimBodyFor(this.cat), frame);
+  }
+
+  /** 菜单可能比下一帧更早到达：睡着/被拖/被抛要读引擎当下状态，不能只看上一帧的 cat.mood。 */
+  private girlBusyForToys(): boolean {
+    const activity = this.engine?.getSnapshot().activity;
+    return this.cat.mood === "sleep" || activity === "sleep" || activity === "drag" || activity === "thrown";
+  }
+
+  private startWand(now: number): boolean {
+    if (this.form !== "girl" || this.quiet || this.dragging || this.girlBusyForToys()) return false;
+    this.wand = createWand(now);
+    this.bubbles = null;
+    this.engine?.say("羽毛在这儿——", 1, now, true);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startBubbles(now: number): boolean {
+    if (this.form !== "girl" || this.quiet || this.dragging || this.girlBusyForToys()) return false;
+    this.bubbles = createBubbles(now, this.girlFaceAt(now));
+    this.wand = null;
+    this.engine?.say("看，泡泡——", 1, now, true);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startLeaves(now: number): boolean {
+    if (this.form !== "girl" || this.quiet || this.dragging || this.girlBusyForToys()) return false;
+    if (!this.engine?.leafToss(now)) return false;
+    this.leaves = createLeaves(now, this.girlFaceAt(now));
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startRps(sign: "rock" | "scissors" | "paper", now: number): boolean {
+    if (this.form !== "girl" || this.quiet || this.dragging || this.girlBusyForToys()) return false;
+    const result = this.engine?.rpsPlay(sign, now);
+    if (!result) return false;
+    this.rps = { ...result, bornAt: now };
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startFollow(now: number): boolean {
+    if (this.form !== "girl" || !this.engine || !this.catOrigin) return false;
+    if (!this.engine.followStart(now)) return false;
+    this.follow = {
+      startX: this.catOrigin.x,
+      until: now + FOLLOW_MS,
+      lastTargetX: this.catOrigin.x,
+      arrived: false,
+    };
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  /**
+   * 「跟我来」每帧一拍：光标横向落点 → 目标窗口原点；只有目标挪够远才重发漫游。
+   * 到时/睡着/被拖/agent 忙/用户点她都收工——跟随是邀请，不是自动驾驶。
+   */
+  private tickFollow(now: number, snapshot: CompanionSnapshot): void {
+    const follow = this.follow;
+    if (!follow) return;
+    const timeout = now >= follow.until;
+    const blocked = this.form !== "girl" || this.quiet || this.dragging || this.workTier !== null
+      || snapshot.activity === "sleep" || snapshot.activity === "drag" || snapshot.activity === "thrown";
+    if (timeout || blocked) {
+      this.follow = null;
+      if (timeout) this.engine?.followStop(now, false);
+      return;
+    }
+    if (!this.catOrigin || !this.workArea || !this.gazeTarget) return;
+    const zoom = this.zoom || 1;
+    const width = this.profile.base.width * zoom;
+    const targetX = followTargetX(follow.startX, this.gazeTarget[0], width, {
+      minX: this.workArea.x,
+      maxX: this.workArea.x + this.workArea.width - width,
+    });
+    if (followArrived(targetX, this.catOrigin.x)) {
+      if (!follow.arrived) {
+        follow.arrived = true;
+        this.engine?.followStop(now, true);
+      }
+      return;
+    }
+    follow.arrived = false;
+    if (followNeedsStep(targetX, follow.lastTargetX)) {
+      follow.lastTargetX = targetX;
+      this.engine?.roamTo({ x: targetX, y: this.catOrigin.y }, now);
+    }
+  }
+
+  private tickWand(now: number): DrawOp[] {
+    if (this.form !== "girl" || !this.wand) {
+      this.wand = null;
+      return [];
+    }
+    if (!wandAlive(this.wand, now)) {
+      const missed = this.wand.caughtAt < 0;
+      this.wand = null;
+      if (missed) this.engine?.wandEnd(now, false);
+      return [];
+    }
+    return buildWandOps(this.wand, now, this.girlFaceAt(now), this.cat.facing ?? 1);
+  }
+
+  private tickBubbles(now: number): DrawOp[] {
+    if (this.form !== "girl" || !this.bubbles) {
+      this.bubbles = null;
+      return [];
+    }
+    if (!bubblesAlive(this.bubbles, now)) {
+      this.bubbles = null;
+      return [];
+    }
+    return buildToyBubbleOps(this.bubbles, now, this.cat.center.y);
+  }
+
+  private tickLeaves(now: number): DrawOp[] {
+    if (this.form !== "girl" || !this.leaves) {
+      this.leaves = null;
+      return [];
+    }
+    if (!leavesAlive(this.leaves, now)) {
+      this.leaves = null;
+      return [];
+    }
+    return buildLeafOps(this.leaves, now, this.girlFaceAt(now), this.cat.center.y);
+  }
+
+  private tickRps(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.rps) {
+      this.rps = null;
+      return [];
+    }
+    const age = now - this.rps.bornAt;
+    if (age >= RPS_MS) {
+      this.rps = null;
+      return [];
+    }
+    const ops = buildRpsOps(this.rps.her, age, face, now / 1000);
+    ops.push(...buildRpsPlayerOps(this.rps.player, face, this.cat.center.y));
+    return ops;
+  }
+
+  private tickPrints(now: number, snapshot: CompanionSnapshot | null): DrawOp[] {
+    stepPrints(this.prints, now);
+    if (this.form !== "girl" || !this.catOrigin) {
+      this.prints = [];
+      return [];
+    }
+    const moving = snapshot !== null && (snapshot.activity === "walk" || snapshot.activity === "thrown");
+    const zoom = this.zoom || 1;
+    if (moving && now - this.lastPrintAt >= PRINT_GAP_MS) {
+      this.lastPrintAt = now;
+      const facing = this.cat.facing ?? 1;
+      spawnPrint(this.prints, now, this.cat.center.x - facing * 2, this.catOrigin.x, this.cat.center.y + 2, facing, zoom);
+    }
+    return buildPrintOps(this.prints, now, this.catOrigin.x, zoom);
+  }
+
+  /** 头顶那一层：玩具 + 梦话云 + 成就徽章，三条时间线共用同一张脸框。 */
+  private collectGirlAboveOps(
+    now: number,
+    face: ReturnType<typeof girlFaceBox>,
+    snapshot: CompanionSnapshot | null,
+  ): DrawOp[] {
+    const ops = [
+      ...this.tickWand(now),
+      ...this.tickBubbles(now),
+      ...this.tickLeaves(now),
+      ...this.tickRps(now, face),
+    ];
+    ops.push(...buildDreamOps(now, this.sleepSince, face, this.quiet, this.cat.mood));
+    if (snapshot?.achievementId && snapshot.achievementLeft > 0) {
+      const age = ACHIEVEMENT_MS - snapshot.achievementLeft;
+      ops.push(...buildAchievementOps(snapshot.achievementId, age, face, now / 1000));
+    }
+    return ops;
   }
 
   getCanvas(): HTMLCanvasElement {
@@ -1252,6 +1539,12 @@ export class PixelPetRenderer {
     // layout-send 与 tick 分两段只是 egui 结构，1 帧差不可观察）。
     const peekAnimating = this.tickTuck(now / 1000);
     const snapshot = this.tickCompanion(now);
+    // 梦话云要等「真的睡熟」：每次进入 sleep 重新起表，醒来立刻抹掉。
+    if (snapshot?.activity === "sleep") {
+      if (this.sleepSince < 0) this.sleepSince = now;
+    } else {
+      this.sleepSince = -1;
+    }
     // 手势/动作段先落定，再算重绘帧率：淡化期要 30fps，循环段至少比片段 fps 快一档。
     if (this.form === "girl" && this.girlAnimReady) this.tickGirlClip(now, snapshot);
 
@@ -1274,8 +1567,14 @@ export class PixelPetRenderer {
     const fxAnimating = snapshot !== null
       && (snapshot.bondUpLeft > 0 || snapshot.patCombo > 1 || snapshot.startleLeft > 0);
     const toyMoving = this.form === "girl" && this.toyState !== null && !this.toyState.rest;
+    // 新玩具/爪印/徽章都是连续演出：4fps 会把泡泡和爪印切成幻灯片。
+    const propAnimating = this.form === "girl" && (
+      this.wand !== null || this.bubbles !== null || this.leaves !== null
+      || this.rps !== null || this.prints.length > 0
+      || (snapshot !== null && snapshot.achievementLeft > 0)
+    );
     if (moving || toyMoving) this.fps = FPS_HOVER;
-    else if (peekAnimating || this.bubbleExpand > 0 || animating || fxAnimating || cushionMoving) this.fps = FPS_ACTIVE;
+    else if (peekAnimating || this.bubbleExpand > 0 || animating || fxAnimating || cushionMoving || propAnimating) this.fps = FPS_ACTIVE;
     // agent 在干活时保持 30fps：手势（打字/点头）与粒子都在动，留在 4fps 档会一顿一顿。
     else if (this.workTier !== null) this.fps = FPS_ACTIVE;
     else this.fps = FPS_IDLE;
@@ -1311,6 +1610,8 @@ export class PixelPetRenderer {
     this.ctx.clearRect(0, 0, w, h);
     // 球先推进一拍再画：同一帧里踢/滚/她自己扒拉都落在同一张画上。
     const toyArt = this.tickToy(now, snapshot);
+    // 爪印落在桌布上：每帧推进一次，三个渲染回退分支共用。
+    const printOps = this.tickPrints(now, snapshot);
     let ops: DrawOp[];
     if (this.form === "girl") {
       if (this.girlAnimReady) {
@@ -1402,9 +1703,11 @@ export class PixelPetRenderer {
         // 道具先推进一拍：小虫/鱼干与人物落在同一张画上。
         const snackOps = this.tickSnack(now, finalFace);
         const critterOps = this.tickCritter(now, finalFace, snapshot);
+        const aboveOps = this.collectGirlAboveOps(now, finalFace, snapshot);
         // 投影必须压在人物下面：分两趟画，投影一趟、人物+记号一趟。
         // 球的影子压在坐垫/地面投影之上，球身在她之后——她从球后面走过去时球仍然在前面。
         paintOps(this.ctx, fx.below);
+        paintOps(this.ctx, printOps);
         if (toyArt) paintOps(this.ctx, toyArt.below);
         if (sample.prev) this.paintGirlFrame(sample.prev.index, 1, body);
         this.paintGirlFrame(sample.index, sample.fade, body);
@@ -1412,9 +1715,10 @@ export class PixelPetRenderer {
         paintOps(this.ctx, accessoryOps);
         if (toyArt) paintOps(this.ctx, toyArt.above);
         // 立绘里的脸/身体是画死的；表情层不参与，屏幕记号照旧跟 mood/pet/quiet 走。
-        ops = [...buildGirlOverlayOps(this.cat), ...snackOps, ...fx.above, ...critterOps];
+        ops = [...buildGirlOverlayOps(this.cat), ...snackOps, ...fx.above, ...critterOps, ...aboveOps];
       } else if (this.girlSpriteReady) {
         if (toyArt) paintOps(this.ctx, toyArt.below);
+        paintOps(this.ctx, printOps);
         this.paintGirlSprite();
         const fallbackBody = girlAnimBodyFor(this.cat);
         paintOps(this.ctx, buildAccessoryOps({
@@ -1426,17 +1730,22 @@ export class PixelPetRenderer {
           accessory: snapshot?.accessory ?? "none",
         }));
         if (toyArt) paintOps(this.ctx, toyArt.above);
-        ops = buildGirlOverlayOps(this.cat);
+        ops = [...buildGirlOverlayOps(this.cat), ...this.collectGirlAboveOps(now, girlFaceBox(fallbackBody, 0), snapshot)];
       } else if (this.girlSpriteFailed) {
         if (toyArt) paintOps(this.ctx, toyArt.below);
         const composed = this.composeChannels(now, this.lastSnapshot);
-        ops = buildPetOps({
-          ...this.cat,
-          channels: composed.channels,
-          expression: composed.expression,
-          blink: Math.max(this.cat.blink, composed.blink),
-          form: "girl",
-        });
+        const fallbackBody = girlAnimBodyFor(this.cat);
+        ops = [
+          ...printOps,
+          ...buildPetOps({
+            ...this.cat,
+            channels: composed.channels,
+            expression: composed.expression,
+            blink: Math.max(this.cat.blink, composed.blink),
+            form: "girl",
+          }),
+          ...this.collectGirlAboveOps(now, girlFaceBox(fallbackBody, 0), snapshot),
+        ];
         if (toyArt) ops.push(...toyArt.above);
       } else {
         ops = [];
@@ -1477,6 +1786,14 @@ export class PixelPetRenderer {
     this.cushion = 0;
     this.critter = null;
     this.snack = null;
+    this.wand = null;
+    this.bubbles = null;
+    this.leaves = null;
+    this.rps = null;
+    this.prints = [];
+    this.lastPrintAt = 0;
+    this.follow = null;
+    this.sleepSince = -1;
     // 形态也是行为引擎的分岔口：不同步这一步，猫娘的四档加权抽取永远不跑（她只会走四足那张平表）。
     this.engine?.setForm(form);
     this.animGesture = null;
@@ -1523,13 +1840,34 @@ export class PixelPetRenderer {
       this.engine?.touch(clickKindFor(heldMs), now);
       return;
     }
+    // 人已经伸手了：跟随到此为止（她停下来看你，而不是继续往光标走）。
+    this.follow = null;
     if (heldMs >= PET_HOLD_MS) {
       this.engine?.touch("pet", now);
+      this.engine?.save();
       return;
     }
     const zoom = this.zoom || 1;
     const dx = cssX / zoom;
     const dy = cssY / zoom;
+    // 泡泡和逗猫棒都悬在脸附近：先按各自的小命中区判，点不中才落到摸头/挠脚。
+    if (this.bubbles) {
+      const id = bubbleAt(this.bubbles, now, this.cat.center.y, dx, dy);
+      if (id !== null && this.engine?.bubblePop(now)) {
+        popBubble(this.bubbles, id, now);
+        this.engine.save();
+        if (!this.paused) this.draw(now);
+        return;
+      }
+    }
+    if (this.wand && wandAt(this.wand, now, this.girlFaceAt(now), this.cat.facing ?? 1, dx, dy)) {
+      if (this.engine?.wandEnd(now, true)) {
+        catchWand(this.wand, now);
+        this.engine.save();
+        if (!this.paused) this.draw(now);
+        return;
+      }
+    }
     // 伴飞小虫先截：它绕着脸飞，落在「头」分区里；不先拦，捉虫会被读成摸头。
     const tapFrame = this.girlAnimReady ? this.girlPlayer.sample(now).index : 0;
     const tapFace = girlFaceBox(girlAnimBodyFor(this.cat), tapFrame);
@@ -1537,6 +1875,7 @@ export class PixelPetRenderer {
       // 先问引擎：睡着/被拖着时捉不到，这一下应该继续走分区而不是被吞掉。
       if (this.engine?.catchCritter(now)) {
         catchCritter(this.critter, now);
+        this.engine.save();
         if (!this.paused) this.draw(now);
         return;
       }
@@ -1559,6 +1898,7 @@ export class PixelPetRenderer {
       return;
     }
     this.engine?.touch(zone === "head" ? "head" : zone === "feet" ? "feet" : "poke", now);
+    this.engine?.save();
   }
 
   /**

@@ -1,5 +1,6 @@
 /** 右键菜单 → 宠物窗的单向动作。渲染端是唯一执行者（状态都在它手里）。 */
 import { ACCESSORY_IDS, type AccessoryId } from "./pet-accessory";
+import { RPS_SIGNS, rpsCommandFor, type RpsCommand } from "./pet-rps";
 
 /** 装扮命令：`accessory:<id>`（id 来自共享词表，菜单与渲染端对同一组值）。 */
 export type AccessoryCommand = `accessory:${AccessoryId}`;
@@ -10,18 +11,26 @@ export type PetCommand =
   | "wave" | "bow" | "nod" | "tilt" | "hop" | "stretch" | "clap"
   /** 猫娘专属：招一只伴飞小虫 / 自己散一段步。四足收到时静默忽略。 */
   | "summon-critter" | "wander"
+  /** 猫娘专属玩具：逗猫棒 / 泡泡 / 落叶 / 跟着光标走 / 猜拳。 */
+  | "wand" | "bubbles" | "leaves" | "follow"
+  | RpsCommand
   | AccessoryCommand;
 
 export const ACCESSORY_COMMANDS: ReadonlyArray<AccessoryCommand> =
   ACCESSORY_IDS.map((id) => `accessory:${id}` as const);
 
+export const RPS_COMMANDS: ReadonlyArray<RpsCommand> = RPS_SIGNS.map((sign) => rpsCommandFor(sign));
+
 const BASE_COMMANDS: ReadonlyArray<PetCommand> = [
   "pet", "feed", "play", "toggle-sleep", "status",
   "wave", "bow", "nod", "tilt", "hop", "stretch", "clap",
   "summon-critter", "wander",
+  "wand", "bubbles", "leaves", "follow",
 ];
 
-export const PET_COMMANDS: ReadonlyArray<PetCommand> = [...BASE_COMMANDS, ...ACCESSORY_COMMANDS];
+export const PET_COMMANDS: ReadonlyArray<PetCommand> = [
+  ...BASE_COMMANDS, ...RPS_COMMANDS, ...ACCESSORY_COMMANDS,
+];
 
 /** `accessory:bow` → `"bow"`；不是装扮命令返回 null。 */
 export function accessoryFromCommand(command: PetCommand): AccessoryId | null {

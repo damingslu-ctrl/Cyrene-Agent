@@ -65,12 +65,17 @@ describe("猫娘装扮（引擎）", () => {
 });
 
 describe("伴飞小虫（引擎）", () => {
-  it("捉到会开心、涨一点亲密度、说一句捉虫的话", () => {
+  it("捉到会开心、涨一点亲密度；第一次捉到的成就会占住这一句，之后再捉才说捉虫台词", () => {
     const engine = new CompanionEngine({ storage: makeStorage(), now: () => T0, random: seq([0.5]) });
     engine.setForm("girl");
     const before = engine.getVitals().affinity;
     expect(engine.catchCritter(T0)).toBe(true);
     expect(engine.getVitals().affinity).toBeGreaterThan(before);
+    expect(engine.getSnapshot().achievements).toContain("first-catch");
+    expect(engine.getSnapshot().bubble?.text).toBe("捉到啦！这个要记下来");
+
+    // 第二次（气泡已经过期、成就也记过了）回到普通的捉虫台词。
+    expect(engine.catchCritter(T0 + 10_000)).toBe(true);
     expect(GIRL_CRITTER_LINES).toContain(engine.getSnapshot().bubble?.text);
   });
 

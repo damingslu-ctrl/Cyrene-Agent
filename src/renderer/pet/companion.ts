@@ -20,6 +20,17 @@ import {
 } from "./girl-bond";
 import { normalizeAccessory, type AccessoryId } from "../../shared/pet-accessory";
 import { MILESTONE_MS, milestoneFor, milestoneKey, parseCelebrated } from "./girl-milestone";
+import {
+  ACHIEVEMENT_MS,
+  achievementById,
+  newlyUnlocked,
+  parseAchievements,
+  parseStats,
+  EMPTY_STATS,
+  type AchievementId,
+  type PetStats,
+} from "./girl-achievements";
+import { judgeRps, RPS_SIGNS, type RpsOutcome, type RpsSign } from "../../shared/pet-rps";
 
 export const BUBBLE_TTL_MS = 6_000;
 /** 漫游速度（DIP/s）：比 native 的缓动藏身快一档，但仍是「散步」不是「瞬移」。 */
@@ -134,6 +145,14 @@ export interface CompanionSnapshot {
   milestoneLeft: number;
   /** 正在庆祝的是第几天（不在庆典中为 0）。 */
   milestoneDays: number;
+  /** 已解锁的成就（跨重启，顺序即解锁顺序）。 */
+  achievements: AchievementId[];
+  /** 当前这枚徽章的剩余毫秒（0＝没有徽章在展示）。 */
+  achievementLeft: number;
+  /** 正在展示的徽章 id；没在展示时为 null。 */
+  achievementId: AchievementId | null;
+  /** 累计互动统计：成就判据，也供探针核对。 */
+  stats: PetStats;
 }
 
 export interface CompanionOptions {
@@ -216,6 +235,18 @@ const GIRL_WAKE_NIGHT_LINES = ["这么晚还来摸我…", "嘘…小点声啦",
 const GIRL_TOY_LINES = ["球！球给我！", "看我的——", "滚回来呀", "接住！"];
 const GIRL_POUNCE_LINES = ["抓到你啦！", "别跑——", "嘿！"];
 const GIRL_NIGHT_LINES = ["很晚了…真的该睡了", "再陪你十分钟，然后去睡", "眼睛该休息啦", "我把屏幕调暗一点？"];
+export const GIRL_WAND_LINES = ["羽毛！别跑——", "抓到了！", "再甩高一点嘛"];
+export const GIRL_WAND_MISS_LINES = ["飞、飞走了…", "下一次一定抓住"];
+export const GIRL_BUBBLE_LINES = ["啵！", "泡泡、泡泡别破", "再吹一串嘛"];
+export const GIRL_LEAF_LINES = ["哇…下叶子雨了", "接住一片！", "秋天来啦"];
+export const GIRL_FOLLOW_LINES = ["等等我——", "你去哪儿呀？", "我跟着你哦"];
+export const GIRL_FOLLOW_ARRIVE_LINES = ["到啦", "跟上了！", "是这里吗？"];
+export const GIRL_FOLLOW_LOST_LINES = ["诶…不等我", "跑太快啦"];
+export const GIRL_RPS_LINES: Record<RpsOutcome, readonly string[]> = {
+  win: ["我赢啦！", "嘿嘿，猜拳我最强"],
+  lose: ["呜…输了", "再来一局嘛"],
+  draw: ["平局！", "我们想到一块了"],
+};
 
 /** 猫娘词表的唯一出口：测试按表锁文案，别在用例里另抄一份。 */
 export const GIRL_LINES = {
@@ -639,6 +670,11 @@ export class CompanionEngine {
   /** 彩带寿命与正在庆祝的天数。 */
   private milestoneUntil = 0;
   private milestoneDays = 0;
+  /** 五枚成就共用的一条计数器；落盘跟羁绊走。 */
+  private stats: PetStats = { ...EMPTY_STATS };
+  private achievements: AchievementId[] = [];
+  private achievementUntil = 0;
+  private achievementId: AchievementId | null = null;
 
   constructor(options: CompanionOptions = {}) {
     this.random = options.random ?? Math.random;
@@ -780,6 +816,7 @@ export class CompanionEngine {
     const continued = this.headCombo > 0 && now - this.headComboAt <= PAT_COMBO_WINDOW_MS;
     this.headCombo = continued ? Math.min(PAT_COMBO_MAX, this.headCombo + 1) : 1;
     this.headComboAt = now;
+    this.stats.pats += 1;
     this.rewardAffinity(0.04 + (this.headCombo >= PAT_COMBO_MAX ? 0.02 : 0), now);
     this.happyUntil = now + 3_000 + (this.headCombo - 1) * 250;
     const gesture = this.headCombo >= 4 ? "hop" : this.headCombo >= 3 ? "shiver" : "coverFace";
@@ -861,9 +898,11 @@ export class CompanionEngine {
     this.lastUserAt = now;
     this.pounceCooldownUntil = now + POUNCE_COOLDOWN_MS;
     this.pounces += 1;
+    this.stats.pounces += 1;
     this.onMove?.({ ...this.pos });
     this.settle(now);
     this.say(this.pickLine([...GIRL_POUNCE_LINES]), 1, now, true);
+    this.refreshAchievements(now);
     return true;
   }
 
@@ -917,13 +956,105 @@ export class CompanionEngine {
     if (this.form !== "girl") return false;
     if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
     this.lastUserAt = now;
+    this.stats.catches += 1;
     this.rewardAffinity(0.02, now);
     this.happyUntil = Math.max(this.happyUntil, now + 2_400);
     this.ambientGesture = "hop";
     this.gestureUntil = now + gestureClip("hop").ms;
     this.idleUntil = now + IDLE_MIN_MS;
     this.say(this.pickLine([...GIRL_CRITTER_LINES]), 1, now, true);
+    this.refreshAchievements(now);
     return true;
+  }
+
+  /** 逗猫棒一局收尾：捉中算一次、涨一点亲密度；空挥也有一句自嘲。 */
+  wandEnd(now = this.now(), caught = true): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
+    if (now < this.dizzyUntil) return false;
+    this.lastUserAt = now;
+    this.idleUntil = now + IDLE_MIN_MS;
+    if (!caught) {
+      this.say(this.pickLine([...GIRL_WAND_MISS_LINES]), 1, now, true);
+      return false;
+    }
+    this.stats.wand += 1;
+    this.rewardAffinity(0.015, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 2_600);
+    this.ambientGesture = "hop";
+    this.gestureUntil = now + gestureClip("hop").ms;
+    this.startAction("play", now, 900);
+    this.say(this.pickLine([...GIRL_WAND_LINES]), 1, now, true);
+    this.refreshAchievements(now);
+    return true;
+  }
+
+  /** 戳破一个泡泡：每四下说一句，其余只开心一小会儿，免得一句话刷屏。 */
+  bubblePop(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
+    this.lastUserAt = now;
+    this.stats.bubbles += 1;
+    this.happyUntil = Math.max(this.happyUntil, now + 1_000);
+    this.rewardAffinity(0.004, now);
+    if (this.stats.bubbles % 4 === 1) this.say(this.pickLine([...GIRL_BUBBLE_LINES]), 1, now, true);
+    this.refreshAchievements(now);
+    return true;
+  }
+
+  /** 撒落叶：纯演出 + 一点点亲密度，不产生可拾取物。 */
+  leafToss(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
+    if (now < this.dizzyUntil) return false;
+    this.lastUserAt = now;
+    this.happyUntil = Math.max(this.happyUntil, now + 2_000);
+    this.ambientGesture = "peek";
+    this.gestureUntil = now + gestureClip("peek").ms;
+    this.startAction("play", now, 1_200);
+    this.idleUntil = now + IDLE_MIN_MS;
+    this.rewardAffinity(0.006, now);
+    this.say(this.pickLine([...GIRL_LEAF_LINES]), 1, now, true);
+    return true;
+  }
+
+  /** 「跟我来」：她答应一声，把方向交给渲染端的 follow 模块。 */
+  followStart(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
+    this.lastUserAt = now;
+    this.happyUntil = Math.max(this.happyUntil, now + 1_600);
+    this.ambientGesture = "hop";
+    this.gestureUntil = now + gestureClip("hop").ms;
+    this.idleUntil = now + 2_000;
+    this.say(this.pickLine([...GIRL_FOLLOW_LINES]), 1, now, true);
+    return true;
+  }
+
+  /** 跟到位/跟丢：各自一句，不涨亲密度（这是陪伴不是奖励）。 */
+  followStop(now = this.now(), arrived = true): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    this.lastUserAt = now;
+    this.idleUntil = now + IDLE_MIN_MS;
+    return this.say(this.pickLine([...(arrived ? GIRL_FOLLOW_ARRIVE_LINES : GIRL_FOLLOW_LOST_LINES)]), 1, now, true);
+  }
+
+  /** 猜拳：她按 `random` 选一手，赢了涨一点、平局一点点、输了只不服气。 */
+  rpsPlay(player: RpsSign, now = this.now()): { player: RpsSign; her: RpsSign; outcome: RpsOutcome } | null {
+    if (this.form !== "girl" || this.quiet) return null;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return null;
+    if (now < this.dizzyUntil) return null;
+    const her = RPS_SIGNS[Math.floor(this.random() * RPS_SIGNS.length) % RPS_SIGNS.length];
+    const outcome = judgeRps(player, her);
+    this.lastUserAt = now;
+    this.happyUntil = Math.max(this.happyUntil, now + 2_400);
+    this.ambientGesture = outcome === "lose" ? "turnAway" : "hop";
+    this.gestureUntil = now + gestureClip(outcome === "lose" ? "turnAway" : "hop").ms;
+    this.idleUntil = now + IDLE_MIN_MS;
+    if (outcome === "win") this.rewardAffinity(0.012, now);
+    else if (outcome === "draw") this.rewardAffinity(0.005, now);
+    this.say(this.pickLine([...GIRL_RPS_LINES[outcome]]), 1, now, true);
+    return { player, her, outcome };
   }
 
   getSnapshot(): CompanionSnapshot {
@@ -956,6 +1087,10 @@ export class CompanionEngine {
       accessory: this.accessory,
       milestoneLeft: this.milestoneUntil > this.now() ? this.milestoneUntil - this.now() : 0,
       milestoneDays: this.milestoneUntil > this.now() ? this.milestoneDays : 0,
+      achievements: [...this.achievements],
+      achievementLeft: Math.max(0, this.achievementUntil - this.now()),
+      achievementId: this.achievementUntil > this.now() ? this.achievementId : null,
+      stats: { ...this.stats },
     };
   }
 
@@ -1138,6 +1273,8 @@ export class CompanionEngine {
     // 「第 N 天」这句要留到下一次露脸补上，不能被一次沉默吃掉。
     const said = this.say(text, milestone ? 2 : 1, now, milestone);
     if (said) this.greetedKey = todayKey;
+    // 问候优先：纪念日/重逢/第 N 天已经占着气泡，成就只弹徽章别抢句。
+    this.refreshAchievements(now, !said);
     this.saveBond();
     return said;
   }
@@ -1300,6 +1437,8 @@ export class CompanionEngine {
           celebrated?: unknown;
           lastSeenAt?: unknown;
           greetedKey?: unknown;
+          stats?: unknown;
+          achievements?: unknown;
         };
         found = true;
         if (typeof parsed?.metAt === "number" && Number.isFinite(parsed.metAt) && parsed.metAt > 0) {
@@ -1313,6 +1452,8 @@ export class CompanionEngine {
           this.lastSeenAt = parsed.lastSeenAt;
         }
         if (typeof parsed.greetedKey === "string") this.greetedKey = parsed.greetedKey;
+        this.stats = parseStats(parsed.stats);
+        this.achievements = parseAchievements(parsed.achievements);
       }
     } catch {
       // 坏档不阻塞启动：初见时刻退回本次启动，下面立刻覆盖。
@@ -1332,6 +1473,8 @@ export class CompanionEngine {
         celebrated: this.celebrated,
         lastSeenAt: this.lastSeenAt,
         greetedKey: this.greetedKey,
+        stats: this.stats,
+        achievements: this.achievements,
       }));
     } catch {
       // 同 save：写不进去只影响「第几天」，不影响本次行为。
@@ -1378,6 +1521,32 @@ export class CompanionEngine {
   private rewardAffinity(delta: number, now: number): void {
     this.setVitals({ affinity: this.vitals.affinity + delta });
     this.refreshBond(now);
+    this.refreshAchievements(now);
+  }
+
+  /**
+   * 成就只在互动当时检查：条件全部来自既有计数器，不额外起定时器。
+   * 一次弹一枚（多条件同时满足时余下的等下一次互动），安静期不弹也不记账。
+   */
+  private refreshAchievements(now: number, speak = true): void {
+    if (this.form !== "girl" || this.quiet) return;
+    const next = newlyUnlocked(
+      this.stats,
+      daysTogether(this.metAt, this.wallNow()),
+      bondTierOf(this.vitals.affinity).id,
+      this.achievements,
+    );
+    if (next.length === 0) return;
+    const id = next[0];
+    this.achievements.push(id);
+    this.achievementId = id;
+    this.achievementUntil = now + ACHIEVEMENT_MS;
+    this.saveBond();
+    // 升档的台词优先级更高：徽章照弹，句子让给「最喜欢你了」。
+    if (speak && now >= this.bondUpUntil) {
+      const def = achievementById(id);
+      if (def) this.say(def.line, 2, now, true);
+    }
   }
 
   private refreshBond(now: number): void {

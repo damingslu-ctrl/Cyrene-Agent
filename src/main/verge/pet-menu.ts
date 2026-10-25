@@ -12,6 +12,7 @@ import { Menu, type BrowserWindow, type MenuItemConstructorOptions } from "elect
 import type { PetCommand } from "../../shared/pet-commands";
 import { accessoryCommandFor } from "../../shared/pet-commands";
 import { ACCESSORIES, type AccessoryId } from "../../shared/pet-accessory";
+import { RPS_LABELS, RPS_SIGNS, rpsCommandFor, type RpsSign } from "../../shared/pet-rps";
 import { armQuiet, isQuietNow, quietRemainingMinutes } from "./quiet-clock";
 import type { VergeService } from "./verge-service";
 import { PET_FORMS, SIZE_TIERS, profileFor, type PetForm, type SizeTier } from "../../shared/pet-profile";
@@ -70,6 +71,12 @@ export interface PetMenuActions {
   critter: () => void;
   /** 陪她散一段步：朝当前朝向走 60–160px。 */
   wander: () => void;
+  /** 猫娘玩具箱：逗猫棒 / 泡泡 / 落叶 / 跟随 / 猜拳。 */
+  wand: () => void;
+  bubbles: () => void;
+  leaves: () => void;
+  follow: () => void;
+  rps: (sign: RpsSign) => void;
   openNetwork: () => void;
   /** v1.5.0：形态与档位切换（落盘 + 广播在装配层，菜单只管发意图）。 */
   setForm: (form: PetForm) => void;
@@ -116,6 +123,20 @@ export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenu
     },
     { label: "放只小虫逗逗她", enabled: input.form === "girl" && !!actions?.critter, ...bind(actions?.critter) },
     { label: "陪她散散步", enabled: input.form === "girl" && !!actions?.wander, ...bind(actions?.wander) },
+    // —— v1.10.0 玩具箱：都能在 82px 窗里单独演一段，四足形态置灰 ——
+    { label: "挥挥逗猫棒", enabled: input.form === "girl" && !!actions?.wand, ...bind(actions?.wand) },
+    { label: "吹一串泡泡", enabled: input.form === "girl" && !!actions?.bubbles, ...bind(actions?.bubbles) },
+    { label: "撒一把落叶", enabled: input.form === "girl" && !!actions?.leaves, ...bind(actions?.leaves) },
+    { label: "跟我来", enabled: input.form === "girl" && !!actions?.follow, ...bind(actions?.follow) },
+    {
+      label: "猜拳",
+      enabled: input.form === "girl" && !!actions?.rps,
+      submenu: RPS_SIGNS.map((sign) => ({
+        label: RPS_LABELS[sign],
+        enabled: input.form === "girl" && !!actions?.rps,
+        action: () => actions?.rps?.(sign),
+      })),
+    },
     // 「让它做个动作」：只演一次手势，不改数值。放在互动组末尾，与喂/玩区分开。
     {
       label: "让它做个动作",
@@ -231,6 +252,11 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
         accessory: (id) => onPetCommand(accessoryCommandFor(id)),
         critter: () => onPetCommand("summon-critter"),
         wander: () => onPetCommand("wander"),
+        wand: () => onPetCommand("wand"),
+        bubbles: () => onPetCommand("bubbles"),
+        leaves: () => onPetCommand("leaves"),
+        follow: () => onPetCommand("follow"),
+        rps: (sign) => onPetCommand(rpsCommandFor(sign)),
         openNetwork: () => openNetworkPanel(),
         setForm: (form) => {
           service.setForm(form);
