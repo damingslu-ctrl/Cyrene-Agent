@@ -322,5 +322,10 @@
 
 ### 发布（2026-10-25）
 
-- v1.8.0：tag 保留，CI 主动取消，不发 Release。
-- v1.8.1：待推送、打 tag、CI 与 Release 证据回填。
+- 提交 `0b6a7168`（fix(pet): 问候句与长句不再劈出孤字）、tag `v1.8.1`；只推 fork，未推 upstream。
+- CI run [40200850130](https://github.com/damingslu-ctrl/Cyrene-Agent/actions/runs/40200850130)
+  → package 成功。
+- Release [v1.8.1](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.8.1)（Latest）：
+  `Mochi-Setup-1.8.1.exe` 296,261,011 B，
+  sha256 `78ed910dcd60bb26935fdeae72f81393cac448b0d02c8d1a4e1ee10767647f6c`（与 CI 下载件逐字节一致）。
+- v1.8.0：tag 保留，CI run 40199751553 主动取消，不发 Release。

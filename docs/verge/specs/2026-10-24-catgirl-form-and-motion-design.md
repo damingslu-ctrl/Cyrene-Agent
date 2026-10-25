@@ -645,15 +645,17 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
   companion 69 / art 39 / renderer 22 / girl-anim 16 / girl-sprite 15 / girl-fx 12 /
   girl-presence 9 / girl-zones 8 / girl-toy 6 / girl-bond 4 / girl-tease 4 / girl-face-meta 4。
 - 真窗：`scripts/verify/pet-girl-cdp.mjs` **50/50 `all clear`**（girl/standard，zoom=1）：
-  - 球：踢前 `x=67 rest` → 踢后 `x=20.30 vx=139.24 trail=7`，最终落 `x=57.0 y=83.2`
-    在界内；手势 `hop`、台词「接住！」，亲密度 0.570→0.580。
-  - 连击：`patCombo=3`，档位 `reliant/依赖`，`bondUpLeft=1600`，记号层 `above=60`。
+  - 球：踢前 `x=67 rest` → 踢后 `x=18.27 vx=138.42 trail=7`，最终落 `x=57.86 y=83.2`
+    在界内；手势 `hop`，台词从 `GIRL_TOY_LINES` 抽一句（终跑「滚回来呀」）。
+  - 连击：`patCombo=3`，档位 `reliant/依赖`，`bondUpLeft=1614.8`，记号层 `above=54 / below=6`。
   - 状态卡四行实测宽 47.29 / 38.29 / 38.29 / 58.06 px（内宽 78，全部放得下）。
   - 晨间：`activity=stretch`、`days=2`、气泡「早呀，\n今天也要一起\n第 2 天」，
     三行实测 27 / 54 / 27.03 px。
-  - 受惊：睡→`idle`，剩余 1406ms，台词「被、被你摸醒了…」。
-  - 扑：计数 0→1，位置 x 919→905，台词「抓到你啦！」，`teasePending` 归 0。
-  - 静息：`rest` + `sit`，坐垫 `cushion=1.00`，地面记号 13 笔；深夜台词「眼睛该休息啦」。
+  - 受惊：睡→`idle`，剩余 1413.9ms，台词从 `GIRL_WAKE_LINES` 抽一句（终跑「刚才只是闭目养神」）。
+  - 扑：计数 0→1，位置 x 919→905，台词从 `GIRL_POUNCE_LINES` 抽一句（终跑「嘿！」），
+    `teasePending` 归 0。
+  - 静息：`rest` + `sit`，坐垫 `cushion=1.00`；深夜提醒从 `GIRL_NIGHT_LINES` 抽一句
+    （终跑「再陪你十分钟，然后去睡」）。
 - 门：`check:brand` / `check:main` / `check:preload` / `check:renderer` / `check:sprites` /
   `check:roster` / `palette:check` / `palette:migrate:check` 全绿；
   `build:main`（773 文件）/ `build:preload` / `build:cli`（v1.8.1）/ `build:renderer` 全绿。
@@ -675,3 +677,8 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
   连击气泡「今天也想多黏你 / 一会儿」不再是孤字。
 - 截图与报告：`D:/cyrene-p5-accept/shots-v1.8-9/`。
 - 版本说明：v1.8.0 的 commit `a5c97400` 与 tag 保留，但 Release 从 v1.8.1 出。
+- 发布：commit `0b6a7168` + tag `v1.8.1` 只推 fork；CI run
+  [40200850130](https://github.com/damingslu-ctrl/Cyrene-Agent/actions/runs/40200850130) 成功；
+  Release [v1.8.1](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.8.1)（Latest），
+  `Mochi-Setup-1.8.1.exe` 296,261,011 B，
+  sha256 `78ed910dcd60bb26935fdeae72f81393cac448b0d02c8d1a4e1ee10767647f6c`（与 CI 下载件逐字节一致）。
