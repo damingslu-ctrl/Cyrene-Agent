@@ -637,7 +637,14 @@ export class CompanionEngine {
     return this.say(text, 1, now);
   }
 
-  handleCommand(command: "pet" | "feed" | "play" | "toggle-sleep" | "status", now = this.now()): void {
+  /**
+   * 数值类互动（摸摸/喂/玩/睡/状态）。手势命令（招手/鞠躬…）不进这里：
+   * 它们只演一次、不改数值，由渲染端直接 `playGesture`。
+   */
+  handleCommand(
+    command: "pet" | "feed" | "play" | "toggle-sleep" | "status",
+    now = this.now(),
+  ): void {
     switch (command) {
       case "pet": this.pet(now); break;
       case "feed": this.feed(now); break;

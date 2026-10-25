@@ -16,7 +16,7 @@ import {
   tuckStep,
   unTuckForDrag,
 } from "../../main/verge/tuck-clock";
-import { paintOps, type DrawOp } from "./ops";
+import { paintOps, type DrawOp, type Point2 } from "./ops";
 import { buildBubbleOps, bubbleBoxRect, type BubbleBox, type CatInput } from "./art";
 import { buildPetOps } from "./form";
 import { buildGirlOverlayOps, girlAnimBodyFor, girlBodyFor, type GirlAnimBody } from "./girl-sprite";
@@ -36,6 +36,9 @@ import { blinkAt, bodyClip, gestureClip, mixPose, sampleClip, type Slots } from 
 import { faceOf, MOOD_TO_EXPRESSION, type Expression } from "./face";
 import { CompanionEngine, type CompanionSnapshot, type TouchKind } from "./companion";
 import type { PetCommand } from "../../shared/pet-commands";
+import { GESTURE_COMMANDS } from "../../shared/pet-commands";
+import type { WorkStatusTier } from "../../shared/work-status-types";
+import { presentationOf } from "./work-status-presentation";
 import { formGeometry, profileFor, type PetForm, type PetProfile } from "../../shared/pet-profile";
 
 export interface HitAreaDef {
@@ -79,6 +82,14 @@ export class PixelPetRenderer {
   private form: PetForm = "cat";
   /** 显式表情（workStatus/点击反馈覆盖用）；null＝跟 mood 级联走。 */
   private expressionOverride: Expression | null = null;
+  /**
+   * agent 工作状态（六档演出的当前档）。null＝没有 agent 在干活，
+   * 一切回到自主行为；有值时它盖过自主抽到的小动作，但不改漫游/物理。
+   */
+  private workTier: WorkStatusTier | null = null;
+  private workSince = 0;
+  /** 注视目标（窗口内容坐标）；null 时眼球走自主游移。 */
+  private gazeTarget: Point2 | null = null;
   /** 槽位时钟：每层「当前片 + 起点」（ms）。只存状态，采样在 draw 里按 now 算。 */
   private slots: Partial<Record<"body" | "gesture", { id: string; startedAt: number }>> = {};
   /** 手势层的显式片（playGesture/touch）；空则按活动映射。 */
@@ -382,7 +393,14 @@ export class PixelPetRenderer {
   }
 
   handleCommand(command: PetCommand): void {
-    this.engine?.handleCommand(command, performance.now());
+    // 手势命令不走引擎：它不动数值、也不该被引擎的合并窗吞掉，纯粹演一次。
+    const gestureId = GESTURE_COMMANDS[command];
+    if (gestureId) {
+      this.playGesture(gestureId);
+      return;
+    }
+    // 走到这里的只剩五项数值互动；类型上 `GESTURE_COMMANDS` 已经排除了手势分支。
+    this.engine?.handleCommand(command as "pet" | "feed" | "play" | "toggle-sleep" | "status", performance.now());
     // 用户主动互动的数值立刻落盘：等到下一次漫游停稳才存，摸摸攒的亲密度会白丢。
     this.engine?.save();
   }
@@ -390,6 +408,65 @@ export class PixelPetRenderer {
   /** 开窗问候（主端确认不在安静期后调）：按时段一句，安静期引擎自己拒收。 */
   greet(): boolean {
     return this.engine?.greet(performance.now()) ?? false;
+  }
+
+  /**
+   * agent 工作状态 → 六档演出（`WORK_PRESENTATIONS` 的执行端）。
+   *
+   * 档位**改变**才演一次：Working 会持续几分钟，每帧重放一遍手势就等于抽搐。
+   * 气泡只在升高优先级时抢话筒（引擎自己管），所以「忙着呢」不会盖掉正在说的提醒。
+   * 传 null（agent 空闲）只清表情与手势，不动自主行为。
+   */
+  setWorkStatus(tier: WorkStatusTier | null, now = performance.now()): void {
+    if (tier === this.workTier) return;
+    this.workTier = tier;
+    this.workSince = now;
+    if (tier === null) {
+      this.setExpression(null);
+      this.stopGesture();
+      return;
+    }
+    const p = presentationOf(tier);
+    this.setExpression(p.expression);
+    if (p.gesture) this.playGesture(p.gesture, now);
+    // 台词随机挑一句：同一个档位反复进出（跑一轮问答）每次都能听见不同的话。
+    if (p.lines.length > 0) {
+      const line = p.lines[Math.floor(Math.random() * p.lines.length)];
+      this.engine?.say(line, tier === "提醒" ? 2 : 1, now);
+    }
+  }
+
+  /** 当前工作档（null＝空闲）。诊断/测试用。 */
+  getWorkTier(): WorkStatusTier | null {
+    return this.workTier;
+  }
+
+  /**
+   * 当前正在播的帧段 id（null＝还在静态立绘或矢量路径）。探针读它验手势命令真的换段了。
+   * 只读，不改状态。
+   */
+  getGirlClipId(): string | null {
+    if (this.form !== "girl" || !this.girlAnimReady) return null;
+    return this.girlPlayer.clipId;
+  }
+
+  /**
+   * 注视目标（`[x, y]` 窗口内容坐标，null＝没有目标，眼球回到自主游移）。
+   *
+   * 只喂给 `CatInput.mouse`：art.ts 拿它算瞳孔偏移，超出头部也照算（视线方向而非落点），
+   * 所以窗口外的光标同样有效。四足与矢量猫娘都吃这个字段。
+   */
+  setGazeTarget(point: Point2 | null): void {
+    const prev = this.gazeTarget;
+    // 目标没动就不重绘：轮询每 120ms 一次，白画会把 4fps 档拉成 8fps，白烧电。
+    if (prev === point) return;
+    if (prev && point && Math.abs(prev[0] - point[0]) < 0.5 && Math.abs(prev[1] - point[1]) < 0.5) {
+      this.gazeTarget = point;
+      return;
+    }
+    this.gazeTarget = point;
+    // 眼球是连续动画：立即重绘一帧，别等 4fps 闸（最坏 250ms，看起来像卡住）。
+    if (!this.paused) this.draw(performance.now());
   }
 
   dismissBubble(): void {
@@ -437,10 +514,12 @@ export class PixelPetRenderer {
     this.requestBounds("pet", 0, this.catOrigin, this.workArea, this.peekDx);
   }
 
-  /** 引擎能不能自主移动：藏身、展开、被抓着的时候都不许。 */
+  /** 引擎能不能自主移动：藏身、展开、被抓着、agent 在干活的时候都不许。 */
   private canRoam(): boolean {
     if (!this.catOrigin || !this.workArea) return false;
     if (this.dragging || this.paused) return false;
+    // agent 在干活时站定：她正「忙着呢」，边跑边敲代码读起来是抽帧故障而不是演出。
+    if (this.workTier !== null) return false;
     if (this.bubbleActive || this.bubbleExpand > 0.001) return false;
     if (Math.abs(this.peekDx) > 0.5) return false;
     if (this.tuckEnabled) {
@@ -856,6 +935,8 @@ export class PixelPetRenderer {
       && (snapshot.activityProgress > 0 || snapshot.squash > 0);
     if (moving) this.fps = FPS_HOVER;
     else if (peekAnimating || this.bubbleExpand > 0 || animating) this.fps = FPS_ACTIVE;
+    // agent 在干活时保持 30fps：手势（打字/点头）与粒子都在动，留在 4fps 档会一顿一顿。
+    else if (this.workTier !== null) this.fps = FPS_ACTIVE;
     else this.fps = FPS_IDLE;
     // 帧动画自己的播放速率就是重绘下限：12fps 的待机在 4fps 档会让每张画多停两拍。
     // 下限取片段帧率的两倍（`redrawFloorFor`）：重绘与片段同频会凑成拍频，看起来一顿一顿。
@@ -876,6 +957,12 @@ export class PixelPetRenderer {
     // 月牙记号的唯一数据源是 cat.quiet（art.ts :415 `if (quiet)`）：
     // setQuiet 只翻自身字段，draw 时必须回写进猫输入，否则月牙永远画不出来。
     this.cat.quiet = this.quiet;
+    // agent 工作状态：粒子记号与表情都由档位表决定（表情走 expressionOverride，
+    // 在 composeChannels / faceOf 那一层生效；这里只负责把粒子喂进覆盖层）。
+    this.cat.workParticle = this.workTier === null ? "none" : presentationOf(this.workTier).particle;
+    this.cat.workSince = this.workSince / 1000;
+    // 注视：只有矢量路径吃 mouse（位图猫娘的脸是画死的，瞳孔不会转）。
+    this.cat.mouse = this.form === "girl" && this.girlAnimReady ? null : this.gazeTarget;
 
     // 变换里已折 zoom，clear/气泡都要拿到 zoom 归一后的基址几何。
     const w = (this.opts.canvas.clientWidth || this.profile.base.width) / this.zoom;
@@ -949,6 +1036,8 @@ export class PixelPetRenderer {
   /** 显式手势（P4 的点击反馈与 workStatus 演出用它）。 */
   playGesture(id: string, now = performance.now()): void {
     this.explicitGesture = { id, startedAt: now };
+    // 立即重绘：4fps 档最坏要等 250ms，右键点「招招手」要当场动，不能等闸。
+    if (!this.paused) this.draw(now);
   }
 
   stopGesture(): void {

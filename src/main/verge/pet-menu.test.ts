@@ -30,7 +30,8 @@ describe("buildPetMenuItems", () => {
     const items = buildPetMenuItems(input());
     expect(items.map((item) => item.label)).toEqual([
       "安静半小时", "取消安静", "贴边藏身",
-      "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样", "打开网络面板",
+      "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样", "让它做个动作",
+      "打开网络面板",
       "形象：像素猫", "形象：猫娘",
       ...(["small", "standard", "large"] as const).map((t) =>
         `身形：${t === "small" ? "小巧" : t === "standard" ? "标准" : "大"} (${profileFor("cat", t).base.width}×${profileFor("cat", t).base.height})`),

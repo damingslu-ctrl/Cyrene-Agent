@@ -41,6 +41,7 @@ let quietChangedOff: (() => void) | null = null;
 let tuckChangedOff: (() => void) | null = null;
 let geometryChangedOff: (() => void) | null = null;
 let petCommandOff: (() => void) | null = null;
+let workStatusOff: (() => void) | null = null;
 let profileOff: (() => void) | null = null;
 let petVisible = true;
 const disposers: Array<() => void> = [];
@@ -71,6 +72,9 @@ const renderer = new PixelPetRenderer({
     clickThrough = new ClickThroughController(canvas, renderer, {
       onInteractive: (interactive) => void window.cyrene.setInteractive(interactive),
     });
+
+    // 注视跟随从这里开始轮询：init 之前 canvas 还没有尺寸，换算出来的目标点没有意义。
+    startGazePolling();
 
     // Apply the persisted zoom on load and track future changes. The main
     // process has already resized the window to base × zoom; this rescales
@@ -130,6 +134,17 @@ const renderer = new PixelPetRenderer({
       renderer.handleCommand(command);
     }) ?? null;
 
+    // —— agent 工作状态（六档演出）——
+    // 主进程是单一权威，桌宠只是订阅者。先订后读，避免开窗瞬间漏掉已经在跑的那一轮。
+    let workPushed = false;
+    workStatusOff = window.verge?.onWorkStatus((status) => {
+      workPushed = true;
+      renderer.setWorkStatus(status?.tier ?? null);
+    }) ?? null;
+    void window.verge?.getWorkStatus().then((status) => {
+      if (!workPushed) renderer.setWorkStatus(status?.tier ?? null);
+    }).catch(() => { /* 读不到就当没在干活：不演比演错轻 */ });
+
     // —— v1.5.0 形态与档位：boot 读 + 下行订阅（先订后读，boot 不盖掉已到的下行）——
     let profilePushed = false;
     profileOff = window.verge?.onProfileUpdate((ref) => {
@@ -169,7 +184,52 @@ addTrackedEventListener(window, "resize", () => {
   clickThrough?.refreshAfterWindowMove();
 });
 
+/**
+ * 注视跟随：让眼球跟着光标转。
+ *
+ * 为什么是轮询而不是 pointermove：桌宠窗口默认 `setIgnoreMouseEvents(true, {forward:true})`，
+ * 光标在**透明像素**上时渲染端收不到 pointermove（点击穿透的本意）——那正好是「猫看着鼠标
+ * 走过去」这段最想有反应的时刻。所以按固定节流问主进程要一次全局光标位置。
+ *
+ * 换算：主端给屏幕坐标，窗口自己的 screenX/screenY 是屏幕坐标，canvas 铺满窗口，
+ * 两者相减就是窗口内容坐标（zoom 已折在 canvas 的 transform 里，不需要再除）。
+ * 离窗口太远就不必算：视线偏移在 400px 外已经饱和，省掉无谓的帧。
+ */
+const GAZE_POLL_MS = 120;
+const GAZE_MAX_DISTANCE_PX = 420;
+let gazeTimer: number | null = null;
+
+function stopGazePolling(): void {
+  if (gazeTimer !== null) {
+    window.clearInterval(gazeTimer);
+    gazeTimer = null;
+  }
+  renderer.setGazeTarget(null);
+}
+
+function startGazePolling(): void {
+  if (gazeTimer !== null) return;
+  gazeTimer = window.setInterval(() => {
+    if (!petVisible || isDragging) return;
+    void window.cyrene.getCursorPosition().then((cursor) => {
+      if (!cursor) return;
+      // 窗口原点在漫游时会动，每帧现取，不能缓存。
+      const ox = window.screenX, oy = window.screenY;
+      if (!Number.isFinite(ox) || !Number.isFinite(oy)) return;
+      const x = cursor.x - ox;
+      const y = cursor.y - oy;
+      const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+      if (Math.hypot(x - cx, y - cy) > GAZE_MAX_DISTANCE_PX) {
+        renderer.setGazeTarget(null);
+        return;
+      }
+      renderer.setGazeTarget([x, y]);
+    }).catch(() => { /* 拿不到光标就当没有目标：眼球回到自主游移 */ });
+  }, GAZE_POLL_MS);
+}
+
 window.addEventListener("beforeunload", () => {
+  stopGazePolling();
   clickThrough?.dispose();
   clickThrough = null;
   petZoomOff?.();
@@ -184,6 +244,8 @@ window.addEventListener("beforeunload", () => {
   geometryChangedOff = null;
   petCommandOff?.();
   petCommandOff = null;
+  workStatusOff?.();
+  workStatusOff = null;
   profileOff?.();
   profileOff = null;
   renderer.dispose();
@@ -218,6 +280,35 @@ let moveSamples: Array<{ x: number; y: number; t: number }> = [];
  */
 function reportTouch(heldMs: number): void {
   renderer.touch(clickKindFor(heldMs));
+}
+
+/**
+ * 滚轮互动：向上=摸摸，向下=逗它玩。
+ *
+ * 滚轮只在光标**压在猫身上**时收得到（透明处窗口是穿透的，wheel 不会转发），
+ * 这恰好是「对着它滚」的语义，不需要额外的命中判定。
+ * 触控板一次滑动会连发几十个 wheel：用「合流窗 + 冷却」把它压成一次互动，
+ * 否则会连摸十下、每秒刷一句台词。
+ */
+const WHEEL_MERGE_MS = 260;
+const WHEEL_COOLDOWN_MS = 1400;
+let wheelAccum = 0;
+let wheelLastAt = 0;
+let wheelFiredAt = 0;
+
+function onWheel(event: WheelEvent): void {
+  if (isDragging || renderer.isPaused()) return;
+  const now = performance.now();
+  // 合流窗：距上一滚超过窗口就算新的一拨，累加量清零重新判方向。
+  if (now - wheelLastAt > WHEEL_MERGE_MS) wheelAccum = 0;
+  wheelLastAt = now;
+  wheelAccum += event.deltaY;
+  if (Math.abs(wheelAccum) < 40) return;
+  if (now - wheelFiredAt < WHEEL_COOLDOWN_MS) return;
+  wheelFiredAt = now;
+  // deltaY < 0 是向上滚（远离用户）：摸摸；向下：逗她玩。
+  renderer.handleCommand(wheelAccum < 0 ? "pet" : "play");
+  wheelAccum = 0;
 }
 
 function recordMoveSample(screenX: number, screenY: number, now: number): void {
@@ -362,6 +453,15 @@ addTrackedEventListener(canvas, "pointerenter", () => {
   // user_active（native main.rs:4609）：光标进窗即闲置清零、藏身闸门断粮、贴着边也退回。
   renderer.setUserActive(true);
 });
+
+// 滚轮单独登记：要 `passive: false` 才能 preventDefault（滚轮在桌宠上不该滚任何东西），
+// 而 `addTrackedEventListener` 只收 (target, type, listener) 三参。
+const onWheelEvent = (event: Event): void => {
+  event.preventDefault();
+  onWheel(event as WheelEvent);
+};
+canvas.addEventListener("wheel", onWheelEvent, { passive: false });
+trackDispose(() => canvas.removeEventListener("wheel", onWheelEvent));
 
 function beginDragAt(event: PointerEvent): void {
   if (!Number.isFinite(window.screenX) || !Number.isFinite(window.screenY)) {

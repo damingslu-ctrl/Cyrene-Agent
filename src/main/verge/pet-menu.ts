@@ -21,6 +21,8 @@ export interface MenuItemInit {
   /** 这一项前面插一条分隔线（只在需要的那一项上置真，避免重复插）。 */
   separatorBefore?: boolean;
   action?: () => void;
+  /** 子菜单（「让它做个动作」用）；有值时 `action` 不参与。 */
+  submenu?: readonly MenuItemInit[];
 }
 
 export interface PetMenuInput {
@@ -35,6 +37,20 @@ export interface PetMenuInput {
   tier: SizeTier;
 }
 
+/**
+ * 「让它做个动作」的手势清单。顺序按「最常逗猫」排，标签是用户词不是代码 id。
+ * 只收不改数值的表演手势（睡觉/吃东西会动 vitals，不混进来）。
+ */
+const GESTURE_MENU: ReadonlyArray<readonly [PetCommand, string]> = [
+  ["wave", "招招手"],
+  ["hop", "跳一下"],
+  ["clap", "鼓鼓掌"],
+  ["bow", "鞠个躬"],
+  ["nod", "点点头"],
+  ["tilt", "歪歪头"],
+  ["stretch", "伸个懒腰"],
+];
+
 export interface PetMenuActions {
   quiet: () => void;
   cancelQuiet: () => void;
@@ -44,6 +60,8 @@ export interface PetMenuActions {
   play: () => void;
   toggleSleep: () => void;
   status: () => void;
+  /** 「让它做个动作」：发手势命令（不改数值）。 */
+  gesture: (command: PetCommand) => void;
   openNetwork: () => void;
   /** v1.5.0：形态与档位切换（落盘 + 广播在装配层，菜单只管发意图）。 */
   setForm: (form: PetForm) => void;
@@ -78,6 +96,16 @@ export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenu
     { label: "陪它玩", enabled: true, ...bind(actions?.play) },
     { label: "哄它睡觉", enabled: true, ...bind(actions?.toggleSleep) },
     { label: "它现在怎么样", enabled: true, ...bind(actions?.status) },
+    // 「让它做个动作」：只演一次手势，不改数值。放在互动组末尾，与喂/玩区分开。
+    {
+      label: "让它做个动作",
+      enabled: !!actions?.gesture,
+      submenu: GESTURE_MENU.map(([cmd, label]) => ({
+        label,
+        enabled: !!actions?.gesture,
+        action: () => actions?.gesture?.(cmd),
+      })),
+    },
     { label: "打开网络面板", enabled: true, ...bind(actions?.openNetwork) },
     // —— v1.5.0：形态两档 + 身形三档。尺寸数字从 profileFor 现算，不写字面量 ——
     ...PET_FORMS.map((f) => ({
@@ -179,6 +207,7 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
         play: () => onPetCommand("play"),
         toggleSleep: () => onPetCommand("toggle-sleep"),
         status: () => onPetCommand("status"),
+        gesture: (command) => onPetCommand(command),
         openNetwork: () => openNetworkPanel(),
         setForm: (form) => {
           service.setForm(form);
@@ -206,6 +235,15 @@ export function toElectronTemplate(
   const template: MenuItemConstructorOptions[] = [];
   for (const item of items) {
     if (item.separatorBefore) template.push({ type: "separator" });
+    // 子菜单：递归同一套转换（子项都是普通动作项，不带勾选态）。
+    if (item.submenu) {
+      template.push({
+        label: item.label,
+        enabled: item.enabled,
+        submenu: toElectronTemplate(item.submenu as MenuItemInit[], window),
+      });
+      continue;
+    }
     const click = () => {
       if (window.isDestroyed()) return;
       item.action?.();

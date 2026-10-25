@@ -61,6 +61,13 @@ export interface CatInput {
   facing?: 1 | -1;
   /** 花色；省略＝`INK_COAT`，也就是移植时照抄 native 的那套墨青猫。 */
   coat?: CatCoat;
+  /**
+   * agent 工作状态的粒子记号（六档演出表规定的汗滴/指颊/星星）。
+   * 与 mood 的四颗记号同层但与它们无关：none 时一条都不画。
+   */
+  workParticle?: "sweat" | "point" | "star" | "none";
+  /** 工作档起点（秒）。粒子用绝对相位，档位不变就不闪；省略＝按 t 算。 */
+  workSince?: number;
 }
 
 // ===========================================================================
@@ -331,6 +338,40 @@ export function buildOverlayOps(input: CatInput, badgeMap: Map2): DrawOp[] {
       const col = withAlpha(c.light, ph * 0.7);
       ov.stars.push({ kind: "strokePath", stroke: col, width: 1.2, points: [[sx2 - rr, sy2], [sx2 + rr, sy2]], layer: "stars" });
       ov.stars.push({ kind: "strokePath", stroke: col, width: 1.2, points: [[sx2, sy2 - rr], [sx2, sy2 + rr]], layer: "stars" });
+    }
+  }
+
+  // —— agent 工作状态的粒子记号（六档演出表）——
+  // 汗滴：从耳侧斜下落的几滴；指颊：脸颊旁一个点 + 短引线；星星：头顶两颗交替闪。
+  // 全部走 `stars` 层（与 mood 的星光同一批记号），双色口径照旧：先浅后深。
+  const wp = input.workParticle ?? "none";
+  if (wp !== "none") {
+    const since = input.workSince ?? t;
+    const ph0 = ((t - since) % 1 + 1) % 1;
+    if (wp === "sweat") {
+      for (let i = 0; i < 2; i++) {
+        const ph = (ph0 * 1.4 + i * 0.5) % 1;
+        const sx2 = center.x + facing * (30 + 3 * ph) * s;
+        const sy2 = center.y - (54 - 14 * ph) * s;
+        const r = 1.5 * s * 1.6;
+        ov.stars.push({ kind: "fillEllipse", fill: withAlpha(c.light, 0.55 * (1 - ph)), cx: sx2, cy: sy2 - r * 1.5, rx: r, ry: r, layer: "stars" });
+        ov.stars.push({ kind: "fillEllipse", fill: withAlpha(ACCENT, 0.85 * (1 - ph)), cx: sx2, cy: sy2, rx: r, ry: r, layer: "stars" });
+      }
+    } else if (wp === "point") {
+      const px = center.x + facing * 34 * s, py = center.y - 40 * s;
+      ov.stars.push({ kind: "strokePath", stroke: withAlpha(c.light, 0.7), width: 1.2, points: [[px - 4 * s, py - 4 * s], [px - 1 * s, py - 1 * s]], layer: "stars" });
+      ov.stars.push({ kind: "strokePath", stroke: withAlpha(INK_SOFT, 0.8), width: 1.4, points: [[px - 4 * s, py - 4 * s], [px - 1 * s, py - 1 * s]], layer: "stars" });
+      ov.stars.push({ kind: "fillEllipse", fill: withAlpha(ACCENT, 0.9), cx: px, cy: py, rx: 1.6 * s * 1.6, ry: 1.6 * s * 1.6, layer: "stars" });
+    } else if (wp === "star") {
+      for (let i = 0; i < 2; i++) {
+        const ph = Math.max(0, Math.sin((t - since) * 3.2 + i * 2.1));
+        if (ph < 0.08) continue;
+        const sx2 = center.x + facing * (i === 0 ? -26 : 30) * s;
+        const sy2 = center.y - (62 + 4 * ph) * s;
+        const rr = (2 + 2 * ph) * s * 1.6;
+        ov.stars.push({ kind: "strokePath", stroke: withAlpha(c.light, ph * 0.75), width: 1.2, points: [[sx2 - rr, sy2], [sx2 + rr, sy2]], layer: "stars" });
+        ov.stars.push({ kind: "strokePath", stroke: withAlpha(c.light, ph * 0.75), width: 1.2, points: [[sx2, sy2 - rr], [sx2, sy2 + rr]], layer: "stars" });
+      }
     }
   }
 

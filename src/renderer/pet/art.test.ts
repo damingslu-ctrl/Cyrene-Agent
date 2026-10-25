@@ -402,3 +402,53 @@ describe("花色轴接进 buildCatOps", () => {
     expect(CAT_COATS.azure.light).not.toBe(PAPER);         // 正对照：槽值不与默认撞色
   });
 });
+
+describe("agent 工作状态的粒子记号", () => {
+  /** stars 层里除了 mood 星光之外的那几笔（工作粒子也走这一层）。 */
+  const starOps = (ops: DrawOp[]): DrawOp[] => ops.filter((op) => op.layer === "stars");
+
+  it("workParticle 缺省/ none 时一笔都不多画（老图零差异）", () => {
+    const without = starOps(buildCatOps({ ...base, mood: "idle" }));
+    expect(without).toHaveLength(0);
+    // 显式 none 与不传等价：不能因为多了个字段就冒出粒子。
+    expect(starOps(buildCatOps({ ...base, mood: "idle", workParticle: "none" }))).toHaveLength(0);
+  });
+
+  it("三种记号各自画得出东西（sweat=2 组、point=1 点、star=2 组）", () => {
+    const sweat = starOps(buildCatOps({ ...base, mood: "idle", workParticle: "sweat" }));
+    expect(sweat.length).toBeGreaterThan(0);
+    expect(sweat.every((op) => op.kind === "fillEllipse")).toBe(true);
+
+    const point = starOps(buildCatOps({ ...base, mood: "idle", workParticle: "point" }));
+    expect(point.some((op) => op.kind === "strokePath")).toBe(true);
+    expect(point.some((op) => op.kind === "fillEllipse")).toBe(true);
+
+    const star = starOps(buildCatOps({ ...base, mood: "idle", workParticle: "star" }));
+    expect(star.length).toBeGreaterThan(0);
+    expect(star.every((op) => op.kind === "strokePath")).toBe(true);
+  });
+
+  it("粒子只往 stars 层加笔，不改身体层序（overlay 永远排在身体之后）", () => {
+    const BODY_ORDER = [
+      "ground_shadow", "tail", "tail_tip", "ears", "body", "body_light", "body_stroke",
+      "bib", "bib_ao", "paws", "eyes", "nose", "mouth", "blush",
+    ];
+    for (const workParticle of ["none", "sweat", "point", "star"] as const) {
+      const kinds = layerKinds(buildCatOps({ ...base, mood: "idle", workParticle }));
+      // 身体层必须逐字保持原序（多一个 stars 只能是追加在尾部）。
+      expect(kinds.slice(0, BODY_ORDER.length), workParticle).toEqual(BODY_ORDER);
+      const extra = kinds.slice(BODY_ORDER.length);
+      expect(extra.every((k) => k === "stars"), workParticle).toBe(true);
+    }
+  });
+
+  it("粒子的相位从 workSince 起算：档位刚切时不会突然跳到动画中段", () => {
+    // 同一 workSince、不同 t：画出来的笔数与位置应当连续变化，而不是整段消失。
+    const at = (t: number) => starOps(buildCatOps({ ...base, mood: "idle", t, workParticle: "star", workSince: 0 }));
+    expect(at(0).length).toBeGreaterThan(0);
+    expect(at(0.2).length).toBeGreaterThan(0);
+    // 正对照：给一个完全不同的 workSince，同一 t 下的画面必须不同（说明相位真读了它）。
+    const shifted = starOps(buildCatOps({ ...base, mood: "idle", t: 0.2, workParticle: "star", workSince: 5 }));
+    expect(shifted).not.toEqual(at(0.2));
+  });
+});
