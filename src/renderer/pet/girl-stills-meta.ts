@@ -42,7 +42,7 @@ export const GIRL_STILL_FRAMES = {
     "陪伴中": 23,
     "难过": 24,
   },
-  /** 12 姿态 → 静帧格号。 */
+  /** 12 姿态 → 静帧格号（`run` 不在这里：它只取 7 格高清姿态表）。 */
   pose: {
     "sit": 2,
     "lie": 24,
@@ -61,8 +61,14 @@ export const GIRL_STILL_FRAMES = {
 
 export type GirlMoodName = keyof typeof GIRL_STILL_FRAMES.mood;
 export type GirlPoseFrameName = keyof typeof GIRL_STILL_FRAMES.pose;
-/** 客户端立绘的帧选择：按情绪 / 按姿态 / 参考图母版（仅欢迎页横幅）。 */
-export type GirlFrame = { mood: GirlMoodName } | { pose: GirlPoseFrameName } | "master";
+/**
+ * 客户端立绘的帧选择：按情绪 / 按姿态 / 参考图母版（仅欢迎页横幅）。
+ *
+ * pose 用 `string` 而不是 `GirlPoseFrameName`：`run` 只在 7 格高清姿态表里有格、
+ * 静帧表没有跑姿，两者是两张表；真正的取图分派在 `cat-variants.ts` 的
+ * `GIRL_POSE_FROM_HIRES` 里，键名越界会在那里被 `GIRL_POSE_CELLS` 当场拦住。
+ */
+export type GirlFrame = { mood: GirlMoodName } | { pose: string } | "master";
 
 /** 参考图母版（唯一 1024×1536 高通量档）：墨框与脚心都在源图像素坐标里。 */
 export const GIRL_MASTER = {

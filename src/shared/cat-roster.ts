@@ -6,7 +6,7 @@ export interface CatMember {
   nickname: string; // 用户可见 + 资产文件名键（`<nickname>.png`），一次改动全仓跟它走
   latin: string; // en/ja 语言壳里的罗马字
   coat: CoatName; // Task 20 五档
-  pose: PoseName; // Task 21 十二档之一（`tast/<猫>.png` 的立绘姿态）
+  pose: PoseName; // 十三档之一（`tast/<猫>.png` 的立绘姿态；run 未派给名册猫）
   personaSeed: string; // 人格卡的一句话种子（Task 23 Step 5 写 md 时喂给它）
 }
 

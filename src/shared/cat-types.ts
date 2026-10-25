@@ -11,6 +11,6 @@ export type Mood = "idle" | "happy" | "thinking" | "grumpy" | "sleep";
 
 export type PoseName =
   | "sit" | "lie" | "prone" | "peek" | "stretch" | "wash"
-  | "yawn" | "tilt" | "sleep" | "puff" | "pout" | "happy";
+  | "yawn" | "tilt" | "sleep" | "puff" | "pout" | "happy" | "run";
 
 export type CropName = "full" | "bust" | "square" | "round" | "wide";

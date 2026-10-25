@@ -32,8 +32,8 @@ OUT_LARGE = os.path.join(ROOT, "src", "renderer", "public", "pet", "girl-large.w
 # 顺序即格号；键要与 client 侧的姿态/情绪名对得上。
 ORDER = ["sitwave", "heart", "jump", "run", "stretch", "lookback", "curl"]
 
-# 12 个 PoseName → 高清格名。只列「参考图里有同类姿态」的 6 个：
-# run 在 PoseName 里没有同类，不硬套；lie/prone/wash/yawn/sleep 五种参考图没覆盖。
+# 13 个 PoseName → 高清格名。只有参考图没覆盖的 6 种（lie/prone/wash/yawn/sleep/puff）
+# 仍取 30 格静帧表；`run` 有真图，走高清格。
 POSE_FROM_HIRES = {
     "sit": "sitwave",
     "happy": "jump",
@@ -41,6 +41,7 @@ POSE_FROM_HIRES = {
     "peek": "lookback",
     "pout": "heart",
     "tilt": "curl",
+    "run": "run",
 }
 
 CELL_W, CELL_H = 340, 248          # 与 girl-stills 同尺（客户端 256px 图约 1:1）
@@ -195,10 +196,9 @@ export const GIRL_POSE_CELLS = {{
 export type GirlPoseName = keyof typeof GIRL_POSE_CELLS;
 
 /**
- * 12 个姿势名 → 高清姿态格名（只列有对应参考图的；其余仍取 30 格静帧表）。
+ * 姿势名 → 高清姿态格名（只列有对应参考图的；其余仍取 30 格静帧表）。
  *
- * 7 张参考图能对上 6 个姿势；`run`（奔跑）在 12 个 PoseName 里没有同类，不硬套
- * （跑姿套到「鼓起脸」上比复用视频帧更假）。剩下 lie / prone / wash / yawn / sleep
+ * 7 张参考图对上 7 个姿势，含 `run`（奔跑）。剩下 lie / prone / wash / yawn / sleep
  * 五种是「躺着/趴着/舔爪/打哈欠/睡着」，参考图里没有同类姿态，继续走静帧表。
  */
 export const GIRL_POSE_FROM_HIRES: Partial<Record<string, GirlPoseName>> = {{

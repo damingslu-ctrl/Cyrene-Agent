@@ -106,7 +106,7 @@ describe("form 轴 (Task 24-25)", () => {
 
   it("清单导出 girl 侧三件套（构建脚本只靠这一个入口拿符号）", () => {
     expect(typeof cropsForForm).toBe("function");
-    expect(Object.keys(GIRL_POSES)).toHaveLength(12);
+    expect(Object.keys(GIRL_POSES)).toHaveLength(13);
     expect(Object.keys(GIRL_CROPS)).toHaveLength(5);
   });
 

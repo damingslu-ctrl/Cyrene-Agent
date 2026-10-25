@@ -34,7 +34,7 @@ function inkBox(r: Raster) {
 }
 
 const POSES: PoseName[] = ["sit", "lie", "prone", "peek", "stretch", "wash", "yawn", "tilt",
-  "sleep", "puff", "pout", "happy"];
+  "sleep", "puff", "pout", "happy", "run"];
 const CROPS: CropName[] = ["full", "bust", "square", "round", "wide"];
 
 /** CatInput 的中性档；Task 24 的生成器也拿它当基准。 */
@@ -45,7 +45,7 @@ const NEUTRAL: CatInput = {
 };
 
 describe("姿态与取景轴", () => {
-  it("12 姿态 4 取景 5 花色，名字与 spec §3-D D1 逐一对得上", () => {
+  it("13 姿态 4 取景 5 花色，名字与 spec §3-D D1 逐一对得上（run 为 v1.6.1 新增）", () => {
     expect(Object.keys(CAT_POSES).sort()).toEqual([...POSES].sort());
     expect(Object.keys(CAT_CROPS).sort()).toEqual([...CROPS].sort());
     expect(Object.keys(CAT_COATS).length).toBe(5);
@@ -58,7 +58,7 @@ describe("姿态与取景轴", () => {
     }
   });
 
-  it("12 姿态画出来是 12 张不同的图：几何签名两两不等", () => {
+  it("13 姿态画出来是 13 张不同的图：几何签名两两不等", () => {
     // 判据用「整串 op 相等」而不是 plan 里的「op 数取值 ≥9」：多数姿态改的是同一批图元的
     // 坐标/形变（op 数不动），实测只有 5 种取值；几何签名严格更强——连一个 0.001 的差异都分得出。
     const seen = new Set<string>();

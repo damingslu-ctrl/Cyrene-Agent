@@ -13,7 +13,7 @@ import type { DrawOp, PetLayer } from "./ops";
 import { coatOf, type CoatName } from "../../shared/cat-coats";
 import type { PetForm } from "../../shared/pet-profile";
 import {
-  GIRL_MASTER, GIRL_STILLS, GIRL_STILL_FRAMES, type GirlFrame,
+  GIRL_MASTER, GIRL_STILLS, GIRL_STILL_FRAMES, type GirlFrame, type GirlPoseFrameName,
 } from "./girl-stills-meta";
 import { GIRL_HIRES, GIRL_POSE_CELLS, GIRL_POSE_FROM_HIRES, type GirlPoseName } from "./girl-poses-meta";
 import type { CropName, PoseName } from "../../shared/cat-types";
@@ -57,6 +57,8 @@ export const CAT_POSES: Record<PoseName, () => SpritePose> = {
   puff: () => SP({ mood: "grumpy", pose: P({ puff: 1 }), energy: 1 }),
   pout: () => SP({ mood: "grumpy", pose: P({ tilt: -6 }), blink: 0.55 }),
   happy: () => SP({ mood: "happy", jumpY: -8, pet: 0.6, pose: P({ engagement: 1 }) }),
+  // 跑：走路相位推到最大 + 腾空前倾。四足没有真正的跑帧，这组参数是「最快的那个走姿」。
+  run: () => SP({ mood: "happy", jumpY: -5, pose: P({ walk: 1.9, engagement: 1 }), energy: 0.95 }),
 };
 
 export interface CatCrop {
@@ -95,7 +97,8 @@ export const CAT_CROPS: Record<CropName, CatCrop> = {
 
 
 /**
- * 12 个 PoseName → 静帧。帧来自用户参考视频切出的 30 格静帧表（每格一个角度/动作），
+ * 13 个 PoseName → 帧。情绪/姿态静帧来自参考视频切出的 30 格表（每格一个角度/动作），
+ * `run` 取 7 格高清姿态表（静帧表里没有跑姿）。
  * 不再走矢量重画：`GIRL_STILL_FRAMES.pose` 由 `scripts/assets/build-girl-anim.py` 生成。
  */
 export const GIRL_POSES: Record<PoseName, GirlFrame> = {
@@ -111,6 +114,9 @@ export const GIRL_POSES: Record<PoseName, GirlFrame> = {
   puff: { pose: "puff" },
   pout: { pose: "pout" },
   happy: { pose: "happy" },
+  // run 只在高清姿态表里有格（静帧表没有跑姿），所以这里给的是高清格名，
+  // 由 `GIRL_POSE_FROM_HIRES` 统一决定取哪张图集。
+  run: { pose: "run" },
 };
 
 /**
@@ -241,7 +247,9 @@ function buildGirlSpriteOps(spec: SpriteSpec, size: { w: number; h: number }): D
   const atlas = usePoses ? GIRL_HIRES : GIRL_STILLS;
   const cell = usePoses
     ? GIRL_POSE_CELLS[hiresPose as GirlPoseName]
-    : "mood" in frame ? GIRL_STILL_FRAMES.mood[frame.mood] : GIRL_STILL_FRAMES.pose[frame.pose];
+    : "mood" in frame
+      ? GIRL_STILL_FRAMES.mood[frame.mood]
+      : GIRL_STILL_FRAMES.pose[frame.pose as GirlPoseFrameName];
   const k = atlas.inkRefPx / atlas.inkVb;
   const cellX = (cell % atlas.cols) * atlas.cellW;
   const cellY = Math.floor(cell / atlas.cols) * atlas.cellH;

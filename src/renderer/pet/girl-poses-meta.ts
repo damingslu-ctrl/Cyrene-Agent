@@ -29,10 +29,9 @@ export const GIRL_POSE_CELLS = {
 export type GirlPoseName = keyof typeof GIRL_POSE_CELLS;
 
 /**
- * 12 个姿势名 → 高清姿态格名（只列有对应参考图的；其余仍取 30 格静帧表）。
+ * 姿势名 → 高清姿态格名（只列有对应参考图的；其余仍取 30 格静帧表）。
  *
- * 7 张参考图能对上 6 个姿势；`run`（奔跑）在 12 个 PoseName 里没有同类，不硬套
- * （跑姿套到「鼓起脸」上比复用视频帧更假）。剩下 lie / prone / wash / yawn / sleep
+ * 7 张参考图对上 7 个姿势，含 `run`（奔跑）。剩下 lie / prone / wash / yawn / sleep
  * 五种是「躺着/趴着/舔爪/打哈欠/睡着」，参考图里没有同类姿态，继续走静帧表。
  */
 export const GIRL_POSE_FROM_HIRES: Partial<Record<string, GirlPoseName>> = {
@@ -42,4 +41,5 @@ export const GIRL_POSE_FROM_HIRES: Partial<Record<string, GirlPoseName>> = {
   peek: "lookback",
   pout: "heart",
   tilt: "curl",
+  run: "run",
 };
