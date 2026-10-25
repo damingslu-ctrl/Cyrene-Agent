@@ -788,3 +788,18 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
   变成 `blanket.baseline` 一条检查。
 - **首只小虫延迟 45–85s**：见面就放虫会抢开机问候的注意力，也会让她刚出现就被
   点虫打断；首刷比复刷更克制，是刻意的。
+
+### 17.6 v1.9.0 发布证据（2026-10-26）
+
+- commit `2615d165`（feat(pet): 猫娘会打扮、捉流萤、盖毯子，记纪念日与久别），
+  tag `v1.9.0`（annotated，peel 到同一 commit）只推 fork；
+  fork master 与本地同点，上游未动。
+- CI：手动 dispatch run `40209095085`，Windows 安装包产物下载后本地
+  `sha256sum` 为 `0692e801d9cc5045268c81059a876c64f4e3911fa158efd68ec1af9983abb9b2`。
+- Release [v1.9.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.9.0)：
+  标题「Mochi v1.9.0 — 猫娘会打扮、捉流萤、盖毯子」，`isDraft:false`、
+  `isPrerelease:false`、Latest；资产 `Mochi-Setup-1.9.0.exe` **296,267,356 B**，
+  GitHub 记录的 digest 与本地 sha256 一致，上传完成于 `2026-10-25T16:22:33Z`。
+- 插曲：首次 `gh release upload` 报 404（Release 当时并未真正建立）；核对 tag/
+  commit/产物后改用 `gh release create` 一次性带资产重建，随后用 API 复核
+  草稿态、资产大小与 digest。tag 与 commit 未改动。
