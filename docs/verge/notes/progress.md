@@ -583,3 +583,15 @@
 - 未覆盖：抓板八道痕/铃铛五声/抱抱五颗心的封顶边界、地鼠六个冒头窗逐毫秒、
   小目标全清专属句、日记七条封顶与跨天清零的真窗复演、雨天 26 颗雨滴逐颗轨迹；
   `awakeForPlay` 本轮未触发（整场醒着）。
+
+### v1.12.0 发布证据（2026-10-26）
+
+- commit `5e092a87` + tag `v1.12.0`（annotated，peel 同一 commit `5e092a8708cb…`）只推 fork；
+  上游未动。
+- CI：首跑 run `40227264777`（ref `v1.12.0`）在 `Verify installer artifacts` 红：
+  `mpv --version` 探测失败（同一版 mpv 20261021 在 v1.11 run 里刚刚探测通过，判为运行器瞬时态）；
+  重新 dispatch run `40230516836`，`package` job 6m51s（20:23:12Z → 20:30:03Z）全步绿。
+- Release [v1.12.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.12.0)：
+  `isDraft:false`、`isPrerelease:false`、Latest；资产 `Mochi-Setup-1.12.0.exe`
+  **296,294,875 B** / `sha256 776f48200665979124c7f544adadbfa387a1a6b5f40df4ad652a0f155fbce296`
+  （与本地下载件、GitHub asset digest 三处一致），公开于 `2026-10-25T20:44:33Z`。

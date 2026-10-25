@@ -1112,3 +1112,15 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
   小目标全清专属句、日记七条封顶与跨天清零的真窗复演、雨天 26 颗雨滴的逐颗轨迹；
   这些由纯模块单测锁条件。`awakeForPlay` 这轮没被触发（她整场醒着），
   夜里重跑若触发会额外产出 `awake.*` 检查。
+
+### 20.6 发布证据（v1.12.0）
+
+- 提交 `5e092a87`，annotated tag `v1.12.0`（peel 同一 commit）；只推
+  `damingslu-ctrl/Cyrene-Agent`，上游未动。
+- 打包：首跑 run `40227264777` 在 `Verify installer artifacts` 红（`mpv --version`
+  探测失败；同一 mpv 20261021 在 v1.11 刚探测通过，判运行器瞬时态）；重新 dispatch
+  run `40230516836`，`package` job 6m51s 全步绿（20:23:12Z → 20:30:03Z）。
+- 产物：`Mochi-Setup-1.12.0.exe` **296,294,875 B**，
+  `sha256 776f48200665979124c7f544adadbfa387a1a6b5f40df4ad652a0f155fbce296`；
+  本地下载件与 GitHub asset digest 一致。Release 公开（非草稿、非预发布）于
+  `2026-10-25T20:44:33Z`。
