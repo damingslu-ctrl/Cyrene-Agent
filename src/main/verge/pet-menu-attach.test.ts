@@ -112,7 +112,7 @@ beforeEach(() => {
 });
 
 describe("attachPetContextMenu", () => {
-  it("右键弹出互动 + 安静 + 形态/身形 + 窗口动作共 40 项（两条分隔线）", () => {
+  it("右键弹出互动 + 安静 + 形态/身形 + 窗口动作共 49 项（两条分隔线）", () => {
     const { template, popup } = rightClick(makeService({ quietUntil: null, tuckEnabled: true }));
     const labels = template.filter((entry) => entry.type !== "separator").map((entry) => entry.label);
     expect(labels).toEqual([
@@ -122,6 +122,8 @@ describe("attachPetContextMenu", () => {
       "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来", "猜拳",
       "纸箱躲猫猫", "照个红点点", "给她梳梳毛", "闻闻猫薄荷", "放架纸飞机", "请小鸟来做客",
       "磨磨爪子", "滚个铃铛球", "放只发条鼠", "来局打地鼠", "抱一下", "下场小雨",
+      "追自己的尾巴", "在垫子上踩奶", "翻个跟头", "陪她看会儿书", "拆个礼物盒",
+      "对星星许愿", "跳个格子", "下场小雪", "求张今日签",
       "成长记录", "今日小目标", "猫咪日记",
       "让它做个动作",
       "打开网络面板",

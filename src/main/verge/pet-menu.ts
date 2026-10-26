@@ -94,6 +94,16 @@ export interface PetMenuActions {
   rain: () => void;
   quests: () => void;
   diary: () => void;
+  /** v1.13.0 互动 VII：追尾巴 / 踩奶 / 翻跟头 / 看书 / 礼物盒 / 许愿 / 跳格子 / 下雪 / 抽签。 */
+  tail: () => void;
+  knead: () => void;
+  roll: () => void;
+  book: () => void;
+  gift: () => void;
+  wish: () => void;
+  hopscotch: () => void;
+  snow: () => void;
+  fortune: () => void;
   openNetwork: () => void;
   /** v1.5.0：形态与档位切换（落盘 + 广播在装配层，菜单只管发意图）。 */
   setForm: (form: PetForm) => void;
@@ -168,6 +178,16 @@ export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenu
     { label: "来局打地鼠", enabled: input.form === "girl" && !!actions?.mole, ...bind(actions?.mole) },
     { label: "抱一下", enabled: input.form === "girl" && !!actions?.hug, ...bind(actions?.hug) },
     { label: "下场小雨", enabled: input.form === "girl" && !!actions?.rain, ...bind(actions?.rain) },
+    // —— v1.13.0 互动 VII：八件独演玩具 + 一场小雪 + 一张日签 ——
+    { label: "追自己的尾巴", enabled: input.form === "girl" && !!actions?.tail, ...bind(actions?.tail) },
+    { label: "在垫子上踩奶", enabled: input.form === "girl" && !!actions?.knead, ...bind(actions?.knead) },
+    { label: "翻个跟头", enabled: input.form === "girl" && !!actions?.roll, ...bind(actions?.roll) },
+    { label: "陪她看会儿书", enabled: input.form === "girl" && !!actions?.book, ...bind(actions?.book) },
+    { label: "拆个礼物盒", enabled: input.form === "girl" && !!actions?.gift, ...bind(actions?.gift) },
+    { label: "对星星许愿", enabled: input.form === "girl" && !!actions?.wish, ...bind(actions?.wish) },
+    { label: "跳个格子", enabled: input.form === "girl" && !!actions?.hopscotch, ...bind(actions?.hopscotch) },
+    { label: "下场小雪", enabled: input.form === "girl" && !!actions?.snow, ...bind(actions?.snow) },
+    { label: "求张今日签", enabled: input.form === "girl" && !!actions?.fortune, ...bind(actions?.fortune) },
     { label: "成长记录", enabled: input.form === "girl" && !!actions?.growth, ...bind(actions?.growth) },
     { label: "今日小目标", enabled: input.form === "girl" && !!actions?.quests, ...bind(actions?.quests) },
     { label: "猫咪日记", enabled: input.form === "girl" && !!actions?.diary, ...bind(actions?.diary) },
@@ -306,6 +326,15 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
         rain: () => onPetCommand("rain"),
         quests: () => onPetCommand("quests"),
         diary: () => onPetCommand("diary"),
+        tail: () => onPetCommand("tail"),
+        knead: () => onPetCommand("knead"),
+        roll: () => onPetCommand("roll"),
+        book: () => onPetCommand("book"),
+        gift: () => onPetCommand("gift"),
+        wish: () => onPetCommand("wish"),
+        hopscotch: () => onPetCommand("hopscotch"),
+        snow: () => onPetCommand("snow"),
+        fortune: () => onPetCommand("fortune"),
         openNetwork: () => openNetworkPanel(),
         setForm: (form) => {
           service.setForm(form);

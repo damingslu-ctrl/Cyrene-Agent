@@ -51,6 +51,16 @@ describe("右键菜单命令表", () => {
     for (const command of RPS_COMMANDS) expect(isPetCommand(command), command).toBe(true);
   });
 
+  it("v1.13 九件新玩具都在命令表里，跳格子叫 hopscotch 而不是 hop", () => {
+    for (const command of ["tail", "knead", "roll", "book", "gift", "wish", "hopscotch", "snow", "fortune"]) {
+      expect(PET_COMMANDS as readonly string[]).toContain(command);
+      expect(isPetCommand(command), command).toBe(true);
+    }
+    // `hop` 早被「跳一下」手势占了：跳格子若同名，菜单会永远只演一下。
+    expect(GESTURE_COMMANDS.hop).toBe("hop");
+    expect(PET_COMMANDS as readonly string[]).toContain("hop");
+  });
+
   it("装扮命令与词表一一对应，解析只认登记过的 id", () => {
     expect(ACCESSORY_COMMANDS).toEqual(ACCESSORY_IDS.map((id) => `accessory:${id}`));
     for (const id of ACCESSORY_IDS) {

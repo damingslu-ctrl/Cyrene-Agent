@@ -1,5 +1,5 @@
 /**
- * 十八枚小成就。条件全部来自已经存在的计数器：不新增一套成长线，只在她做到某件事的
+ * 二十七枚小成就。条件全部来自已经存在的计数器：不新增一套成长线，只在她做到某件事的
  * 时候把这一刻记住（跨重启）。徽章只在解锁当场弹出 3.6 秒，之后收进存档。
  */
 import { ACCENT, GREEN, PAPER, ROSE, withAlpha } from "../../shared/pet-tokens";
@@ -13,6 +13,8 @@ export const ACHIEVEMENT_IDS = [
   "box-hide", "laser-catch", "brush-lover", "catnip-high", "plane-catch",
   "scratch-art", "bell-fan", "windup-hunter", "mole-master",
   "hug-lover", "purr-engine", "rain-listener", "daily-perfect",
+  "tail-chaser", "knead-master", "roll-artist", "bookworm", "gift-opener",
+  "wish-maker", "hopscotch-pro", "snow-builder", "fortune-fan",
 ] as const;
 
 export type AchievementId = (typeof ACHIEVEMENT_IDS)[number];
@@ -54,12 +56,32 @@ export interface PetStats {
   rains: number;
   /** 完成每日小目标的件数（跨天累计）。 */
   quests: number;
+  /** 完整追完一轮尾巴的次数。 */
+  tails: number;
+  /** 踩奶踩完一轮的次数。 */
+  kneads: number;
+  /** 翻跟头翻完一轮的次数。 */
+  rolls: number;
+  /** 完整读完一本书的次数。 */
+  books: number;
+  /** 拆开礼物盒的次数。 */
+  gifts: number;
+  /** 许愿的次数。 */
+  wishes: number;
+  /** 跳完一整轮格子的次数。 */
+  hopscotch: number;
+  /** 堆成雪人的次数。 */
+  snowmen: number;
+  /** 揭晓每日签文的次数（一天最多一次）。 */
+  fortunes: number;
 }
 
 export const EMPTY_STATS: PetStats = {
   pats: 0, catches: 0, wand: 0, bubbles: 0, pounces: 0,
   boxes: 0, lasers: 0, brushes: 0, catnips: 0, planes: 0,
   scratches: 0, bells: 0, mice: 0, moles: 0, hugs: 0, purrs: 0, rains: 0, quests: 0,
+  tails: 0, kneads: 0, rolls: 0, books: 0, gifts: 0,
+  wishes: 0, hopscotch: 0, snowmen: 0, fortunes: 0,
 };
 
 export interface AchievementDef {
@@ -87,6 +109,15 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: "purr-engine", title: "呼噜发动机", line: "呼噜…停不下来了" },
   { id: "rain-listener", title: "听雨的人", line: "下雨天，最适合一起发呆" },
   { id: "daily-perfect", title: "今日全勤", line: "今天的三件事，都做完啦" },
+  { id: "tail-chaser", title: "尾巴猎手", line: "追着自己的尾巴转了三圈" },
+  { id: "knead-master", title: "踩奶师傅", line: "软乎乎…踩出一首小曲" },
+  { id: "roll-artist", title: "翻滚艺术家", line: "一个跟头，稳稳落地" },
+  { id: "bookworm", title: "书页间的猫", line: "故事看完了，借你靠一会儿" },
+  { id: "gift-opener", title: "拆礼物的人", line: "每一份心意，我都拆开看" },
+  { id: "wish-maker", title: "许愿的人", line: "星星听见了，我也听见了" },
+  { id: "hopscotch-pro", title: "跳格子高手", line: "一、二、三，全踩中啦" },
+  { id: "snow-builder", title: "雪人建筑师", line: "这个雪人，是我们一起堆的" },
+  { id: "fortune-fan", title: "签运常客", line: "第四天的签，也好好收着" },
 ];
 
 export function achievementById(id: string): AchievementDef | null {
@@ -120,6 +151,15 @@ export function newlyUnlocked(
   if (stats.purrs >= 3) hits.push("purr-engine");
   if (stats.rains >= 2) hits.push("rain-listener");
   if (stats.quests >= 3) hits.push("daily-perfect");
+  if (stats.tails >= 3) hits.push("tail-chaser");
+  if (stats.kneads >= 3) hits.push("knead-master");
+  if (stats.rolls >= 3) hits.push("roll-artist");
+  if (stats.books >= 2) hits.push("bookworm");
+  if (stats.gifts >= 3) hits.push("gift-opener");
+  if (stats.wishes >= 5) hits.push("wish-maker");
+  if (stats.hopscotch >= 2) hits.push("hopscotch-pro");
+  if (stats.snowmen >= 1) hits.push("snow-builder");
+  if (stats.fortunes >= 4) hits.push("fortune-fan");
   return hits.filter((id) => !done.has(id));
 }
 
@@ -151,6 +191,15 @@ export function parseStats(raw: unknown): PetStats {
     purrs: count(obj.purrs),
     rains: count(obj.rains),
     quests: count(obj.quests),
+    tails: count(obj.tails),
+    kneads: count(obj.kneads),
+    rolls: count(obj.rolls),
+    books: count(obj.books),
+    gifts: count(obj.gifts),
+    wishes: count(obj.wishes),
+    hopscotch: count(obj.hopscotch),
+    snowmen: count(obj.snowmen),
+    fortunes: count(obj.fortunes),
   };
 }
 
@@ -193,9 +242,11 @@ export function buildAchievementOps(
   ops.push({ kind: "fillEllipse", fill: withAlpha(PAPER, 0.94 * alpha), cx: x, cy: y - r * 0.15, rx: r * 1.35, ry: r * 1.35 });
   const tone = id === "heart-bond" || id === "brush-lover" || id === "laser-catch"
     || id === "scratch-art" || id === "hug-lover" || id === "purr-engine"
+    || id === "tail-chaser" || id === "knead-master" || id === "gift-opener"
     ? ROSE
     : id === "seven-days" || id === "catnip-high" || id === "rain-listener"
-      || id === "daily-perfect" || id === "mole-master"
+      || id === "daily-perfect" || id === "mole-master" || id === "bookworm"
+      || id === "hopscotch-pro" || id === "fortune-fan"
       ? GREEN
       : ACCENT;
   ops.push({ kind: "fillEllipse", fill: withAlpha(tone, 0.96 * alpha), cx: x, cy: y - r * 0.15, rx: r * 1.05, ry: r * 1.05 });

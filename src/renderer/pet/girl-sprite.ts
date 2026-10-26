@@ -50,7 +50,7 @@ export interface GirlBody {
 }
 
 /**
- * 位图的刚体动作：呼吸、走路起伏、落地压扁、伸懒腰、歪头、睡觉下沉。
+ * 位图的刚体动作：呼吸、走路起伏、落地压扁、伸懒腰、歪头、睡觉下沉、待机坐/趴。
  * 不拆骨骼——立绘只有一张，动作全靠绕脚心的整体变换，所以幅度取四足的一半上下，
  * 免得「站着的猫娘」抖成布偶。相位口径与四足相同：绝对时钟，不随帧率走。
  */
@@ -63,6 +63,7 @@ export function girlBodyFor(input: CatInput): GirlBody {
   const walk = p.walk ?? 0;
   const walkLift = Math.max(0, Math.sin(walk)) * 1.6;
   const squash = Math.max(0, Math.min(1, p.squash ?? 0));
+  const sprawl = Math.max(0, Math.min(1, p.sprawl ?? 0));
 
   // 歪头是整身倾（立绘没有独立头部），所以幅度压到七折；睡觉再压一点、并往一侧倒。
   const deg =
@@ -72,8 +73,8 @@ export function girlBodyFor(input: CatInput): GirlBody {
     + sleep * 3.5;
 
   const stretch = Math.max(0, Math.min(1, p.stretch));
-  const sx = (1 + 0.12 * squash + 0.03 * stretch) * (1 + 0.02 * sleep);
-  const sy = (1 + breathe + 0.05 * stretch) * (1 - 0.18 * squash) * (1 - 0.04 * sleep);
+  const sx = (1 + 0.12 * squash + 0.03 * stretch) * (1 + 0.02 * sleep) * (1 + 0.26 * sprawl);
+  const sy = (1 + breathe + 0.05 * stretch) * (1 - 0.18 * squash) * (1 - 0.04 * sleep) * (1 - 0.42 * sprawl);
   const h = GIRL_INK_VB_HEIGHT * s;
 
   return {
@@ -87,10 +88,14 @@ export function girlBodyFor(input: CatInput): GirlBody {
   };
 }
 
-/** 记号用的虚拟身子中心：脚底往上抬 54.5vb（见 GIRL_OVERLAY_LIFT_VB）。 */
+/** 记号用的虚拟身子中心：脚底往上抬 54.5vb；趴下时按同一条压扁系数跟着降。 */
 export function girlOverlayCenter(input: CatInput): { x: number; y: number } {
   const s = (input.u * 2) / VB;
-  return { x: input.center.x, y: input.center.y - GIRL_OVERLAY_LIFT_VB * s };
+  const sprawl = Math.max(0, Math.min(1, input.pose.sprawl ?? 0));
+  return {
+    x: input.center.x,
+    y: input.center.y - GIRL_OVERLAY_LIFT_VB * s * (1 - 0.42 * sprawl),
+  };
 }
 
 export interface GirlAnimBody {
@@ -121,6 +126,10 @@ export interface GirlPresenceMotion {
 /**
  * 帧动画的刚体位姿：帧本身已经在动（呼吸/眨眼/摆臂），这里只叠「动作之外」的整身量——
  * 走路起伏、落地压扁、歪头、朝向。**不再叠呼吸**：帧动画里每帧的胸腔位置就是呼吸。
+ *
+ * `sprawl` 是待机编排的趴伏量（坐着 0.42 / 趴下 0.92）：帧图集里没有真正的坐/趴段，
+ * 靠绕脚心压扁 + 摊开把「跳累了」演出来。脚线不动，头降下来；脸框/墨框/记号都吃同一套
+ * 变换，所以命中区会跟着走，不会出现「看得见的头」和「点得到的头」分家。
  */
 export function girlAnimBodyFor(input: CatInput, presence?: GirlPresenceMotion): GirlAnimBody {
   const s = (input.u * 2) / VB;
@@ -129,6 +138,7 @@ export function girlAnimBodyFor(input: CatInput, presence?: GirlPresenceMotion):
   const walkLift = Math.max(0, Math.sin(walk)) * 1.2;
   const squash = Math.max(0, Math.min(1, p.squash ?? 0));
   const stretch = Math.max(0, Math.min(1, p.stretch));
+  const sprawl = Math.max(0, Math.min(1, p.sprawl ?? 0));
   const dizzy = Math.max(0, Math.min(1, presence?.dizzy ?? 0));
   const wobble = dizzy > 0 ? Math.sin(input.t * 9.5) * 1.8 * dizzy : 0;
   const startle = Math.max(0, Math.min(1, presence?.startle ?? 0));
@@ -137,8 +147,8 @@ export function girlAnimBodyFor(input: CatInput, presence?: GirlPresenceMotion):
   return {
     pivot: { x: input.center.x + (presence?.shiftX ?? 0), y: input.center.y + input.jumpY - walkLift },
     rot: (deg * Math.PI) / 180,
-    sx: (1 + 0.12 * squash) * (1 + 0.01 * stretch),
-    sy: (1 - 0.16 * squash) * (1 + 0.02 * stretch) * (1 - 0.03 * dizzy),
+    sx: (1 + 0.12 * squash) * (1 + 0.01 * stretch) * (1 + 0.26 * sprawl),
+    sy: (1 - 0.16 * squash) * (1 + 0.02 * stretch) * (1 - 0.03 * dizzy) * (1 - 0.42 * sprawl),
     facing: presence?.facing ?? input.facing ?? 1,
     k: s * (GIRL_ANIM.inkVb / GIRL_ANIM.inkRefPx),
   };

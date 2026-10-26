@@ -40,6 +40,31 @@ describe("成就条件", () => {
       .toEqual(["box-hide", "laser-catch", "brush-lover", "catnip-high", "plane-catch"]);
   });
 
+  it("v1.13 九枚新成就各有门槛，差一记不给；整表 27 枚", () => {
+    expect(ACHIEVEMENT_IDS).toHaveLength(27);
+    expect(newlyUnlocked(stats({ tails: 2 }), 1, "new", [])).toEqual([]);
+    expect(newlyUnlocked(stats({ tails: 3 }), 1, "new", [])).toEqual(["tail-chaser"]);
+    expect(newlyUnlocked(stats({ kneads: 2 }), 1, "new", [])).toEqual([]);
+    expect(newlyUnlocked(stats({ kneads: 3 }), 1, "new", [])).toEqual(["knead-master"]);
+    expect(newlyUnlocked(stats({ rolls: 2 }), 1, "new", [])).toEqual([]);
+    expect(newlyUnlocked(stats({ rolls: 3 }), 1, "new", [])).toEqual(["roll-artist"]);
+    expect(newlyUnlocked(stats({ books: 1 }), 1, "new", [])).toEqual([]);
+    expect(newlyUnlocked(stats({ books: 2 }), 1, "new", [])).toEqual(["bookworm"]);
+    expect(newlyUnlocked(stats({ gifts: 2 }), 1, "new", [])).toEqual([]);
+    expect(newlyUnlocked(stats({ gifts: 3 }), 1, "new", [])).toEqual(["gift-opener"]);
+    expect(newlyUnlocked(stats({ wishes: 4 }), 1, "new", [])).toEqual([]);
+    expect(newlyUnlocked(stats({ wishes: 5 }), 1, "new", [])).toEqual(["wish-maker"]);
+    expect(newlyUnlocked(stats({ hopscotch: 1 }), 1, "new", [])).toEqual([]);
+    expect(newlyUnlocked(stats({ hopscotch: 2 }), 1, "new", [])).toEqual(["hopscotch-pro"]);
+    expect(newlyUnlocked(stats({ snowmen: 1 }), 1, "new", [])).toEqual(["snow-builder"]);
+    expect(newlyUnlocked(stats({ fortunes: 3 }), 1, "new", [])).toEqual([]);
+    expect(newlyUnlocked(stats({ fortunes: 4 }), 1, "new", [])).toEqual(["fortune-fan"]);
+    // 新计数拉满也不该把旧成就带出来。
+    expect(newlyUnlocked(
+      stats({ tails: 9, kneads: 9, rolls: 9, books: 9 }), 1, "new", [],
+    )).toEqual(["tail-chaser", "knead-master", "roll-artist", "bookworm"]);
+  });
+
   it("成就表与 id 表一一对应，文案不空", () => {
     expect(ACHIEVEMENTS.map((a) => a.id)).toEqual([...ACHIEVEMENT_IDS]);
     for (const id of ACHIEVEMENT_IDS) {
@@ -61,6 +86,9 @@ describe("存档解析", () => {
     // v1.11 五条新计数缺省为 0，坏值同样归零。
     expect(parseStats({ boxes: 2, lasers: -1, brushes: 3.2, catnips: Number.NaN, planes: 4 }))
       .toEqual({ ...EMPTY_STATS, boxes: 2, brushes: 3, planes: 4 });
+    // v1.13 九条新计数缺省为 0，浮点取整、坏值归零。
+    expect(parseStats({ tails: 2.8, kneads: -1, rolls: Number.NaN, books: 1, gifts: 2, wishes: 3.9, hopscotch: 1, snowmen: 2, fortunes: 4 }))
+      .toEqual({ ...EMPTY_STATS, tails: 2, books: 1, gifts: 2, wishes: 3, hopscotch: 1, snowmen: 2, fortunes: 4 });
   });
 
   it("成就列表去重、去掉不认识的 id 与非字符串", () => {

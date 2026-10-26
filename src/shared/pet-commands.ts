@@ -17,6 +17,11 @@ export type PetCommand =
   | "box" | "laser" | "brush" | "catnip" | "plane" | "bird" | "growth"
   /** 猫娘专属互动 VI：猫抓板 / 铃铛球 / 发条鼠 / 打地鼠 / 抱抱 / 雨天 / 今日小目标 / 猫咪日记。 */
   | "scratch" | "bell" | "mouse" | "mole" | "hug" | "rain" | "quests" | "diary"
+  /**
+   * 猫娘专属互动 VII：追尾巴 / 踩奶 / 翻跟头 / 看书 / 礼物盒 / 许愿 / 跳格子 / 下雪 / 抽签。
+   * 跳格子必须叫 `hopscotch`——`hop` 已经是「跳一下」的手势命令。
+   */
+  | "tail" | "knead" | "roll" | "book" | "gift" | "wish" | "hopscotch" | "snow" | "fortune"
   | RpsCommand
   | AccessoryCommand;
 
@@ -32,6 +37,7 @@ const BASE_COMMANDS: ReadonlyArray<PetCommand> = [
   "wand", "bubbles", "leaves", "follow",
   "box", "laser", "brush", "catnip", "plane", "bird", "growth",
   "scratch", "bell", "mouse", "mole", "hug", "rain", "quests", "diary",
+  "tail", "knead", "roll", "book", "gift", "wish", "hopscotch", "snow", "fortune",
 ];
 
 export const PET_COMMANDS: ReadonlyArray<PetCommand> = [

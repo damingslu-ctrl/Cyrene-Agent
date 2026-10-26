@@ -595,3 +595,79 @@
   `isDraft:false`、`isPrerelease:false`、Latest；资产 `Mochi-Setup-1.12.0.exe`
   **296,294,875 B** / `sha256 776f48200665979124c7f544adadbfa387a1a6b5f40df4ad652a0f155fbce296`
   （与本地下载件、GitHub asset digest 三处一致），公开于 `2026-10-25T20:44:33Z`。
+
+### v1.13.0：会累的待机舞、九件新玩具与每日签（2026-10-26）
+
+- 待机编排独立成纯模块 `girl-idle`：`dance` 9–14s → `sit` 6.5–10s 或 `lie` 9–13s
+  （每轮交替）→ `stand` 0.9–1.4s → 再跳；坐够 55% 再趴一小会儿（5–8s 的 `doze`）。
+  状态只有 `since / until / nextRest / rests / bouts / seed / deep`，抖动由
+  `idleJitter(seed,bout,salt)` 确定性解析，产品固定 `seed=0x51ede`。
+- 渲染器接线：只在活动=idle 且无独演玩具时推进；进入/退出挂起各 reset 一次，
+  玩完回来永远先给一整支舞；基础帧段 `idle/sit/drowse/stand`，姿态按
+  `GIRL_IDLE_POSTURE = {dance:0, sit:0.42, lie:0.92, stand:0}` 以 240ms 指数缓动；
+  自主微动作只在 `dance` 段允许。
+- 九个纯模块：`girl-tail`（5.2s，暖身 500ms，320ms 冷却、最多 3 下，三下后晕）/
+  `girl-knead`（4.6s，settle 450ms，260ms 冷却、最多 6 拍，收尾起呼噜）/
+  `girl-roll`（3.4s，蹲 420ms、滚到 2600ms，300ms 冷却、最多 3 翻）/
+  `girl-book`（7.2s，3 页、450ms 冷却）/
+  `girl-gift`（6s，300ms 后才能开、彩纸 1400ms，奖励 fish/heart/star 按 seed）/
+  `girl-wish`（6s，升起 900ms、悬停到 4600ms）/
+  `girl-hopscotch`（8s，三格 16×10、间距 4，220ms 冷却，踩错回第一格）/
+  `girl-snow`（24s，30 雪片、3 堆 12×6，300ms 冷却，第三堆立雪人）/
+  `girl-fortune`（7s，settle 500ms，四档签文）。
+- 引擎：`PetStats` 十八项 → 二十七项（+tails/kneads/rolls/books/gifts/wishes/
+  hopscotch/snowmen/fortunes）；九枚新成就（追尾巴 3 / 踩奶 3 / 翻跟头 3 / 看书 2 /
+  拆礼物 3 / 许愿 5 / 跳格子 2 / 雪人 1 / 抽签 4 天），成就页 27。
+- 天气互斥：`snowStart` 清 `rainUntil`、`rainStart` 清 `snowUntil`；雪和雨都是氛围层，
+  不占独演槽；雪里可以并行滚铃铛球。
+- 每日抽签落盘 `{day,tier,line,drawn}`：同一天再打开看到同一张，重复揭晓不记账；
+  跨天 `ensureDay` 后重抽。
+- 菜单 40 → 49 项，共享命令 +9（`tail/knead/roll/book/gift/wish/hopscotch/snow/fortune`）；
+  跳格子叫 `hopscotch`，避开已有手势命令 `hop`。
+- 命中按绘制倒序：`fortune → hopscotch → wish → gift → book → roll → knead → 尾巴尖 →
+  hug → box → laser → brush → catnip → plane → bird`；签纸/星子/书与抱抱的大椭圆重叠，
+  必须先拦。雪堆按最近的一堆判。
+- `getGirlDiagnostics()` 增九件玩具读数口与整块 `idle`（含 `posture/suspended/until`）。
+- 真窗探针补 `forceFrame / waitStat / waitPropGone / waitBubbleLine / toyGate / startToy`；
+  追尾巴与踩奶改成「等到玩具退场再读计数」，雪/雨用 `waitPropGone` 确认互斥。
+
+### 口径与裁决（v1.13.0）
+
+- **图集没有真正的坐/趴段，本轮不改图**：逐帧核对 40–50 号「sit」仍是站立的舞蹈姿态，
+  `drowse` 也只是闭眼站立；坐/趴由 `girlAnimBodyFor` 的 `sprawl` 压扁 + 摊开演出来，
+  `girl-sprite.ts` 已写明。要真坐下得下一轮重画/补拍，不在本轮改 `photo/`。
+- **免打扰里永远不趴**：闭眼趴着会被读成睡着（native #67 的同一读法）。
+  安静中的 `dance` 只歇成 `sit`；已经在趴时一开安静就当场 `stand`，不留在趴姿。
+- **起身必须经过 `stand`**：`sit/lie` 不能直接跳回 `dance`，否则像换了一张贴图。
+- **玩完回来先给一整支舞**：任何玩具/活动都 reset 编排，保留「下一轮坐还是趴」游标；
+  挂起只 reset 一次，不能每帧刷 `bouts`。
+- **一轮一拍账 vs 当场记账**：`tails/kneads/rolls/books` 整轮走完 +1（点多少下不改账）；
+  `gift` 只认拆开那一下；`hopscotch` 第三格踩对当场 +1；`snow` 雪人立起来才 +1；
+  `fortune` 揭晓才 +1，一天只认一次；被另一件独演道具替掉的中途局不结算。
+- **许愿不进陪玩账**：`wishMake` 只 +`wishes` 与亲密度，不写 `dayCounts.toys`，
+  也不触发 `noteQuest("play")`——愿望是私人的事，不拿它刷每日目标。
+- **08:12 那一跑的 29 条红不是产品闸门 bug**：全部落在玩具结算与闸门采样窗；
+  补轮询与现场读数后 256/256，九道玩具闸门全部首试成功（`retried:false`），
+  没有为了探针改产品语义。
+- **跳格子不叫 `hop`**：`hop` 已是「跳一下」的手势命令；新命令统一 `hopscotch`。
+
+### 量测与门（v1.13.0）
+
+- `CI=true npx vitest run` → **715 文件 / 7381 通过（1 skipped）**，无红，255.08s
+  （v1.12.0 基线 703 / 7299，+12 文件 +82 条；12 个新文件 78 条，改动文件净增 4 条）。
+- 新增测试：tail 4 / knead 5 / roll 5 / book 5 / gift 5 / wish 5 / hopscotch 5 /
+  snow 5 / fortune 4 / idle 9 / companion-girl-v113 12 / renderer-girl-v113 14。
+- 十一道门全绿（brand/main/preload/renderer/sprites/roster/palette/palette-migrate/
+  plugin-schema/adapted-models/plugin-sdk）；`build:main` 776 文件 / `build:preload`
+  144 文件 + learn-exam / `build:renderer` 全绿。pnpm 9 会被 `engines.pnpm>=10.33`
+  拒跑，本轮门禁直接用 `node`/`npx` 跑同一批脚本。
+- 真窗 **256/256 `all clear`**：九件玩具各 +1（`v13Delta` 九项各 1），
+  二十七项 reload 后原样回来；礼物 `opened=true`、许愿 `wished=true`、
+  跳格子先踩错再按 1→2→3、雪人第三堆 `built=true`、抽签 `tier=3` 同日重开不变；
+  雪雨双向互斥、雪与铃铛并行；成长记录 `徽章 3/27`。
+- 待机：`dance 13.9s → sit 9.9s（posture 0.414、clip sit、rests=1）→ dance
+  （nextRest=lie、bouts=7）`，全程 `suspended=false / gesture=null`。
+- 截图与报告：`D:/cyrene-p5-accept/shots-v113/`（含 `girl-idle-sit.png` 与
+  `pet-girl-report.json`）。
+- 未覆盖：各玩具封顶边界、礼物不拆作废、跳格子多次踩错的完整序列、雪堆冷却边界、
+  抽签跨天换签；趴/深歇与免打扰打断趴的真窗同框（本轮只截到坐），由单测锁语义。

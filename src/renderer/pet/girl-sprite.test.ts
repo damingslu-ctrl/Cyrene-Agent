@@ -221,6 +221,39 @@ describe("猫娘帧动画的位姿与落点", () => {
     // 82px 宽的窗口里，站立帧的墨宽应占 35px 以上，不然桌宠太小。
     expect(ink.w).toBeGreaterThan(35);
   });
+
+  it("趴伏（sprawl）绕脚心压扁：脚不动、头降下来、脸框跟着降", () => {
+    const base = mk().pose;
+    const up = bodyAt();
+    const sit = bodyAt({ pose: { ...base, sprawl: 0.42 } });
+    const lie = bodyAt({ pose: { ...base, sprawl: 0.92 } });
+    expect(sit.pivot).toEqual(up.pivot);
+    expect(lie.pivot.y).toBeCloseTo(up.pivot.y, 6);
+    expect(sit.sy).toBeLessThan(up.sy);
+    expect(lie.sy).toBeLessThan(sit.sy);
+    expect(lie.sx).toBeGreaterThan(sit.sx);
+
+    const upFace = girlFaceBox(up, 0);
+    const sitFace = girlFaceBox(sit, 0);
+    const lieFace = girlFaceBox(lie, 0);
+    expect(sitFace.cy).toBeGreaterThan(upFace.cy);
+    expect(lieFace.cy).toBeGreaterThan(sitFace.cy);
+    // 压得再低也不能把脸压到脚线以下（窗底会切掉半张脸）。
+    expect(lieFace.bottom).toBeLessThan(lie.pivot.y);
+    // 墨框同理：趴下是「矮而宽」，不是整体缩小。
+    const upInk = girlInkBox(up, 0);
+    const lieInk = girlInkBox(lie, 0);
+    expect(lieInk.h).toBeLessThan(upInk.h);
+    expect(lieInk.w).toBeGreaterThan(upInk.w);
+  });
+
+  it("趴下时记号跟着降（Zzz/爱心不许飘在原来的头顶高度）", () => {
+    const base = mk().pose;
+    const up = girlOverlayCenter(mk());
+    const lie = girlOverlayCenter({ ...mk(), pose: { ...base, sprawl: 0.92 } });
+    expect(lie.x).toBe(up.x);
+    expect(lie.y - up.y).toBeGreaterThan(5);
+  });
 });
 
 describe("立绘资产", () => {

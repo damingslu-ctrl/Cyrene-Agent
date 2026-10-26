@@ -35,6 +35,8 @@ describe("buildPetMenuItems", () => {
       "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来", "猜拳",
       "纸箱躲猫猫", "照个红点点", "给她梳梳毛", "闻闻猫薄荷", "放架纸飞机", "请小鸟来做客",
       "磨磨爪子", "滚个铃铛球", "放只发条鼠", "来局打地鼠", "抱一下", "下场小雨",
+      "追自己的尾巴", "在垫子上踩奶", "翻个跟头", "陪她看会儿书", "拆个礼物盒",
+      "对星星许愿", "跳个格子", "下场小雪", "求张今日签",
       "成长记录", "今日小目标", "猫咪日记",
       "让它做个动作",
       "打开网络面板",
@@ -54,6 +56,8 @@ describe("buildPetMenuItems", () => {
       box: () => {}, laser: () => {}, brush: () => {}, catnip: () => {}, plane: () => {}, bird: () => {}, growth: () => {},
       scratch: () => {}, bell: () => {}, mouse: () => {}, mole: () => {}, hug: () => {}, rain: () => {},
       quests: () => {}, diary: () => {},
+      tail: () => {}, knead: () => {}, roll: () => {}, book: () => {}, gift: () => {}, wish: () => {},
+      hopscotch: () => {}, snow: () => {}, fortune: () => {},
     });
     const girlItems = buildPetMenuItems(input({ form: "girl" }), {
       accessory: () => {}, critter: () => {}, wander: () => {},
@@ -61,6 +65,8 @@ describe("buildPetMenuItems", () => {
       box: () => {}, laser: () => {}, brush: () => {}, catnip: () => {}, plane: () => {}, bird: () => {}, growth: () => {},
       scratch: () => {}, bell: () => {}, mouse: () => {}, mole: () => {}, hug: () => {}, rain: () => {},
       quests: () => {}, diary: () => {},
+      tail: () => {}, knead: () => {}, roll: () => {}, book: () => {}, gift: () => {}, wish: () => {},
+      hopscotch: () => {}, snow: () => {}, fortune: () => {},
     });
     const find = (items: typeof catItems, label: string) => items.find((i) => i.label === label)!;
     for (const label of [
@@ -68,6 +74,8 @@ describe("buildPetMenuItems", () => {
       "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来", "猜拳",
       "纸箱躲猫猫", "照个红点点", "给她梳梳毛", "闻闻猫薄荷", "放架纸飞机", "请小鸟来做客",
       "磨磨爪子", "滚个铃铛球", "放只发条鼠", "来局打地鼠", "抱一下", "下场小雨",
+      "追自己的尾巴", "在垫子上踩奶", "翻个跟头", "陪她看会儿书", "拆个礼物盒",
+      "对星星许愿", "跳个格子", "下场小雪", "求张今日签",
       "成长记录", "今日小目标", "猫咪日记",
     ]) {
       expect(find(catItems, label).enabled, label).toBe(false);
@@ -104,6 +112,15 @@ describe("buildPetMenuItems", () => {
       rain: () => sent.push("rain"),
       quests: () => sent.push("quests"),
       diary: () => sent.push("diary"),
+      tail: () => sent.push("tail"),
+      knead: () => sent.push("knead"),
+      roll: () => sent.push("roll"),
+      book: () => sent.push("book"),
+      gift: () => sent.push("gift"),
+      wish: () => sent.push("wish"),
+      hopscotch: () => sent.push("hopscotch"),
+      snow: () => sent.push("snow"),
+      fortune: () => sent.push("fortune"),
     });
     for (const child of items.find((i) => i.label === "给她打扮")!.submenu!) child.action?.();
     items.find((i) => i.label === "放只小虫逗逗她")!.action?.();
@@ -112,6 +129,8 @@ describe("buildPetMenuItems", () => {
       "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来",
       "纸箱躲猫猫", "照个红点点", "给她梳梳毛", "闻闻猫薄荷", "放架纸飞机", "请小鸟来做客",
       "磨磨爪子", "滚个铃铛球", "放只发条鼠", "来局打地鼠", "抱一下", "下场小雨",
+      "追自己的尾巴", "在垫子上踩奶", "翻个跟头", "陪她看会儿书", "拆个礼物盒",
+      "对星星许愿", "跳个格子", "下场小雪", "求张今日签",
       "成长记录", "今日小目标", "猫咪日记",
     ]) {
       items.find((i) => i.label === label)!.action?.();
@@ -124,6 +143,7 @@ describe("buildPetMenuItems", () => {
       "wand", "bubbles", "leaves", "follow",
       "box", "laser", "brush", "catnip", "plane", "bird",
       "scratch", "bell", "mouse", "mole", "hug", "rain",
+      "tail", "knead", "roll", "book", "gift", "wish", "hopscotch", "snow", "fortune",
       "growth", "quests", "diary",
       "rps:rock", "rps:scissors", "rps:paper",
     ]);

@@ -32,6 +32,17 @@ import {
   type GirlActivity,
   type GirlClipId,
 } from "./girl-anim";
+import {
+  GIRL_IDLE_POSTURE,
+  GIRL_IDLE_SEED,
+  createGirlIdle,
+  girlIdleClip,
+  girlIdleLeft,
+  resetGirlIdle,
+  stepGirlIdle,
+  type GirlIdlePhase,
+  type GirlIdleState,
+} from "./girl-idle";
 import { blinkAt, bodyClip, gestureClip, mixPose, sampleClip, type Slots } from "./motion";
 import { faceOf, MOOD_TO_EXPRESSION, type Expression } from "./face";
 import {
@@ -215,6 +226,102 @@ import {
   type HugState,
 } from "./girl-hug";
 import { RAIN_MS, buildRainOps, createRain, rainAlive, rainAmount, type RainState } from "./girl-rain";
+import {
+  TAIL_MS,
+  buildTailOps,
+  chaseTail,
+  createTail,
+  tailAlive,
+  tailPhase,
+  tailTipAt,
+  type TailState,
+} from "./girl-tail";
+import {
+  KNEAD_MS,
+  buildKneadOps,
+  createKnead,
+  kneadAlive,
+  kneadAtPoint,
+  kneadPads,
+  kneadPhase,
+  pressKnead,
+  type KneadState,
+} from "./girl-knead";
+import {
+  ROLL_MS,
+  buildRollOps,
+  createRoll,
+  flipRoll,
+  rollAlive,
+  rollAtPoint,
+  rollPhase,
+  rollSpin,
+  type RollState,
+} from "./girl-roll";
+import {
+  BOOK_MS,
+  bookAlive,
+  bookAtPoint,
+  bookPhase,
+  bookRectFor,
+  buildBookOps,
+  createBook,
+  turnPage,
+  type BookState,
+} from "./girl-book";
+import {
+  GIFT_MS,
+  buildGiftOps,
+  createGift,
+  giftAlive,
+  giftAtPoint,
+  giftPhase,
+  giftRectFor,
+  openGift,
+  type GiftState,
+} from "./girl-gift";
+import {
+  WISH_MS,
+  buildWishOps,
+  createWish,
+  makeWish,
+  wishAlive,
+  wishAtPoint,
+  wishPhase,
+  wishStarAt,
+  type WishState,
+} from "./girl-wish";
+import {
+  HOP_MS,
+  buildHopOps,
+  createHopscotch,
+  hopAlive,
+  hopAtPoint,
+  hopSquareAt,
+  stepHop,
+  type HopState,
+} from "./girl-hopscotch";
+import {
+  SNOW_MS,
+  buildSnowOps,
+  createSnow,
+  packSnow,
+  snowAlive,
+  snowAmount,
+  snowPileAt,
+  snowmanBuilt,
+  type SnowState,
+} from "./girl-snow";
+import {
+  FORTUNE_MS,
+  buildFortuneOps,
+  createFortune,
+  fortuneAtPoint,
+  fortunePhase,
+  fortuneSlipAt,
+  revealFortune,
+  type FortuneState,
+} from "./girl-fortune";
 import { buildPurrOps } from "./girl-purr";
 import { rpsFromCommand } from "../../shared/pet-rps";
 import { GESTURE_COMMANDS, accessoryFromCommand, type PetCommand } from "../../shared/pet-commands";
@@ -338,6 +445,17 @@ export class PixelPetRenderer {
   /** 正在演的手势段（显式 playGesture 或 companion 抽到的 ambient），播完回基础动作。 */
   private animGesture: { clipId: GirlClipId; startedAt: number } | null = null;
   private lastAmbientGesture: string | null = null;
+  /**
+   * 待机编排（v1.13.0）：跳一阵→坐/趴→起身。状态机是纯函数，渲染器只在
+   * 「她真的闲着」时推进；任何玩具/活动都挂起它，玩完回来先给一整支舞。
+   */
+  private idle: GirlIdleState = createGirlIdle(0, GIRL_IDLE_SEED);
+  /** 帧时钟的基准不是构造时刻：第一帧要知道「从当下起跳」，不能继承 now=0 的旧时间线。 */
+  private idleTickInited = false;
+  /** 挂起（玩具/非 idle 活动）时只 reset 一次，不能每帧重置把 bouts 刷爆。 */
+  private idleSuspended = false;
+  /** 趴伏量 0..1 的缓动量：坐下/趴下/起身都按 180ms 时间常数过渡，脚心不动。 */
+  private idlePosture = 0;
 
   // —— Task 12 贴边藏身状态机（对位 native ui-thread App 状态：pet_pos/peek_dx/idle_t/user_active）——
   // 渲染端不是位置权威：catOrigin 只跟三条合法来源走——起帧 invoke 拉取、
@@ -403,6 +521,21 @@ export class PixelPetRenderer {
   private hug: HugState | null = null;
   /** 雨天是氛围层：不占独演玩具槽，别的玩具开演也照下不误。 */
   private rain: RainState | null = null;
+  /**
+   * v1.13.0 九件新玩具。八件挤独演槽（tail/knead/roll/book/gift/wish/hopscotch/fortune），
+   * 只有雪跟雨一样是氛围层：雪落着的时候她照常玩，两套天气互斥（引擎里各清对方的 until）。
+   */
+  private tail: TailState | null = null;
+  private knead: KneadState | null = null;
+  private roll: RollState | null = null;
+  private book: BookState | null = null;
+  private gift: GiftState | null = null;
+  private wish: WishState | null = null;
+  private hop: HopState | null = null;
+  private snow: SnowState | null = null;
+  private fortune: FortuneState | null = null;
+  /** 今天那张签（引擎给的同一天同一档）：揭晓时要把档位原样还回去，引擎才认账。 */
+  private fortuneToday: { tier: number; line: string } | null = null;
   /** 走路留下的爪印（屏幕坐标，窗口搬走时留在桌布上）。 */
   private prints: PawMark[] = [];
   private lastPrintAt = 0;
@@ -686,6 +819,21 @@ export class PixelPetRenderer {
       else this.startRain(now);
       return;
     }
+    if (command === "tail" || command === "knead" || command === "roll"
+      || command === "book" || command === "gift" || command === "wish"
+      || command === "hopscotch" || command === "snow" || command === "fortune") {
+      const now = performance.now();
+      if (command === "tail") this.startTail(now);
+      else if (command === "knead") this.startKnead(now);
+      else if (command === "roll") this.startRoll(now);
+      else if (command === "book") this.startBook(now);
+      else if (command === "gift") this.startGift(now);
+      else if (command === "wish") this.startWish(now);
+      else if (command === "hopscotch") this.startHopscotch(now);
+      else if (command === "snow") this.startSnow(now);
+      else this.startFortune(now);
+      return;
+    }
     if (command === "quests" || command === "diary") {
       // 两本账都由引擎开口：渲染端只负责把气泡画出来。
       const now = performance.now();
@@ -776,8 +924,23 @@ export class PixelPetRenderer {
     dizzyLeft: number;
     blush: number;
     clip: string | null;
+    /** 正在演的一次性手势段（显式/环境）；null＝基础段。探针等它退场再判基础段。 */
+    gesture: string | null;
     fx: { below: number; above: number };
     cushion: number;
+    /** v1.13.0 待机编排：探针按 until 等下一段，不用猜时长。 */
+    idle: {
+      phase: GirlIdlePhase;
+      since: number;
+      until: number;
+      left: number;
+      nextRest: "sit" | "lie";
+      rests: number;
+      bouts: number;
+      deep: boolean;
+      posture: number;
+      suspended: boolean;
+    };
     toy: { x: number; y: number; vx: number; vy: number; rest: boolean; trail: number } | null;
     bondUpLeft: number;
     patCombo: number;
@@ -814,6 +977,22 @@ export class PixelPetRenderer {
     mole: { x: number; y: number; r: number; hits: number; activeSlot: number | null; left: number } | null;
     hug: { x: number; y: number; taps: number; left: number } | null;
     rain: { amount: number; left: number } | null;
+    /** v1.13.0：追尾巴/踩奶/翻跟头/看书/礼物/许愿/跳格子/下雪/抽签的读数口（与点击同一拍坐标）。 */
+    tail: { x: number; y: number; phase: string; hits: number; left: number } | null;
+    knead: { x: number; y: number; phase: string; beats: number; left: number } | null;
+    roll: { x: number; y: number; phase: string; flips: number; left: number } | null;
+    book: { x: number; y: number; w: number; h: number; pages: number; phase: string; left: number } | null;
+    gift: { x: number; y: number; w: number; h: number; opened: boolean; phase: string; left: number } | null;
+    wish: { x: number; y: number; phase: string; wished: boolean; left: number } | null;
+    hopscotch: {
+      squares: Array<{ x: number; y: number; w: number; h: number }>;
+      next: number; left: number;
+    } | null;
+    snow: {
+      amount: number; built: boolean; left: number;
+      piles: Array<{ x: number; y: number; w: number; h: number }>;
+    } | null;
+    fortune: { x: number; y: number; tier: number; revealed: boolean; phase: string; left: number } | null;
     purrLeft: number;
     prints: number;
     follow: { left: number; lastTargetX: number; arrived: boolean } | null;
@@ -987,14 +1166,163 @@ export class PixelPetRenderer {
         left: Math.max(0, RAIN_MS - (now - this.rain.bornAt)),
       };
     }
+    let tailDiag: { x: number; y: number; phase: string; hits: number; left: number } | null = null;
+    if (this.tail) {
+      const phase = tailPhase(this.tail, now);
+      if (phase !== "gone") {
+        const tip = tailTipAt(this.tail, now, face, floorY);
+        tailDiag = {
+          x: tip.x,
+          y: tip.y,
+          phase,
+          hits: this.tail.hits,
+          left: Math.max(0, TAIL_MS - (now - this.tail.bornAt)),
+        };
+      }
+    }
+    let kneadDiag: { x: number; y: number; phase: string; beats: number; left: number } | null = null;
+    if (this.knead) {
+      const phase = kneadPhase(this.knead, now);
+      if (phase !== "gone") {
+        const pad = kneadPads(this.knead, now, face, floorY)[0];
+        kneadDiag = {
+          x: pad.x,
+          y: pad.y,
+          phase,
+          beats: this.knead.beats,
+          left: Math.max(0, KNEAD_MS - (now - this.knead.bornAt)),
+        };
+      }
+    }
+    let rollDiag: { x: number; y: number; phase: string; flips: number; left: number } | null = null;
+    if (this.roll) {
+      const phase = rollPhase(this.roll, now);
+      if (phase !== "gone") {
+        rollDiag = {
+          x: face.cx,
+          y: face.bottom + face.h * 0.3,
+          phase,
+          flips: this.roll.flips,
+          left: Math.max(0, ROLL_MS - (now - this.roll.bornAt)),
+        };
+      }
+    }
+    let bookDiag: {
+      x: number; y: number; w: number; h: number; pages: number; phase: string; left: number;
+    } | null = null;
+    if (this.book) {
+      const phase = bookPhase(this.book, now);
+      if (phase !== "gone") {
+        const rect = bookRectFor(this.book, now, face);
+        bookDiag = {
+          x: rect.x + rect.w / 2,
+          y: rect.y + rect.h / 2,
+          w: rect.w,
+          h: rect.h,
+          pages: this.book.page,
+          phase,
+          left: Math.max(0, BOOK_MS - (now - this.book.bornAt)),
+        };
+      }
+    }
+    let giftDiag: {
+      x: number; y: number; w: number; h: number; opened: boolean; phase: string; left: number;
+    } | null = null;
+    if (this.gift) {
+      const phase = giftPhase(this.gift, now);
+      if (phase !== "gone") {
+        const rect = giftRectFor(this.gift, now, face, floorY);
+        giftDiag = {
+          x: rect.x + rect.w / 2,
+          y: rect.y + rect.h / 2,
+          w: rect.w,
+          h: rect.h,
+          opened: this.gift.openedAt >= 0,
+          phase,
+          left: Math.max(0, GIFT_MS - (now - this.gift.bornAt)),
+        };
+      }
+    }
+    let wishDiag: { x: number; y: number; phase: string; wished: boolean; left: number } | null = null;
+    if (this.wish) {
+      const phase = wishPhase(this.wish, now);
+      if (phase !== "gone") {
+        const star = wishStarAt(this.wish, now, face);
+        wishDiag = {
+          x: star.x,
+          y: star.y,
+          phase,
+          wished: this.wish.wishedAt >= 0,
+          left: Math.max(0, WISH_MS - (now - this.wish.bornAt)),
+        };
+      }
+    }
+    let hopDiag: {
+      squares: Array<{ x: number; y: number; w: number; h: number }>;
+      next: number; left: number;
+    } | null = null;
+    if (this.hop && hopAlive(this.hop, now)) {
+      const squares = [0, 1, 2].map((index) => {
+        const sq = hopSquareAt(this.hop!, now, face, floorY, index as 0 | 1 | 2);
+        return { x: sq.x + sq.w / 2, y: sq.y + sq.h / 2, w: sq.w, h: sq.h };
+      });
+      hopDiag = {
+        squares,
+        next: this.hop.next,
+        left: Math.max(0, HOP_MS - (now - this.hop.bornAt)),
+      };
+    }
+    let snowDiag: {
+      amount: number; built: boolean; left: number;
+      piles: Array<{ x: number; y: number; w: number; h: number }>;
+    } | null = null;
+    if (this.snow && snowAlive(this.snow, now)) {
+      snowDiag = {
+        amount: snowAmount(this.snow, now),
+        built: snowmanBuilt(this.snow),
+        left: Math.max(0, SNOW_MS - (now - this.snow.bornAt)),
+        piles: [0, 1, 2].map((i) => {
+          const pile = snowPileAt(this.snow!, now, face, floorY, i);
+          return { x: pile.x, y: pile.y, w: pile.w, h: pile.h };
+        }),
+      };
+    }
+    let fortuneDiag: { x: number; y: number; tier: number; revealed: boolean; phase: string; left: number } | null = null;
+    if (this.fortune) {
+      const phase = fortunePhase(this.fortune, now);
+      if (phase !== "gone") {
+        const slip = fortuneSlipAt(this.fortune, now, face);
+        fortuneDiag = {
+          x: slip.x + slip.w / 2,
+          y: slip.y + slip.h / 2,
+          tier: this.fortuneToday?.tier ?? 0,
+          revealed: this.fortune.revealed,
+          phase,
+          left: Math.max(0, FORTUNE_MS - (now - this.fortune.bornAt)),
+        };
+      }
+    }
     return {
       presence: { ...this.presencePose },
       noticeAgeMs: this.noticeAt < 0 ? -1 : now - this.noticeAt,
       dizzyLeft: snapshot?.dizzyLeft ?? 0,
       blush: this.blush,
       clip: this.getGirlClipId(),
+      gesture: this.animGesture?.clipId ?? null,
       fx: { ...this.lastFxCounts },
       cushion: this.cushion,
+      idle: {
+        phase: this.idle.phase,
+        since: this.idle.since,
+        until: this.idle.until,
+        left: girlIdleLeft(this.idle, now),
+        nextRest: this.idle.nextRest,
+        rests: this.idle.rests,
+        bouts: this.idle.bouts,
+        deep: this.idle.deep,
+        posture: this.idlePosture,
+        suspended: this.idleSuspended,
+      },
       toy: this.toyState
         ? {
             x: this.toyState.x, y: this.toyState.y,
@@ -1058,6 +1386,15 @@ export class PixelPetRenderer {
       mole: moleDiag,
       hug: hugDiag,
       rain: rainDiag,
+      tail: tailDiag,
+      knead: kneadDiag,
+      roll: rollDiag,
+      book: bookDiag,
+      gift: giftDiag,
+      wish: wishDiag,
+      hopscotch: hopDiag,
+      snow: snowDiag,
+      fortune: fortuneDiag,
       purrLeft: snapshot?.purrLeft ?? 0,
       prints: this.prints.length,
       follow: this.follow
@@ -1421,6 +1758,15 @@ export class PixelPetRenderer {
     this.mouse = null;
     this.mole = null;
     this.hug = null;
+    this.tail = null;
+    this.knead = null;
+    this.roll = null;
+    this.book = null;
+    this.gift = null;
+    this.wish = null;
+    this.hop = null;
+    this.fortune = null;
+    this.fortuneToday = null;
   }
 
   /** 本地闸门（安静/拖拽/睡着/被抛）；引擎另有更细的闸（眩晕/活动中）。 */
@@ -1572,6 +1918,96 @@ export class PixelPetRenderer {
     if (this.engine && !this.engine.rainStart(now)) return false;
     // 雨是背景：不 clearSoloToys，她可以一边玩一边听雨。
     this.rain = createRain(now);
+    // 引擎那侧的互斥已经清了 snowUntil；渲染端这份粒子也得当场收，不然两套天气同屏。
+    this.snow = null;
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startTail(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.tailStart(now)) return false;
+    this.clearSoloToys();
+    this.tail = createTail(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startKnead(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.kneadStart(now)) return false;
+    this.clearSoloToys();
+    this.knead = createKnead(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startRoll(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.rollStart(now)) return false;
+    this.clearSoloToys();
+    this.roll = createRoll(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startBook(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.bookStart(now)) return false;
+    this.clearSoloToys();
+    this.book = createBook(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startGift(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.giftStart(now)) return false;
+    this.clearSoloToys();
+    this.gift = createGift(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startWish(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.wishStart(now)) return false;
+    this.clearSoloToys();
+    this.wish = createWish(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startHopscotch(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.hopscotchStart(now)) return false;
+    this.clearSoloToys();
+    this.hop = createHopscotch(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startSnow(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.snowStart(now)) return false;
+    // 雪跟雨一样是氛围层：不占独演槽，雪里也能滚铃铛球。
+    this.rain = null;
+    this.snow = createSnow(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  /**
+   * 每日抽签：签是「今天的那张」，由引擎落盘并按天固定——渲染端只拿了结果挂到签纸上。
+   * 引擎拒绝（安静/忙/四足）时连签纸都不挂，不制造一张假签。
+   */
+  private startFortune(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    const today = this.engine?.fortuneStart(now) ?? null;
+    if (!today) return false;
+    this.clearSoloToys();
+    this.fortuneToday = today;
+    this.fortune = createFortune(now);
     if (!this.paused) this.draw(now);
     return true;
   }
@@ -1825,6 +2261,124 @@ export class PixelPetRenderer {
     return buildHugOps(this.hug, now, face, this.cat.center.y);
   }
 
+  /** 追尾巴：整轮走完才记一次；被顶掉的那一轮在 clearSoloToys 里静默作废。 */
+  private tickTail(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.tail) {
+      this.tail = null;
+      return [];
+    }
+    if (!tailAlive(this.tail, now)) {
+      this.tail = null;
+      this.engine?.tailEnd(now, true);
+      return [];
+    }
+    return buildTailOps(this.tail, now, face, this.cat.center.y);
+  }
+
+  private tickKnead(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.knead) {
+      this.knead = null;
+      return [];
+    }
+    if (!kneadAlive(this.knead, now)) {
+      this.knead = null;
+      // 踩完整轮才记一笔，顺手把呼噜续上（引擎里起呼噜）。
+      this.engine?.kneadEnd(now, true);
+      return [];
+    }
+    return buildKneadOps(this.knead, now, face, this.cat.center.y);
+  }
+
+  private tickRoll(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.roll) {
+      this.roll = null;
+      return [];
+    }
+    if (!rollAlive(this.roll, now)) {
+      this.roll = null;
+      this.engine?.rollEnd(now, true);
+      return [];
+    }
+    return buildRollOps(this.roll, now, face, this.cat.center.y);
+  }
+
+  private tickBook(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.book) {
+      this.book = null;
+      return [];
+    }
+    if (!bookAlive(this.book, now)) {
+      this.book = null;
+      this.engine?.bookEnd(now, true);
+      return [];
+    }
+    return buildBookOps(this.book, now, face);
+  }
+
+  private tickGift(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.gift) {
+      this.gift = null;
+      return [];
+    }
+    if (!giftAlive(this.gift, now)) {
+      // 没拆的礼物自己走掉：不计数、也不说风凉话。
+      this.gift = null;
+      return [];
+    }
+    return buildGiftOps(this.gift, now, face, this.cat.center.y);
+  }
+
+  private tickWish(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.wish) {
+      this.wish = null;
+      return [];
+    }
+    if (!wishAlive(this.wish, now)) {
+      this.wish = null;
+      return [];
+    }
+    return buildWishOps(this.wish, now, face);
+  }
+
+  private tickHopscotch(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.hop) {
+      this.hop = null;
+      return [];
+    }
+    if (!hopAlive(this.hop, now)) {
+      this.hop = null;
+      return [];
+    }
+    return buildHopOps(this.hop, now, face, this.cat.center.y);
+  }
+
+  private tickFortune(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.fortune) {
+      this.fortune = null;
+      this.fortuneToday = null;
+      return [];
+    }
+    if (fortunePhase(this.fortune, now) === "gone") {
+      this.fortune = null;
+      this.fortuneToday = null;
+      return [];
+    }
+    return buildFortuneOps(this.fortune, now, face);
+  }
+
+  /** 雪跟雨同为氛围层：不占独演槽，最长 SNOW_MS；雪人的结算由点击那一拍完成。 */
+  private tickSnow(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (!this.snow) return [];
+    if (this.form !== "girl" || !snowAlive(this.snow, now)) {
+      this.snow = null;
+      return [];
+    }
+    const zoom = this.zoom || 1;
+    const w = (this.opts.canvas.clientWidth || this.profile.base.width) / zoom;
+    const h = (this.opts.canvas.clientHeight || this.profile.base.height) / zoom;
+    return buildSnowOps(this.snow, now, w, h, face, this.cat.center.y);
+  }
+
   /** 雨是氛围层：跟独演玩具各走各的表，最长 RAIN_MS。 */
   private tickRain(now: number): DrawOp[] {
     if (!this.rain) return [];
@@ -1881,6 +2435,15 @@ export class PixelPetRenderer {
       ...this.tickMouse(now, face),
       ...this.tickMole(now, face),
       ...this.tickHug(now, face),
+      // v1.13.0：九件新玩具里八件走独演槽，雪是氛围层（在雨之前画）。
+      ...this.tickTail(now, face),
+      ...this.tickKnead(now, face),
+      ...this.tickRoll(now, face),
+      ...this.tickBook(now, face),
+      ...this.tickGift(now, face),
+      ...this.tickWish(now, face),
+      ...this.tickHopscotch(now, face),
+      ...this.tickFortune(now, face),
       ...this.tickPurr(now, face, snapshot),
       // 纸箱压在所有道具之上：她钻进去时箱身必须挡住整个人。
       ...this.tickBox(now, face),
@@ -1890,6 +2453,8 @@ export class PixelPetRenderer {
       const age = ACHIEVEMENT_MS - snapshot.achievementLeft;
       ops.push(...buildAchievementOps(snapshot.achievementId, age, face, now / 1000));
     }
+    // 雪丝盖在雨丝下面（两者引擎里互斥，同屏只可能有一层）。
+    ops.push(...this.tickSnow(now, face));
     // 雨丝盖在最上面：这是「此刻窗外」的氛围层，只输给气泡。
     ops.push(...this.tickRain(now));
     return ops;
@@ -2193,14 +2758,54 @@ export class PixelPetRenderer {
   }
 
   /**
+   * 待机编排一拍：只在「活动=idle 且没有独演玩具」时推进，其余时刻挂起。
+   * 挂起只 reset 一次（玩完回来一整支舞）；进入挂起时也 reset，保证下一次 idle
+   * 从舞开头起算，而不是接着玩之前那段剩几秒的疲惫。
+   */
+  private tickGirlIdle(now: number, activity: GirlActivity): void {
+    if (!this.idleTickInited) {
+      this.idleTickInited = true;
+      this.idle = createGirlIdle(now, GIRL_IDLE_SEED);
+    }
+    const canIdle = activity === "idle" && !this.girlToyOnScreen();
+    if (!canIdle) {
+      if (!this.idleSuspended) {
+        this.idleSuspended = true;
+        this.idle = resetGirlIdle(this.idle, now);
+      }
+      return;
+    }
+    if (this.idleSuspended) {
+      this.idleSuspended = false;
+      this.idle = resetGirlIdle(this.idle, now);
+    }
+    this.idle = stepGirlIdle(this.idle, now, { quiet: this.quiet });
+  }
+
+  /** 独演道具/点心/小虫/跟随任一在场：待机编排让位，别在她玩的时候坐下。 */
+  private girlToyOnScreen(): boolean {
+    return this.wand !== null || this.bubbles !== null || this.leaves !== null
+      || this.rps !== null || this.box !== null || this.laser !== null
+      || this.brush !== null || this.catnip !== null || this.plane !== null
+      || this.bird !== null || this.scratch !== null || this.bell !== null
+      || this.mouse !== null || this.mole !== null || this.hug !== null
+      || this.tail !== null || this.knead !== null || this.roll !== null
+      || this.book !== null || this.gift !== null || this.wish !== null
+      || this.hop !== null || this.fortune !== null
+      || this.snack !== null || this.critter !== null || this.follow !== null;
+  }
+
+  /**
    * 每帧把「活动/环境手势/显式手势」翻译成要播的帧段（dsh-pet 的加权状态链）：
    * 1. 显式手势（点击反馈/workStatus）最高优先，一次性播完就回基础动作；
    * 2. 引擎自主抽到的小动作（snapshot.gesture，权重 80）只在换 id 时起播，
-   *    否则每帧重置会把同一段动作钉在第一帧；
-   * 3. 其余时间播活动对应的循环/长段（待机/走路/睡觉…）。
+   *    否则每帧重置会把同一段动作钉在第一帧；她坐着/趴着时这条闸关掉——
+   *    否则引擎每 80 权重抽一次，编排永远走不到「歇一会」；
+   * 3. 其余时间播待机编排给的段（跳舞/坐下/打盹/起身），非 idle 活动走原映射。
    */
   private tickGirlClip(now: number, snapshot: CompanionSnapshot | null): void {
     const activity = (snapshot?.activity ?? "idle") as GirlActivity;
+    this.tickGirlIdle(now, activity);
     const explicit = this.explicitGesture;
     if (explicit) {
       // 与静态路径同口径：显式手势是一次性的，起播即消费，播完自动让位。
@@ -2212,7 +2817,8 @@ export class PixelPetRenderer {
       }
     } else {
       const ambient = snapshot?.gesture ?? null;
-      if (ambient && ambient !== this.lastAmbientGesture) {
+      const ambientAllowed = activity !== "idle" || this.idle.phase === "dance";
+      if (ambientAllowed && ambient && ambient !== this.lastAmbientGesture) {
         const clipId = gestureClipFor(ambient);
         if (clipId) {
           this.animGesture = { clipId, startedAt: now };
@@ -2224,7 +2830,9 @@ export class PixelPetRenderer {
 
     if (this.animGesture && this.girlPlayer.isDone(now)) this.animGesture = null;
     if (!this.animGesture) {
-      const base = baseClipFor(activity, this.quiet);
+      const base = activity === "idle"
+        ? girlIdleClip(this.idle.phase)
+        : baseClipFor(activity, this.quiet);
       if (base !== this.girlPlayer.clipId) this.girlPlayer.setClip(base, now);
     }
   }
@@ -2255,6 +2863,17 @@ export class PixelPetRenderer {
     if (this.cushion < 0.01) this.cushion = 0;
     const cushionMoving = Math.abs(cushionTarget - this.cushion) > 0.01;
 
+    // 待机编排的坐/趴量：只有「真的闲着且没有手势在演」才吃编排姿态；引擎的 rest
+    // 也坐（垫子已展开），其余活动/玩具一律回站姿。缓动与坐垫同一条时间常数。
+    const activityForPosture = (snapshot?.activity ?? "idle") as GirlActivity;
+    const idleOnStage = this.form === "girl" && activityForPosture === "idle" && this.animGesture === null;
+    const postureTarget = idleOnStage
+      ? GIRL_IDLE_POSTURE[this.idle.phase]
+      : activityForPosture === "rest" ? GIRL_IDLE_POSTURE.sit : 0;
+    this.idlePosture += (postureTarget - this.idlePosture) * (1 - Math.exp(-dtFx / 240));
+    if (this.idlePosture < 0.005) this.idlePosture = 0;
+    this.cat.pose.sprawl = this.idlePosture;
+
     // 三档 fps：走路/投掷/滚球要 60，气泡/藏身缓动/计时动作 30，静坐 4。
     const moving = snapshot !== null
       && (snapshot.activity === "walk" || snapshot.activity === "thrown");
@@ -2274,6 +2893,9 @@ export class PixelPetRenderer {
       || this.catnip !== null || this.plane !== null || this.bird !== null
       || this.scratch !== null || this.bell !== null || this.mouse !== null
       || this.mole !== null || this.hug !== null || this.rain !== null
+      || this.tail !== null || this.knead !== null || this.roll !== null
+      || this.book !== null || this.gift !== null || this.wish !== null
+      || this.hop !== null || this.snow !== null || this.fortune !== null
       || (snapshot !== null && snapshot.purrLeft > 0)
       || (snapshot !== null && snapshot.achievementLeft > 0)
     );
@@ -2511,6 +3133,16 @@ export class PixelPetRenderer {
     this.mole = null;
     this.hug = null;
     this.rain = null;
+    this.tail = null;
+    this.knead = null;
+    this.roll = null;
+    this.book = null;
+    this.gift = null;
+    this.wish = null;
+    this.hop = null;
+    this.snow = null;
+    this.fortune = null;
+    this.fortuneToday = null;
     this.prints = [];
     this.lastPrintAt = 0;
     this.follow = null;
@@ -2519,6 +3151,11 @@ export class PixelPetRenderer {
     this.engine?.setForm(form);
     this.animGesture = null;
     this.lastAmbientGesture = null;
+    // 待机编排换人重来：下一帧从「一整支舞」起跳，旧形态的坐/趴量当场清掉。
+    this.idleTickInited = false;
+    this.idleSuspended = false;
+    this.idlePosture = 0;
+    this.cat.pose.sprawl = 0;
     if (form === "girl") this.girlPlayer.reset("idle", performance.now());
     // 两个形态的绘制原点不同（猫 −17/+4.5s、猫娘 0/+79s）：切形态必须当场重算，
     // 否则等下一帧 requestBounds 才归位，中间会闪一帧「猫娘浮在猫的位置上」。
@@ -2571,6 +3208,31 @@ export class PixelPetRenderer {
     const zoom = this.zoom || 1;
     const dx = cssX / zoom;
     const dy = cssY / zoom;
+    // 雪堆画在最上层（天气层），点它先于脚边的一切玩具：这里是 82px 窗里唯一「能伸手」的雪。
+    if (this.snow && snowAlive(this.snow, now)) {
+      const tapFaceForSnow = this.girlFaceAt(now);
+      // 三堆挨得比堆身还近（相邻中心只差 5px，堆宽 12），按「先命中」会把右边两下
+      // 全算到左边那堆头上；一掌拍最近的那堆才符合眼睛看到的落点。
+      let hitPile = -1;
+      let hitDist = Infinity;
+      for (let i = 0; i < 3; i += 1) {
+        const pile = snowPileAt(this.snow, now, tapFaceForSnow, this.cat.center.y, i);
+        if (dx < pile.x || dx > pile.x + pile.w || dy < pile.y || dy > pile.y + pile.h) continue;
+        const dist = Math.hypot(dx - (pile.x + pile.w / 2), dy - (pile.y + pile.h / 2));
+        if (dist < hitDist) {
+          hitDist = dist;
+          hitPile = i;
+        }
+      }
+      if (hitPile >= 0) {
+        const packed = packSnow(this.snow, now, hitPile);
+        if (packed && snowmanBuilt(this.snow) && this.engine?.snowmanMade(now)) {
+          this.engine.save();
+        }
+        if (!this.paused) this.draw(now);
+        return;
+      }
+    }
     // 泡泡和逗猫棒都悬在脸附近：先按各自的小命中区判，点不中才落到摸头/挠脚。
     if (this.bubbles) {
       const id = bubbleAt(this.bubbles, now, this.cat.center.y, dx, dy);
@@ -2595,6 +3257,67 @@ export class PixelPetRenderer {
     // 尤其纸箱整只盖住脚边的球，球却先被点中过一次（v1.11 真窗探针 O1 抓到）。
     const tapFacing = this.cat.facing ?? 1;
     const tapFloorY = this.cat.center.y;
+    // v1.13.0 九件新玩具画在抱抱与旧玩具之上：命中按绘制倒序，最上层先判。
+    // 签纸挂在脸侧、星子浮在头顶、书在胸前——都落在 hugAtPoint 的大椭圆里，
+    // 不先拦下来，点星子会被读成「再抱一下」。
+    if (this.fortune && fortuneAtPoint(this.fortune, now, tapFace, dx, dy)) {
+      const today = this.fortuneToday;
+      if (today && revealFortune(this.fortune, today)) {
+        if (this.engine?.fortuneReveal(today.tier, now)) this.engine.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
+    if (this.hop && hopAlive(this.hop, now)) {
+      const idx = hopAtPoint(this.hop, now, tapFace, tapFloorY, dx, dy);
+      if (idx >= 0) {
+        const step = stepHop(this.hop, now, idx);
+        if (step === "wrong") {
+          this.engine?.hopscotchMiss(now);
+        } else if (step === "done" && this.engine?.hopscotchDone(now)) {
+          this.engine.save();
+        }
+        if (!this.paused) this.draw(now);
+        return;
+      }
+    }
+    if (this.wish && wishAtPoint(this.wish, now, tapFace, dx, dy)) {
+      if (makeWish(this.wish, now)) {
+        if (this.engine?.wishMake(now)) this.engine.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
+    if (this.gift && giftAtPoint(this.gift, now, tapFace, tapFloorY, dx, dy)) {
+      if (openGift(this.gift, now)) {
+        if (this.engine?.giftOpen(now)) this.engine.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
+    if (this.book && bookAtPoint(this.book, now, tapFace, dx, dy)) {
+      if (turnPage(this.book, now) && !this.paused) this.draw(now);
+      return;
+    }
+    if (this.roll && rollAtPoint(this.roll, now, tapFace, tapFloorY, dx, dy)) {
+      if (flipRoll(this.roll, now) === "flip" && !this.paused) this.draw(now);
+      return;
+    }
+    if (this.knead && kneadAtPoint(this.knead, now, tapFace, tapFloorY, dx, dy)) {
+      if (pressKnead(this.knead, now) && !this.paused) this.draw(now);
+      return;
+    }
+    // 尾巴尖一直在动：先判「这一下是不是落在尖上」，冷却里的连点被吞掉也不许穿过去摸头。
+    if (this.tail && tailPhase(this.tail, now) === "chase") {
+      const tip = tailTipAt(this.tail, now, tapFace, tapFloorY);
+      if (Math.hypot(dx - tip.x, dy - tip.y) <= tip.r + 4) {
+        if (chaseTail(this.tail, now, tapFace, tapFloorY, dx, dy) === "dizzy") {
+          this.engine?.tailDizzy(now);
+        }
+        if (!this.paused) this.draw(now);
+        return;
+      }
+    }
     // 抱抱时她整个人都张着手：点上身＝再抱紧一点，这一下不算摸头。
     if (this.hug && hugAtPoint(tapFace, dx, dy)) {
       if (tapHug(this.hug, now)) {

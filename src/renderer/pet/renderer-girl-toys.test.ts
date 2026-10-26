@@ -182,6 +182,7 @@ describe("v1.10.0 玩具箱接缝", () => {
       pats: 0, catches: 0, wand: 0, bubbles: 0, pounces: 0,
       boxes: 0, lasers: 0, brushes: 0, catnips: 0, planes: 0,
       scratches: 0, bells: 0, mice: 0, moles: 0, hugs: 0, purrs: 0, rains: 0, quests: 0,
+      tails: 0, kneads: 0, rolls: 0, books: 0, gifts: 0, wishes: 0, hopscotch: 0, snowmen: 0, fortunes: 0,
     });
     r.dispose();
   });
