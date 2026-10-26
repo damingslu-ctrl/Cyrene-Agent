@@ -1486,3 +1486,27 @@ v1.14 把待机底子换成了真姿态，但「招招手 / 鞠躬 / 剪刀手 /
   （`dist/renderer/pet/girl-poses2.webp` 278,226 B）。
 - 未覆盖：`kneel`（正坐）只有画与注册，暂无入口；图集 II 在最小窗宽下的缩放未压测；
   深歇只在 idle 编排里出现，`rest` 活动仍固定坐姿。
+
+### 23.7 发布证据（2026-10-26）
+
+- 提交 `9d33d587312cb4726bd3b00edcd36281cbad431f`，annotated tag `v1.15.0`
+  （peel 到同一 commit）；只推 `damingslu-ctrl/Cyrene-Agent`，上游未动。
+- 打包（CI）：workflow_dispatch run `40288151517`（ref `v1.15.0`），`startedAt`
+  `07:49:22Z` → `updatedAt` `07:56:05Z`（6m43s），`conclusion: success`，含
+  `Verify installer artifacts`：`[installer] verified …Mochi-Setup-1.15.0.exe
+  (296880680 bytes) — v1.15.0`；仅一条 Node.js 20 弃用 annotation。
+- 产物（CI artifact）：`mochi-windows-installer` zip **296,544,441 B**，
+  `digest sha256:ab34b8a8806b0f663b3166438ed1b65a3344a2fc6b2218f9dfa7e847f698da88`；
+  GitHub artifact zip 下载在本机反复被 interrupt（80–283 MB 处 EOF，最终件 CRC 不符），
+  两次 `gh run download` 都在写 zip 阶段 `unexpected EOF`。
+- 本机重打包（同一 `electron-builder 26.15.3`、同一 commit、同一 build 命令
+  `--win nsis --publish never`）：`Mochi-Setup-1.15.0.exe` **296,982,786 B**，
+  `sha256 ecc76ae38543f0a7de9ea062cc8bd3775e174d4165efaf6b7f3a7cfa971f3e0d`，
+  同一 `verify:installer` 核对通过（`verified … — v1.15.0`）。
+  **两者相差 102,106 B，来源已定位**：`resources/bin/cyrene-screenshot.exe` 是
+  gitignore 的本机构建产物（`resources/bin/*.exe`），本机 helper 2,337,688 B、
+  CI 645,632 B；其余内容由同一 verify 脚本逐项核对。Release 附件用本机这一份：
+  上传后 GitHub asset `digest` = `sha256:ecc76ae38543f0a7de9ea062cc8bd3775e174d4165efaf6b7f3a7cfa971f3e0d`，
+  与本地 `sha256sum` 逐字节一致（`size 296982786`、`state uploaded`）。
+- Release [v1.15.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.15.0)：
+  `isDraft:false`、`isPrerelease:false`、latest，公开于 `2026-10-26T07:58:45Z`。

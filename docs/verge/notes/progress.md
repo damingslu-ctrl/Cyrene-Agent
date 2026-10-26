@@ -758,3 +758,19 @@
   `nod` 仍 `clip=peek`，`atlases={poses:true,poses2:true}`。截图
   `D:/cyrene-p5-accept/shots-v115/`（`girl-idle-prone.png` / `girl-gesture-wave.png` /
   `girl-gesture-bow.png` 逐张过目）。
+
+### v1.15.0 发布证据（2026-10-26）
+
+- commit `9d33d587` + annotated tag `v1.15.0`（peel 同一 commit）；只推 fork，上游未动。
+- CI：run `40288151517`（ref `v1.15.0`），`07:49:22Z → 07:56:05Z`（6m43s）全步绿，
+  `[installer] verified …Mochi-Setup-1.15.0.exe (296880680 bytes) — v1.15.0`。
+- artifact zip `296,544,441 B` / `sha256 ab34b8a8…`。**GitHub artifact zip 下载链路在本次
+  不可用**：`gh run download` 两次在写 zip 阶段 `unexpected EOF`；改用 curl 断点续传 39 轮
+  拿全 296,544,441 B，但 zip CRC 不符（`27d6f40f…` ≠ `ab34b8a8…`），说明续传拼接处损坏。
+- 于是用**同一 commit、同一 electron-builder 26.15.3、同一命令**在本机重打包：
+  `296,982,786 B` / `sha256 ecc76ae3…`，`verify:installer` 同样核对通过。与 CI 差
+  **102,106 B**，来源已定位到 gitignore 的本机 `resources/bin/cyrene-screenshot.exe`
+  （本机 2,337,688 B vs CI 645,632 B），不是版本内容差异。
+- Release [v1.15.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.15.0)：
+  非草稿、非预发布、latest，`publishedAt 2026-10-26T07:58:45Z`；附件 `Mochi-Setup-1.15.0.exe`
+  `296,982,786 B`，GitHub asset digest `sha256:ecc76ae3…` 与本地 hash 一致。
