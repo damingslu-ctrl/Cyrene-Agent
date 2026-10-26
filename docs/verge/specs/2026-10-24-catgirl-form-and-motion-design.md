@@ -1262,3 +1262,16 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
 - 未覆盖：抓满三下/踩满六拍/翻满三个/翻满三页的封顶逐毫秒、礼物不拆作废的真窗复演、
   跳格子八秒内多次踩错的完整序列、雪人三堆的每掌冷却边界、抽签跨天换签的真窗复演
   （由纯模块与引擎单测锁条件）；趴/深歇与免打扰打断趴的真窗同框（探针这一跑只截到坐）。
+
+### 21.7 发布证据（v1.13.0）
+
+- 提交 `e2f09c87b5340f7e2220b1d38608c6dac39426b7`，annotated tag `v1.13.0`
+  （tag 对象 `e48a259c…`，peel 同一 commit）；只推 `damingslu-ctrl/Cyrene-Agent`，
+  上游未动。
+- 打包：workflow_dispatch run `40251741637`（ref `v1.13.0`），`package` job 4m37s
+  全步绿（2026-10-26T00:56:17Z → 01:00:58Z）；仅有一条 Node.js 20 弃用 annotation。
+- 产物：`Mochi-Setup-1.13.0.exe` **296,299,092 B**，
+  `sha256 c191c60df721f233c12e34045b764797f4545b5854607db157621030b5bb01ac`；
+  本地下载件与 GitHub asset digest 一致。
+- Release [v1.13.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.13.0)：
+  `draft:false`、`prerelease:false`、latest；公开于 `2026-10-26T01:11:54Z`。

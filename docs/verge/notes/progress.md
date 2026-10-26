@@ -671,3 +671,14 @@
   `pet-girl-report.json`）。
 - 未覆盖：各玩具封顶边界、礼物不拆作废、跳格子多次踩错的完整序列、雪堆冷却边界、
   抽签跨天换签；趴/深歇与免打扰打断趴的真窗同框（本轮只截到坐），由单测锁语义。
+
+### v1.13.0 发布证据（2026-10-26）
+
+- commit `e2f09c87` + annotated tag `v1.13.0`（tag 对象 `e48a259c…`，peel 同一 commit）；
+  只推 fork，上游未动。
+- CI：workflow_dispatch run `40251741637`（ref `v1.13.0`），`package` job 4m37s 全步绿
+  （00:56:17Z → 01:00:58Z）；仅一条 Node.js 20 弃用 annotation。
+- Release [v1.13.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.13.0)：
+  `isDraft:false`、`isPrerelease:false`、latest；资产 `Mochi-Setup-1.13.0.exe`
+  **296,299,092 B** / `sha256 c191c60df721f233c12e34045b764797f4545b5854607db157621030b5bb01ac`
+  （本地下载件与 GitHub asset digest 一致），公开于 `2026-10-26T01:11:54Z`。
