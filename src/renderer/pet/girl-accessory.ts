@@ -1,7 +1,7 @@
 import type { AccessoryId } from "../../shared/pet-accessory";
 import { ACCENT, PAPER, ROSE, ROSE_DEEP, withAlpha } from "../../shared/pet-tokens";
 import type { CompanionActivity } from "./companion";
-import { girlFaceBox, type GirlAnimBody } from "./girl-sprite";
+import { girlFaceBox, type GirlAnimBody, type GirlFaceBox } from "./girl-sprite";
 import type { DrawOp } from "./ops";
 
 /**
@@ -17,6 +17,8 @@ export interface AccessoryInput {
   nowSec: number;
   activity: CompanionActivity;
   facing: 1 | -1;
+  /** 当前显示姿态图时由 `girlPoseFaceBox` 给出；缺省按帧号取。 */
+  face?: GirlFaceBox;
   /** 缺省 = 不戴（渲染器直接拿引擎快照喂进来）。 */
   accessory?: AccessoryId;
 }
@@ -176,7 +178,7 @@ function starOps(x: number, y: number, r: number, spin: number): DrawOp[] {
 export function buildAccessoryOps(input: AccessoryInput): DrawOp[] {
   const id = input.accessory ?? "none";
   if (id === "none") return [];
-  const face = girlFaceBox(input.body, input.frame);
+  const face = input.face ?? girlFaceBox(input.body, input.frame);
   const facing = input.facing;
   const walk = input.activity === "walk";
   const sway = Math.sin(input.nowSec * 2.1) * face.w * 0.035 + (walk ? Math.sin(input.nowSec * 9.5) * face.w * 0.03 : 0);

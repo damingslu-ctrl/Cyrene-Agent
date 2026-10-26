@@ -1,191 +1,167 @@
 import { describe, expect, it } from "vitest";
 import {
-  GIRL_IDLE_DOZE_CHANCE,
-  GIRL_IDLE_POSTURE,
+  GIRL_IDLE_SEED,
   GIRL_IDLE_TIMING,
   createGirlIdle,
-  girlIdleClip,
   girlIdleLeft,
+  girlIdlePose,
   idleJitter,
   resetGirlIdle,
   stepGirlIdle,
   type GirlIdleState,
+  type GirlLifePhase,
 } from "./girl-idle";
 
 const T0 = 1_000_000;
 
-function runFor(seed: number, ms: number, opts: { quiet?: boolean; from?: GirlIdleState } = {}) {
-  const quiet = opts.quiet ?? false;
-  let s = opts.from ?? createGirlIdle(T0, seed);
-  const seen: Array<{ phase: string; since: number; until: number; deep: boolean }> = [];
-  let now = s.since;
-  const deadline = now + ms;
-  let last = s.phase;
-  while (now < deadline) {
-    const next = stepGirlIdle(s, now, { quiet });
-    if (next !== s) {
-      seen.push({ phase: next.phase, since: next.since, until: next.until, deep: next.deep });
-      last = next.phase;
-    }
-    s = next;
-    now += Math.max(1, Math.min(250, s.until - now));
+function run(
+  start: GirlIdleState,
+  opts: { quiet?: boolean; steps?: number } = {},
+): { states: GirlIdleState[]; state: GirlIdleState } {
+  const states: GirlIdleState[] = [];
+  let state = start;
+  const steps = opts.steps ?? 40;
+  for (let i = 0; i < steps; i += 1) {
+    const at = state.until + 1;
+    state = stepGirlIdle(state, at, { quiet: opts.quiet ?? false });
+    states.push(state);
   }
-  return { state: s, seen, last };
+  return { states, state };
 }
 
-function inRange(span: number, [lo, hi]: readonly [number, number]): boolean {
-  return span >= lo && span <= hi;
-}
-
-describe("v1.13.0 待机体力编排（跳舞 → 坐/趴 → 起身）", () => {
-  it("从一支舞开始：到期前不动，到期才换姿势", () => {
-    const s = createGirlIdle(T0, 7);
-    expect(s.phase).toBe("dance");
+describe("girl idle life loop", () => {
+  it("starts calm on the stand pose, not a dance", () => {
+    const s = createGirlIdle(T0, GIRL_IDLE_SEED);
+    expect(s.phase).toBe("stand");
+    expect(girlIdlePose(s.phase)).toBe("stand");
     expect(s.since).toBe(T0);
-    expect(inRange(s.until - T0, GIRL_IDLE_TIMING.dance)).toBe(true);
-    expect(stepGirlIdle(s, T0 + 1, { quiet: false })).toBe(s);
-    expect(stepGirlIdle(s, s.until - 1, { quiet: false })).toBe(s);
-
-    const after = stepGirlIdle(s, s.until, { quiet: false });
-    expect(after.phase).toBe("sit");
-    expect(after.nextRest).toBe("lie");
-    expect(after.rests).toBe(1);
+    expect(s.until - s.since).toBeGreaterThanOrEqual(GIRL_IDLE_TIMING.stand[0]);
+    expect(s.until - s.since).toBeLessThanOrEqual(GIRL_IDLE_TIMING.stand[1]);
   });
 
-  it("坐/趴之后必须经过 stand 才能回到 dance（起身是一段看得见的动作）", () => {
-    const { seen } = runFor(3, 120_000);
-    const phases = seen.map((s) => s.phase);
-    expect(phases[0]).toBe("sit");
-    // 第一轮坐下之后要么先深歇趴下，要么直接起身；两条岔路都得先离开坐姿。
-    expect(["stand", "lie"]).toContain(phases[1]);
-    // 每一段 rest 的下一段只能是 stand 或（坐着再趴下）lie。
-    for (let i = 0; i < seen.length; i += 1) {
-      if (seen[i].phase !== "sit" && seen[i].phase !== "lie") continue;
-      expect(["stand", "lie"]).toContain(seen[i + 1]?.phase);
-      if (seen[i].phase === "lie") expect(seen[i + 1].phase).toBe("stand");
+  it("visits every life phase and never returns to the dance clip", () => {
+    const { states } = run(createGirlIdle(T0, GIRL_IDLE_SEED), { steps: 120 });
+    const phases = new Set(states.map((s) => s.phase));
+    const all: GirlLifePhase[] = ["stand", "look", "sit", "curl", "stretch", "joy"];
+    for (const phase of all) expect(phases.has(phase), `missing ${phase}`).toBe(true);
+    expect(phases.has("dance" as never)).toBe(false);
+  });
+
+  it("rests on real seated poses and always stands up before moving on", () => {
+    const { states } = run(createGirlIdle(T0, GIRL_IDLE_SEED), { steps: 120 });
+    for (let i = 1; i < states.length; i += 1) {
+      const prev = states[i - 1];
+      const next = states[i];
+      if (prev.phase === "sit") expect(["curl", "stand"]).toContain(next.phase);
+      if (prev.phase === "curl") expect(next.phase).toBe("stand");
+      if (prev.phase === "stretch" || prev.phase === "joy") expect(next.phase).toBe("stand");
+      if (next.phase === "sit" || next.phase === "curl") expect(prev.phase).not.toBe(next.phase);
     }
+    expect(states.every((s) => s.phase !== "dance")).toBe(true);
   });
 
-  it("每一轮开场歇什么会轮换：坐与趴交替出现（不是永远同一种）", () => {
-    for (const seed of [1, 2, 3, 4, 5]) {
-      const { seen } = runFor(seed, 180_000);
-      const rests = seen.filter((s) => s.phase === "sit" || s.phase === "lie");
-      expect(rests.length).toBeGreaterThanOrEqual(3);
-      // 「开场歇」=这一轮从 dance 出来的那一次；坐够了自己趴下不算新一轮。
-      const starts: string[] = [];
-      for (let i = 0; i < seen.length; i += 1) {
-        if (seen[i].phase !== "sit" && seen[i].phase !== "lie") continue;
-        const prev = seen[i - 1]?.phase;
-        if (prev !== "sit" && prev !== "lie") starts.push(seen[i].phase);
+  it("gets tired after active beats and prefers sitting or curling when weary", () => {
+    let s = createGirlIdle(T0, GIRL_IDLE_SEED);
+    s = { ...s, weariness: 0.9, phase: "stand" };
+    const next = stepGirlIdle(s, s.until + 1, { quiet: false });
+    expect(["sit", "curl"]).toContain(next.phase);
+    expect(next.weariness).toBeGreaterThan(0.5);
+
+    const fresh = stepGirlIdle({ ...s, weariness: 0.05 }, s.until + 1, { quiet: false });
+    expect(["stand", "look", "stretch", "joy", "sit"]).toContain(fresh.phase);
+  });
+
+  it("rests within a handful of active beats instead of waiting for a lucky roll", () => {
+    let s = createGirlIdle(T0, GIRL_IDLE_SEED);
+    let active = 0;
+    for (let i = 0; i < 12; i += 1) {
+      s = stepGirlIdle(s, s.until + 1, { quiet: false });
+      if (s.phase === "sit" || s.phase === "curl") break;
+      active += 1;
+    }
+    // 「跳累了就坐下/趴下」是作息，不是抽奖：连着几段主动就必须歇一段。
+    expect(active).toBeLessThanOrEqual(4);
+    expect(s.phase === "sit" || s.phase === "curl").toBe(true);
+  });
+
+  it("never lets two sits pass without curling in between", () => {
+    const { states } = run(createGirlIdle(T0, GIRL_IDLE_SEED), { steps: 120 });
+    let sits = 0;
+    let curls = 0;
+    for (const s of states) {
+      if (s.phase === "curl") {
+        curls += 1;
+        sits = 0;
+      } else if (s.phase === "sit") {
+        sits += 1;
+        expect(sits, "two sits without a curl").toBeLessThanOrEqual(1);
       }
-      expect(starts.length).toBeGreaterThanOrEqual(2);
-      for (let i = 1; i < starts.length; i += 1) expect(starts[i]).not.toBe(starts[i - 1]);
     }
+    expect(curls).toBeGreaterThan(0);
   });
 
-  it("坐够了可能自己再趴下（深歇），深歇时长走 doze 档", () => {
-    let chained: GirlIdleState | null = null;
-    let plain: GirlIdleState | null = null;
-    for (let seed = 0; seed < 80 && (!chained || !plain); seed += 1) {
-      let s = createGirlIdle(T0, seed);
-      let now = T0;
-      for (let i = 0; i < 12; i += 1) {
-        now = s.until;
-        const next = stepGirlIdle(s, now, { quiet: false });
-        if (s.phase === "sit" && next.phase === "lie" && !chained) chained = next;
-        if (s.phase === "sit" && next.phase === "stand" && !plain) plain = next;
-        s = next;
+  it("counts every rest and cools down while resting", () => {
+    const { states } = run(createGirlIdle(T0, GIRL_IDLE_SEED), { steps: 80 });
+    const rests = states.filter((s) => s.phase === "sit" || s.phase === "curl");
+    expect(rests.length).toBeGreaterThan(0);
+    for (let i = 1; i < states.length; i += 1) {
+      const prev = states[i - 1];
+      const next = states[i];
+      if (next.phase === "sit" || next.phase === "curl") {
+        expect(next.rests).toBe(prev.rests + 1);
       }
     }
-    expect(chained).not.toBeNull();
-    expect(plain).not.toBeNull();
-    expect(chained!.deep).toBe(true);
-    expect(inRange(chained!.until - chained!.since, GIRL_IDLE_TIMING.doze)).toBe(true);
-    // 直接趴下（这一轮就该趴）的时长比「坐够了再趴」长。
-    expect(GIRL_IDLE_TIMING.lie[0]).toBeGreaterThan(GIRL_IDLE_TIMING.doze[0]);
+    const firstSit = states.find((s) => s.phase === "sit");
+    const afterCurl = states.find((s) => s.weariness < 0.4);
+    expect(firstSit).toBeTruthy();
+    expect(afterCurl).toBeTruthy();
   });
 
-  it("同一 seed 的作息完全可复现，不同 seed 会抖出不同时长", () => {
-    const a = runFor(42, 120_000).seen;
-    const b = runFor(42, 120_000).seen;
-    expect(b).toEqual(a);
-    const durations = new Set(a.map((s) => s.until - s.since));
-    expect(durations.size).toBeGreaterThan(1);
-    const other = runFor(43, 120_000).seen;
-    expect(other.map((s) => s.until - s.since)).not.toEqual(a.map((s) => s.until - s.since));
-  });
-
-  it("所有档位的时长都落在表内，且没有零长度段", () => {
-    const edges: Record<string, string[]> = {
-      dance: ["sit", "lie"],
-      sit: ["lie", "stand"],
-      lie: ["stand"],
-      stand: ["dance"],
+  it("never curls or celebrates in quiet mode, and stands up if it is already curled", () => {
+    const curled: GirlIdleState = {
+      ...createGirlIdle(T0, GIRL_IDLE_SEED),
+      phase: "curl",
+      since: T0,
+      until: T0 + 6_000,
+      weariness: 0.7,
     };
-    for (let seed = 0; seed < 500; seed += 1) {
-      const { seen } = runFor(seed, 240_000);
-      for (let i = 0; i < seen.length; i += 1) {
-        const s = seen[i];
-        const span = s.until - s.since;
-        const key = s.phase === "lie" && s.deep ? "doze" : s.phase;
-        expect(inRange(span, GIRL_IDLE_TIMING[key as keyof typeof GIRL_IDLE_TIMING])).toBe(true);
-        if (i > 0) expect(edges[seen[i - 1].phase]).toContain(s.phase);
-      }
-    }
-    for (const [lo, hi] of Object.values(GIRL_IDLE_TIMING)) expect(hi).toBeGreaterThan(lo);
-    expect(GIRL_IDLE_DOZE_CHANCE).toBeGreaterThan(0);
-    expect(GIRL_IDLE_DOZE_CHANCE).toBeLessThan(1);
-    expect(idleJitter(9, 1)).toBeGreaterThanOrEqual(0);
-    expect(idleJitter(9, 1)).toBeLessThan(1);
-    expect(idleJitter(9, 1)).not.toBe(idleJitter(9, 2));
-  });
-
-  it("免打扰：不趴（闭眼趴着会被读成睡着），正在趴就立刻起来", () => {
-    const { seen } = runFor(11, 240_000, { quiet: true });
-    expect(seen.some((s) => s.phase === "lie")).toBe(false);
-    expect(seen.some((s) => s.phase === "sit")).toBe(true);
-
-    // 找一个正在趴的现场：关掉免打扰跑，趴下那一帧改开安静。
-    let lying: GirlIdleState | null = null;
-    let s = createGirlIdle(T0, 2);
-    for (let now = T0; now < T0 + 120_000; now += 250) {
-      s = stepGirlIdle(s, now, { quiet: false });
-      if (s.phase === "lie") {
-        lying = s;
-        break;
-      }
-    }
-    expect(lying).not.toBeNull();
-    const woken = stepGirlIdle(lying!, lying!.since + 500, { quiet: true });
+    const woken = stepGirlIdle(curled, T0 + 1_000, { quiet: true });
     expect(woken.phase).toBe("stand");
-    expect(woken.since).toBe(lying!.since + 500);
-    expect(inRange(woken.until - woken.since, GIRL_IDLE_TIMING.stand)).toBe(true);
+
+    const { states } = run(createGirlIdle(T0, GIRL_IDLE_SEED), { quiet: true, steps: 80 });
+    expect(states.every((s) => s.phase !== "curl" && s.phase !== "joy")).toBe(true);
+    expect(states.some((s) => s.phase === "sit")).toBe(true);
   });
 
-  it("玩完回来（reset）永远先给一整支舞，不接着刚才的疲惫", () => {
-    let s = createGirlIdle(T0, 5);
-    for (let now = T0; now < T0 + 60_000; now += 250) s = stepGirlIdle(s, now, { quiet: false });
-    const interrupted = s;
-
-    const reset = resetGirlIdle(s, T0 + 60_000);
-    expect(reset.phase).toBe("dance");
+  it("resets to a calm stand, not into the dance", () => {
+    const state = { ...createGirlIdle(T0, GIRL_IDLE_SEED), phase: "curl" as const, weariness: 0.9 };
+    const reset = resetGirlIdle(state, T0 + 60_000);
+    expect(reset.phase).toBe("stand");
     expect(reset.since).toBe(T0 + 60_000);
-    expect(inRange(reset.until - reset.since, GIRL_IDLE_TIMING.dance)).toBe(true);
-    // 轮换游标保留：下一轮该趴还是趴，不会因为被打断就重洗。
-    expect(reset.nextRest).toBe(interrupted.nextRest);
+    expect(reset.weariness).toBeLessThanOrEqual(0.35);
+    expect(reset.bouts).toBe(state.bouts + 1);
     expect(girlIdleLeft(reset, T0 + 60_000)).toBe(reset.until - reset.since);
     expect(girlIdleLeft(reset, reset.until + 500)).toBe(0);
   });
 
-  it("姿势/片名映射：跳舞站着、坐着、趴着、起身各有自己的段", () => {
-    expect(girlIdleClip("dance")).toBe("idle");
-    expect(girlIdleClip("sit")).toBe("sit");
-    expect(girlIdleClip("lie")).toBe("drowse");
-    expect(girlIdleClip("stand")).toBe("stand");
-    expect(GIRL_IDLE_POSTURE.dance).toBe(0);
-    expect(GIRL_IDLE_POSTURE.stand).toBe(0);
-    expect(GIRL_IDLE_POSTURE.lie).toBeGreaterThan(GIRL_IDLE_POSTURE.sit);
-    expect(GIRL_IDLE_POSTURE.sit).toBeGreaterThan(0.2);
-    expect(GIRL_IDLE_POSTURE.lie).toBeLessThan(1);
+  it("is deterministic for a seed and varies across seeds", () => {
+    const a = run(createGirlIdle(T0, GIRL_IDLE_SEED), { steps: 30 }).states.map((s) => s.phase).join(",");
+    const b = run(createGirlIdle(T0, GIRL_IDLE_SEED), { steps: 30 }).states.map((s) => s.phase).join(",");
+    const c = run(createGirlIdle(T0, 0x12345), { steps: 30 }).states.map((s) => s.phase).join(",");
+    expect(a).toBe(b);
+    expect(c).not.toBe(a);
+    expect(idleJitter(GIRL_IDLE_SEED, 3, 7)).toBe(idleJitter(GIRL_IDLE_SEED, 3, 7));
+  });
+
+  it("maps each phase to its own real pose and keeps timing ranges sane", () => {
+    expect(girlIdlePose("stand")).toBe("stand");
+    expect(girlIdlePose("sit")).toBe("sit");
+    expect(girlIdlePose("curl")).toBe("curl");
+    expect(girlIdlePose("look")).toBe("look");
+    expect(girlIdlePose("stretch")).toBe("stretch");
+    expect(girlIdlePose("joy")).toBe("joy");
+    for (const [lo, hi] of Object.values(GIRL_IDLE_TIMING)) expect(hi).toBeGreaterThan(lo);
+    expect(GIRL_IDLE_TIMING.stand[0]).toBeLessThan(GIRL_IDLE_TIMING.sit[0]);
+    expect(GIRL_IDLE_TIMING.curl[1]).toBeGreaterThan(GIRL_IDLE_TIMING.sit[1]);
   });
 });

@@ -1275,3 +1275,105 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
   本地下载件与 GitHub asset digest 一致。
 - Release [v1.13.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.13.0)：
   `draft:false`、`prerelease:false`、latest；公开于 `2026-10-26T01:11:54Z`。
+
+## 22. v1.14.0：把待机从「一支舞」换成「一整天」
+
+### 22.1 底子必须换（用户裁决）
+
+- v1.13 的坐/趴是同一支舞压扁出来的（§21.2 已写明「想真正坐下去，需要下一轮重画或补拍」）。
+  用户裁决：**不许在跳舞的基础上加东西**——待机底子必须换成真正的姿态，舞蹈只留在
+  显式手势、玩具、走路这些本来就该是帧动画的活动里。
+- 本轮就是补上那笔欠账：新出一张 8 格真姿态图集，待机编排的每一段（站/回头/坐/蜷/
+  伸懒腰/开心）各自落到一张画好的整身，不再有 `sprawl`。
+
+### 22.2 姿态图集 `girl-poses.webp`
+
+- 源图是 `scripts/assets/generated/girl-poses.png` 里的 7 张 1136×912 高清立绘（浅粉纯底），
+  `scripts/assets/build-girl-pet-poses.py` 逐张去背、按躯干轴对齐、缩进 **340×248 的 8 格**
+  （`stand / sit / curl / look / stretch / run / joy / love`），产出
+  `src/renderer/public/pet/girl-poses.webp` 与 `girl-pet-poses-meta.ts`。
+- `stand` 不是新画的：它由 `love`（捧心站姿）把胸前那颗心 inpaint 掉而来，脸色/姿态与
+  旧立绘逐像素同源；`love` 保留原图，留给以后的爱心事件。
+- 元数据与帧图集同一条尺：锚点 `0.500000 / 0.959677`（躯干轴即脚心），
+  `inkRefPx 229 / inkVb 91`——姿态墨高与静态立绘 91vb 同一把尺，换底不会忽然变大变小。
+- 每格另带**墨框**与**脸框**（格子像素）：`curl` 的脸心比 `stand` 低 20px，探针就用这条
+  判「头真的下来了」，而不是按颜色猜。脸框只含白脸、不含耳朵，饰品/FX/脸红全部按当前
+  这一幕的框量。
+- `girlPoseBodyFor` 没有 `sprawl`：坐姿就是坐姿，不再靠横向摊开+压扁演。
+
+### 22.3 一幕的统一播放器 `girl-scene`
+
+- `GirlVisual = {kind:"clip"} | {kind:"pose"}`；`GirlScenePlayer` 同时管两种，切幕时把
+  **屏幕上那一格**冻成底板做 160ms 交叉淡化（动画冻当前帧、姿态冻那张图），新幕从自己的
+  第 0 帧起，画面不会整体透明度塌陷。
+- 姿态是静帧：重绘地板 **12fps**（动画片段仍按各自的 fps），呼吸仍由绘制层的相位给。
+- 姿态图缺席/损坏时不空窗：`GIRL_POSE_FALLBACK_CLIP` 把每张姿态退回最接近的循环帧段
+  （stand→idle / sit→sit / curl→sleep / look→peek / stretch→stretch / run→walk /
+  joy|love→happy）。
+- 基础幕 `girlBasePoseFor`：`idle → 编排姿态`；`rest → sit`；`sleep → 安静?stand:curl`；
+  其余活动返回 null，只能走帧动画（走路/梳毛/被拖/手势）。睡眠与安静的互斥仍是硬规矩：
+  睡脸（Zzz）与月牙（安静）不许同屏。
+- `tickGirlScene` 的优先级：显式手势（点击反馈/workStatus）最高，其次引擎自主小动作，
+  其余时间才落基础姿态。
+
+### 22.4 生活编排 `girl-idle`：作息，不是抽奖
+
+- 六段：`stand / look / sit / curl / stretch / joy`，时长
+  `stand [2200,4200] / look [1600,3000] / sit [6000,10000] / curl [8000,13000] /
+  stretch [1800,2600] / joy [1800,2800]`（ms）。每段都直接是姿态名
+  （`girlIdlePose(phase) = phase`），没有「借跳舞帧」这一层。
+- 疲劳 0..1 仍是性格权重：主动段上涨（stand .015 / look .02 / joy .10），坐/蜷回落
+  （-.22 / -.32），越累越偏向 sit/curl；`reset` 把疲劳压回 ≤0.35，玩完回来不接着刚才的累。
+- **两条例外让作息不靠运气**：
+  - `activeBouts`：连着 **4 段主动**（约 10 秒）就必须歇一段——「跳累了坐下/趴下」是作息，
+    不是抽签；抽签只决定歇成坐还是蜷。
+  - `sitsSinceCurl`：坐过一次还没蜷时，**下一次歇息一律改成蜷**——不会连着两次只坐不趴，
+    也不会出现「几分钟见不到蜷」的历史。
+- 免打扰：不蜷、不庆祝；段落里已经蜷/开心时打开安静当场站起。安静档只站/看/坐。
+- 起身必须经过 `stand`：坐/蜷不能直接跳回别的动作。
+
+### 22.5 两处被真窗抓到的缝（本轮裁决）
+
+1. **回馈手势被站姿闸门吞掉**（产品回归，已修）：新闸门为了不让自主小动作打断坐/蜷，
+   写成「只有 idle+stand 才接 ambient」，结果摸头（`activity=pet` + `coverFace`）也被关了，
+   点脸只剩一张底片。裁决：闸门拆两层——非 idle 活动的 ambient 是**互动回馈**，一律照演；
+   只有待机编排吃「站定、一段一条、换段 600ms 内不接」。玩具在场仍全关（玩具开局的
+   ambient 是道具余兴）。先写 RED 单测（`r.touch("head")` → 期望 `clip=shy`），再改闸门。
+2. **探针抢在结算帧之前读抓板**（探针竞态，不改产品）：板子退场只说明 prop 到点，
+   引擎的结算挂在退场后的那一帧绘制里；姿态待机 12fps 把两帧之间拉宽，探针这一秒正好
+   停在中缝。裁决：探针先 `forceFrame()` + `waitStat` 等统计落账，再读收尾句。
+3. 待机节奏的探针窗也跟着作息放宽：坐 ≤60s（作息保证四段主动必歇）、蜷 ≤40s
+   （55% 当场打盹，没打盹的下一轮强制蜷），起身 ≤25s。判据不变，只是不再拿旧舞蹈的
+   节奏窗量新作息。
+
+### 22.6 量测与门
+
+- 单测：`CI=true npx vitest run` 全绿——**717 个文件 / 7414 passed + 1 skipped（7415）**，
+  263.03s；比 v1.13 的 715 / 7381+1 多 **2 个文件、33 条**：新 `girl-pose` 11、
+  `girl-scene` 13、`girl-idle` 9→11、`renderer-girl-v113` 14→18、`girl-fx` +
+  `girl-accessory` +3（花/星钉姿态脸框、腮红与「!」跟姿态脸、影子用姿态墨框）。
+- 姿态图集（`girl-pose.test.ts`）锁：8 格顺序与命名、锚点/墨高同尺、逐格墨框与脸框
+  合法、`stand` 胸前无爱心像素、`curl` 脸心比 `stand` 低。`girl-scene.test.ts` 锁：
+  clip↔pose 切换的 160ms 冻结交叉淡化不塌整体透明度、缺图回退映射逐条、姿态 12fps
+  地板、手势优先级压过基础姿态。
+- 作息（`girl-idle.test.ts`）锁：六段时长域、疲劳权重、`activeBouts` 四段必歇、
+  `sitsSinceCurl` 两坐之间必有蜷、免打扰不蜷不庆祝、起身必过 `stand`、`reset` 疲劳
+  ≤0.35。渲染层用 `d.clip === null` 锁住「待机每一帧都来自姿态图集」（v1.13 的坐是
+  `clip` 压扁）。
+- 回归：`renderer-girl-v113` 新增「活动态回馈手势照演」RED 单测（摸头 → `clip=shy`），
+  锁住 §22.5.1 修掉的那条缝。
+- 真窗：`scripts/verify/pet-girl-cdp.mjs` **260/260 `all clear`**（`idle.start/sit/curl/
+  wake/quiet-stand/sleep-curl/sleep-quiet-stand` 七条姿态判据在内；报告
+  `D:/cyrene-p5-accept/shots-v114/pet-girl-report.json`）。待机实测：`t=1.31s`
+  站（bouts=3、wear .18）→ `t=9.19s` 坐（cushion .9919）→ `t=28.23s` 蜷（脸心
+  cy 59.62）→ `t=37.29s` 回站（脸心 cy 54.57，与蜷差 **5.05px**：头确实抬回来了）→
+  安静站 → 睡蜷。站/坐/蜷三段的 `clip` 全 null，没有一个画面来自帧动画。
+- 截图 `D:/cyrene-p5-accept/shots-v114/`：`girl-idle-sit.png`（垫子上的真坐姿）、
+  `girl-idle-curl.png`（紧凑蹲伏）、`girl-idle-back.png`（雕像站姿）、
+  `girl-idle-quiet.png`、`girl-idle-sleep.png`、`girl-head-tap.png`（shy 姿态 +
+  「头发会被摸乱的啦」）逐张过目。
+- 门禁：十一道 `check:*` + `build:main` / `build:preload` / `build:renderer` 全绿
+  （发布记录见 §22.7）。
+- 未覆盖：姿态图在最小窗宽下的缩放（图集定尺 340×248，本轮未再压测窗口下限）；
+  `run/love` 两格暂无入口（留给走路与爱心事件）；免打扰在 `stretch/joy` 当口打开的
+  打断只有单测，真窗只截到「安静站」。

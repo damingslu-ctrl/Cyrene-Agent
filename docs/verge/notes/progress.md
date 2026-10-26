@@ -682,3 +682,37 @@
   `isDraft:false`、`isPrerelease:false`、latest；资产 `Mochi-Setup-1.13.0.exe`
   **296,299,092 B** / `sha256 c191c60df721f233c12e34045b764797f4545b5854607db157621030b5bb01ac`
   （本地下载件与 GitHub asset digest 一致），公开于 `2026-10-26T01:11:54Z`。
+
+### v1.14.0：真姿态待机、作息保证与姿态图集（2026-10-26）
+
+- 用户裁决：不许在跳舞上继续叠功能，待机底子必须换。新出 **8 格真姿态图集**
+  `girl-poses.webp`（340×248：stand/sit/curl/look/stretch/run/joy/love），源图 7 张
+  1136×912 立绘经 `scripts/assets/build-girl-pet-poses.py` 去背、按躯干轴对齐、缩小；
+  `stand` 由 `love` 抹掉胸前爱心而来；`girl-pet-poses-meta.ts` 带锚点 0.5/0.959677、
+  `inkRefPx 229`、逐格墨框与脸框（curl 脸心比 stand 低 20px）。
+- `girl-scene` 统一播放器：`clip | pose` 两态，切幕把屏上那一格冻成底板做 160ms 交叉
+  淡化，姿态按 12fps 重绘；缺图时按 `GIRL_POSE_FALLBACK_CLIP` 退回最近的循环帧段。
+  `girlPoseBodyFor` 删除 `sprawl`——坐就是坐，不再压扁跳舞帧。
+- `girl-idle` 重写成六段作息：`stand/look/sit/curl/stretch/joy`（每段直连同名姿态），
+  疲劳权重沿用；新增 `activeBouts`（连 4 段主动必歇）与 `sitsSinceCurl`（坐过一次、
+  还没蜷，则下次歇息改蜷），起身必过 `stand`；免打扰不蜷不庆祝，已蜷/开心当场站起。
+- 渲染器接线：`girlBasePoseFor`（idle→编排、rest→sit、sleep→安静站/睡蜷）、手势优先级、
+  姿态下的饰品/FX/影子按当幕墨框脸框量；回馈手势闸门拆两层（活动态一律照演，只有待机
+  编排吃「站定 + 一段一条 + 换段 600ms 内不接」）。
+- 27 项统计 / 成就 / 玩具全部沿用，无新增计数；菜单不变。
+- 单测全绿 **717 文件 / 7414 passed + 1 skipped（7415）**，比 v1.13 多 2 个文件、33 条
+  （girl-pose 11 / girl-scene 13 / girl-idle 9→11 / renderer-girl-v113 14→18 /
+  fx+accessory +3）。真窗 **260/260 `all clear`**：站 `t=1.31s` → 坐 `t=9.19s`
+  （cushion .9919）→ 蜷 `t=28.23s` → 回站 `t=37.29s`（脸心与蜷差 5.05px）→ 安静站 →
+  睡蜷；三段 `clip` 全 null。截图在 `D:/cyrene-p5-accept/shots-v114/`。
+
+### 口径与裁决（v1.14.0）
+
+- **休息是作息，不是抽签**：只按疲劳权重抽 sit/curl 时，长跑里出现过「10 段主动都不歇」，
+  单测也随机红。改成 4 段主动强制歇 + 坐后必蜷两条例外，均先写 RED 单测再实现；
+  探针窗同步按作息量（坐 ≤60s、蜷 ≤40s、起身 ≤25s），判据不放水。
+- **回馈手势 ≠ 自主小动作**：新的站姿闸门起初把 `activity=pet` 的摸头回馈也关了，
+  点脸只剩底片；RED 单测（摸头 → `clip=shy`）复现后把闸门拆成「非 idle 一律照演」。
+- **探针不能抢结算帧**：板子退场只说明 prop 到点，引擎结算挂在退场后的那一帧绘制里，
+  12fps 姿态把缝拉宽；抓板收尾改成 `forceFrame()` + `waitStat`，只改探针不改产品。
+- **睡觉与安静仍互斥**：睡脸用 curl 真姿态，安静档只站/看/坐（月牙是唯一记号的口径不变）。

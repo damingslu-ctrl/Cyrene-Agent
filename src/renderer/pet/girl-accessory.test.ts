@@ -103,3 +103,23 @@ describe("猫娘装扮画法", () => {
     expect(bell0).not.toBe(bell1);
   });
 });
+
+describe("姿态图的脸框覆盖", () => {
+  it("花/星钉到姿态的脸，而不是帧号那张脸", () => {
+    const real = girlFaceBox(body, 0);
+    const face = {
+      ...real,
+      cx: real.cx + 40,
+      cy: real.cy + 30,
+      left: real.left + 40,
+      right: real.right + 40,
+      top: real.top + 30,
+      bottom: real.bottom + 30,
+    };
+    const base = buildAccessoryOps({ body, frame: 0, nowSec: 2.4, activity: "idle", facing: 1, accessory: "flower" });
+    const moved = buildAccessoryOps({ body, frame: 0, nowSec: 2.4, activity: "idle", facing: 1, accessory: "flower", face });
+    const b0 = opsBounds(base)!;
+    const b1 = opsBounds(moved)!;
+    expect(b1.x - b0.x).toBeGreaterThan(30);
+  });
+});

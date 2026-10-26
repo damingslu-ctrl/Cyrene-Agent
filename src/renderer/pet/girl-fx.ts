@@ -3,7 +3,7 @@ import type { Mood } from "../../shared/cat-types";
 import {
   ACCENT, INK_SOFT, PAPER, ROSE, ROSE_DEEP, SHADOW, WARN, withAlpha,
 } from "../../shared/pet-tokens";
-import { girlFaceBox, girlInkBox, type GirlAnimBody } from "./girl-sprite";
+import { girlFaceBox, girlInkBox, type GirlAnimBody, type GirlFaceBox } from "./girl-sprite";
 import type { GirlPresencePose } from "./girl-presence";
 import { STARTLE_MS, type CompanionActivity } from "./companion";
 import { BOND_UP_MS } from "./girl-bond";
@@ -47,6 +47,12 @@ export interface GirlFxInput {
   lift: number;
   /** 脚线（屏幕 y，不含跳跃）。 */
   groundY: number;
+  /**
+   * 当前显示的是姿态图（真坐/真蜷）时，脸框/墨框由 `girlPoseFaceBox` / `girlPoseInkBox` 给出。
+   * 缺省按帧号从 `GIRL_FACE` / `GIRL_INK_BOX` 取——帧动画与姿态图共用这一层记号。
+   */
+  face?: GirlFaceBox;
+  ink?: GirlFaceBox;
   /** 开心到会哼歌的档：happy mood 或 wave/peace/happy 片。 */
   notes: boolean;
   quiet: boolean;
@@ -86,6 +92,10 @@ function smoothFade(p: number, inAt = 0, outAt = 0.65): number {
   return Math.min(rise, fall);
 }
 
+/** 位姿可能来自帧动画或姿态图：有显式框就用，否则按帧号从逐帧元数据取。 */
+const faceOf = (input: GirlFxInput): GirlFaceBox => input.face ?? girlFaceBox(input.body, input.frame);
+const inkOf = (input: GirlFxInput): GirlFaceBox => input.ink ?? girlInkBox(input.body, input.frame);
+
 /**
  * 地面投影：多环伪高斯（与四足 `buildCatOps` 同一手法），外加一笔 3% 的奶油底光。
  * 奶油底光不是装饰——桌布可能是深色，纯黑影在深色桌布上等于「她浮在空中」；
@@ -93,7 +103,7 @@ function smoothFade(p: number, inAt = 0, outAt = 0.65): number {
  */
 function groundShadow(input: GirlFxInput): DrawOp[] {
   const { body, lift, groundY, nowMs } = input;
-  const ink = girlInkBox(body, input.frame);
+  const ink = inkOf(input);
   const shrink = 1 - 0.28 * clamp01(lift);
   const fade = 1 - 0.55 * clamp01(lift);
   const rx = Math.max(8, ink.w * 0.47) * shrink;
@@ -127,7 +137,7 @@ function groundShadow(input: GirlFxInput): DrawOp[] {
 function blushOps(input: GirlFxInput): DrawOp[] {
   const a = clamp01(input.blush);
   if (a <= 0.01 || input.mood === "sleep") return [];
-  const face = girlFaceBox(input.body, input.frame);
+  const face = faceOf(input);
   const rx = Math.max(1.6, face.w * 0.17);
   const ry = Math.max(0.9, face.h * 0.075);
   const dx = face.w * 0.30;
@@ -147,7 +157,7 @@ function exclamationOps(input: GirlFxInput, ageMs: number, totalMs: number, scal
   const p = clamp01(ageMs / totalMs);
   const alpha = smoothFade(p, 0.08, 0.62);
   if (alpha <= 0.01) return [];
-  const face = girlFaceBox(input.body, input.frame);
+  const face = faceOf(input);
   const popIn = Math.min(1, ageMs / 180);
   const over = 1 + 0.28 * Math.sin(popIn * Math.PI);
   const bob = Math.sin(p * Math.PI) * 2.2;
@@ -180,7 +190,7 @@ function noticeOps(input: GirlFxInput): DrawOp[] {
 function dizzyOps(input: GirlFxInput): DrawOp[] {
   const left = clamp01(input.dizzyLeft);
   if (left <= 0.02) return [];
-  const face = girlFaceBox(input.body, input.frame);
+  const face = faceOf(input);
   const cx = face.cx;
   const cy = face.top - face.h * 0.26;
   const rx = Math.max(9, face.w * 0.95);
@@ -205,7 +215,7 @@ function dizzyOps(input: GirlFxInput): DrawOp[] {
 /** 开心音符：两枚错相上浮；符头/符干/符尾都是双色。 */
 function noteOps(input: GirlFxInput): DrawOp[] {
   if (!input.notes || input.quiet || input.mood === "sleep") return [];
-  const face = girlFaceBox(input.body, input.frame);
+  const face = faceOf(input);
   const r = Math.max(1.3, face.w * 0.115);
   const ops: DrawOp[] = [];
   for (let i = 0; i < 2; i += 1) {
@@ -231,7 +241,7 @@ function noteOps(input: GirlFxInput): DrawOp[] {
 /** 生气蒸汽：脸侧两团往上冒的小云，奶油外圈 + 警示色内芯。 */
 function angerOps(input: GirlFxInput): DrawOp[] {
   if (input.mood !== "grumpy" || input.quiet) return [];
-  const face = girlFaceBox(input.body, input.frame);
+  const face = faceOf(input);
   const r = Math.max(1.6, face.w * 0.14);
   const ops: DrawOp[] = [];
   for (let i = 0; i < 2; i += 1) {
@@ -274,7 +284,7 @@ function heartOps(x: number, y: number, r: number, fill: string, halo: string, a
 function cushionOps(input: GirlFxInput): DrawOp[] {
   const a = clamp01(input.cushion);
   if (a <= 0.01) return [];
-  const ink = girlInkBox(input.body, input.frame);
+  const ink = inkOf(input);
   const x = ink.cx;
   const y = input.groundY + 1.2;
   const grow = 0.82 + 0.18 * a;
@@ -309,7 +319,7 @@ function cushionOps(input: GirlFxInput): DrawOp[] {
  */
 function blanketOps(input: GirlFxInput): DrawOp[] {
   if (input.mood !== "sleep" || input.quiet) return [];
-  const ink = girlInkBox(input.body, input.frame);
+  const ink = inkOf(input);
   const w = Math.max(16, Math.min(34, ink.w * 0.92));
   const top = ink.cy + ink.h * 0.02;
   const bottom = Math.min(input.groundY + 1.5, ink.bottom + 2);
@@ -351,7 +361,7 @@ function milestoneOps(input: GirlFxInput): DrawOp[] {
   if (input.milestoneLeft <= 0) return [];
   const p = clamp01(1 - input.milestoneLeft / MILESTONE_MS);
   if (p >= 1) return [];
-  const head = girlFaceBox(input.body, input.frame);
+  const head = faceOf(input);
   const palette = [ACCENT, ROSE_DEEP, ROSE, WARN];
   const ops: DrawOp[] = [];
   for (let i = 0; i < 10; i += 1) {
@@ -385,7 +395,7 @@ function bondUpOps(input: GirlFxInput): DrawOp[] {
   if (input.bondUpLeft <= 0) return [];
   const p = clamp01(1 - input.bondUpLeft / BOND_UP_MS);
   if (p >= 1) return [];
-  const face = girlFaceBox(input.body, input.frame);
+  const face = faceOf(input);
   const alpha = Math.min(1, smoothFade(p, 0.04, 0.62) * 1.05);
   if (alpha <= 0.01) return [];
   const ops: DrawOp[] = [];
@@ -412,7 +422,7 @@ function bondUpOps(input: GirlFxInput): DrawOp[] {
 /** 连击记号：头顶一圈小爱心，数量＝连击−1，右下角再压一个「xN」。 */
 function comboOps(input: GirlFxInput): DrawOp[] {
   if (input.patCombo < 2 || input.startleLeft > 0 || input.mood === "sleep") return [];
-  const face = girlFaceBox(input.body, input.frame);
+  const face = faceOf(input);
   const n = Math.min(4, input.patCombo - 1);
   const pulse = 0.82 + 0.18 * Math.sin(input.nowSec * 8.5);
   const r = Math.max(1.5, face.w * 0.065) * pulse;
@@ -440,7 +450,7 @@ function startleOps(input: GirlFxInput): DrawOp[] {
   const p = clamp01(1 - input.startleLeft / STARTLE_MS);
   const a = smoothFade(p, 0.02, 0.58);
   if (a <= 0.01) return [];
-  const face = girlFaceBox(input.body, input.frame);
+  const face = faceOf(input);
   const ops: DrawOp[] = exclamationOps(input, age, STARTLE_MS, 1.18);
   const reach = face.w * (0.48 + p * 0.22);
   for (const side of [-1, 1]) {
@@ -461,7 +471,7 @@ function startleOps(input: GirlFxInput): DrawOp[] {
 /** 走路/落地的脚边尘埃：小团双色，不描边而是「亮底 + 灰芯」，两档桌布都看得见。 */
 function dustOps(input: GirlFxInput): DrawOp[] {
   const ops: DrawOp[] = [];
-  const ink = girlInkBox(input.body, input.frame);
+  const ink = inkOf(input);
   const baseX = ink.cx;
   const baseY = input.groundY + 0.6;
   const walking = input.activity === "walk";

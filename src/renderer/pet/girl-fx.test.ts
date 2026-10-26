@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CatInput } from "./art";
-import { girlAnimBodyFor, girlFaceBox, girlInkBox } from "./girl-sprite";
+import { girlAnimBodyFor, girlFaceBox, girlInkBox, type GirlFaceBox } from "./girl-sprite";
 import { NOTICE_FX_MS, buildGirlFxOps, type GirlFxInput } from "./girl-fx";
 import { restingPresence } from "./girl-presence";
 import { BOND_UP_MS } from "./girl-bond";
@@ -254,5 +254,50 @@ describe("睡毯与纪念日彩带", () => {
     expect(colors.some((c) => c.includes("247, 244, 236"))).toBe(true);
     expect(colors.some((c) => c.includes("221, 106, 127") || c.includes("91, 141, 239"))).toBe(true);
     expect(buildGirlFxOps(mkFx({ milestoneLeft: 0, milestoneDays: 7 })).above).toHaveLength(0);
+  });
+});
+
+describe("姿态图的脸框/墨框覆盖", () => {
+  const movedBox = (b: GirlFaceBox, dx: number, dy: number): GirlFaceBox => ({
+    ...b,
+    cx: b.cx + dx,
+    cy: b.cy + dy,
+    left: b.left + dx,
+    right: b.right + dx,
+    top: b.top + dy,
+    bottom: b.bottom + dy,
+  });
+
+  it("给了姿态脸框就用它：腮红与「!」跟着新脸走，不再按帧号猜", () => {
+    const body = girlAnimBodyFor(mkCat());
+    const real = girlFaceBox(body, 0);
+    const face = movedBox(real, 40, 30);
+
+    const blushCx = (input: GirlFxInput) => {
+      const blush = buildGirlFxOps(input).above.filter((o) => o.layer === "blush");
+      const xs = blush.map((o) => (o.kind === "fillEllipse" ? o.cx : Number.NaN));
+      return xs.reduce((a, b) => a + b, 0) / xs.length;
+    };
+    expect(blushCx(mkFx({ body, blush: 1, face })) - blushCx(mkFx({ body, blush: 1 }))).toBeGreaterThan(35);
+
+    const starMinY = (input: GirlFxInput) => Math.min(
+      ...buildGirlFxOps(input).above
+        .filter((o) => o.layer === "stars")
+        .map((o) => (o.kind === "fillRoundRect" ? o.y : o.kind === "fillEllipse" ? o.cy : Number.POSITIVE_INFINITY)),
+    );
+    const shifted = starMinY(mkFx({ body, noticeAgeMs: 400, face })) - starMinY(mkFx({ body, noticeAgeMs: 400 }));
+    expect(shifted).toBeGreaterThan(20);
+  });
+
+  it("给了姿态墨框就用它：影子宽度跟着真姿态的实际占位", () => {
+    const body = girlAnimBodyFor(mkCat());
+    const real = girlInkBox(body, 0);
+    const ink = { ...real, cx: real.cx + 10, w: 200 };
+    const widest = (input: GirlFxInput) => Math.max(
+      ...buildGirlFxOps(input).below
+        .filter((o) => o.kind === "fillEllipse")
+        .map((o) => (o.kind === "fillEllipse" ? o.rx : 0)),
+    );
+    expect(widest(mkFx({ body, ink }))).toBeGreaterThan(widest(mkFx({ body })) + 20);
   });
 });

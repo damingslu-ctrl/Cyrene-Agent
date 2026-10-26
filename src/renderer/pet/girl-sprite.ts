@@ -4,6 +4,13 @@ import type { DrawOp } from "./ops";
 import { GIRL_SPRITE } from "./girl-sprite-meta";
 import { GIRL_ANIM } from "./girl-anim-meta";
 import { GIRL_FACE, GIRL_INK_BOX } from "./girl-face-meta";
+import {
+  GIRL_PET_POSES,
+  GIRL_PET_POSE_CELLS,
+  GIRL_PET_POSE_FACE,
+  GIRL_PET_POSE_INK,
+  type GirlPoseId,
+} from "./girl-pet-poses-meta";
 
 /**
  * 猫娘位图立绘的几何与记号钉位。
@@ -230,6 +237,120 @@ export function girlInkBox(body: GirlAnimBody, frame: number): GirlFaceBox {
     top: Math.min(...corners.map((p) => p.y)),
     bottom: Math.max(...corners.map((p) => p.y)),
   };
+}
+
+/** 姿态图的刚体位姿：与帧动画同一套「绕脚心」变换，但 `k` 换算的是姿态图集。 */
+export interface GirlPoseBody {
+  pivot: { x: number; y: number };
+  rot: number;
+  sx: number;
+  sy: number;
+  facing: 1 | -1;
+  /** 姿态图集像素 → 绘制空间像素（inkRefPx → inkVb，与静态立绘同尺）。 */
+  k: number;
+}
+
+/**
+ * 真姿态的刚体：呼吸/歪头/落地/眩晕照旧，**唯独没有 sprawl**。
+ * v1.13 的坐/趴是把跳舞帧压扁演出来的；姿态图集里坐和蜷是真的画好的，
+ * 再压一次只会把她变成一张饼。
+ */
+export function girlPoseBodyFor(input: CatInput, presence?: GirlPresenceMotion): GirlPoseBody {
+  const s = (input.u * 2) / VB;
+  const p = input.pose;
+  const walk = p.walk ?? 0;
+  const walkLift = Math.max(0, Math.sin(walk)) * 1.2;
+  const squash = Math.max(0, Math.min(1, p.squash ?? 0));
+  const stretch = Math.max(0, Math.min(1, p.stretch));
+  const dizzy = Math.max(0, Math.min(1, presence?.dizzy ?? 0));
+  const wobble = dizzy > 0 ? Math.sin(input.t * 9.5) * 1.8 * dizzy : 0;
+  const startle = Math.max(0, Math.min(1, presence?.startle ?? 0));
+  const jolt = startle > 0 ? Math.sin(input.t * 34) * 2.6 * startle : 0;
+  // 静态图没有帧内呼吸，整身 1.2% 的起伏 + 半度的慢摆负责「她还活着」。
+  const breathe = 0.012 * Math.sin(input.t * 1.5);
+  const sway = Math.sin(input.t * 0.55) * 0.8;
+  const deg = p.tilt * 0.7 + Math.sin(walk) * 1.0 + (presence?.leanDeg ?? 0) + wobble + jolt + sway;
+  return {
+    pivot: { x: input.center.x + (presence?.shiftX ?? 0), y: input.center.y + input.jumpY - walkLift },
+    rot: (deg * Math.PI) / 180,
+    sx: (1 + 0.12 * squash) * (1 + 0.01 * stretch),
+    sy: (1 + breathe) * (1 - 0.16 * squash) * (1 + 0.02 * stretch) * (1 - 0.03 * dizzy),
+    facing: presence?.facing ?? input.facing ?? 1,
+    k: s * (GIRL_PET_POSES.inkVb / GIRL_PET_POSES.inkRefPx),
+  };
+}
+
+/** 姿态格内的归一化坐标 → 绘制空间（与 `girlCellPoint` 同一条变换链）。 */
+export function girlPoseCellPoint(body: GirlPoseBody, fx: number, fy: number): { x: number; y: number } {
+  const w = GIRL_PET_POSES.cellW * body.k;
+  const h = GIRL_PET_POSES.cellH * body.k;
+  const lx = (fx - GIRL_PET_POSES.anchorX) * w * body.sx * body.facing;
+  const ly = (fy - GIRL_PET_POSES.anchorY) * h * body.sy;
+  const c = Math.cos(body.rot);
+  const s = Math.sin(body.rot);
+  return { x: body.pivot.x + lx * c - ly * s, y: body.pivot.y + lx * s + ly * c };
+}
+
+function poseBoxCorners(
+  body: GirlPoseBody, cx: number, cy: number, w: number, h: number,
+): GirlFaceBox {
+  const unit = (px: number, py: number) => girlPoseCellPoint(
+    body, px / GIRL_PET_POSES.cellW, py / GIRL_PET_POSES.cellH,
+  );
+  const corners = [
+    unit(cx - w / 2, cy - h / 2),
+    unit(cx + w / 2, cy - h / 2),
+    unit(cx - w / 2, cy + h / 2),
+    unit(cx + w / 2, cy + h / 2),
+  ];
+  const center = unit(cx, cy);
+  return {
+    cx: center.x,
+    cy: center.y,
+    w: w * body.k * body.sx,
+    h: h * body.k * body.sy,
+    left: Math.min(...corners.map((p) => p.x)),
+    right: Math.max(...corners.map((p) => p.x)),
+    top: Math.min(...corners.map((p) => p.y)),
+    bottom: Math.max(...corners.map((p) => p.y)),
+  };
+}
+
+/** 某姿态的脸框（绘制空间）。 */
+export function girlPoseFaceBox(body: GirlPoseBody, pose: GirlPoseId): GirlFaceBox {
+  const [cx, cy, w, h] = GIRL_PET_POSE_FACE[pose];
+  return poseBoxCorners(body, cx, cy, w, h);
+}
+
+/** 某姿态的墨框（绘制空间）：投影、命中提示从这一格的实际占位来。 */
+export function girlPoseInkBox(body: GirlPoseBody, pose: GirlPoseId): GirlFaceBox {
+  const [x0, y0, x1, y1] = GIRL_PET_POSE_INK[pose];
+  return poseBoxCorners(body, (x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0);
+}
+
+/**
+ * 记号（Zzz/月牙/爱心/徽章）的虚拟身子中心：跟着**当前姿态的脸**走。
+ * 站立时脸顶在 −69.5vb、留 15vb → 与旧口径的 −54.5vb 重合；坐下/蜷起时头更低，
+ * 记号跟着降，不会飘在原来的头顶高度。
+ */
+export const GIRL_POSE_FACE_CLEAR_VB = 15;
+
+export function girlPoseOverlayCenter(body: GirlPoseBody, pose: GirlPoseId): { x: number; y: number } {
+  const face = girlPoseFaceBox(body, pose);
+  const s = body.k * (GIRL_PET_POSES.inkRefPx / GIRL_PET_POSES.inkVb);
+  return { x: face.cx, y: face.top + GIRL_POSE_FACE_CLEAR_VB * s };
+}
+
+/** 姿态下的屏幕记号：把姿态锚点翻译回 `buildGirlOverlayOps` 的脚底系。 */
+export function buildGirlPoseOverlayOps(
+  input: CatInput, pose: GirlPoseId, body: GirlPoseBody = girlPoseBodyFor(input),
+): DrawOp[] {
+  const center = girlPoseOverlayCenter(body, pose);
+  const s = (input.u * 2) / VB;
+  return buildGirlOverlayOps({
+    ...input,
+    center: { x: center.x, y: center.y + GIRL_OVERLAY_LIFT_VB * s },
+  });
 }
 
 /** viewBox x=60 的镜像（朝向 −1 时徽章跟着换边，与四足的 xfn 同口径）。 */

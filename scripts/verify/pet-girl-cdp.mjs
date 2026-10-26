@@ -895,24 +895,28 @@ async function main() {
     await wait(400);
   }
   results.rest = restSnap
-    ? { activity: restSnap.activity, clip: restDiag.girl.clip }
+    ? { activity: restSnap.activity, clip: restDiag.girl.clip, pose: restDiag.girl.pose }
     : { lastSeen };
   // 坐下那一帧可能还挂着起身前抽到的小动作（peek 等一次性段）：等它演完再看基础段。
+  // v1.14 起「坐」是真姿态格：基准段是 pose=sit + clip=null，不再是一段循环的 sit 帧动画。
+  let restPose = restDiag?.girl.pose ?? null;
   let restClip = restDiag?.girl.clip ?? null;
   let restGesture = restDiag?.girl.gesture ?? null;
   if (restSnap) {
     const restClipDeadline = Date.now() + 2_500;
     for (;;) {
       const d = await diag();
+      restPose = d.girl.pose;
       restClip = d.girl.clip;
       restGesture = d.girl.gesture;
-      if ((restClip === "sit" && restGesture === null) || Date.now() >= restClipDeadline) break;
+      if ((restPose === "sit" && restClip === null && restGesture === null) || Date.now() >= restClipDeadline) break;
       await wait(120);
     }
   }
-  results.rest.clipSettled = { clip: restClip, gesture: restGesture };
+  results.rest.clipSettled = { pose: restPose, clip: restClip, gesture: restGesture };
   check("rest.starts", !!restSnap, restSnap ? "rest" : `56s 内没坐下；最后一次看到的快照=${JSON.stringify(lastSeen)}`);
-  check("rest.clip", restClip === "sit", `clip=${restClip ?? "null"} gesture=${restGesture ?? "null"}`);
+  check("rest.pose", restPose === "sit" && restClip === null,
+    `pose=${restPose ?? "null"} clip=${restClip ?? "null"} gesture=${restGesture ?? "null"}`);
   if (restSnap) {
     // sit 段的头几帧还接近站姿：等半秒再截图，取到真的坐下去那一张。
     await wait(700);
@@ -1772,12 +1776,18 @@ async function main() {
       if (!scratchLast) break;
       await wait(180);
     }
+    // 板子退场只说明 prop 到点了；引擎的结算挂在**退场后的那一帧绘制**里。
+    // 姿态待机是 12fps，探针这一秒可能正好停在两帧之间，先强推一帧并等统计落账。
+    await forceFrame();
+    const scratchCount = await waitStat("scratches", v12Before.scratches + 1, 2_000);
     const scratchDone = await diag();
     const scratchDoneSnap = await snap();
     const bondAfterScratch = await bondNow();
-    results.scratch.done = { stats: scratchDone.girl.stats, bubble: scratchDoneSnap.bubble?.text ?? null };
+    results.scratch.done = {
+      stats: scratchDone.girl.stats, bubble: scratchDoneSnap.bubble?.text ?? null, waited: scratchCount,
+    };
     check("scratch.done", !scratchLast && scratchDone.girl.stats.scratches === v12Before.scratches + 1,
-      `scratch=${JSON.stringify(scratchLast)} stats=${JSON.stringify(scratchDone.girl.stats)}`);
+      `scratch=${JSON.stringify(scratchLast)} stats=${JSON.stringify(scratchDone.girl.stats)} waited=${scratchCount}`);
     check("scratch.line-done", !!scratchDoneSnap.bubble && SCRATCH_LINES.includes(scratchDoneSnap.bubble.text),
       `bubble=${scratchDoneSnap.bubble?.text ?? "null"}`);
     check("scratch.persist", bondAfterScratch?.stats?.scratches === scratchDone.girl.stats.scratches,
@@ -2806,18 +2816,20 @@ async function main() {
       `achievements=${JSON.stringify(r.achievements)}`);
   }
 
-  // —— N. v1.13.0：待机体力编排（跳累了自己坐下/趴下，起身再跳） ——
-  // 这段要看真实的 9–14s 舞 + 6.5–10s 坐/趴 + 起身，不能靠 poke 内部时钟缩短。
-  // 先摸一下把编排 reset 成整支舞、并按住 userActive：引擎的静息/漫游都不许插队，
+  // —— N. v1.14.0：真姿态待机（站立 → 坐 → 蜷 → 起身，不再借跳舞帧压扁装坐） ——
+  // 这段要看真实编排的整段时长（坐 6–10s、蜷 8–13s），不能靠 poke 内部时钟缩短。
+  // 先摸一下把编排 reset 成站定、并按住 userActive：引擎的静息/漫游都不许插队，
   // 否则「走到一半变成 walk」会把编排重置，读到的段位就不是产品节奏了。
   {
-    const idleClipFor = { dance: "idle", sit: "sit", lie: "drowse", stand: "stand" };
     const readIdle = () => evaluate(s, `(() => {
       const d = window.__cyrene.getPetDiagnostics();
       return {
         idle: d.girl.idle ?? null,
+        pose: d.girl.pose ?? null,
         clip: d.girl.clip ?? null,
         gesture: d.girl.gesture ?? null,
+        face: d.girl.face ?? null,
+        cushion: d.girl.cushion ?? 0,
         activity: window.__cyrene.renderer.getCompanionSnapshot()?.activity ?? null,
       };
     })()`, 5_000);
@@ -2837,67 +2849,116 @@ async function main() {
     check("idle.activity", act.activity === "idle", `activity=${act.activity}`);
     await forceFrame();
     const start = await readIdle();
-    results.idle = { start: start.idle, startClip: start.clip, startGesture: start.gesture };
+    results.idle = { start: start.idle, startPose: start.pose, startClip: start.clip, startGesture: start.gesture };
+    // 复位后从站定起跳；姿态图就绪时基础段必须是真姿态格，而不是循环帧段。
     check("idle.start",
-      !!start.idle && start.idle.phase === "dance" && start.idle.suspended === false
-        && start.idle.left > 0
-        && (start.gesture !== null || start.clip === idleClipFor[start.idle.phase]),
-      `idle=${JSON.stringify(start.idle)} clip=${start.clip} gesture=${start.gesture}`);
+      !!start.idle && start.idle.phase === "stand" && start.idle.pose === "stand"
+        && start.idle.suspended === false && start.idle.left > 0
+        && (start.gesture !== null || (start.pose === "stand" && start.clip === null)),
+      `idle=${JSON.stringify(start.idle)} pose=${start.pose} clip=${start.clip} gesture=${start.gesture}`);
 
-    // 等一个「干净的歇段」：段位是坐/趴且没有一次性手势在演（手势会把姿态目标压回 0）。
+    // 等一个「干净的坐段」：真姿态坐格、没有一次性手势在演（手势只许在站定时出场）。
+    // 作息保证四段主动之内必歇一段，45s 留出换段+手势的余量。
     let rest = null;
-    const restDeadline = Date.now() + 20_000;
+    const restDeadline = Date.now() + 60_000;
     while (Date.now() < restDeadline) {
       await forceFrame();
       const r = await readIdle();
-      if (r.idle && (r.idle.phase === "sit" || r.idle.phase === "lie") && r.gesture === null) {
+      if (r.idle?.phase === "sit" && r.pose === "sit" && r.clip === null && r.gesture === null) {
         rest = r;
         break;
       }
       await wait(220);
     }
-    let rested = null;
+    let seated = null;
     if (rest) {
-      // 趴伏量按 240ms 时间常数缓动：等它到位再判，不能拿换段的第一帧说「没坐下去」。
+      // 坐垫按 180ms 时间常数展开：等它到位再判，不能拿换段的第一帧说「没坐下」。
       await wait(800);
       await forceFrame();
-      rested = await readIdle();
+      seated = await readIdle();
     }
-    const restPhase = rested?.idle?.phase ?? null;
-    const postureOk = restPhase === "sit"
-      ? (rested?.idle?.posture ?? 0) > 0.15
-      : restPhase === "lie" ? (rested?.idle?.posture ?? 0) > 0.35 : false;
-    results.idle.rest = rested?.idle ?? null;
-    results.idle.restClip = rested?.clip ?? null;
-    check("idle.rest",
-      !!rested && !!rested.idle && restPhase === rest?.idle?.phase
-        && !rested.idle.suspended && postureOk
-        && rested.clip === idleClipFor[restPhase],
-      `rest=${JSON.stringify(rest?.idle)} settled=${JSON.stringify(rested?.idle)} clip=${rested?.clip}`);
-    if (restPhase) await shot(`girl-idle-${restPhase}.png`);
+    results.idle.sit = seated?.idle ?? null;
+    results.idle.sitPose = seated ? { pose: seated.pose, clip: seated.clip, cushion: seated.cushion } : null;
+    check("idle.sit",
+      !!seated && !!seated.idle && seated.idle.phase === "sit"
+        && !seated.idle.suspended && seated.pose === "sit" && seated.clip === null
+        && seated.cushion > 0.9,
+      `rest=${JSON.stringify(rest?.idle)} settled=${JSON.stringify(seated?.idle)} pose=${seated?.pose} clip=${seated?.clip} cushion=${seated?.cushion}`);
+    if (seated) await shot("girl-idle-sit.png");
 
-    // 起身回舞：段位回到 dance、姿态收干净、基础段回到 idle（手势演着时只看姿态）。
+    // 坐够了自己蜷起来歇：同样是真姿态格；脸要比站着时低（头真的下来了，不是换色）。
+    // 55% 当场打盹；没打盹的那条路会在下一轮主动（≤4 段）后强制蜷，40s 覆盖两条路。
+    const standFaceY = start.face?.cy ?? null;
+    let curl = null;
+    const curlDeadline = Date.now() + 40_000;
+    while (Date.now() < curlDeadline) {
+      await forceFrame();
+      const r = await readIdle();
+      if (r.idle?.phase === "curl" && r.pose === "curl" && r.clip === null && r.gesture === null) {
+        curl = r;
+        break;
+      }
+      await wait(200);
+    }
+    const curlFaceDrops = !!(curl && start.face && curl.face && curl.face.cy > start.face.cy + 2);
+    results.idle.curl = curl?.idle ?? null;
+    results.idle.curlPose = curl ? { pose: curl.pose, clip: curl.clip, face: curl.face } : null;
+    check("idle.curl",
+      !!curl && !curl.idle.suspended && curl.pose === "curl" && curl.clip === null && curlFaceDrops,
+      `curl=${JSON.stringify(curl?.idle)} pose=${curl?.pose} clip=${curl?.clip} `
+        + `face=${curl?.face?.cy ?? "null"} standFace=${standFaceY ?? "null"}`);
+    if (curl) await shot("girl-idle-curl.png");
+
+    // 起身：回到站姿，头抬回来，基础段仍是真姿态格。
     let back = null;
-    const backDeadline = Date.now() + 28_000;
+    const backDeadline = Date.now() + 25_000;
     while (Date.now() < backDeadline) {
       await forceFrame();
       const r = await readIdle();
-      if (r.idle?.phase === "dance" && r.idle.suspended === false) {
+      if (r.idle?.phase === "stand" && r.pose === "stand" && r.clip === null && r.gesture === null) {
         back = r;
         break;
       }
-      await wait(220);
+      await wait(200);
     }
-    await wait(1_200);
-    await forceFrame();
-    const settled = await readIdle();
-    results.idle.back = settled.idle;
-    results.idle.backClip = settled.clip;
+    results.idle.back = back?.idle ?? null;
+    results.idle.backPose = back ? { pose: back.pose, clip: back.clip, face: back.face } : null;
     check("idle.wake",
-      !!back && !!settled.idle && settled.idle.phase === "dance"
-        && settled.idle.posture < 0.1
-        && (settled.gesture !== null || settled.clip === "idle"),
-      `back=${JSON.stringify(back?.idle)} settled=${JSON.stringify(settled.idle)} clip=${settled.clip}`);
+      !!back && !back.idle.suspended && back.pose === "stand" && back.clip === null
+        && (curl?.face ? back.face.cy < curl.face.cy : true),
+      `back=${JSON.stringify(back?.idle)} pose=${back?.pose} clip=${back?.clip} face=${back?.face?.cy ?? "null"}`);
+    if (back) await shot("girl-idle-back.png");
+
+    // 安静档：立刻站起来，且绝不用睡脸冒充安静（月牙是唯一记号）。
+    await evaluate(s, `window.__cyrene.renderer.setQuiet(true)`);
+    await forceFrame();
+    const hush = await readIdle();
+    results.idle.hush = { idle: hush.idle, pose: hush.pose, clip: hush.clip, mood: (await snap()).mood };
+    check("idle.quiet-stand",
+      hush.pose === "stand" && hush.clip === null && hush.idle?.phase === "stand",
+      `pose=${hush.pose} clip=${hush.clip} idle=${JSON.stringify(hush.idle)}`);
+    await shot("girl-idle-quiet.png");
+    await evaluate(s, `window.__cyrene.renderer.setQuiet(false)`);
+
+    // 睡着：真蜷格 + 睡毯/Zzz；打开安静当场站直。
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("toggle-sleep")`);
+    await wait(400);
+    await forceFrame();
+    const asleep = await readIdle();
+    results.idle.sleep = { pose: asleep.pose, clip: asleep.clip, face: asleep.face, activity: asleep.activity };
+    check("idle.sleep-curl",
+      asleep.activity === "sleep" && asleep.pose === "curl" && asleep.clip === null,
+      `activity=${asleep.activity} pose=${asleep.pose} clip=${asleep.clip}`);
+    await shot("girl-idle-sleep.png");
+    await evaluate(s, `window.__cyrene.renderer.setQuiet(true)`);
+    await forceFrame();
+    const wakeHush = await readIdle();
+    results.idle.sleepHush = { pose: wakeHush.pose, clip: wakeHush.clip, idle: wakeHush.idle };
+    check("idle.sleep-quiet-stand",
+      wakeHush.pose === "stand" && wakeHush.clip === null,
+      `pose=${wakeHush.pose} clip=${wakeHush.clip}`);
+    await evaluate(s, `window.__cyrene.renderer.setQuiet(false)`);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("toggle-sleep")`);
     await evaluate(s, `window.__cyrene.renderer.setUserActive(false)`);
   }
 

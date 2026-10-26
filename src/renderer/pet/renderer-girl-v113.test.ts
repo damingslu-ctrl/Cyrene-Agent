@@ -1,16 +1,13 @@
 // @vitest-environment jsdom
 // v1.13.0：追尾巴/踩奶/翻跟头/看书/礼物/许愿/跳格子/下雪/抽签接到 renderer 与引擎的缝上。
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  GIRL_TAIL_DIZZY_LINES,
-  GIRL_TAIL_START_LINES,
-  GIRL_SNOW_START_LINES,
-} from "./companion";
+import { GIRL_TAIL_DIZZY_LINES, GIRL_TAIL_START_LINES, GIRL_SNOW_START_LINES } from "./companion";
+import { clipDurationMs } from "./girl-anim";
 import { BOOK_MS } from "./girl-book";
 import { FORTUNE_MS } from "./girl-fortune";
 import { GIFT_MS } from "./girl-gift";
 import { HOP_MS } from "./girl-hopscotch";
-import { GIRL_IDLE_POSTURE, girlIdleClip } from "./girl-idle";
+import { girlIdlePose } from "./girl-idle";
 import { KNEAD_MS } from "./girl-knead";
 import { ROLL_MS } from "./girl-roll";
 import { SNOW_MS, SNOW_PACK_COOLDOWN_MS } from "./girl-snow";
@@ -100,20 +97,33 @@ function view(r: PixelPetRenderer) {
 }
 
 /**
- * 图集就绪的猫娘：draw 走 tickGirlClip 与图集绘制（jsdom 没有真图，手动置 ready）。
+ * 图集就绪的猫娘：draw 走 tickGirlScene 与位图绘制（jsdom 没有真图，手动置 ready）。
  * 引擎的自主抽签钉死（idleUntil 推到很远），只剩待机编排在动，测试才能按 until 精确等段。
  */
 async function makeAnimGirl() {
   const made = await makeGirl();
   const raw = made.r as unknown as {
     girlAnimReady: boolean;
+    girlPosesReady: boolean;
     engine: { idleUntil: number; lastUserAt: number };
   };
   raw.girlAnimReady = true;
+  raw.girlPosesReady = true;
   raw.engine.idleUntil = Number.MAX_SAFE_INTEGER;
   // 引擎的静息周期会在 40s 不互动后开坐垫：它会把 activity 掰成 rest，打断编排断言。
   raw.engine.lastUserAt = Number.MAX_SAFE_INTEGER;
   return made;
+}
+
+function ctxOf(r: PixelPetRenderer) {
+  return (r as unknown as { ctx: { drawImage: ReturnType<typeof vi.fn> } }).ctx;
+}
+
+/** 这一帧画过哪些姿态格（姿态图集的格子宽 340，帧动画是 170，靠源宽区分）。 */
+function poseCellsDrawn(r: PixelPetRenderer): number[] {
+  return ctxOf(r).drawImage.mock.calls
+    .filter((c) => c.length >= 9 && c[3] === 340)
+    .map((c) => Math.round(Number(c[1]) / 340));
 }
 
 afterEach(() => {
@@ -405,76 +415,93 @@ describe("v1.13.0 闸门与互斥", () => {
   });
 });
 
-describe("v1.13.0 待机体力编排（跳舞 → 坐/趴 → 起身）", () => {
-  it("跳累了坐下/趴下，起身回到跳舞；段位、帧段、趴伏量三者同步", async () => {
+describe("v1.14.0 真姿态待机（站立 → 回头 → 坐 → 蜷 → 起身）", () => {
+  it("待机画的是真姿态格，不再拿跳舞帧压扁装坐", async () => {
     const { r, clock } = await makeAnimGirl();
     const draw = () => view(r).draw(clock.ms);
+    ctxOf(r).drawImage.mockClear();
     draw();
     let d = r.getGirlDiagnostics(clock.ms);
-    expect(d.idle.phase).toBe("dance");
-    expect(d.idle.posture).toBe(0);
-    expect(d.clip).toBe(girlIdleClip("dance"));
+    expect(d.idle.phase).toBe("stand");
+    expect(d.idle.pose).toBe(girlIdlePose("stand"));
+    expect(d.pose).toBe("stand");
+    expect(d.clip).toBeNull();
     expect(d.gesture).toBeNull();
-    expect(d.idle.until - clock.ms).toBeGreaterThan(8_000);
+    expect(poseCellsDrawn(r)).toContain(0);
 
-    const seen: string[] = [];
-    let restPosture = 0;
-    for (let i = 0; i < 8; i += 1) {
-      clock.ms = r.getGirlDiagnostics(clock.ms).idle.until + 1;
+    // 一路等到她坐下；每次换段前清一次绘制记录，最后一笔就是坐姿那一帧。
+    let sawSit = false;
+    for (let i = 0; i < 16; i += 1) {
+      ctxOf(r).drawImage.mockClear();
+      clock.ms = d.idle.until + 1;
       draw();
       d = r.getGirlDiagnostics(clock.ms);
-      seen.push(d.idle.phase);
-      expect(d.clip).toBe(girlIdleClip(d.idle.phase as never));
-      // 缓动几帧再读姿态：一帧只吃 90ms 的 dt，不能拿第一帧判「没坐下来」。
-      for (let k = 0; k < 6; k += 1) {
-        clock.ms += 100;
-        draw();
+      expect(d.idle.pose).toBe(girlIdlePose(d.idle.phase as never));
+      expect(d.clip).toBeNull();
+      if (d.idle.phase === "sit") {
+        sawSit = true;
+        expect(d.pose).toBe("sit");
+        expect(poseCellsDrawn(r)).toContain(1);
+        break;
       }
-      d = r.getGirlDiagnostics(clock.ms);
-      if (d.idle.phase === "sit" || d.idle.phase === "lie") {
-        expect(d.idle.posture).toBeGreaterThan(0.2);
-        restPosture = Math.max(restPosture, d.idle.posture);
-      }
-      if (i > 0 && d.idle.phase === "dance") break;
     }
-    expect(seen[0]).toBe("sit");
-    expect(seen).toContain("stand");
-    expect(seen[seen.length - 1]).toBe("dance");
-    expect(restPosture).toBeGreaterThan(0.35);
-    expect(restPosture).toBeLessThanOrEqual(GIRL_IDLE_POSTURE.lie);
-
-    for (let k = 0; k < 24; k += 1) {
-      clock.ms += 100;
-      draw();
-    }
-    expect(r.getGirlDiagnostics(clock.ms).idle.posture).toBeLessThan(0.02);
+    expect(sawSit).toBe(true);
     r.dispose();
   });
 
-  it("玩玩具时编排挂起；玩完回来先给一整支舞，不接着刚才的疲惫", async () => {
+  it("手势演完回到当前姿态：坐着挥手，挥完还是坐着", async () => {
     const { r, clock } = await makeAnimGirl();
     const draw = () => view(r).draw(clock.ms);
     draw();
-    clock.ms = r.getGirlDiagnostics(clock.ms).idle.until + 1;
-    draw();
-    for (let k = 0; k < 4; k += 1) {
-      clock.ms += 100;
+    let d = r.getGirlDiagnostics(clock.ms);
+    for (let i = 0; i < 16 && d.idle.phase !== "sit"; i += 1) {
+      clock.ms = d.idle.until + 1;
       draw();
+      d = r.getGirlDiagnostics(clock.ms);
     }
-    expect(r.getGirlDiagnostics(clock.ms).idle.phase).toBe("sit");
-    expect(r.getGirlDiagnostics(clock.ms).idle.posture).toBeGreaterThan(0.2);
+    expect(d.idle.phase).toBe("sit");
+
+    r.playGesture("wave", clock.ms);
+    draw();
+    d = r.getGirlDiagnostics(clock.ms);
+    expect(d.gesture).toBe("wave");
+    expect(d.clip).toBe("wave");
+    expect(d.pose).toBeNull();
+
+    clock.ms += clipDurationMs("wave") + 16;
+    draw();
+    d = r.getGirlDiagnostics(clock.ms);
+    expect(d.gesture).toBeNull();
+    expect(d.pose).toBe("sit");
+    expect(d.clip).toBeNull();
+    expect(d.idle.phase).toBe("sit");
+    r.dispose();
+  });
+
+  it("玩玩具时编排挂起；玩完回来站定，不再给一整支舞", async () => {
+    const { r, clock } = await makeAnimGirl();
+    const draw = () => view(r).draw(clock.ms);
+    draw();
+    let d = r.getGirlDiagnostics(clock.ms);
+    for (let i = 0; i < 16 && d.idle.phase !== "sit"; i += 1) {
+      clock.ms = d.idle.until + 1;
+      draw();
+      d = r.getGirlDiagnostics(clock.ms);
+    }
+    expect(d.idle.phase).toBe("sit");
 
     r.handleCommand("tail");
     draw();
-    let d = r.getGirlDiagnostics(clock.ms);
+    d = r.getGirlDiagnostics(clock.ms);
     expect(d.tail).not.toBeNull();
     expect(d.idle.suspended).toBe(true);
-    expect(d.idle.phase).toBe("dance");
+    expect(d.idle.phase).toBe("stand");
+    expect(d.pose).toBe("stand");
     for (let k = 0; k < 8; k += 1) {
       clock.ms += 100;
       draw();
     }
-    expect(r.getGirlDiagnostics(clock.ms).idle.posture).toBeLessThan(0.12);
+    expect(r.getGirlDiagnostics(clock.ms).idle.phase).toBe("stand");
 
     clock.ms += TAIL_MS;
     draw();
@@ -485,30 +512,112 @@ describe("v1.13.0 待机体力编排（跳舞 → 坐/趴 → 起身）", () => 
     d = r.getGirlDiagnostics(clock.ms);
     expect(d.tail).toBeNull();
     expect(d.idle.suspended).toBe(false);
-    expect(d.idle.phase).toBe("dance");
-    expect(d.idle.until - clock.ms).toBeGreaterThan(8_000);
+    expect(d.idle.phase).toBe("stand");
+    expect(d.pose).toBe("stand");
+    expect(d.idle.until - clock.ms).toBeGreaterThan(2_000);
     r.dispose();
   });
 
-  it("安静期只坐不趴：两轮里都找不到 lie", async () => {
+  it("站定一段只接一条自主小动作，其余时间画真站姿", async () => {
+    const { r, clock } = await makeAnimGirl();
+    const draw = () => view(r).draw(clock.ms);
+    const engine = (r as unknown as {
+      engine: { ambientGesture: string | null; gestureUntil: number };
+    }).engine;
+    draw();
+    let d = r.getGirlDiagnostics(clock.ms);
+    expect(d.idle.phase).toBe("stand");
+
+    // 700ms 后的站定：第一条引擎小动作可以演。
+    clock.ms += 700;
+    engine.ambientGesture = "wave";
+    engine.gestureUntil = clock.ms + 2_000;
+    draw();
+    d = r.getGirlDiagnostics(clock.ms);
+    expect(d.gesture).toBe("wave");
+    expect(d.clip).toBe("wave");
+    expect(d.pose).toBeNull();
+
+    // 同一段站定里再来一条：让位给站姿——一站起来就开始连续跳舞，
+    // 待机就还是「只会跳舞」，只是换了个底子。
+    clock.ms += clipDurationMs("wave") + 100;
+    engine.ambientGesture = "nod";
+    engine.gestureUntil = clock.ms + 1_500;
+    draw();
+    d = r.getGirlDiagnostics(clock.ms);
+    expect(d.idle.phase).toBe("stand");
+    expect(engine.ambientGesture).toBe("nod");
+    expect(d.gesture).toBeNull();
+    expect(d.clip).toBeNull();
+    expect(d.pose).toBe("stand");
+    r.dispose();
+  });
+
+  it("摸头这类回馈手势在活动态里照演：站姿闸门只关待机编排", async () => {
+    const { r, clock } = await makeAnimGirl();
+    const draw = () => view(r).draw(clock.ms);
+    draw();
+    clock.ms += 700;
+    draw();
+    expect(r.getGirlDiagnostics(clock.ms).idle.phase).toBe("stand");
+
+    r.touch("head");
+    clock.ms += 40;
+    draw();
+    const d = r.getGirlDiagnostics(clock.ms);
+    expect(d.idle.suspended).toBe(true);
+    expect(d.gesture).toBe("shy");
+    expect(d.clip).toBe("shy");
+    r.dispose();
+  });
+
+  it("安静期只站/看/坐，绝不蜷、绝不庆祝", async () => {
     const { r, clock } = await makeAnimGirl();
     const draw = () => view(r).draw(clock.ms);
     r.setQuiet(true);
     draw();
-    expect(r.getGirlDiagnostics(clock.ms).idle.phase).toBe("dance");
+    let d = r.getGirlDiagnostics(clock.ms);
+    expect(d.idle.phase).toBe("stand");
+    expect(d.pose).toBe("stand");
 
     const phases: string[] = [];
-    for (let i = 0; i < 6; i += 1) {
-      clock.ms = r.getGirlDiagnostics(clock.ms).idle.until + 1;
+    // 安静档的 sit 只从 stand 以 24% 权重进（look→stand 固定），固定种子的头一串
+    // 十几段里才第一次坐下；步数要够跨过那串 look/stand，否则测的是抖动运气。
+    for (let i = 0; i < 24; i += 1) {
+      clock.ms = d.idle.until + 1;
       draw();
-      for (let k = 0; k < 3; k += 1) {
-        clock.ms += 100;
-        draw();
-      }
-      phases.push(r.getGirlDiagnostics(clock.ms).idle.phase);
+      d = r.getGirlDiagnostics(clock.ms);
+      phases.push(d.idle.phase);
+      expect(d.idle.pose).toBe(girlIdlePose(d.idle.phase as never));
     }
     expect(phases).toContain("sit");
-    expect(phases).not.toContain("lie");
+    expect(phases).not.toContain("curl");
+    expect(phases).not.toContain("joy");
+    r.dispose();
+  });
+
+  it("睡着画蜷；打开安静立刻站起来，月牙与睡脸不同屏", async () => {
+    const { r, clock } = await makeAnimGirl();
+    const draw = () => view(r).draw(clock.ms);
+    draw();
+    const standFace = r.getGirlDiagnostics(clock.ms).face;
+
+    r.handleCommand("toggle-sleep");
+    ctxOf(r).drawImage.mockClear();
+    draw();
+    let d = r.getGirlDiagnostics(clock.ms);
+    expect(d.pose).toBe("curl");
+    expect(d.clip).toBeNull();
+    expect(d.idle.suspended).toBe(true);
+    expect(d.face.cy).toBeGreaterThan(standFace.cy + 2);
+    expect(poseCellsDrawn(r)).toContain(2);
+    const curlFace = d.face;
+
+    r.setQuiet(true);
+    d = r.getGirlDiagnostics(clock.ms);
+    expect(d.pose).toBe("stand");
+    expect(d.clip).toBeNull();
+    expect(d.face.cy).toBeLessThan(curlFace.cy);
     r.dispose();
   });
 });

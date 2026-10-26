@@ -19,30 +19,35 @@ import {
 import { paintOps, type DrawOp, type Point2 } from "./ops";
 import { buildBubbleOps, bubbleBoxRect, type BubbleBox, type CatInput } from "./art";
 import { buildPetOps } from "./form";
-import { buildGirlOverlayOps, girlAnimBodyFor, girlBodyFor, girlFaceBox, type GirlAnimBody } from "./girl-sprite";
+import {
+  buildGirlOverlayOps,
+  buildGirlPoseOverlayOps,
+  girlAnimBodyFor,
+  girlBodyFor,
+  girlFaceBox,
+  girlInkBox,
+  girlPoseBodyFor,
+  girlPoseFaceBox,
+  girlPoseInkBox,
+  type GirlAnimBody,
+  type GirlFaceBox,
+  type GirlPoseBody,
+} from "./girl-sprite";
 import { GIRL_SPRITE } from "./girl-sprite-meta";
 import { GIRL_ANIM } from "./girl-anim-meta";
+import { GIRL_PET_POSES, GIRL_PET_POSE_CELLS, type GirlPoseId } from "./girl-pet-poses-meta";
+import { frameSourceRect, gestureClipFor, type GirlActivity, type GirlClipId } from "./girl-anim";
 import {
-  GIRL_CLIP_PLAY,
-  GirlClipPlayer,
-  baseClipFor,
-  frameSourceRect,
-  gestureClipFor,
-  redrawFloorFor,
-  type GirlActivity,
-  type GirlClipId,
-} from "./girl-anim";
-import {
-  GIRL_IDLE_POSTURE,
   GIRL_IDLE_SEED,
   createGirlIdle,
-  girlIdleClip,
   girlIdleLeft,
+  girlIdlePose,
   resetGirlIdle,
   stepGirlIdle,
-  type GirlIdlePhase,
   type GirlIdleState,
+  type GirlLifePhase,
 } from "./girl-idle";
+import { GirlScenePlayer, girlBasePoseFor, girlBaseVisualFor, type GirlShown } from "./girl-scene";
 import { blinkAt, bodyClip, gestureClip, mixPose, sampleClip, type Slots } from "./motion";
 import { faceOf, MOOD_TO_EXPRESSION, type Expression } from "./face";
 import {
@@ -440,22 +445,32 @@ export class PixelPetRenderer {
    */
   private readonly girlAnim = new Image();
   private girlAnimReady = false;
-  /** 帧动画时钟：所有时间参数由 draw 的绝对 now 注入，暂停/拖窗不会偷跑。 */
-  private readonly girlPlayer = new GirlClipPlayer("idle", 0);
+  /**
+   * 真姿态图集（v1.14.0）：站/坐/蜷/回头/伸懒腰/开心都是画好的整身，
+   * 待机底子不再借跳舞帧压扁。与帧动画同时开拉，谁到用谁。
+   */
+  private readonly girlPoses = new Image();
+  private girlPosesReady = false;
+  /** 当前这一幕：真姿态静帧，或一段帧动画。时间由 draw 的绝对 now 注入。 */
+  private scene = new GirlScenePlayer({ kind: "clip", id: "idle", loop: true }, 0);
   /** 正在演的手势段（显式 playGesture 或 companion 抽到的 ambient），播完回基础动作。 */
   private animGesture: { clipId: GirlClipId; startedAt: number } | null = null;
+  /** 当前这段手势是不是引擎抽的（换段时要让位给新姿态；用户点的手势不打断）。 */
+  private ambientGestureActive = false;
+  /** 已经演过自主小动作的站定段号；同一段只演一条，站定才不会变成连播舞蹈。 */
+  private ambientGestureBout = -1;
   private lastAmbientGesture: string | null = null;
   /**
-   * 待机编排（v1.13.0）：跳一阵→坐/趴→起身。状态机是纯函数，渲染器只在
-   * 「她真的闲着」时推进；任何玩具/活动都挂起它，玩完回来先给一整支舞。
+   * 待机编排（v1.13.0 起）：站→回头→坐→蜷→起身。状态机是纯函数，渲染器只在
+   * 「她真的闲着」时推进；任何玩具/活动都挂起它。v1.14 起每一段都落到真姿态。
    */
   private idle: GirlIdleState = createGirlIdle(0, GIRL_IDLE_SEED);
   /** 帧时钟的基准不是构造时刻：第一帧要知道「从当下起跳」，不能继承 now=0 的旧时间线。 */
   private idleTickInited = false;
   /** 挂起（玩具/非 idle 活动）时只 reset 一次，不能每帧重置把 bouts 刷爆。 */
   private idleSuspended = false;
-  /** 趴伏量 0..1 的缓动量：坐下/趴下/起身都按 180ms 时间常数过渡，脚心不动。 */
-  private idlePosture = 0;
+  /** 这一帧实际画出的脸框：诊断与探针读它，保证读数和屏幕同一拍。 */
+  private lastFace: GirlFaceBox | null = null;
 
   // —— Task 12 贴边藏身状态机（对位 native ui-thread App 状态：pet_pos/peek_dx/idle_t/user_active）——
   // 渲染端不是位置权威：catOrigin 只跟三条合法来源走——起帧 invoke 拉取、
@@ -598,6 +613,17 @@ export class PixelPetRenderer {
       if (this.form === "girl" && !this.paused) this.draw(performance.now());
     }, { once: true });
     this.girlAnim.src = GIRL_ANIM.src;
+
+    this.girlPoses.addEventListener("load", () => {
+      this.girlPosesReady = true;
+      if (this.form === "girl" && !this.paused) this.draw(performance.now());
+    }, { once: true });
+    this.girlPoses.addEventListener("error", () => {
+      // 真姿态缺席时回到帧动画里最接近的一段（girlBaseVisualFor 的 fallback），不空窗。
+      console.warn("[verge] girl-poses 图集加载失败，待机退回帧动画");
+      if (this.form === "girl" && !this.paused) this.draw(performance.now());
+    }, { once: true });
+    this.girlPoses.src = GIRL_PET_POSES.src;
   }
 
   async init(): Promise<void> {
@@ -911,7 +937,7 @@ export class PixelPetRenderer {
    */
   getGirlClipId(): string | null {
     if (this.form !== "girl" || !this.girlAnimReady) return null;
-    return this.girlPlayer.clipId;
+    return this.scene.clipId();
   }
 
   /**
@@ -924,21 +950,26 @@ export class PixelPetRenderer {
     dizzyLeft: number;
     blush: number;
     clip: string | null;
+    /** v1.14.0：当前画的是哪张真姿态（null＝帧动画/手势/矢量路径）。 */
+    pose: GirlPoseId | null;
+    /** 这一帧实际画出的脸框（绘制空间）。探针用它量坐/蜷时头降到哪。 */
+    face: GirlFaceBox;
     /** 正在演的一次性手势段（显式/环境）；null＝基础段。探针等它退场再判基础段。 */
     gesture: string | null;
     fx: { below: number; above: number };
     cushion: number;
     /** v1.13.0 待机编排：探针按 until 等下一段，不用猜时长。 */
     idle: {
-      phase: GirlIdlePhase;
+      phase: GirlLifePhase;
+      /** 这一段的真姿态（life loop 的意图；手势/玩具时可以与此不同，看顶层 `pose`）。 */
+      pose: GirlPoseId;
       since: number;
       until: number;
       left: number;
-      nextRest: "sit" | "lie";
+      /** 疲劳 0..1：越高越容易坐/蜷。 */
+      weariness: number;
       rests: number;
       bouts: number;
-      deep: boolean;
-      posture: number;
       suspended: boolean;
     };
     toy: { x: number; y: number; vx: number; vy: number; rest: boolean; trail: number } | null;
@@ -1308,19 +1339,20 @@ export class PixelPetRenderer {
       dizzyLeft: snapshot?.dizzyLeft ?? 0,
       blush: this.blush,
       clip: this.getGirlClipId(),
+      pose: this.form === "girl" ? this.scene.poseId() : null,
+      face: this.lastFace ?? this.girlFaceAt(now),
       gesture: this.animGesture?.clipId ?? null,
       fx: { ...this.lastFxCounts },
       cushion: this.cushion,
       idle: {
         phase: this.idle.phase,
+        pose: girlIdlePose(this.idle.phase),
         since: this.idle.since,
         until: this.idle.until,
         left: girlIdleLeft(this.idle, now),
-        nextRest: this.idle.nextRest,
+        weariness: this.idle.weariness,
         rests: this.idle.rests,
         bouts: this.idle.bouts,
-        deep: this.idle.deep,
-        posture: this.idlePosture,
         suspended: this.idleSuspended,
       },
       toy: this.toyState
@@ -1416,10 +1448,11 @@ export class PixelPetRenderer {
    */
   private girlBlushTarget(snapshot: CompanionSnapshot | null): number {
     if (this.cat.mood === "sleep" || this.quiet) return 0;
-    const clip = this.girlPlayer.clipId;
+    const clip = this.scene.clipId();
     if (clip === "shy" || clip === "sitShy") return 0.95;
     if (clip === "wink") return 0.55;
     if (clip === "happy" || clip === "wave" || clip === "peace") return 0.5;
+    if (this.scene.poseId() === "joy") return 0.5;
     if (snapshot?.activity === "pet") return 0.35 + 0.35 * Math.sin(Math.PI * snapshot.activityProgress);
     if (this.cat.mood === "happy") return 0.3;
     return 0;
@@ -1683,9 +1716,7 @@ export class PixelPetRenderer {
   /** 喂食时的小鱼干：只是一段道具动画，数值仍由引擎结算。 */
   private spawnSnack(now: number): void {
     if (this.form !== "girl" || this.quiet || this.cat.mood === "sleep") return;
-    const frame = this.girlAnimReady ? this.girlPlayer.sample(now).index : 0;
-    const face = girlFaceBox(girlAnimBodyFor(this.cat), frame);
-    this.snack = createSnack(now, face, this.cat.center.y, this.cat.facing ?? 1);
+    this.snack = createSnack(now, this.girlFaceAt(now), this.cat.center.y, this.cat.facing ?? 1);
   }
 
   private tickSnack(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
@@ -1726,10 +1757,21 @@ export class PixelPetRenderer {
     return true;
   }
 
-  /** 当前脸框（绘制空间）：所有头顶道具共用同一把锚尺。 */
-  private girlFaceAt(now: number): ReturnType<typeof girlFaceBox> {
-    const frame = this.girlAnimReady ? this.girlPlayer.sample(now).index : 0;
-    return girlFaceBox(girlAnimBodyFor(this.cat), frame);
+  /**
+   * 当前脸框（绘制空间）：所有头顶道具共用同一把锚尺。
+   * 姿态是静帧、动画按帧采样——两种幕的脸框都从各自那份逐格实测元数据来。
+   */
+  private girlFaceAt(now: number): GirlFaceBox {
+    const shown = this.scene.sample(now).current;
+    return this.faceForShown(shown, girlPoseBodyFor(this.cat), girlAnimBodyFor(this.cat));
+  }
+
+  private faceForShown(
+    shown: GirlShown, poseBody: GirlPoseBody, animBody: GirlAnimBody,
+  ): GirlFaceBox {
+    return shown.kind === "pose"
+      ? girlPoseFaceBox(poseBody, shown.id)
+      : girlFaceBox(animBody, shown.index);
   }
 
   /** 菜单可能比下一帧更早到达：睡着/被拖/被抛要读引擎当下状态，不能只看上一帧的 cat.mood。 */
@@ -2758,28 +2800,70 @@ export class PixelPetRenderer {
   }
 
   /**
+   * 姿态图里的一格：与 `paintGirlFrame` 同一条「绕脚心、按 inkRefPx→inkVb」的变换链。
+   * 真坐/真蜷的身子已经在图里，这里只叠呼吸与朝向，**不许再压扁**。
+   */
+  private paintGirlPose(pose: GirlPoseId, alpha: number, body: GirlPoseBody): void {
+    const cell = GIRL_PET_POSE_CELLS[pose];
+    const col = cell % GIRL_PET_POSES.cols;
+    const row = Math.floor(cell / GIRL_PET_POSES.cols);
+    const w = GIRL_PET_POSES.cellW * body.k;
+    const h = GIRL_PET_POSES.cellH * body.k;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(body.pivot.x, body.pivot.y);
+    ctx.rotate(body.rot);
+    ctx.scale(body.sx * body.facing, body.sy);
+    ctx.drawImage(
+      this.girlPoses,
+      col * GIRL_PET_POSES.cellW, row * GIRL_PET_POSES.cellH,
+      GIRL_PET_POSES.cellW, GIRL_PET_POSES.cellH,
+      -GIRL_PET_POSES.anchorX * w, -GIRL_PET_POSES.anchorY * h, w, h,
+    );
+    ctx.restore();
+  }
+
+  /** 画一幕：姿态与动画各有各的刚体，交叉淡化时两幕必须各算各的 `k`。 */
+  private paintGirlShown(
+    shown: GirlShown, alpha: number, body: GirlAnimBody | GirlPoseBody,
+  ): void {
+    if (shown.kind === "pose") {
+      if (this.girlPosesReady) this.paintGirlPose(shown.id, alpha, body as GirlPoseBody);
+    } else if (this.girlAnimReady) {
+      this.paintGirlFrame(shown.index, alpha, body as GirlAnimBody);
+    }
+  }
+
+  /**
    * 待机编排一拍：只在「活动=idle 且没有独演玩具」时推进，其余时刻挂起。
    * 挂起只 reset 一次（玩完回来一整支舞）；进入挂起时也 reset，保证下一次 idle
    * 从舞开头起算，而不是接着玩之前那段剩几秒的疲惫。
    */
-  private tickGirlIdle(now: number, activity: GirlActivity): void {
+  /** 返回 true＝这一拍换了段（含挂起/恢复）：自主小动作要让位给新姿态。 */
+  private tickGirlIdle(now: number, activity: GirlActivity): boolean {
     if (!this.idleTickInited) {
       this.idleTickInited = true;
       this.idle = createGirlIdle(now, GIRL_IDLE_SEED);
+      return true;
     }
     const canIdle = activity === "idle" && !this.girlToyOnScreen();
     if (!canIdle) {
       if (!this.idleSuspended) {
         this.idleSuspended = true;
         this.idle = resetGirlIdle(this.idle, now);
+        return true;
       }
-      return;
+      return false;
     }
     if (this.idleSuspended) {
       this.idleSuspended = false;
       this.idle = resetGirlIdle(this.idle, now);
+      return true;
     }
+    const before = this.idle;
     this.idle = stepGirlIdle(this.idle, now, { quiet: this.quiet });
+    return this.idle !== before;
   }
 
   /** 独演道具/点心/小虫/跟随任一在场：待机编排让位，别在她玩的时候坐下。 */
@@ -2796,44 +2880,67 @@ export class PixelPetRenderer {
   }
 
   /**
-   * 每帧把「活动/环境手势/显式手势」翻译成要播的帧段（dsh-pet 的加权状态链）：
-   * 1. 显式手势（点击反馈/workStatus）最高优先，一次性播完就回基础动作；
-   * 2. 引擎自主抽到的小动作（snapshot.gesture，权重 80）只在换 id 时起播，
-   *    否则每帧重置会把同一段动作钉在第一帧；她坐着/趴着时这条闸关掉——
-   *    否则引擎每 80 权重抽一次，编排永远走不到「歇一会」；
-   * 3. 其余时间播待机编排给的段（跳舞/坐下/打盹/起身），非 idle 活动走原映射。
+   * 每帧把「活动/环境手势/显式手势」翻译成这一幕（v1.14 的真姿态优先链）：
+   * 1. 显式手势（点击反馈/workStatus）最高优先，一次性播完就回基础姿态；
+   * 2. 引擎自主抽到的小动作（snapshot.gesture，权重 80）只在换 id 时起播；
+   *    她坐着/蜷着/回头时这条闸关掉，否则编排永远走不到「歇一会」；
+   * 3. 其余时间由 `girlBaseVisualFor` 给真姿态：站/看/坐/蜷/伸懒腰/开心，
+   *    走路/梳毛/被拖等只能靠帧动画的活动才回动画段。
    */
-  private tickGirlClip(now: number, snapshot: CompanionSnapshot | null): void {
+  private tickGirlScene(now: number, snapshot: CompanionSnapshot | null): void {
     const activity = (snapshot?.activity ?? "idle") as GirlActivity;
-    this.tickGirlIdle(now, activity);
-    const explicit = this.explicitGesture;
+    const boutChanged = this.tickGirlIdle(now, activity);
+    // 换段＝她正要坐/蜷/回头：引擎抽的余兴动作必须当场让位，否则新姿态永远上不了台。
+    if (boutChanged && this.ambientGestureActive) {
+      this.animGesture = null;
+      this.ambientGestureActive = false;
+    }
+    const explicit = this.girlAnimReady ? this.explicitGesture : null;
     if (explicit) {
       // 与静态路径同口径：显式手势是一次性的，起播即消费，播完自动让位。
       this.explicitGesture = null;
       const clipId = gestureClipFor(explicit.id);
       if (clipId) {
         this.animGesture = { clipId, startedAt: explicit.startedAt };
-        this.girlPlayer.setClip(clipId, explicit.startedAt, false);
+        this.ambientGestureActive = false;
+        this.scene.setVisual({ kind: "clip", id: clipId, loop: false }, explicit.startedAt);
       }
     } else {
       const ambient = snapshot?.gesture ?? null;
-      const ambientAllowed = activity !== "idle" || this.idle.phase === "dance";
-      if (ambientAllowed && ambient && ambient !== this.lastAmbientGesture) {
+      // 待机编排才吃「站定且已经站了一拍」的闸：坐/蜷/回头时被抽中会把歇息打断成抽搐。
+      // 非 idle 的活动（摸头 → pet、挠脚、喂食、休息…）里的 ambient 是**互动回馈**，
+      // 必须照演——否则点脸只换了底片，看门的那一下就没了。
+      // 玩具在场时一律不接——很多玩具开局会塞一条 ambient，那是道具演出的余兴，
+      // 不该把「玩玩具时站定」的底子换成一整段帧动画。刚换段的前 600ms 也不接，
+      // 让新姿态有机会被看见（换段瞬间接一段帧动画，读起来像姿态没生效）。
+      const ambientAllowed = !this.girlToyOnScreen()
+        && (activity !== "idle"
+          || (this.idle.phase === "stand"
+            && this.ambientGestureBout !== this.idle.bouts
+            && now - this.idle.since > 600));
+      if (this.girlAnimReady && ambientAllowed && ambient && ambient !== this.lastAmbientGesture) {
         const clipId = gestureClipFor(ambient);
         if (clipId) {
           this.animGesture = { clipId, startedAt: now };
-          this.girlPlayer.setClip(clipId, now, false);
+          this.ambientGestureActive = true;
+          this.ambientGestureBout = this.idle.bouts;
+          this.scene.setVisual({ kind: "clip", id: clipId, loop: false }, now);
         }
       }
       this.lastAmbientGesture = ambient;
     }
 
-    if (this.animGesture && this.girlPlayer.isDone(now)) this.animGesture = null;
+    if (this.animGesture && this.scene.isDone(now)) {
+      this.animGesture = null;
+      this.ambientGestureActive = false;
+    }
     if (!this.animGesture) {
-      const base = activity === "idle"
-        ? girlIdleClip(this.idle.phase)
-        : baseClipFor(activity, this.quiet);
-      if (base !== this.girlPlayer.clipId) this.girlPlayer.setClip(base, now);
+      this.scene.setVisual(girlBaseVisualFor({
+        activity,
+        phase: this.idle.phase,
+        quiet: this.quiet,
+        posesReady: this.girlPosesReady,
+      }), now);
     }
   }
 
@@ -2853,26 +2960,21 @@ export class PixelPetRenderer {
       this.sleepSince = -1;
     }
     // 手势/动作段先落定，再算重绘帧率：淡化期要 30fps，循环段至少比片段 fps 快一档。
-    if (this.form === "girl" && this.girlAnimReady) this.tickGirlClip(now, snapshot);
+    if (this.form === "girl" && (this.girlAnimReady || this.girlPosesReady)) {
+      this.tickGirlScene(now, snapshot);
+    }
 
     // 坐垫包络与脸红共用一条 180ms 时间常数；镜头外的缓动量只在这里推一次。
+    // 坐垫认「基础姿态」而不是正在演的那一段：坐着挥手时垫子不许跟着收回去。
     const dtFx = this.lastGirlFxAt === null ? 0 : Math.max(0, Math.min(90, now - this.lastGirlFxAt));
     this.lastGirlFxAt = now;
-    const cushionTarget = this.form === "girl" && snapshot?.activity === "rest" ? 1 : 0;
+    const basePose = this.form === "girl"
+      ? girlBasePoseFor((snapshot?.activity ?? "idle") as GirlActivity, this.idle.phase, this.quiet)
+      : null;
+    const cushionTarget = this.form === "girl" && (snapshot?.activity === "rest" || basePose === "sit") ? 1 : 0;
     this.cushion += (cushionTarget - this.cushion) * (1 - Math.exp(-dtFx / 180));
     if (this.cushion < 0.01) this.cushion = 0;
     const cushionMoving = Math.abs(cushionTarget - this.cushion) > 0.01;
-
-    // 待机编排的坐/趴量：只有「真的闲着且没有手势在演」才吃编排姿态；引擎的 rest
-    // 也坐（垫子已展开），其余活动/玩具一律回站姿。缓动与坐垫同一条时间常数。
-    const activityForPosture = (snapshot?.activity ?? "idle") as GirlActivity;
-    const idleOnStage = this.form === "girl" && activityForPosture === "idle" && this.animGesture === null;
-    const postureTarget = idleOnStage
-      ? GIRL_IDLE_POSTURE[this.idle.phase]
-      : activityForPosture === "rest" ? GIRL_IDLE_POSTURE.sit : 0;
-    this.idlePosture += (postureTarget - this.idlePosture) * (1 - Math.exp(-dtFx / 240));
-    if (this.idlePosture < 0.005) this.idlePosture = 0;
-    this.cat.pose.sprawl = this.idlePosture;
 
     // 三档 fps：走路/投掷/滚球要 60，气泡/藏身缓动/计时动作 30，静坐 4。
     const moving = snapshot !== null
@@ -2905,11 +3007,9 @@ export class PixelPetRenderer {
     else if (this.workTier !== null) this.fps = FPS_ACTIVE;
     else this.fps = FPS_IDLE;
     // 帧动画自己的播放速率就是重绘下限：12fps 的待机在 4fps 档会让每张画多停两拍。
-    // 下限取片段帧率的两倍（`redrawFloorFor`）：重绘与片段同频会凑成拍频，看起来一顿一顿。
-    if (this.form === "girl" && this.girlAnimReady) {
-      const need = this.girlPlayer.isFading(now)
-        ? FPS_ACTIVE
-        : redrawFloorFor(this.girlPlayer.clipId);
+    // 下限取片段帧率的两倍（`redrawFloorFor`）；真姿态是静帧，12fps 足够呼吸与慢摆。
+    if (this.form === "girl" && (this.girlAnimReady || this.girlPosesReady)) {
+      const need = this.scene.isFading(now) ? FPS_ACTIVE : this.scene.redrawFloor();
       this.fps = Math.max(this.fps, need);
     }
 
@@ -2928,7 +3028,9 @@ export class PixelPetRenderer {
     this.cat.workParticle = this.workTier === null ? "none" : presentationOf(this.workTier).particle;
     this.cat.workSince = this.workSince / 1000;
     // 注视：只有矢量路径吃 mouse（位图猫娘的脸是画死的，瞳孔不会转）。
-    this.cat.mouse = this.form === "girl" && this.girlAnimReady ? null : this.gazeTarget;
+    this.cat.mouse = this.form === "girl" && (this.girlAnimReady || this.girlPosesReady)
+      ? null
+      : this.gazeTarget;
 
     // 变换里已折 zoom，clear/气泡都要拿到 zoom 归一后的基址几何。
     const w = (this.opts.canvas.clientWidth || this.profile.base.width) / this.zoom;
@@ -2940,19 +3042,19 @@ export class PixelPetRenderer {
     const printOps = this.tickPrints(now, snapshot);
     let ops: DrawOp[];
     if (this.form === "girl") {
-      if (this.girlAnimReady) {
-        // 帧动画：上一段冻住的那一帧垫底，当前段按淡化进度压上去
+      if (this.girlAnimReady || this.girlPosesReady) {
+        // 上一幕冻住的那一格垫底，当前幕按淡化进度压上去
         // （先画 prev 再画当前，中途不会出现整体透明度塌陷）。
-        const sample = this.girlPlayer.sample(now);
+        const sample = this.scene.sample(now);
+        const shown = sample.current;
         const activity = (snapshot?.activity ?? "idle") as CompanionActivity;
         const dizzyLeft = Math.max(0, Math.min(1, (snapshot?.dizzyLeft ?? 0) / DIZZY_MS));
         const startleLeft = Math.max(0, Math.min(STARTLE_MS, snapshot?.startleLeft ?? 0));
         const startle = startleLeft / STARTLE_MS;
 
-        // 1) 先拿「不叠加存在感」的刚体算头心：脸框逐帧实测，倾斜/侧移只有 2px 级，
+        // 1) 先拿「不叠加存在感」的刚体算头心：脸框逐格实测，倾斜/侧移只有 2px 级，
         //    晚一帧回喂不影响观感，但避免了解不出来的自指。
-        const baseBody = girlAnimBodyFor(this.cat);
-        const baseFace = girlFaceBox(baseBody, sample.index);
+        const baseFace = this.faceForShown(shown, girlPoseBodyFor(this.cat), girlAnimBodyFor(this.cat));
         const zoom = this.zoom || 1;
         // 注视目标是窗口内容 css 坐标，绘制空间要除 zoom（与 isPointOnBubble/tapAt 同口径）。
         let gaze: Point2 | null = this.gazeTarget && dizzyLeft <= 0
@@ -2981,23 +3083,37 @@ export class PixelPetRenderer {
           this.engine?.notice(now);
         }
 
-        // 2) 脸红包络：目标由「正在播的片 + 互动」给，按 180ms 缓动（dt 在 fps 之前已算）。
+        // 2) 脸红包络：目标由「正在播的一幕 + 互动」给，按 180ms 缓动（dt 在 fps 之前已算）。
         const targetBlush = this.girlBlushTarget(snapshot);
         this.blush += (targetBlush - this.blush) * (1 - Math.exp(-dtFx / 180));
         if (this.blush < 0.01) this.blush = 0;
 
         // 3) 最终刚体：存在感的倾斜/侧移/朝向叠在动作刚体上，眩晕只加一点抖。
-        const body = girlAnimBodyFor(this.cat, {
+        //    姿态与动画各算各的 k：交叉淡化时两幕必须各自对齐脚心，否则中途会跳一下身高。
+        const motion = {
           leanDeg: this.presencePose.leanDeg,
           shiftX: this.presencePose.shiftX,
           facing: this.presencePose.facing,
           dizzy: dizzyLeft,
           startle,
-        });
-        const clip = this.girlPlayer.clipId;
+        };
+        const bodyFor = (which: GirlShown) => which.kind === "pose"
+          ? girlPoseBodyFor(this.cat, motion)
+          : girlAnimBodyFor(this.cat, motion);
+        const body = bodyFor(shown);
+        const clip = this.scene.clipId();
+        const pose = this.scene.poseId();
+        const frame = shown.kind === "clip" ? shown.index : 0;
+        const finalFace = this.faceForShown(shown, girlPoseBodyFor(this.cat, motion), girlAnimBodyFor(this.cat, motion));
+        const finalInk = shown.kind === "pose"
+          ? girlPoseInkBox(girlPoseBodyFor(this.cat, motion), shown.id)
+          : girlInkBox(girlAnimBodyFor(this.cat, motion), shown.index);
+        this.lastFace = finalFace;
         const fx = buildGirlFxOps({
           body,
-          frame: sample.index,
+          frame,
+          face: finalFace,
+          ink: finalInk,
           nowSec: now / 1000,
           nowMs: now,
           mood: this.cat.mood,
@@ -3011,7 +3127,8 @@ export class PixelPetRenderer {
           step: this.cat.pose.walk ?? 0,
           lift: Math.max(0, Math.min(1, -this.cat.jumpY / 26)),
           groundY: this.cat.center.y,
-          notes: this.cat.mood === "happy" || clip === "happy" || clip === "wave" || clip === "peace",
+          notes: this.cat.mood === "happy" || clip === "happy" || clip === "wave"
+            || clip === "peace" || pose === "joy",
           quiet: this.quiet,
           cushion: this.cushion,
           bondUpLeft: snapshot?.bondUpLeft ?? 0,
@@ -3024,13 +3141,13 @@ export class PixelPetRenderer {
         // 装扮锚在最终刚体的脸框上：倾斜/侧移/转身时跟着一起动。
         const accessoryOps = buildAccessoryOps({
           body,
-          frame: sample.index,
+          frame,
+          face: finalFace,
           nowSec: now / 1000,
           activity,
           facing: body.facing,
           accessory: snapshot?.accessory ?? "none",
         });
-        const finalFace = girlFaceBox(body, sample.index);
         // 道具先推进一拍：小虫/鱼干与人物落在同一张画上。
         const snackOps = this.tickSnack(now, finalFace);
         const critterOps = this.tickCritter(now, finalFace, snapshot);
@@ -3040,13 +3157,17 @@ export class PixelPetRenderer {
         paintOps(this.ctx, fx.below);
         paintOps(this.ctx, printOps);
         if (toyArt) paintOps(this.ctx, toyArt.below);
-        if (sample.prev) this.paintGirlFrame(sample.prev.index, 1, body);
-        this.paintGirlFrame(sample.index, sample.fade, body);
+        if (sample.prev) this.paintGirlShown(sample.prev, 1, bodyFor(sample.prev));
+        this.paintGirlShown(shown, sample.fade, body);
         // 装扮压在人物上、球之前：蝴蝶结在发顶，铃铛在颈圈上。
         paintOps(this.ctx, accessoryOps);
         if (toyArt) paintOps(this.ctx, toyArt.above);
         // 立绘里的脸/身体是画死的；表情层不参与，屏幕记号照旧跟 mood/pet/quiet 走。
-        ops = [...buildGirlOverlayOps(this.cat), ...snackOps, ...fx.above, ...critterOps, ...aboveOps];
+        // 姿态的记号钉在「当前这张脸」的头顶：蜷起来时 Zzz 跟着头降。
+        const overlayOps = shown.kind === "pose"
+          ? buildGirlPoseOverlayOps(this.cat, shown.id, girlPoseBodyFor(this.cat, motion))
+          : buildGirlOverlayOps(this.cat);
+        ops = [...overlayOps, ...snackOps, ...fx.above, ...critterOps, ...aboveOps];
       } else if (this.girlSpriteReady) {
         if (toyArt) paintOps(this.ctx, toyArt.below);
         paintOps(this.ctx, printOps);
@@ -3150,13 +3271,18 @@ export class PixelPetRenderer {
     // 形态也是行为引擎的分岔口：不同步这一步，猫娘的四档加权抽取永远不跑（她只会走四足那张平表）。
     this.engine?.setForm(form);
     this.animGesture = null;
+    this.ambientGestureActive = false;
+    this.ambientGestureBout = -1;
     this.lastAmbientGesture = null;
-    // 待机编排换人重来：下一帧从「一整支舞」起跳，旧形态的坐/趴量当场清掉。
+    // 待机编排换人重来：下一帧从站定起跳，旧形态的姿态/趴伏量当场清掉。
     this.idleTickInited = false;
     this.idleSuspended = false;
-    this.idlePosture = 0;
+    this.lastFace = null;
     this.cat.pose.sprawl = 0;
-    if (form === "girl") this.girlPlayer.reset("idle", performance.now());
+    if (form === "girl") {
+      // 硬重置而不是 crossfade：切形态不该看见上一形态残留的一帧。
+      this.scene = new GirlScenePlayer({ kind: "clip", id: "idle", loop: true }, performance.now());
+    }
     // 两个形态的绘制原点不同（猫 −17/+4.5s、猫娘 0/+79s）：切形态必须当场重算，
     // 否则等下一帧 requestBounds 才归位，中间会闪一帧「猫娘浮在猫的位置上」。
     const { s } = this.profile.catScale(this.lastSent?.e ?? 0);
@@ -3251,8 +3377,7 @@ export class PixelPetRenderer {
         return;
       }
     }
-    const tapFrame = this.girlAnimReady ? this.girlPlayer.sample(now).index : 0;
-    const tapFace = girlFaceBox(girlAnimBodyFor(this.cat), tapFrame);
+    const tapFace = this.girlFaceAt(now);
     // v1.11.0 六件新玩具画在小虫和毛线球之上：命中顺序跟绘制顺序走。
     // 尤其纸箱整只盖住脚边的球，球却先被点中过一次（v1.11 真窗探针 O1 抓到）。
     const tapFacing = this.cat.facing ?? 1;
