@@ -8,6 +8,7 @@ import {
   GIRL_PET_POSE_INK,
   type GirlPoseId,
 } from "./girl-pet-poses-meta";
+import { girlPoseGeom } from "./girl-pose-atlas";
 import {
   buildGirlPoseOverlayOps,
   girlPoseBodyFor,
@@ -118,9 +119,13 @@ describe("姿态刚体几何", () => {
 
   it("格子锚点正好落在支点上", () => {
     const body = girlPoseBodyFor(mk(), { leanDeg: 3, shiftX: 1.5 });
-    const anchor = girlPoseCellPoint(body, GIRL_PET_POSES.anchorX, GIRL_PET_POSES.anchorY);
-    expect(anchor.x).toBeCloseTo(body.pivot.x, 6);
-    expect(anchor.y).toBeCloseTo(body.pivot.y, 6);
+    // 两套图集各取一张：锚点与格宽都从这张姿态自己的图集来。
+    for (const pose of ["stand", "prone"] as const) {
+      const geom = girlPoseGeom(pose);
+      const anchor = girlPoseCellPoint(body, pose, geom.anchorX, geom.anchorY);
+      expect(anchor.x, pose).toBeCloseTo(body.pivot.x, 6);
+      expect(anchor.y, pose).toBeCloseTo(body.pivot.y, 6);
+    }
   });
 });
 

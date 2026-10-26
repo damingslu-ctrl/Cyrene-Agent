@@ -1390,3 +1390,99 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
   本地下载件（`D:/cyrene-p5-accept/rel-v114/`）与 GitHub asset digest 逐字节一致。
 - Release [v1.14.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.14.0)：
   `isDraft:false`、`isPrerelease:false`、latest，公开于 `2026-10-26T03:36:10Z`。
+
+## 23. v1.15.0：第二张姿态图集、手势姿态化与真趴下（2026-10-26）
+
+### 23.1 为什么还要第二张图集
+
+v1.14 把待机底子换成了真姿态，但「招招手 / 鞠躬 / 剪刀手 / 歪头 / 洗脸 / 哈欠 / 伸懒腰」
+这些手势仍是**从舞蹈片段里剪出来的一小段**——招手是整支舞的一个片段，读起来还在跳舞；
+待机的最深一档也只是蜷，没有真的趴下。v1.15 补的就是这两块：八张新手势/休息姿态，
+以及一条会走到底的深歇链条。
+
+### 23.2 图集 II 的几何（这张图的尺不能照抄图集 I）
+
+图集 I（`girl-poses.webp`）的每格各自把墨高归一到 229px；这套做法对**站/坐**成立，
+对趴下是灾难：趴着的剪影又矮又宽（实测 251×189），若也把墨高拉到 229，渲染端那条
+全局的 `k = ui × inkVb/inkRefPx` 会把她撑成站姿那么高——「趴」就变成了「站着被压扁」。
+
+所以图集 II（`girl-poses2.webp`，8 格 400×248）**全表共用一个 scale**，由站姿 `wave`
+定尺（`scale = 229 / ink_h(wave) ≈ 0.2421`），每格只做脚底/地面锚定。由此：
+
+| 量 | 图集 I | 图集 II |
+|---|---|---|
+| 格宽 | 340 | 400 |
+| 格高 | 248 | 248 |
+| anchorX / anchorY | 0.5 / 0.959677 | 0.5 / 0.959677 |
+| inkRefPx / inkVb | 229 / 91 | 229 / 91（**同一条尺**） |
+| 站姿墨高实测 | `stand` 230 | `wave` 234 |
+
+两套图共用锚点、格高与尺，所以 `girlPoseBodyFor` 的 `k` 与姿态无关；**格宽不同**，
+所以凡是把图集像素换成绘制空间的函数都必须按「这一格自己的图集」取格宽
+（`girlPoseCellPoint(body, pose, fx, fy)`）。拿 340 去除 400 宽的格子会把每一格往左推
+15%，趴着的脸就飘出身子——这条在 `girl-pose.test.ts` 里有跨图集的锚点断言。
+
+### 23.3 统一寻址：`girl-pose-atlas.ts`
+
+16 张姿态（图集 I 八格 + 图集 II 八格）收进一张注册表：
+
+- `GIRL_POSE_NAMES`（16）、`girlPoseAtlasId`、`girlPoseCell`、`girlPoseGeom`；
+- `girlPoseInkRect` / `girlPoseFaceRect`（图集像素，屏幕空间的同名量仍留在 `girl-sprite`）；
+- `GIRL_POSE_ATLASES`（两套图源与几何）、`GIRL_POSE_RULER`（两套图尺必须相等，
+  不等就当场抛错——尺不一致等于猫的大小被偷偷改了）；
+- 模块加载时做格号撞车检查。
+
+两套图**各拉各的**：`girlBaseVisualFor({ posesReady, poses2Ready })` 按姿态所属图集判
+「这张画在不在屏上」，图集 II 坏了只让趴那一族退回帧动画，坐/蜷不受牵连
+（`girlPoseReadyFor`）。
+
+### 23.4 手势姿态化：`girl-gesture.ts`
+
+`GIRL_GESTURE_POSE`：招手→`wave`(1.6s)、鞠躬/屈膝礼→`bow`(1.4s)、指→`peace`(1.2s)、
+歪头→`tilt`(1.6s)、洗脸→`wash`(1.8s)、哈欠→`yawn`(1.8s)、伸懒腰→`stretch`(1.4s)。
+
+渲染器 `startGirlGesture(id, at, ambient)` 的优先序：**有真姿态且它的图集就绪 → 画那张；
+否则有帧段 → 播帧段；都没有 → 什么也不发生**。点头/摇头/打字/发抖/跳/拍手/捂脸/喝一口
+没有对应画，继续借帧段（`GESTURE_CLIP`），不硬套一张不像的姿态。
+
+诊断口径：`gesture` 仍是 v1.14 的「当前片段 id」（旧锁不放宽），新增 `gestureId`
+（手势原 id，真姿态手势期间只有它非空）与 `atlases`（两套图各自是否到位）。
+
+### 23.5 作息扩展：三档歇息
+
+`GirlLifePhase` 增加 `prone`；`GIRL_IDLE_TIMING.prone = [11_000, 18_000]`（比蜷更久），
+`PHASE_COST.prone = -0.45`（深歇把疲劳压回低档）。**歇息按档位深入，不靠抽签**：
+
+- `restStage`：0 没歇 / 1 坐过 / 2 蜷过 / 3 趴过，进入某档就抬到该档；
+- 下一档歇息永远比 `restStage` 深一级（坐→蜷→趴）；**趴过并起身才归零**——
+  中途 `sit→stand→sit` 不清零，否则深歇会被一次普通起身打断，退化成永远只坐；
+- 免打扰：`curl / prone / joy` 一律改成站（月牙是安静的唯一记号），已趴着的当场站起来；
+- `isRestPhase` 是「算不算歇」的唯一名单，调用点不许抄。
+
+### 23.6 量测与门（v1.15.0）
+
+- 新增文件：`girl-pose-atlas.ts`、`girl-gesture.ts`、`girl-pet-poses2-meta.ts`（生成）、
+  `scripts/assets/build-girl-pet-poses2.py`、8 张源立绘（`scripts/assets/source/poses2/`）、
+  运行时图集 `src/renderer/public/pet/girl-poses2.webp`（278,226 B）。
+- 测试：`girl-pose-atlas.test.ts`（7）、`girl-gesture.test.ts`（6）、
+  `girl-idle-v115.test.ts`（7）、`renderer-girl-v115.test.ts`（7）；全量
+  **721 files / 7,441 passed + 1 skipped**（251.49s）。
+- 变异自检两条：① 关掉手势→姿态分支，v115 渲染器断言红 3 条；② 把 `prone` 从免打扰
+  的打断名单里拿掉，渲染器「不许趴着画」与作息「当场站起来」红 2 条。均已恢复。
+- 真窗：`scripts/verify/pet-girl-cdp.mjs` **269/269 `all clear`**。待机实测
+  （`D:/cyrene-p5-accept/shots-v115/pet-girl-report.json`）：`t=1.31s` 站 → `t=9.24s` 坐
+  （cushion .9929）→ `t=28.44s` 蜷（脸心 cy 59.60）→ `t=37.47s` **趴**（脸心 cy 67.06，
+  比蜷再低 7.45px；wear 0.235→0）→ `t=51.92s` 起身（脸心 54.19）。四段 `clip` 全 null。
+  手势：`bow→bow`、`point→peace`、`tilt→tilt`、`groom→wash`、`yawn→yawn`、`wave→wave`
+  六条全是 `pose=那张 / clip=null / gestureId=原 id`；`nod` 仍是 `clip=peek / pose=null`；
+  `atlases={poses:true,poses2:true}`。
+- 截图 `D:/cyrene-p5-accept/shots-v115/`：`girl-idle-prone.png`（真俯卧、脸贴地朝前）、
+  `girl-idle-sit/curl/back/quiet/sleep.png`、`girl-gesture-wave.png`（举手挥）、
+  `girl-gesture-bow.png`（弯腰低头）。逐张过目：趴姿是画出来的俯卧，不是压扁的坐姿。
+- 门禁：renderer/main/preload 三份 tsc、`sync-brand --check`、`desktop-typescript main|preload`、
+  `learn-exam-preload`、`cat-sprites --check`、`check-roster`、`apply-theme-palette --check`、
+  `apply-color-migration --check`、`plugin-sdk/generate-schema --check`、
+  `models/generate-adapted-models --check` 全绿；`vite build` 通过
+  （`dist/renderer/pet/girl-poses2.webp` 278,226 B）。
+- 未覆盖：`kneel`（正坐）只有画与注册，暂无入口；图集 II 在最小窗宽下的缩放未压测；
+  深歇只在 idle 编排里出现，`rest` 活动仍固定坐姿。

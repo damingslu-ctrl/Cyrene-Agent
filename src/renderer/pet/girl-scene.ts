@@ -8,7 +8,7 @@ import {
   type GirlClipId,
 } from "./girl-anim";
 import { girlIdlePose, type GirlLifePhase } from "./girl-idle";
-import type { GirlPoseId } from "./girl-pet-poses-meta";
+import { girlPoseAtlasId, type GirlPoseName } from "./girl-pose-atlas";
 
 /**
  * 猫娘的「这一幕」：一段帧动画，或一张真姿态静帧。
@@ -23,11 +23,11 @@ import type { GirlPoseId } from "./girl-pet-poses-meta";
 
 export type GirlVisual =
   | { kind: "clip"; id: GirlClipId; loop?: boolean }
-  | { kind: "pose"; id: GirlPoseId };
+  | { kind: "pose"; id: GirlPoseName };
 
 export type GirlShown =
   | { kind: "clip"; id: GirlClipId; index: number }
-  | { kind: "pose"; id: GirlPoseId };
+  | { kind: "pose"; id: GirlPoseName };
 
 export interface GirlSceneSample {
   current: GirlShown;
@@ -40,7 +40,7 @@ export interface GirlSceneSample {
 export const GIRL_POSE_REDRAW_FPS = 12;
 
 /** 姿态图集未就绪/损坏时的替身：回到帧动画里最接近的一段，按循环播。 */
-export const GIRL_POSE_FALLBACK_CLIP: Record<GirlPoseId, GirlClipId> = {
+export const GIRL_POSE_FALLBACK_CLIP: Record<GirlPoseName, GirlClipId> = {
   stand: "idle",
   sit: "sit",
   curl: "sleep",
@@ -49,6 +49,15 @@ export const GIRL_POSE_FALLBACK_CLIP: Record<GirlPoseId, GirlClipId> = {
   run: "walk",
   joy: "happy",
   love: "happy",
+  // 图集 II（v1.15.0）：趴与正坐都退回「坐」那一段——低姿态不能拿跳舞帧冒充睡着。
+  prone: "sit",
+  kneel: "sit",
+  yawn: "yawn",
+  wash: "wink",
+  tilt: "peek",
+  wave: "wave",
+  bow: "bow",
+  peace: "peace",
 };
 
 /**
@@ -59,7 +68,7 @@ export function girlBasePoseFor(
   activity: GirlActivity,
   phase: GirlLifePhase,
   quiet: boolean,
-): GirlPoseId | null {
+): GirlPoseName | null {
   if (activity === "idle") return girlIdlePose(phase);
   if (activity === "rest") return "sit";
   if (activity === "sleep") return quiet ? "stand" : "curl";
@@ -70,14 +79,30 @@ export interface GirlBaseVisualInput {
   activity: GirlActivity;
   phase: GirlLifePhase;
   quiet: boolean;
+  /** 图集 I（站/坐/蜷…）。 */
   posesReady: boolean;
+  /**
+   * 图集 II（趴/欠身/洗漱…，v1.15.0）。两套图各拉各的：图集 II 坏了只让
+   * 趴那一族退回帧动画，不许把坐姿一起拖回跳舞帧。缺省跟 `posesReady` 走。
+   */
+  poses2Ready?: boolean;
+}
+
+/** 这张姿态的图到底在不在屏上——按它所属的图集判，别拿另一套图的 ready 蒙混。 */
+export function girlPoseReadyFor(
+  pose: GirlPoseName,
+  input: Pick<GirlBaseVisualInput, "posesReady" | "poses2Ready">,
+): boolean {
+  return girlPoseAtlasId(pose) === "poses2"
+    ? (input.poses2Ready ?? input.posesReady)
+    : input.posesReady;
 }
 
 /** 当前活动该以什么打底：真姿态优先，姿态图缺席时退回最接近的循环帧段。 */
 export function girlBaseVisualFor(input: GirlBaseVisualInput): GirlVisual {
   const pose = girlBasePoseFor(input.activity, input.phase, input.quiet);
   if (pose) {
-    return input.posesReady
+    return girlPoseReadyFor(pose, input)
       ? { kind: "pose", id: pose }
       : { kind: "clip", id: GIRL_POSE_FALLBACK_CLIP[pose], loop: true };
   }
@@ -86,7 +111,7 @@ export function girlBaseVisualFor(input: GirlBaseVisualInput): GirlVisual {
 
 type Run =
   | { kind: "clip"; id: GirlClipId; loop: boolean; startedAt: number }
-  | { kind: "pose"; id: GirlPoseId; startedAt: number };
+  | { kind: "pose"; id: GirlPoseName; startedAt: number };
 
 function normalize(visual: GirlVisual): Run {
   if (visual.kind === "pose") return { kind: "pose", id: visual.id, startedAt: 0 };
@@ -116,7 +141,7 @@ export class GirlScenePlayer {
     return this.run.kind === "clip" ? this.run.id : null;
   }
 
-  poseId(): GirlPoseId | null {
+  poseId(): GirlPoseName | null {
     return this.run.kind === "pose" ? this.run.id : null;
   }
 

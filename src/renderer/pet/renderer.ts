@@ -35,7 +35,13 @@ import {
 } from "./girl-sprite";
 import { GIRL_SPRITE } from "./girl-sprite-meta";
 import { GIRL_ANIM } from "./girl-anim-meta";
-import { GIRL_PET_POSES, GIRL_PET_POSE_CELLS, type GirlPoseId } from "./girl-pet-poses-meta";
+import {
+  GIRL_POSE_ATLASES,
+  type GirlAtlasId,
+  type GirlPoseName,
+  girlPoseCell,
+  girlPoseGeom,
+} from "./girl-pose-atlas";
 import { frameSourceRect, gestureClipFor, type GirlActivity, type GirlClipId } from "./girl-anim";
 import {
   GIRL_IDLE_SEED,
@@ -48,6 +54,7 @@ import {
   type GirlLifePhase,
 } from "./girl-idle";
 import { GirlScenePlayer, girlBasePoseFor, girlBaseVisualFor, type GirlShown } from "./girl-scene";
+import { gesturePoseFor } from "./girl-gesture";
 import { blinkAt, bodyClip, gestureClip, mixPose, sampleClip, type Slots } from "./motion";
 import { faceOf, MOOD_TO_EXPRESSION, type Expression } from "./face";
 import {
@@ -451,10 +458,33 @@ export class PixelPetRenderer {
    */
   private readonly girlPoses = new Image();
   private girlPosesReady = false;
+  /**
+   * 真姿态图集 II（v1.15.0）：趴/哈欠/洗脸/歪头/招手/鞠躬/剪刀手/正坐。
+   * 与图集 I 各拉各的：这张坏了只让趴那一族退回帧动画，坐/蜷照旧。
+   */
+  private readonly girlPoses2 = new Image();
+  private girlPoses2Ready = false;
+  /** 图集 id → 已就绪（姿态图两套分开拉，谁没到谁自己退回帧动画）。 */
+  private girlAtlasReady(atlas: GirlAtlasId): boolean {
+    return atlas === "poses2" ? this.girlPoses2Ready : this.girlPosesReady;
+  }
+  private girlPoseImage(atlas: GirlAtlasId): HTMLImageElement {
+    return atlas === "poses2" ? this.girlPoses2 : this.girlPoses;
+  }
   /** 当前这一幕：真姿态静帧，或一段帧动画。时间由 draw 的绝对 now 注入。 */
   private scene = new GirlScenePlayer({ kind: "clip", id: "idle", loop: true }, 0);
-  /** 正在演的手势段（显式 playGesture 或 companion 抽到的 ambient），播完回基础动作。 */
-  private animGesture: { clipId: GirlClipId; startedAt: number } | null = null;
+  /**
+   * 正在演的手势（显式 playGesture 或 companion 抽到的 ambient），播完回基础动作。
+   * v1.15 起手势可以是一张真姿态（招手/鞠躬/歪头…）或一段帧动画（点头/打字…）。
+   * `id` 是手势原 id：诊断与探针问的是「她还在做那个动作吗」，两种演出都得答得上；
+   * `until` 只对真姿态有意义（帧动画自己会报 done）。
+   */
+  private animGesture: {
+    id: string;
+    clipId: GirlClipId | null;
+    startedAt: number;
+    until: number;
+  } | null = null;
   /** 当前这段手势是不是引擎抽的（换段时要让位给新姿态；用户点的手势不打断）。 */
   private ambientGestureActive = false;
   /** 已经演过自主小动作的站定段号；同一段只演一条，站定才不会变成连播舞蹈。 */
@@ -623,7 +653,18 @@ export class PixelPetRenderer {
       console.warn("[verge] girl-poses 图集加载失败，待机退回帧动画");
       if (this.form === "girl" && !this.paused) this.draw(performance.now());
     }, { once: true });
-    this.girlPoses.src = GIRL_PET_POSES.src;
+    this.girlPoses.src = GIRL_POSE_ATLASES.poses.src;
+
+    this.girlPoses2.addEventListener("load", () => {
+      this.girlPoses2Ready = true;
+      if (this.form === "girl" && !this.paused) this.draw(performance.now());
+    }, { once: true });
+    this.girlPoses2.addEventListener("error", () => {
+      // 只有趴那一族缺席：照旧退回帧动画，坐/蜷不受牵连。
+      console.warn("[verge] girl-poses2 图集加载失败，趴/欠身退回帧动画");
+      if (this.form === "girl" && !this.paused) this.draw(performance.now());
+    }, { once: true });
+    this.girlPoses2.src = GIRL_POSE_ATLASES.poses2.src;
   }
 
   async init(): Promise<void> {
@@ -951,18 +992,22 @@ export class PixelPetRenderer {
     blush: number;
     clip: string | null;
     /** v1.14.0：当前画的是哪张真姿态（null＝帧动画/手势/矢量路径）。 */
-    pose: GirlPoseId | null;
+    pose: GirlPoseName | null;
     /** 这一帧实际画出的脸框（绘制空间）。探针用它量坐/蜷时头降到哪。 */
     face: GirlFaceBox;
-    /** 正在演的一次性手势段（显式/环境）；null＝基础段。探针等它退场再判基础段。 */
+    /** 正在演的一次性手势的**片段**（v1.14 口径）；null＝基础段或这张手势是真姿态。 */
     gesture: string | null;
+    /** 正在演的手势原 id（v1.15：真姿态手势没有片段，只有它会非空）。 */
+    gestureId: string | null;
+    /** 两套姿态图各自是否到位（v1.15）：探针用它区分「姿态没生效」与「图没加载」。 */
+    atlases: { poses: boolean; poses2: boolean };
     fx: { below: number; above: number };
     cushion: number;
     /** v1.13.0 待机编排：探针按 until 等下一段，不用猜时长。 */
     idle: {
       phase: GirlLifePhase;
       /** 这一段的真姿态（life loop 的意图；手势/玩具时可以与此不同，看顶层 `pose`）。 */
-      pose: GirlPoseId;
+      pose: GirlPoseName;
       since: number;
       until: number;
       left: number;
@@ -1342,6 +1387,8 @@ export class PixelPetRenderer {
       pose: this.form === "girl" ? this.scene.poseId() : null,
       face: this.lastFace ?? this.girlFaceAt(now),
       gesture: this.animGesture?.clipId ?? null,
+      gestureId: this.animGesture?.id ?? null,
+      atlases: { poses: this.girlPosesReady, poses2: this.girlPoses2Ready },
       fx: { ...this.lastFxCounts },
       cushion: this.cushion,
       idle: {
@@ -2803,12 +2850,13 @@ export class PixelPetRenderer {
    * 姿态图里的一格：与 `paintGirlFrame` 同一条「绕脚心、按 inkRefPx→inkVb」的变换链。
    * 真坐/真蜷的身子已经在图里，这里只叠呼吸与朝向，**不许再压扁**。
    */
-  private paintGirlPose(pose: GirlPoseId, alpha: number, body: GirlPoseBody): void {
-    const cell = GIRL_PET_POSE_CELLS[pose];
-    const col = cell % GIRL_PET_POSES.cols;
-    const row = Math.floor(cell / GIRL_PET_POSES.cols);
-    const w = GIRL_PET_POSES.cellW * body.k;
-    const h = GIRL_PET_POSES.cellH * body.k;
+  private paintGirlPose(pose: GirlPoseName, alpha: number, body: GirlPoseBody): void {
+    const geom = girlPoseGeom(pose);
+    const cell = girlPoseCell(pose);
+    const col = cell % geom.cols;
+    const row = Math.floor(cell / geom.cols);
+    const w = geom.cellW * body.k;
+    const h = geom.cellH * body.k;
     const ctx = this.ctx;
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -2816,10 +2864,10 @@ export class PixelPetRenderer {
     ctx.rotate(body.rot);
     ctx.scale(body.sx * body.facing, body.sy);
     ctx.drawImage(
-      this.girlPoses,
-      col * GIRL_PET_POSES.cellW, row * GIRL_PET_POSES.cellH,
-      GIRL_PET_POSES.cellW, GIRL_PET_POSES.cellH,
-      -GIRL_PET_POSES.anchorX * w, -GIRL_PET_POSES.anchorY * h, w, h,
+      this.girlPoseImage(geom.atlas),
+      col * geom.cellW, row * geom.cellH,
+      geom.cellW, geom.cellH,
+      -geom.anchorX * w, -geom.anchorY * h, w, h,
     );
     ctx.restore();
   }
@@ -2829,7 +2877,10 @@ export class PixelPetRenderer {
     shown: GirlShown, alpha: number, body: GirlAnimBody | GirlPoseBody,
   ): void {
     if (shown.kind === "pose") {
-      if (this.girlPosesReady) this.paintGirlPose(shown.id, alpha, body as GirlPoseBody);
+      // 姿态与它的图集同生同死：图集 II 没到就不画这一格（否则 drawImage 拿到空图）。
+      if (this.girlAtlasReady(girlPoseGeom(shown.id).atlas)) {
+        this.paintGirlPose(shown.id, alpha, body as GirlPoseBody);
+      }
     } else if (this.girlAnimReady) {
       this.paintGirlFrame(shown.index, alpha, body as GirlAnimBody);
     }
@@ -2895,16 +2946,11 @@ export class PixelPetRenderer {
       this.animGesture = null;
       this.ambientGestureActive = false;
     }
-    const explicit = this.girlAnimReady ? this.explicitGesture : null;
+    const explicit = this.explicitGesture;
     if (explicit) {
       // 与静态路径同口径：显式手势是一次性的，起播即消费，播完自动让位。
       this.explicitGesture = null;
-      const clipId = gestureClipFor(explicit.id);
-      if (clipId) {
-        this.animGesture = { clipId, startedAt: explicit.startedAt };
-        this.ambientGestureActive = false;
-        this.scene.setVisual({ kind: "clip", id: clipId, loop: false }, explicit.startedAt);
-      }
+      this.startGirlGesture(explicit.id, explicit.startedAt, false);
     } else {
       const ambient = snapshot?.gesture ?? null;
       // 待机编排才吃「站定且已经站了一拍」的闸：坐/蜷/回头时被抽中会把歇息打断成抽搐。
@@ -2918,21 +2964,19 @@ export class PixelPetRenderer {
           || (this.idle.phase === "stand"
             && this.ambientGestureBout !== this.idle.bouts
             && now - this.idle.since > 600));
-      if (this.girlAnimReady && ambientAllowed && ambient && ambient !== this.lastAmbientGesture) {
-        const clipId = gestureClipFor(ambient);
-        if (clipId) {
-          this.animGesture = { clipId, startedAt: now };
-          this.ambientGestureActive = true;
-          this.ambientGestureBout = this.idle.bouts;
-          this.scene.setVisual({ kind: "clip", id: clipId, loop: false }, now);
-        }
+      if (ambientAllowed && ambient && ambient !== this.lastAmbientGesture) {
+        if (this.startGirlGesture(ambient, now, true)) this.ambientGestureBout = this.idle.bouts;
       }
       this.lastAmbientGesture = ambient;
     }
 
-    if (this.animGesture && this.scene.isDone(now)) {
-      this.animGesture = null;
-      this.ambientGestureActive = false;
+    // 收尾有两种：帧动画自己报 done；真姿态按表举够时长（帧动画的 done 对静帧永远 false）。
+    if (this.animGesture) {
+      const poseDone = this.animGesture.clipId === null && now >= this.animGesture.until;
+      if (poseDone || this.scene.isDone(now)) {
+        this.animGesture = null;
+        this.ambientGestureActive = false;
+      }
     }
     if (!this.animGesture) {
       this.scene.setVisual(girlBaseVisualFor({
@@ -2940,8 +2984,36 @@ export class PixelPetRenderer {
         phase: this.idle.phase,
         quiet: this.quiet,
         posesReady: this.girlPosesReady,
+        poses2Ready: this.girlPoses2Ready,
       }), now);
     }
+  }
+
+  /**
+   * 起一个手势：有真姿态就用真姿态（招手/鞠躬/剪刀手/歪头/洗脸/哈欠/伸懒腰），
+   * 没有对应画的（点头/摇头/打字/发抖/跳/拍手/捂脸/喝一口）照旧借帧动画。
+   * 返回 false＝这个手势既不认识、也没有兜底片段（什么也没发生）。
+   */
+  private startGirlGesture(id: string, at: number, ambient: boolean): boolean {
+    const pose = gesturePoseFor(id);
+    if (pose && this.girlPoseReadyFor(pose.pose)) {
+      this.animGesture = { id, clipId: null, startedAt: at, until: at + pose.holdMs };
+      this.ambientGestureActive = ambient;
+      this.scene.setVisual({ kind: "pose", id: pose.pose }, at);
+      return true;
+    }
+    if (!this.girlAnimReady) return false;
+    const clipId = gestureClipFor(id);
+    if (!clipId) return false;
+    this.animGesture = { id, clipId, startedAt: at, until: at };
+    this.ambientGestureActive = ambient;
+    this.scene.setVisual({ kind: "clip", id: clipId, loop: false }, at);
+    return true;
+  }
+
+  /** 某张姿态的图集在不在屏上（两套图各拉各的）。 */
+  private girlPoseReadyFor(pose: GirlPoseName): boolean {
+    return this.girlAtlasReady(girlPoseGeom(pose).atlas);
   }
 
   private draw(now: number): void {
@@ -2960,7 +3032,7 @@ export class PixelPetRenderer {
       this.sleepSince = -1;
     }
     // 手势/动作段先落定，再算重绘帧率：淡化期要 30fps，循环段至少比片段 fps 快一档。
-    if (this.form === "girl" && (this.girlAnimReady || this.girlPosesReady)) {
+    if (this.form === "girl" && (this.girlAnimReady || this.girlPosesReady || this.girlPoses2Ready)) {
       this.tickGirlScene(now, snapshot);
     }
 
@@ -3008,7 +3080,7 @@ export class PixelPetRenderer {
     else this.fps = FPS_IDLE;
     // 帧动画自己的播放速率就是重绘下限：12fps 的待机在 4fps 档会让每张画多停两拍。
     // 下限取片段帧率的两倍（`redrawFloorFor`）；真姿态是静帧，12fps 足够呼吸与慢摆。
-    if (this.form === "girl" && (this.girlAnimReady || this.girlPosesReady)) {
+    if (this.form === "girl" && (this.girlAnimReady || this.girlPosesReady || this.girlPoses2Ready)) {
       const need = this.scene.isFading(now) ? FPS_ACTIVE : this.scene.redrawFloor();
       this.fps = Math.max(this.fps, need);
     }
@@ -3028,7 +3100,7 @@ export class PixelPetRenderer {
     this.cat.workParticle = this.workTier === null ? "none" : presentationOf(this.workTier).particle;
     this.cat.workSince = this.workSince / 1000;
     // 注视：只有矢量路径吃 mouse（位图猫娘的脸是画死的，瞳孔不会转）。
-    this.cat.mouse = this.form === "girl" && (this.girlAnimReady || this.girlPosesReady)
+    this.cat.mouse = this.form === "girl" && (this.girlAnimReady || this.girlPosesReady || this.girlPoses2Ready)
       ? null
       : this.gazeTarget;
 
@@ -3042,7 +3114,7 @@ export class PixelPetRenderer {
     const printOps = this.tickPrints(now, snapshot);
     let ops: DrawOp[];
     if (this.form === "girl") {
-      if (this.girlAnimReady || this.girlPosesReady) {
+      if (this.girlAnimReady || this.girlPosesReady || this.girlPoses2Ready) {
         // 上一幕冻住的那一格垫底，当前幕按淡化进度压上去
         // （先画 prev 再画当前，中途不会出现整体透明度塌陷）。
         const sample = this.scene.sample(now);

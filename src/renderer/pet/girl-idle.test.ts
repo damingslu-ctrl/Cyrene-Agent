@@ -42,7 +42,7 @@ describe("girl idle life loop", () => {
   it("visits every life phase and never returns to the dance clip", () => {
     const { states } = run(createGirlIdle(T0, GIRL_IDLE_SEED), { steps: 120 });
     const phases = new Set(states.map((s) => s.phase));
-    const all: GirlLifePhase[] = ["stand", "look", "sit", "curl", "stretch", "joy"];
+    const all: GirlLifePhase[] = ["stand", "look", "sit", "curl", "prone", "stretch", "joy"];
     for (const phase of all) expect(phases.has(phase), `missing ${phase}`).toBe(true);
     expect(phases.has("dance" as never)).toBe(false);
   });
@@ -52,10 +52,12 @@ describe("girl idle life loop", () => {
     for (let i = 1; i < states.length; i += 1) {
       const prev = states[i - 1];
       const next = states[i];
-      if (prev.phase === "sit") expect(["curl", "stand"]).toContain(next.phase);
-      if (prev.phase === "curl") expect(next.phase).toBe("stand");
+      // v1.15：歇息三档 sit → curl → prone，只能逐级深入或直接起身，不许跳级/回头。
+      if (prev.phase === "sit") expect(["curl", "prone", "stand"]).toContain(next.phase);
+      if (prev.phase === "curl") expect(["prone", "stand"]).toContain(next.phase);
+      if (prev.phase === "prone") expect(next.phase).toBe("stand");
       if (prev.phase === "stretch" || prev.phase === "joy") expect(next.phase).toBe("stand");
-      if (next.phase === "sit" || next.phase === "curl") expect(prev.phase).not.toBe(next.phase);
+      if (["sit", "curl", "prone"].includes(next.phase)) expect(prev.phase).not.toBe(next.phase);
     }
     expect(states.every((s) => s.phase !== "dance")).toBe(true);
   });
@@ -89,12 +91,13 @@ describe("girl idle life loop", () => {
     let sits = 0;
     let curls = 0;
     for (const s of states) {
-      if (s.phase === "curl") {
-        curls += 1;
+      if (s.phase === "curl" || s.phase === "prone") {
+        // 趴也是「比坐更深」的一档：坐过的账在更深的歇息里销掉。
+        if (s.phase === "curl") curls += 1;
         sits = 0;
       } else if (s.phase === "sit") {
         sits += 1;
-        expect(sits, "two sits without a curl").toBeLessThanOrEqual(1);
+        expect(sits, "two sits without a deeper rest").toBeLessThanOrEqual(1);
       }
     }
     expect(curls).toBeGreaterThan(0);
@@ -117,7 +120,7 @@ describe("girl idle life loop", () => {
     expect(afterCurl).toBeTruthy();
   });
 
-  it("never curls or celebrates in quiet mode, and stands up if it is already curled", () => {
+  it("never curls/prones or celebrates in quiet mode, and stands up if it is already curled", () => {
     const curled: GirlIdleState = {
       ...createGirlIdle(T0, GIRL_IDLE_SEED),
       phase: "curl",
@@ -129,7 +132,7 @@ describe("girl idle life loop", () => {
     expect(woken.phase).toBe("stand");
 
     const { states } = run(createGirlIdle(T0, GIRL_IDLE_SEED), { quiet: true, steps: 80 });
-    expect(states.every((s) => s.phase !== "curl" && s.phase !== "joy")).toBe(true);
+    expect(states.every((s) => s.phase !== "curl" && s.phase !== "prone" && s.phase !== "joy")).toBe(true);
     expect(states.some((s) => s.phase === "sit")).toBe(true);
   });
 

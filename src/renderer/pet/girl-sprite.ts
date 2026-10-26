@@ -5,12 +5,12 @@ import { GIRL_SPRITE } from "./girl-sprite-meta";
 import { GIRL_ANIM } from "./girl-anim-meta";
 import { GIRL_FACE, GIRL_INK_BOX } from "./girl-face-meta";
 import {
-  GIRL_PET_POSES,
-  GIRL_PET_POSE_CELLS,
-  GIRL_PET_POSE_FACE,
-  GIRL_PET_POSE_INK,
-  type GirlPoseId,
-} from "./girl-pet-poses-meta";
+  GIRL_POSE_RULER,
+  type GirlPoseName,
+  girlPoseFaceRect,
+  girlPoseGeom,
+  girlPoseInkRect,
+} from "./girl-pose-atlas";
 
 /**
  * 猫娘位图立绘的几何与记号钉位。
@@ -276,26 +276,34 @@ export function girlPoseBodyFor(input: CatInput, presence?: GirlPresenceMotion):
     sx: (1 + 0.12 * squash) * (1 + 0.01 * stretch),
     sy: (1 + breathe) * (1 - 0.16 * squash) * (1 + 0.02 * stretch) * (1 - 0.03 * dizzy),
     facing: presence?.facing ?? input.facing ?? 1,
-    k: s * (GIRL_PET_POSES.inkVb / GIRL_PET_POSES.inkRefPx),
+    k: s * (GIRL_POSE_RULER.inkVb / GIRL_POSE_RULER.inkRefPx),
   };
 }
 
-/** 姿态格内的归一化坐标 → 绘制空间（与 `girlCellPoint` 同一条变换链）。 */
-export function girlPoseCellPoint(body: GirlPoseBody, fx: number, fy: number): { x: number; y: number } {
-  const w = GIRL_PET_POSES.cellW * body.k;
-  const h = GIRL_PET_POSES.cellH * body.k;
-  const lx = (fx - GIRL_PET_POSES.anchorX) * w * body.sx * body.facing;
-  const ly = (fy - GIRL_PET_POSES.anchorY) * h * body.sy;
+/**
+ * 姿态格内的归一化坐标 → 绘制空间（与 `girlCellPoint` 同一条变换链）。
+ * 格宽必须按这张姿态**所属的图集**取：图集 II 是 400 宽，拿 340 去算会把整格钉位
+ * 往锚点方向压 15%，趴着的脸就飘到身子外去了。
+ */
+export function girlPoseCellPoint(
+  body: GirlPoseBody, pose: GirlPoseName, fx: number, fy: number,
+): { x: number; y: number } {
+  const geom = girlPoseGeom(pose);
+  const w = geom.cellW * body.k;
+  const h = geom.cellH * body.k;
+  const lx = (fx - geom.anchorX) * w * body.sx * body.facing;
+  const ly = (fy - geom.anchorY) * h * body.sy;
   const c = Math.cos(body.rot);
   const s = Math.sin(body.rot);
   return { x: body.pivot.x + lx * c - ly * s, y: body.pivot.y + lx * s + ly * c };
 }
 
 function poseBoxCorners(
-  body: GirlPoseBody, cx: number, cy: number, w: number, h: number,
+  body: GirlPoseBody, pose: GirlPoseName, cx: number, cy: number, w: number, h: number,
 ): GirlFaceBox {
+  const geom = girlPoseGeom(pose);
   const unit = (px: number, py: number) => girlPoseCellPoint(
-    body, px / GIRL_PET_POSES.cellW, py / GIRL_PET_POSES.cellH,
+    body, pose, px / geom.cellW, py / geom.cellH,
   );
   const corners = [
     unit(cx - w / 2, cy - h / 2),
@@ -317,15 +325,15 @@ function poseBoxCorners(
 }
 
 /** 某姿态的脸框（绘制空间）。 */
-export function girlPoseFaceBox(body: GirlPoseBody, pose: GirlPoseId): GirlFaceBox {
-  const [cx, cy, w, h] = GIRL_PET_POSE_FACE[pose];
-  return poseBoxCorners(body, cx, cy, w, h);
+export function girlPoseFaceBox(body: GirlPoseBody, pose: GirlPoseName): GirlFaceBox {
+  const [cx, cy, w, h] = girlPoseFaceRect(pose);
+  return poseBoxCorners(body, pose, cx, cy, w, h);
 }
 
 /** 某姿态的墨框（绘制空间）：投影、命中提示从这一格的实际占位来。 */
-export function girlPoseInkBox(body: GirlPoseBody, pose: GirlPoseId): GirlFaceBox {
-  const [x0, y0, x1, y1] = GIRL_PET_POSE_INK[pose];
-  return poseBoxCorners(body, (x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0);
+export function girlPoseInkBox(body: GirlPoseBody, pose: GirlPoseName): GirlFaceBox {
+  const [x0, y0, x1, y1] = girlPoseInkRect(pose);
+  return poseBoxCorners(body, pose, (x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0);
 }
 
 /**
@@ -335,15 +343,15 @@ export function girlPoseInkBox(body: GirlPoseBody, pose: GirlPoseId): GirlFaceBo
  */
 export const GIRL_POSE_FACE_CLEAR_VB = 15;
 
-export function girlPoseOverlayCenter(body: GirlPoseBody, pose: GirlPoseId): { x: number; y: number } {
+export function girlPoseOverlayCenter(body: GirlPoseBody, pose: GirlPoseName): { x: number; y: number } {
   const face = girlPoseFaceBox(body, pose);
-  const s = body.k * (GIRL_PET_POSES.inkRefPx / GIRL_PET_POSES.inkVb);
+  const s = body.k * (GIRL_POSE_RULER.inkRefPx / GIRL_POSE_RULER.inkVb);
   return { x: face.cx, y: face.top + GIRL_POSE_FACE_CLEAR_VB * s };
 }
 
 /** 姿态下的屏幕记号：把姿态锚点翻译回 `buildGirlOverlayOps` 的脚底系。 */
 export function buildGirlPoseOverlayOps(
-  input: CatInput, pose: GirlPoseId, body: GirlPoseBody = girlPoseBodyFor(input),
+  input: CatInput, pose: GirlPoseName, body: GirlPoseBody = girlPoseBodyFor(input),
 ): DrawOp[] {
   const center = girlPoseOverlayCenter(body, pose);
   const s = (input.u * 2) / VB;

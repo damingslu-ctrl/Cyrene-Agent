@@ -2828,6 +2828,8 @@ async function main() {
         pose: d.girl.pose ?? null,
         clip: d.girl.clip ?? null,
         gesture: d.girl.gesture ?? null,
+        gestureId: d.girl.gestureId ?? null,
+        atlases: d.girl.atlases ?? null,
         face: d.girl.face ?? null,
         cushion: d.girl.cushion ?? 0,
         activity: window.__cyrene.renderer.getCompanionSnapshot()?.activity ?? null,
@@ -2909,6 +2911,28 @@ async function main() {
         + `face=${curl?.face?.cy ?? "null"} standFace=${standFaceY ?? "null"}`);
     if (curl) await shot("girl-idle-curl.png");
 
+    // v1.15：真趴下。歇息三档 sit → curl → prone 是作息，不是抽签；趴是图集 II 的一格，
+    // 剪影比 curl 更矮更宽，脸也再低一截。这里只等它自然出现（起身后的下一轮才会趴）。
+    let prone = null;
+    const proneDeadline = Date.now() + 75_000;
+    while (Date.now() < proneDeadline) {
+      await forceFrame();
+      const r = await readIdle();
+      if (r.idle?.phase === "prone" && r.pose === "prone" && r.clip === null && r.gesture === null) {
+        prone = r;
+        break;
+      }
+      await wait(200);
+    }
+    results.idle.prone = prone?.idle ?? null;
+    results.idle.pronePose = prone ? { pose: prone.pose, clip: prone.clip, face: prone.face } : null;
+    const proneFaceDrops = !!(prone && curl?.face && prone.face && prone.face.cy > curl.face.cy + 2);
+    check("idle.prone",
+      !!prone && !prone.idle.suspended && prone.pose === "prone" && prone.clip === null && proneFaceDrops,
+      `prone=${JSON.stringify(prone?.idle)} pose=${prone?.pose} clip=${prone?.clip} `
+        + `face=${prone?.face?.cy ?? "null"} curlFace=${curl?.face?.cy ?? "null"}`);
+    if (prone) await shot("girl-idle-prone.png");
+
     // 起身：回到站姿，头抬回来，基础段仍是真姿态格。
     let back = null;
     const backDeadline = Date.now() + 25_000;
@@ -2925,7 +2949,8 @@ async function main() {
     results.idle.backPose = back ? { pose: back.pose, clip: back.clip, face: back.face } : null;
     check("idle.wake",
       !!back && !back.idle.suspended && back.pose === "stand" && back.clip === null
-        && (curl?.face ? back.face.cy < curl.face.cy : true),
+        && (curl?.face ? back.face.cy < curl.face.cy : true)
+        && (prone?.face ? back.face.cy < prone.face.cy : true),
       `back=${JSON.stringify(back?.idle)} pose=${back?.pose} clip=${back?.clip} face=${back?.face?.cy ?? "null"}`);
     if (back) await shot("girl-idle-back.png");
 
@@ -2959,6 +2984,66 @@ async function main() {
       `pose=${wakeHush.pose} clip=${wakeHush.clip}`);
     await evaluate(s, `window.__cyrene.renderer.setQuiet(false)`);
     await evaluate(s, `window.__cyrene.renderer.handleCommand("toggle-sleep")`);
+  }
+
+  // v1.15：手势落到真姿态。招手/鞠躬/剪刀手/歪头/洗脸/哈欠各是一张画，不是舞蹈片段；
+  // 没有对应画的（点头）继续走帧段。判据全读渲染器同源读数 + 图集是否到位。
+  {
+    const readGesture = () => evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      return {
+        pose: d.girl.pose ?? null,
+        clip: d.girl.clip ?? null,
+        gesture: d.girl.gesture ?? null,
+        gestureId: d.girl.gestureId ?? null,
+        atlases: d.girl.atlases ?? null,
+      };
+    })()`, 5_000);
+
+    await evaluate(s, `window.__cyrene.renderer.setUserActive(true)`);
+    await forceFrame();
+    const ready = await readGesture();
+    results.gestureAtlases = ready.atlases;
+    check("gesture.atlases",
+      !!ready.atlases && ready.atlases.poses === true && ready.atlases.poses2 === true,
+      `atlases=${JSON.stringify(ready.atlases)}`);
+
+    const cases = [
+      ["bow", "bow"],
+      ["point", "peace"],
+      ["tilt", "tilt"],
+      ["groom", "wash"],
+      ["yawn", "yawn"],
+      ["wave", "wave"],
+    ];
+    const seen = [];
+    for (const [id, pose] of cases) {
+      await evaluate(s, `window.__cyrene.renderer.playGesture(${JSON.stringify(id)})`);
+      // 手势是 160ms 交叉淡化 + 1.2~1.8s 停留：取中间那一段读，别抢淡化帧也别等它退场。
+      await wait(400);
+      await forceFrame();
+      const g = await readGesture();
+      seen.push({ id, pose: g.pose, clip: g.clip, gestureId: g.gestureId });
+      check(`gesture.${id}`,
+        g.pose === pose && g.clip === null && g.gestureId === id,
+        `pose=${g.pose} clip=${g.clip} gestureId=${g.gestureId}`);
+      if (id === "wave") await shot("girl-gesture-wave.png");
+      if (id === "bow") await shot("girl-gesture-bow.png");
+      // 等这一张举完再起下一张，避免被判成「同一段没换」。
+      await wait(1_700);
+    }
+    results.gestures = seen;
+
+    // 没有对应画的：点头仍走帧段，不许硬套一张不像的姿态。
+    await evaluate(s, `window.__cyrene.renderer.playGesture("nod")`);
+    await wait(300);
+    await forceFrame();
+    const nod = await readGesture();
+    results.gestureNod = nod;
+    check("gesture.nod-clip",
+      nod.clip === "peek" && nod.pose === null && nod.gestureId === "nod",
+      `pose=${nod.pose} clip=${nod.clip} gestureId=${nod.gestureId}`);
+    await wait(1_500);
     await evaluate(s, `window.__cyrene.renderer.setUserActive(false)`);
   }
 

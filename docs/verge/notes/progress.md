@@ -726,3 +726,35 @@
   `isDraft:false`、`isPrerelease:false`、latest；资产 `Mochi-Setup-1.14.0.exe`
   **296,602,711 B** / `sha256 3a536b8c65545ff2fb40b0b52f01bc132e230803b679a63a82d1e41526c06522`
   （本地下载件与 GitHub asset digest 一致），公开于 `2026-10-26T03:36:10Z`。
+
+### v1.15.0：第二张姿态图集、手势姿态化与真趴下（2026-10-26）
+
+- **图集 II 不能照抄图集 I 的尺**：图集 I 每格各自归一到 229px 墨高，趴着的剪影
+  （251×189）照做会被撑成站姿那么高。图集 II 改用**全表一个 scale**（由站姿 `wave` 定尺），
+  实测 `wave` 墨高 234 vs 图集 I `stand` 230，差 4px 在同一条 91vb 的尺上；四件事锁在
+  `girl-pose-atlas.test.ts`（16 张在册 / 图集 I 的锚点与 curl 脸框逐条不动 / 跨图集站姿墨高≤8 /
+  格高与锚点一致 / 脸框在墨框内）。
+- **格宽必须按姿态所属图集取**：`girlPoseCellPoint(body, pose, fx, fy)` 用自己那套图的
+  `cellW`；拿 340 除 400 宽的格子会把整格钉位往左推 15%，趴着的脸会飘出身子。
+  `girl-pose.test.ts` 的锚点断言扩成 stand + prone 两套图各一遍。
+- **两套图各拉各的**：`girlPoseReadyFor(pose, {posesReady, poses2Ready})`；图集 II 缺席时
+  只有趴那一族退回帧动画（`prone/kneel→sit`、`wash→wink`…），坐/蜷不受牵连。
+- **手势不再是舞蹈片段**：招手/鞠躬/屈膝礼/指/歪头/洗脸/哈欠/伸懒腰各画一张；
+  点头/摇头/打字/发抖/跳/拍手/捂脸/喝一口没有画，继续走帧段——不硬套一张不像的姿态。
+- **深歇是作息不是抽签**：`restStage` 0→1 坐→2 蜷→3 趴，下一档永远比它深一级，
+  **趴过并起身才归零**。第一版写成「起身即清零」，实测序列出现 `sit,stand,sit`——深歇被
+  一次普通起身打断，趴下永远轮不到；改成单调档位后序列是 `sit,curl,prone,stand`。
+  疲劳不能当闸：坐着/蜷着时疲劳本来就在回落，拿「还累不累」判会让趴永远不出现。
+- **诊断口径只增不改**：`gesture` 仍是 v1.14 的「当前片段 id」（`renderer-girl-v113` 的旧锁
+  不放宽），新增 `gestureId`（手势原 id，真姿态手势期间唯一非空）与 `atlases`。
+
+- 单测全绿 **721 文件 / 7441 passed + 1 skipped（7442，251.49s）**，比 v1.14 多 4 个文件、
+  27 条（girl-pose-atlas 7 / girl-gesture 6 / girl-idle-v115 7 / renderer-girl-v115 7）。
+- 变异自检两条：① 关掉手势→姿态分支 → v115 渲染器红 3 条；② `prone` 移出免打扰打断名单 →
+  「不许趴着画」+「当场站起来」红 2 条。均已恢复并复跑绿。
+- 真窗 **269/269 `all clear`**：`t=1.31s` 站 → `t=9.24s` 坐（cushion .9929）→
+  `t=28.44s` 蜷（脸心 59.60）→ `t=37.47s` **趴**（脸心 67.06，比蜷低 7.45px，wear→0）→
+  `t=51.92s` 起身（脸心 54.19）；四段 `clip` 全 null。手势六条全 `pose=那张/clip=null`，
+  `nod` 仍 `clip=peek`，`atlases={poses:true,poses2:true}`。截图
+  `D:/cyrene-p5-accept/shots-v115/`（`girl-idle-prone.png` / `girl-gesture-wave.png` /
+  `girl-gesture-bow.png` 逐张过目）。
