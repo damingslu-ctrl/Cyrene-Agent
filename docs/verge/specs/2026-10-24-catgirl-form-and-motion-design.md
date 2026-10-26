@@ -1377,3 +1377,16 @@ Release 资产用 digest 核哈希），`electron-builder.yml` 的 `publish: nul
 - 未覆盖：姿态图在最小窗宽下的缩放（图集定尺 340×248，本轮未再压测窗口下限）；
   `run/love` 两格暂无入口（留给走路与爱心事件）；免打扰在 `stretch/joy` 当口打开的
   打断只有单测，真窗只截到「安静站」。
+
+### 22.7 发布证据（2026-10-26）
+
+- 提交 `8154e09c40a54b0c9acc1c4911ea3eb1a741b2a7`，annotated tag `v1.14.0`
+  （peel 到同一 commit）；只推 `damingslu-ctrl/Cyrene-Agent`，上游未动。
+- 打包：workflow_dispatch run `40263546439`（ref `v1.14.0`），`package` job
+  `03:20:02Z → 03:24:49Z`（4m47s）全步绿，含 `Verify installer artifacts`；
+  仅一条 Node.js 20 弃用 annotation。
+- 产物：`Mochi-Setup-1.14.0.exe` **296,602,711 B**，
+  `sha256 3a536b8c65545ff2fb40b0b52f01bc132e230803b679a63a82d1e41526c06522`；
+  本地下载件（`D:/cyrene-p5-accept/rel-v114/`）与 GitHub asset digest 逐字节一致。
+- Release [v1.14.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.14.0)：
+  `isDraft:false`、`isPrerelease:false`、latest，公开于 `2026-10-26T03:36:10Z`。

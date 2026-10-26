@@ -716,3 +716,13 @@
 - **探针不能抢结算帧**：板子退场只说明 prop 到点，引擎结算挂在退场后的那一帧绘制里，
   12fps 姿态把缝拉宽；抓板收尾改成 `forceFrame()` + `waitStat`，只改探针不改产品。
 - **睡觉与安静仍互斥**：睡脸用 curl 真姿态，安静档只站/看/坐（月牙是唯一记号的口径不变）。
+
+### v1.14.0 发布证据（2026-10-26）
+
+- commit `8154e09c` + annotated tag `v1.14.0`（peel 同一 commit）；只推 fork，上游未动。
+- CI：workflow_dispatch run `40263546439`（ref `v1.14.0`），`package` job 4m47s 全步绿
+  （03:20:02Z → 03:24:49Z），含 `Verify installer artifacts`；仅一条 Node.js 20 弃用 annotation。
+- Release [v1.14.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.14.0)：
+  `isDraft:false`、`isPrerelease:false`、latest；资产 `Mochi-Setup-1.14.0.exe`
+  **296,602,711 B** / `sha256 3a536b8c65545ff2fb40b0b52f01bc132e230803b679a63a82d1e41526c06522`
+  （本地下载件与 GitHub asset digest 一致），公开于 `2026-10-26T03:36:10Z`。
