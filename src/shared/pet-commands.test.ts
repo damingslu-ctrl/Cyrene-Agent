@@ -10,6 +10,7 @@ import {
 } from "./pet-commands";
 import { ACCESSORY_IDS } from "./pet-accessory";
 import { RPS_SIGNS } from "./pet-rps";
+import { TRICK_COMMANDS, TRICK_IDS, trickCommandFor, trickFromCommand } from "./pet-trick";
 
 describe("右键菜单命令表", () => {
   it("每个命令都能被 isPetCommand 认出来（表与守卫不许脱节）", () => {
@@ -69,5 +70,24 @@ describe("右键菜单命令表", () => {
     }
     expect(accessoryFromCommand("accessory:crown" as never)).toBeNull();
     expect(accessoryFromCommand("rps:rock")).toBeNull();
+  });
+
+  it("v1.17 日常九条 + `trick:<id>`：躲猫猫不叫 hide（那是窗口动作）", () => {
+    for (const command of [
+      "mood", "favorite", "tricks", "treasure", "treasures", "hide-seek",
+      "garden-plant", "garden", "garden-harvest",
+    ]) {
+      expect(PET_COMMANDS as readonly string[]).toContain(command);
+      expect(isPetCommand(command), command).toBe(true);
+    }
+    // `hide` 是主窗菜单的「隐藏窗口」动作，宠物命令若同名会被读成藏猫猫。
+    expect(PET_COMMANDS as readonly string[]).not.toContain("hide");
+    expect(TRICK_COMMANDS).toEqual(TRICK_IDS.map((id) => `trick:${id}`));
+    for (const id of TRICK_IDS) {
+      expect(isPetCommand(trickCommandFor(id)), id).toBe(true);
+      expect(trickFromCommand(trickCommandFor(id))).toBe(id);
+    }
+    expect(trickFromCommand("trick:hug")).toBeNull();
+    expect(trickFromCommand("rps:rock")).toBeNull();
   });
 });

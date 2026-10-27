@@ -1,6 +1,7 @@
 /** 右键菜单 → 宠物窗的单向动作。渲染端是唯一执行者（状态都在它手里）。 */
 import { ACCESSORY_IDS, type AccessoryId } from "./pet-accessory";
 import { RPS_SIGNS, rpsCommandFor, type RpsCommand } from "./pet-rps";
+import { TRICK_COMMANDS, trickCommandFor, type TrickCommand, type TrickId } from "./pet-trick";
 
 /** 装扮命令：`accessory:<id>`（id 来自共享词表，菜单与渲染端对同一组值）。 */
 export type AccessoryCommand = `accessory:${AccessoryId}`;
@@ -22,6 +23,13 @@ export type PetCommand =
    * 跳格子必须叫 `hopscotch`——`hop` 已经是「跳一下」的手势命令。
    */
   | "tail" | "knead" | "roll" | "book" | "gift" | "wish" | "hopscotch" | "snow" | "fortune"
+  /**
+   * v1.17.0 日常：心情 / 本命玩具 / 小把戏账本 / 拾荒 / 小口袋 / 躲猫猫 / 薄荷盆。
+   * 躲猫猫叫 `hide-seek`——`hide` 是主窗「隐藏窗口」的语义，不能混。
+   */
+  | "mood" | "favorite" | "tricks" | "treasure" | "treasures" | "hide-seek"
+  | "garden-plant" | "garden" | "garden-harvest"
+  | TrickCommand
   | RpsCommand
   | AccessoryCommand;
 
@@ -38,10 +46,12 @@ const BASE_COMMANDS: ReadonlyArray<PetCommand> = [
   "box", "laser", "brush", "catnip", "plane", "bird", "growth",
   "scratch", "bell", "mouse", "mole", "hug", "rain", "quests", "diary",
   "tail", "knead", "roll", "book", "gift", "wish", "hopscotch", "snow", "fortune",
+  "mood", "favorite", "tricks", "treasure", "treasures", "hide-seek",
+  "garden-plant", "garden", "garden-harvest",
 ];
 
 export const PET_COMMANDS: ReadonlyArray<PetCommand> = [
-  ...BASE_COMMANDS, ...RPS_COMMANDS, ...ACCESSORY_COMMANDS,
+  ...BASE_COMMANDS, ...TRICK_COMMANDS, ...RPS_COMMANDS, ...ACCESSORY_COMMANDS,
 ];
 
 /** `accessory:bow` → `"bow"`；不是装扮命令返回 null。 */

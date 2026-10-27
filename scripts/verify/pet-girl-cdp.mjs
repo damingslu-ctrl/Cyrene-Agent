@@ -45,6 +45,9 @@
 //   许愿星（点星当场记账，一颗星一个愿）、跳格子（踩错重来、三格踩满记账）、下雪（三堆拍实
 //   立雪人；雨雪互斥两个方向；雪里还能玩独演玩具）、每日抽签（同一天同一张、揭一次才记账）；
 //   27 项计数器整页重载后原样回来。
+// - v1.17 日常系统：心情/本命/小把戏/小口袋/薄荷盆/躲猫猫六列读数与引擎快照同源；击掌教三次
+//   学会并当场落盘；五本账报告各说一句；嗅一件进小口袋；薄荷盆种下后脚边真的多出一点绿、
+//   未熟收不了；躲猫猫捂眼点＝太早、探头点中＝逮到（hides+1 落盘）、第二轮没人点只报一次落空。
 // 任一条不成立就红；环境问题（没窗/没墨）报 ENV，不冒充产品红。
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -150,6 +153,18 @@ function sourceFortuneLines() {
   return [...body.matchAll(/line:\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
 }
 const FORTUNE_LINES = sourceFortuneLines();
+
+/** v1.17 四档心情的显示名：报告第一行「今天的心情 · X」按这张表认。 */
+function sourceMoodLabels() {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/girl-mood.ts"), "utf8");
+  const body = src.match(/export const MOOD_LABELS[^=]*=\s*\{([\s\S]*?)\};/)?.[1];
+  if (!body) throw new Error("[ENV] 读不出 MOOD_LABELS：心情报告没处核对，先看源码");
+  return Object.fromEntries(
+    [...body.matchAll(/(\w+):\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => [m[1], JSON.parse(`"${m[2]}"`)]),
+  );
+}
+const MOOD_LABELS = sourceMoodLabels();
+const MOOD_IDS = Object.keys(MOOD_LABELS);
 
 /** 小目标回执也走同一个气泡（pendingLine 在气泡空下来时说），收尾句可能被它顶掉。 */
 const QUEST_DONE_LINES = [
@@ -3045,6 +3060,384 @@ async function main() {
       `pose=${nod.pose} clip=${nod.clip} gestureId=${nod.gestureId}`);
     await wait(1_500);
     await evaluate(s, `window.__cyrene.renderer.setUserActive(false)`);
+  }
+
+  // —— R. v1.17.0：日常系统（心情 / 本命 / 小把戏 / 拾荒 / 薄荷盆 / 躲猫猫） ——
+  // 六本账都归引擎持有，渲染端只借嘴说、按快照画：判据读同源诊断，外加一次真画布的绿像素
+  // （薄荷盆的叶子是这一层唯一用 GREEN 的东西）。单槽气泡是产品契约——报告 2 级、动作回执
+  // 1 级、同级默认不抢：每个「动作」前先 dismiss，否则回执会被上一条报告吞掉
+  // （与 companion.test 的单槽锁同一个口径，别把契约当 bug）。
+  {
+    const bondNow = () => evaluate(s, `(() => {
+      try { return JSON.parse(localStorage.getItem("cyrene.pet.bond.v1") ?? "null"); } catch { return null; }
+    })()`);
+    const lineIn = (text, table) => typeof text === "string" && table.includes(text);
+    /** 升档 / 徽章按设计抢得过动作回执：认这两类也算「她真的开口了」。 */
+    const saidOrSteal = (girl, text, table) => lineIn(text, table)
+      || lineIn(text, BOND_UP_LINES)
+      || shownAchievementLine(girl)?.line === text;
+
+    /** 躲猫猫三段靠帧推进：CDP 往返比 1.1s 的捂眼还慢一拍，必须轮询相位而不是拍脑袋 sleep。 */
+    const waitHidePhase = async (want, timeoutMs) => {
+      const deadline = Date.now() + timeoutMs;
+      let last = null;
+      for (;;) {
+        await forceFrame();
+        last = (await diag()).girl.hide;
+        if (last?.phase === want || Date.now() >= deadline) return last;
+        await wait(140);
+      }
+    };
+    const waitHideGone = async (timeoutMs) => {
+      const deadline = Date.now() + timeoutMs;
+      let last = null;
+      for (;;) {
+        await forceFrame();
+        last = (await diag()).girl.hide;
+        if (!last || Date.now() >= deadline) return last;
+        await wait(140);
+      }
+    };
+    /** 脸框是设计空间；tapAt 吃窗口 CSS 坐标，读完立刻点，别让动画把落点挪走。 */
+    const tapFaceNow = () => evaluate(s, `(() => {
+      const d = window.__cyrene.getPetDiagnostics();
+      const f = d.girl.face;
+      if (!f) return { ok: false, why: "no face" };
+      const z = d.layout.zoom;
+      const x = f.cx;
+      const y = f.top + f.h / 2;
+      window.__cyrene.renderer.tapAt(x * z, y * z, 40);
+      return { ok: true, x, y };
+    })()`);
+    /**
+     * 薄荷盆那一点绿＝这层唯一的 GREEN。区域贴着右脚（盆画在 face.cx + w*0.42、地面线处），
+     * 按画布真实变换（resize 里 setTransform(dpr*zoom)）换算像素坐标，不靠 zoom 猜测。
+     */
+    const potGreen = () => evaluate(s, `(() => {
+      const r = window.__cyrene.renderer;
+      const d = window.__cyrene.getPetDiagnostics();
+      const f = d.girl.face;
+      const floorY = r.cat?.center?.y;
+      const c = document.getElementById("pet-canvas");
+      if (!f || typeof floorY !== "number" || !c) return { green: -1, drawn: -1, why: "no face/floor/canvas" };
+      const ctx = c.getContext("2d", { willReadFrequently: true });
+      const m = ctx.getTransform();
+      const gx = f.cx + f.w * 0.42;
+      const map = (x, y) => [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f];
+      const [ax, ay] = map(gx - 11, floorY - 12);
+      const [bx, by] = map(gx + 11, floorY + 7);
+      const x0 = Math.max(0, Math.floor(Math.min(ax, bx)));
+      const y0 = Math.max(0, Math.floor(Math.min(ay, by)));
+      const x1 = Math.min(c.width, Math.ceil(Math.max(ax, bx)));
+      const y1 = Math.min(c.height, Math.ceil(Math.max(ay, by)));
+      if (x1 - x0 < 2 || y1 - y0 < 2) return { green: -1, drawn: -1, why: "empty box", box: [x0, y0, x1, y1] };
+      const data = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+      let green = 0;
+      let drawn = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const rr = data[i], gg = data[i + 1], bb = data[i + 2], aa = data[i + 3];
+        if (aa > 20) drawn++;
+        if (aa > 160 && gg > 130 && gg - rr > 40 && gg - bb > 25) green++;
+      }
+      return { green, drawn, gx: Math.round(gx * 10) / 10, floorY: Math.round(floorY * 10) / 10, box: [x0, y0, x1 - x0, y1 - y0] };
+    })()`);
+    // 气泡开合会清画布：空帧（drawn=0）不是「没长叶子」，重取再判。
+    const potGreenSettled = async () => {
+      let r = await potGreen();
+      for (let i = 0; i < 5 && r.drawn === 0; i += 1) {
+        await forceFrame();
+        await wait(160);
+        r = await potGreen();
+      }
+      return r;
+    };
+
+    await awakeForPlay("v117");
+    await dismissBubble();
+    await wait(240);
+
+    // R0 六列读数：全部来自引擎快照（渲染端不另算一份），盘上也还没有任何 v1.17 进度。
+    const rBase = await diag();
+    const rBaseBond = await bondNow();
+    const rBaseAbove = rBase.girl.fx.above;
+    results.v117 = {
+      base: {
+        mood: rBase.girl.mood,
+        favorite: rBase.girl.favorite,
+        tricks: rBase.girl.tricks,
+        treasures: rBase.girl.treasures,
+        garden: rBase.girl.garden,
+        hides: rBase.girl.hides,
+        hide: rBase.girl.hide,
+      },
+    };
+    check("v117.diag-columns",
+      MOOD_IDS.includes(rBase.girl.mood)
+        && (rBase.girl.favorite === null
+          || (typeof rBase.girl.favorite === "object"
+            && typeof rBase.girl.favorite.id === "string"
+            && rBase.girl.favorite.count >= 3))
+        && rBase.girl.tricks === 0 && rBase.girl.treasures === 0
+        && rBase.girl.garden.stage === "empty" && rBase.girl.garden.ageMs === -1
+        && rBase.girl.garden.harvests === 0
+        && rBase.girl.hides === 0 && rBase.girl.hide === null,
+      `girl=${JSON.stringify(results.v117.base)}`);
+    check("v117.bond-clean",
+      (rBaseBond?.tricks?.counts?.["high-five"] ?? -1) === 0
+        && (rBaseBond?.treasures?.counts?.button ?? -1) === 0
+        && (rBaseBond?.garden?.plantedAt ?? 0) === -1
+        && (rBaseBond?.hides ?? -1) === 0,
+      `bond=${JSON.stringify({ tricks: rBaseBond?.tricks ?? null, treasures: rBaseBond?.treasures ?? null, garden: rBaseBond?.garden ?? null, hides: rBaseBond?.hides ?? null })}`);
+
+    // R1 小把戏：教三次才学会；每次的回执、次数、学没学会都当场读。
+    const trickSteps = [];
+    for (let i = 0; i < 3; i += 1) {
+      await evaluate(s, `window.__cyrene.renderer.handleCommand("trick:high-five")`);
+      await wait(220);
+      const d = await diag();
+      const n = await snap();
+      trickSteps.push({
+        step: i + 1,
+        count: n.tricks?.counts?.["high-five"] ?? null,
+        learned: d.girl.tricks,
+        bubble: n.bubble?.text ?? null,
+      });
+      if (i === 0) {
+        check("v117.trick.step1",
+          trickSteps[0].count === 1 && trickSteps[0].learned === 0 && trickSteps[0].bubble === "击掌 · 还差 2 次",
+          JSON.stringify(trickSteps[0]));
+      } else if (i === 1) {
+        check("v117.trick.step2",
+          trickSteps[1].count === 2 && trickSteps[1].learned === 0 && trickSteps[1].bubble === "击掌 · 还差 1 次",
+          JSON.stringify(trickSteps[1]));
+      } else {
+        check("v117.trick.learned",
+          trickSteps[2].count === 3 && trickSteps[2].learned === 1
+            && saidOrSteal(d.girl, trickSteps[2].bubble, ["把手举高一点…啪！"]),
+          JSON.stringify(trickSteps[2]));
+      }
+    }
+    const bondTricks = await bondNow();
+    results.v117.tricks = { steps: trickSteps, bond: bondTricks?.tricks ?? null };
+    check("v117.trick.persist",
+      bondTricks?.tricks?.counts?.["high-five"] === 3,
+      `bond.tricks=${JSON.stringify(bondTricks?.tricks ?? null)}`);
+
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("tricks")`);
+    await wait(220);
+    const tricksReport = (await snap()).bubble?.text ?? null;
+    results.v117.tricksReport = tricksReport;
+    check("v117.trick.report",
+      !!tricksReport && tricksReport.startsWith("小把戏 1/4") && tricksReport.includes("✓ 击掌"),
+      `bubble=${tricksReport ?? "null"}`);
+
+    // R2 两本只读账：心情按真表报档位；本命报告与诊断同名同数。
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("mood")`);
+    await wait(220);
+    const moodDiag = await diag();
+    const moodText = (await snap()).bubble?.text ?? null;
+    const moodLabel = MOOD_LABELS[moodDiag.girl.mood] ?? null;
+    results.v117.mood = { id: moodDiag.girl.mood, label: moodLabel, bubble: moodText };
+    check("v117.mood-report",
+      !!moodLabel && !!moodText && moodText.startsWith(`今天的心情 · ${moodLabel}`) && moodText.includes("\n"),
+      `bubble=${moodText ?? "null"} id=${moodDiag.girl.mood}`);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("favorite")`);
+    await wait(220);
+    const favDiag = await diag();
+    const fav = favDiag.girl.favorite;
+    const favText = (await snap()).bubble?.text ?? null;
+    results.v117.favorite = { favorite: fav, bubble: favText };
+    check("v117.favorite-report",
+      !!favText && (fav
+        ? favText.startsWith(`本命玩具 ${fav.label} · ${fav.count} 次`) && favText.includes("\n")
+        : favText.startsWith("本命玩具 还没选中")),
+      `bubble=${favText ?? "null"} favorite=${JSON.stringify(fav)}`);
+
+    // R3 小口袋：空袋报告 → 嗅一件 → 计数/落盘/点名 → 报告列出那一件。
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("treasures")`);
+    await wait(220);
+    const pocketEmpty = (await snap()).bubble?.text ?? null;
+    results.v117.pocketEmpty = pocketEmpty;
+    check("v117.pocket-empty",
+      pocketEmpty === "小口袋 还没捡到过什么\n带我到处转转吧",
+      `bubble=${pocketEmpty ?? "null"}`);
+    await dismissBubble();
+    await wait(200);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("treasure")`);
+    await wait(220);
+    const sniffDiag = await diag();
+    const sniffText = (await snap()).bubble?.text ?? null;
+    const sniffBond = await bondNow();
+    const sniffTotal = Object.values(sniffBond?.treasures?.counts ?? {})
+      .reduce((sum, v) => sum + (typeof v === "number" ? v : 0), 0);
+    results.v117.treasure = { total: sniffDiag.girl.treasures, bondTotal: sniffTotal, bubble: sniffText };
+    check("v117.treasure-sniff",
+      sniffDiag.girl.treasures === 1 && sniffTotal === 1
+        && typeof sniffText === "string" && sniffText.startsWith("捡到") && sniffText.endsWith("，先收好"),
+      `bubble=${sniffText ?? "null"} total=${sniffDiag.girl.treasures} bondTotal=${sniffTotal}`);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("treasures")`);
+    await wait(220);
+    const pocketOne = (await snap()).bubble?.text ?? null;
+    results.v117.pocketOne = pocketOne;
+    check("v117.pocket-one",
+      !!pocketOne && pocketOne.startsWith("小口袋 1 件") && pocketOne.includes("×1"),
+      `bubble=${pocketOne ?? "null"}`);
+
+    // R4 薄荷盆：空盆报告 → 种下（画布上真的多出一点绿 + 盘上有播种时刻）→ 未熟收不了。
+    await dismissBubble();
+    await wait(200);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("garden")`);
+    await wait(220);
+    const gardenEmpty = (await snap()).bubble?.text ?? null;
+    await dismissBubble();
+    await wait(200);
+    await forceFrame();
+    const potBefore = await potGreenSettled();
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("garden-plant")`);
+    await wait(260);
+    const plantDiag = await diag();
+    const plantText = (await snap()).bubble?.text ?? null;
+    const plantBond = await bondNow();
+    await forceFrame();
+    const potAfter = await potGreenSettled();
+    await shot("girl-garden-v117.png");
+    results.v117.garden = {
+      emptyBubble: gardenEmpty,
+      potBefore,
+      potAfter,
+      stage: plantDiag.girl.garden,
+      bubble: plantText,
+      bond: plantBond?.garden ?? null,
+    };
+    check("v117.garden-empty",
+      gardenEmpty === "薄荷盆 空着\n种一颗吧，很快会发芽",
+      `bubble=${gardenEmpty ?? "null"}`);
+    check("v117.garden-plant",
+      plantDiag.girl.garden.stage === "seed"
+        && plantDiag.girl.garden.ageMs >= 0 && plantDiag.girl.garden.ageMs < 60_000
+        && plantText === "种下啦，等它发芽"
+        && typeof plantBond?.garden?.plantedAt === "number" && plantBond.garden.plantedAt > 0,
+      `garden=${JSON.stringify(plantDiag.girl.garden)} bubble=${plantText ?? "null"} bond=${JSON.stringify(plantBond?.garden ?? null)}`);
+    check("v117.garden-pot-pixels",
+      potAfter.green >= 3 && potAfter.green - potBefore.green >= 3,
+      `before=${JSON.stringify(potBefore)} after=${JSON.stringify(potAfter)}`);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("garden-plant")`);
+    await wait(220);
+    const replantText = (await snap()).bubble?.text ?? null;
+    const replantDiag = await diag();
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("garden-harvest")`);
+    await wait(220);
+    const harvestText = (await snap()).bubble?.text ?? null;
+    const harvestDiag = await diag();
+    const harvestBond = await bondNow();
+    results.v117.garden.replant = { bubble: replantText, garden: replantDiag.girl.garden };
+    results.v117.garden.harvest = { bubble: harvestText, garden: harvestDiag.girl.garden, bond: harvestBond?.garden ?? null };
+    check("v117.garden-replant",
+      replantText === "盆里还种着东西呢" && replantDiag.girl.garden.stage === "seed",
+      `bubble=${replantText ?? "null"} garden=${JSON.stringify(replantDiag.girl.garden)}`);
+    check("v117.garden-harvest-reject",
+      harvestText === "还没长好，再等等" && harvestDiag.girl.garden.stage === "seed"
+        && harvestDiag.girl.garden.harvests === 0 && (harvestBond?.garden?.harvests ?? 0) === 0,
+      `bubble=${harvestText ?? "null"} garden=${JSON.stringify(harvestDiag.girl.garden)} bond=${JSON.stringify(harvestBond?.garden ?? null)}`);
+
+    // R5 躲猫猫第一轮：捂眼点＝太早（不记账、不摸头）→ 探头点中＝逮到（hides+1 落盘）→ 收走。
+    await dismissBubble();
+    await wait(200);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("hide-seek")`);
+    await wait(240);
+    const hideA = await diag();
+    const hideASnap = await snap();
+    results.v117.hide = {
+      a: {
+        hide: hideA.girl.hide,
+        hides: hideA.girl.hides,
+        bubble: hideASnap.bubble?.text ?? null,
+        above: hideA.girl.fx.above,
+      },
+    };
+    check("v117.hide-cover",
+      hideA.girl.hide?.phase === "cover" && hideA.girl.hides === 0
+        && hideASnap.bubble?.text === "你来找我呀，数到三就探头",
+      `hide=${JSON.stringify(hideA.girl.hide)} bubble=${hideASnap.bubble?.text ?? "null"}`);
+    check("v117.hide-marks",
+      hideA.girl.fx.above - rBaseAbove >= 3,
+      `above=${hideA.girl.fx.above} base=${rBaseAbove}`);
+    const earlyTap = await tapFaceNow();
+    await wait(160);
+    const hideEarly = await diag();
+    const hideEarlySnap = await snap();
+    results.v117.hide.early = {
+      tap: earlyTap,
+      hide: hideEarly.girl.hide,
+      hides: hideEarly.girl.hides,
+      bubble: hideEarlySnap.bubble?.text ?? null,
+    };
+    check("v117.hide-early",
+      !!earlyTap.ok && hideEarly.girl.hides === 0 && hideEarly.girl.hide?.phase === "cover"
+        && hideEarlySnap.bubble?.text === "你来找我呀，数到三就探头",
+      JSON.stringify(results.v117.hide.early));
+
+    const peek = await waitHidePhase("peek", 2_200);
+    const peekSnap = await snap();
+    results.v117.hide.peek = { hide: peek, bubble: peekSnap.bubble?.text ?? null };
+    check("v117.hide-peek", peek?.phase === "peek" && peek?.left > 500, `hide=${JSON.stringify(peek)}`);
+    await shot("girl-hide-peek.png");
+    const catchTap = await tapFaceNow();
+    await wait(180);
+    const hideFound = await diag();
+    const hideFoundSnap = await snap();
+    const bondCaught = await bondNow();
+    results.v117.hide.found = {
+      tap: catchTap,
+      hide: hideFound.girl.hide,
+      hides: hideFound.girl.hides,
+      bubble: hideFoundSnap.bubble?.text ?? null,
+      bondHides: bondCaught?.hides ?? null,
+    };
+    await shot("girl-hide-found.png");
+    check("v117.hide-found",
+      !!catchTap.ok && hideFound.girl.hides === 1 && hideFound.girl.hide?.phase === "found"
+        && bondCaught?.hides === 1,
+      JSON.stringify(results.v117.hide.found));
+    check("v117.hide-found-line",
+      saidOrSteal(hideFound.girl, results.v117.hide.found.bubble, ["被找到啦！"]),
+      `bubble=${results.v117.hide.found.bubble ?? "null"}`);
+    const foundGone = await waitHideGone(3_000);
+    results.v117.hide.foundGone = foundGone;
+    check("v117.hide-clears", !foundGone, `hide=${JSON.stringify(foundGone)}`);
+
+    // R6 躲猫猫第二轮：探头窗口没人点 → 渲染端报一次「没找到」；hides 不涨，也不重复报。
+    await dismissBubble();
+    await wait(200);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("hide-seek")`);
+    await wait(240);
+    const missPeek = await waitHidePhase("peek", 2_000);
+    const miss = await waitHidePhase("miss", 3_200);
+    const missDiag = await diag();
+    const missSnap = await snap();
+    results.v117.hide.miss = {
+      peek: missPeek?.phase ?? null,
+      hide: miss,
+      hides: missDiag.girl.hides,
+      bubble: missSnap.bubble?.text ?? null,
+    };
+    check("v117.hide-miss",
+      missPeek?.phase === "peek" && miss?.phase === "miss" && missDiag.girl.hides === 1
+        && missSnap.bubble?.text === "没找到我，我在这里呢",
+      JSON.stringify(results.v117.hide.miss));
+    const missGone = await waitHideGone(2_500);
+    await forceFrame();
+    const missAfter = await diag();
+    const missAfterSnap = await snap();
+    results.v117.hide.missGone = {
+      hide: missGone,
+      hides: missAfter.girl.hides,
+      bubble: missAfterSnap.bubble?.text ?? null,
+    };
+    check("v117.hide-miss-once",
+      !missGone && missAfter.girl.hides === 1
+        && missAfterSnap.bubble?.text === "没找到我，我在这里呢",
+      JSON.stringify(results.v117.hide.missGone));
   }
 
   const failed = checks.filter((c) => !c.ok);

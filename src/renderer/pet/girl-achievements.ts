@@ -15,9 +15,31 @@ export const ACHIEVEMENT_IDS = [
   "hug-lover", "purr-engine", "rain-listener", "daily-perfect",
   "tail-chaser", "knead-master", "roll-artist", "bookworm", "gift-opener",
   "wish-maker", "hopscotch-pro", "snow-builder", "fortune-fan",
+  "trick-master", "treasure-hunter", "hide-seeker", "garden-keeper", "true-favorite",
 ] as const;
 
 export type AchievementId = (typeof ACHIEVEMENT_IDS)[number];
+
+/**
+ * v1.17 的日常系统不往 `PetStats` 里塞计数器（那份表的形状被既有存档与测试钉住了），
+ * 只把五件事的账单独递给成就判定。
+ */
+export interface AchievementExtras {
+  /** 已学会的小把戏件数（0..4）。 */
+  tricks: number;
+  /** 小口袋里的总件数。 */
+  treasures: number;
+  /** 躲猫猫逮到的次数。 */
+  hides: number;
+  /** 薄荷收成的次数。 */
+  harvests: number;
+  /** 本命玩具的累计次数（没有本命时为 0）。 */
+  favorite: number;
+}
+
+export const EMPTY_EXTRAS: AchievementExtras = {
+  tricks: 0, treasures: 0, hides: 0, harvests: 0, favorite: 0,
+};
 
 export interface PetStats {
   /** 摸头次数（只数真的落下去的那一下，合并窗吞掉的不算）。 */
@@ -118,6 +140,11 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: "hopscotch-pro", title: "跳格子高手", line: "一、二、三，全踩中啦" },
   { id: "snow-builder", title: "雪人建筑师", line: "这个雪人，是我们一起堆的" },
   { id: "fortune-fan", title: "签运常客", line: "第四天的签，也好好收着" },
+  { id: "trick-master", title: "小把戏全通", line: "击掌、转圈、点头、害羞——全学会啦" },
+  { id: "treasure-hunter", title: "桌边拾荒人", line: "这些小东西，我都替你收着" },
+  { id: "hide-seeker", title: "躲猫猫高手", line: "三次都被你找到了…再来一局" },
+  { id: "garden-keeper", title: "薄荷园丁", line: "第二茬薄荷，也长好了" },
+  { id: "true-favorite", title: "本命认定", line: "玩来玩去，还是它最好" },
 ];
 
 export function achievementById(id: string): AchievementDef | null {
@@ -130,6 +157,7 @@ export function newlyUnlocked(
   days: number,
   tier: BondTier["id"],
   unlocked: readonly AchievementId[],
+  extras: AchievementExtras = EMPTY_EXTRAS,
 ): AchievementId[] {
   const done = new Set(unlocked);
   const hits: AchievementId[] = [];
@@ -160,6 +188,11 @@ export function newlyUnlocked(
   if (stats.hopscotch >= 2) hits.push("hopscotch-pro");
   if (stats.snowmen >= 1) hits.push("snow-builder");
   if (stats.fortunes >= 4) hits.push("fortune-fan");
+  if (extras.tricks >= 4) hits.push("trick-master");
+  if (extras.treasures >= 6) hits.push("treasure-hunter");
+  if (extras.hides >= 3) hits.push("hide-seeker");
+  if (extras.harvests >= 2) hits.push("garden-keeper");
+  if (extras.favorite >= 8) hits.push("true-favorite");
   return hits.filter((id) => !done.has(id));
 }
 
@@ -243,10 +276,12 @@ export function buildAchievementOps(
   const tone = id === "heart-bond" || id === "brush-lover" || id === "laser-catch"
     || id === "scratch-art" || id === "hug-lover" || id === "purr-engine"
     || id === "tail-chaser" || id === "knead-master" || id === "gift-opener"
+    || id === "hide-seeker" || id === "true-favorite"
     ? ROSE
     : id === "seven-days" || id === "catnip-high" || id === "rain-listener"
       || id === "daily-perfect" || id === "mole-master" || id === "bookworm"
       || id === "hopscotch-pro" || id === "fortune-fan"
+      || id === "treasure-hunter" || id === "garden-keeper"
       ? GREEN
       : ACCENT;
   ops.push({ kind: "fillEllipse", fill: withAlpha(tone, 0.96 * alpha), cx: x, cy: y - r * 0.15, rx: r * 1.05, ry: r * 1.05 });

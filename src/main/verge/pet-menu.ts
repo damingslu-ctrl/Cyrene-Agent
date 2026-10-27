@@ -13,6 +13,7 @@ import type { PetCommand } from "../../shared/pet-commands";
 import { accessoryCommandFor } from "../../shared/pet-commands";
 import { ACCESSORIES, type AccessoryId } from "../../shared/pet-accessory";
 import { RPS_LABELS, RPS_SIGNS, rpsCommandFor, type RpsSign } from "../../shared/pet-rps";
+import { trickCommandFor, type TrickId } from "../../shared/pet-trick";
 import { armQuiet, isQuietNow, quietRemainingMinutes } from "./quiet-clock";
 import type { VergeService } from "./verge-service";
 import { PET_FORMS, SIZE_TIERS, profileFor, type PetForm, type SizeTier } from "../../shared/pet-profile";
@@ -52,6 +53,14 @@ const GESTURE_MENU: ReadonlyArray<readonly [PetCommand, string]> = [
   ["nod", "点点头"],
   ["tilt", "歪歪头"],
   ["stretch", "伸个懒腰"],
+];
+
+/** v1.17.0 小把戏子菜单：id 从共享词表现在排，与渲染端 girl-trick 由单测锁住。 */
+const TRICK_MENU: ReadonlyArray<readonly [TrickId, string]> = [
+  ["high-five", "击掌"],
+  ["spin", "转个圈"],
+  ["nod", "点个头"],
+  ["shy", "害羞捂脸"],
 ];
 
 export interface PetMenuActions {
@@ -104,6 +113,17 @@ export interface PetMenuActions {
   hopscotch: () => void;
   snow: () => void;
   fortune: () => void;
+  /** v1.17.0 日常：心情 / 本命 / 小把戏 / 拾荒 / 小口袋 / 躲猫猫 / 薄荷盆。 */
+  mood: () => void;
+  favorite: () => void;
+  trick: (id: TrickId) => void;
+  tricks: () => void;
+  treasure: () => void;
+  treasures: () => void;
+  hideSeek: () => void;
+  gardenPlant: () => void;
+  garden: () => void;
+  gardenHarvest: () => void;
   openNetwork: () => void;
   /** v1.5.0：形态与档位切换（落盘 + 广播在装配层，菜单只管发意图）。 */
   setForm: (form: PetForm) => void;
@@ -191,6 +211,25 @@ export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenu
     { label: "成长记录", enabled: input.form === "girl" && !!actions?.growth, ...bind(actions?.growth) },
     { label: "今日小目标", enabled: input.form === "girl" && !!actions?.quests, ...bind(actions?.quests) },
     { label: "猫咪日记", enabled: input.form === "girl" && !!actions?.diary, ...bind(actions?.diary) },
+    // —— v1.17.0 日常：心情 / 本命 / 小把戏 / 拾荒 / 躲猫猫 / 一盆薄荷 ——
+    { label: "今天心情如何", enabled: input.form === "girl" && !!actions?.mood, ...bind(actions?.mood) },
+    { label: "她最喜欢哪件玩具", enabled: input.form === "girl" && !!actions?.favorite, ...bind(actions?.favorite) },
+    {
+      label: "教她点小把戏",
+      enabled: input.form === "girl" && !!actions?.trick,
+      submenu: TRICK_MENU.map(([id, label]) => ({
+        label,
+        enabled: input.form === "girl" && !!actions?.trick,
+        action: () => actions?.trick?.(id),
+      })),
+    },
+    { label: "教过的小把戏", enabled: input.form === "girl" && !!actions?.tricks, ...bind(actions?.tricks) },
+    { label: "闻闻有什么好东西", enabled: input.form === "girl" && !!actions?.treasure, ...bind(actions?.treasure) },
+    { label: "看看她的小口袋", enabled: input.form === "girl" && !!actions?.treasures, ...bind(actions?.treasures) },
+    { label: "来玩躲猫猫", enabled: input.form === "girl" && !!actions?.hideSeek, ...bind(actions?.hideSeek) },
+    { label: "种一盆猫薄荷", enabled: input.form === "girl" && !!actions?.gardenPlant, ...bind(actions?.gardenPlant) },
+    { label: "看看薄荷盆", enabled: input.form === "girl" && !!actions?.garden, ...bind(actions?.garden) },
+    { label: "收薄荷", enabled: input.form === "girl" && !!actions?.gardenHarvest, ...bind(actions?.gardenHarvest) },
     // 「让它做个动作」：只演一次手势，不改数值。放在互动组末尾，与喂/玩区分开。
     {
       label: "让它做个动作",
@@ -335,6 +374,16 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
         hopscotch: () => onPetCommand("hopscotch"),
         snow: () => onPetCommand("snow"),
         fortune: () => onPetCommand("fortune"),
+        mood: () => onPetCommand("mood"),
+        favorite: () => onPetCommand("favorite"),
+        trick: (id) => onPetCommand(trickCommandFor(id)),
+        tricks: () => onPetCommand("tricks"),
+        treasure: () => onPetCommand("treasure"),
+        treasures: () => onPetCommand("treasures"),
+        hideSeek: () => onPetCommand("hide-seek"),
+        gardenPlant: () => onPetCommand("garden-plant"),
+        garden: () => onPetCommand("garden"),
+        gardenHarvest: () => onPetCommand("garden-harvest"),
         openNetwork: () => openNetworkPanel(),
         setForm: (form) => {
           service.setForm(form);

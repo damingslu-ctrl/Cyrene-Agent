@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ACHIEVEMENTS, ACHIEVEMENT_IDS, ACHIEVEMENT_MS, EMPTY_STATS, achievementById, buildAchievementOps,
-  newlyUnlocked, parseAchievements, parseStats, type PetStats,
+  newlyUnlocked, parseAchievements, parseStats, type AchievementExtras, type PetStats,
 } from "./girl-achievements";
 
 const stats = (over: Partial<PetStats> = {}): PetStats => ({ ...EMPTY_STATS, ...over });
@@ -40,8 +40,8 @@ describe("成就条件", () => {
       .toEqual(["box-hide", "laser-catch", "brush-lover", "catnip-high", "plane-catch"]);
   });
 
-  it("v1.13 九枚新成就各有门槛，差一记不给；整表 27 枚", () => {
-    expect(ACHIEVEMENT_IDS).toHaveLength(27);
+  it("v1.13 九枚新成就各有门槛，差一记不给；v1.17 再加五枚，整表 32 枚", () => {
+    expect(ACHIEVEMENT_IDS).toHaveLength(32);
     expect(newlyUnlocked(stats({ tails: 2 }), 1, "new", [])).toEqual([]);
     expect(newlyUnlocked(stats({ tails: 3 }), 1, "new", [])).toEqual(["tail-chaser"]);
     expect(newlyUnlocked(stats({ kneads: 2 }), 1, "new", [])).toEqual([]);
@@ -63,6 +63,24 @@ describe("成就条件", () => {
     expect(newlyUnlocked(
       stats({ tails: 9, kneads: 9, rolls: 9, books: 9 }), 1, "new", [],
     )).toEqual(["tail-chaser", "knead-master", "roll-artist", "bookworm"]);
+  });
+
+  it("v1.17 日常五枚走额外账本：把戏/拾荒/躲猫猫/收成/本命，各有门槛", () => {
+    const extras = (over: Partial<AchievementExtras> = {}): AchievementExtras => ({
+      tricks: 0, treasures: 0, hides: 0, harvests: 0, favorite: 0, ...over,
+    });
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ tricks: 3 }))).toEqual([]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ tricks: 4 }))).toEqual(["trick-master"]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ treasures: 5 }))).toEqual([]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ treasures: 6 }))).toEqual(["treasure-hunter"]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ hides: 2 }))).toEqual([]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ hides: 3 }))).toEqual(["hide-seeker"]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ harvests: 1 }))).toEqual([]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ harvests: 2 }))).toEqual(["garden-keeper"]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ favorite: 7 }))).toEqual([]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ favorite: 8 }))).toEqual(["true-favorite"]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ tricks: 4, treasures: 6, hides: 3, harvests: 2, favorite: 8 })))
+      .toEqual(["trick-master", "treasure-hunter", "hide-seeker", "garden-keeper", "true-favorite"]);
   });
 
   it("成就表与 id 表一一对应，文案不空", () => {

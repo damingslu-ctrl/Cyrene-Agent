@@ -28,9 +28,58 @@ import {
   parseAchievements,
   parseStats,
   EMPTY_STATS,
+  type AchievementExtras,
   type AchievementId,
   type PetStats,
 } from "./girl-achievements";
+import {
+  moodChatter,
+  moodLine,
+  moodTuning,
+  MOOD_LABELS,
+  parseDailyMood,
+  rollMood,
+  type DailyMood,
+  type MoodId,
+} from "./girl-mood";
+import {
+  favoriteReport as favoriteReportLine,
+  favoriteRequestLine,
+  favoriteRivals,
+  favoriteToy,
+  type FavoriteToy,
+} from "./girl-favorite";
+import {
+  createTricks,
+  parseTricks,
+  teachTrick,
+  trickReport as buildTrickReport,
+  trickSpec,
+  tricksLearned,
+  type TeachResult,
+  type TrickId,
+  type TrickState,
+} from "./girl-trick";
+import {
+  createTreasures,
+  findTreasure,
+  parseTreasures,
+  TREASURES,
+  treasureTotal,
+  type TreasureFind,
+  type TreasureState,
+} from "./girl-treasure";
+import {
+  createGarden,
+  gardenReport as buildGardenReport,
+  gardenStage,
+  harvestGarden,
+  parseGarden,
+  plantGarden,
+  type GardenStage,
+  type GardenState,
+} from "./girl-garden";
+import { HIDE_COVER_MS, HIDE_PEEK_MS } from "./girl-hide";
 import { judgeRps, RPS_SIGNS, type RpsOutcome, type RpsSign } from "../../shared/pet-rps";
 import { PURR_MS } from "./girl-purr";
 import { RAIN_MS } from "./girl-rain";
@@ -186,6 +235,21 @@ export interface CompanionSnapshot {
   quests: QuestState;
   /** 最近七天的日记（新的在末尾）。 */
   diary: DiaryEntry[];
+  /** 今日心情（第一天固定精神满满，第二天起由昨天的照顾量决定）。 */
+  moodId: MoodId;
+  /** 本命玩具：够三次才认，打平按词表顺序。 */
+  favorite: FavoriteToy | null;
+  /** 小把戏的练习次数（学没学会由次数推出来）。 */
+  tricks: TrickState;
+  /** 小口袋里的拾荒收藏。 */
+  treasures: TreasureState;
+  /** 薄荷盆（plantedAt 是墙上时钟；-1 = 空盆）。 */
+  garden: GardenState;
+  /** 薄荷种下多久了（行为时钟友好；-1 = 空盆）。 */
+  gardenAge: number;
+  gardenStage: GardenStage;
+  /** 躲猫猫逮到的次数（跨重启）。 */
+  hides: number;
 }
 
 export interface CompanionOptions {
@@ -779,6 +843,16 @@ export class CompanionEngine {
   private diary: DiaryEntry[] = [];
   /** 完成小目标的那句话排在当前气泡后面说：不许顶掉刚摸头/刚玩完的那句反应。 */
   private pendingLine: { text: string; priority: number; at: number } | null = null;
+  /** 今天的心情；第一天还没「昨天」，固定精神满满，也还不参与节奏换算。 */
+  private dailyMood: DailyMood = { day: "", id: "lively" };
+  private moodRolled = false;
+  private tricks: TrickState = createTricks();
+  private treasures: TreasureState = createTreasures();
+  private garden: GardenState = createGarden();
+  private hides = 0;
+  /** 躲猫猫开局后等渲染端回报「逮到/溜走」；没有开局就不认账。 */
+  private hideOpen = false;
+  private hideStartedAt = 0;
 
   constructor(options: CompanionOptions = {}) {
     this.random = options.random ?? Math.random;
@@ -821,6 +895,7 @@ export class CompanionEngine {
     this.rainUntil = 0;
     this.snowUntil = 0;
     this.pendingLine = null;
+    this.hideOpen = false;
   }
 
   /**
@@ -1773,6 +1848,158 @@ export class CompanionEngine {
     return this.say(buildDiaryReport(this.diary, today).join("\n"), 2, now, true);
   }
 
+  // —— v1.17 日常系统 ——
+
+  moodReport(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    this.ensureDay(this.wallNow());
+    this.lastUserAt = now;
+    return this.say(
+      `今天的心情 · ${MOOD_LABELS[this.dailyMood.id]}\n${moodLine(this.dailyMood.id)}`,
+      2, now, true,
+    );
+  }
+
+  favoriteReportNow(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    this.lastUserAt = now;
+    const fav = favoriteToy(this.stats);
+    if (!fav) return this.say(`${favoriteReportLine(null)}\n多陪我玩几次就知道了`, 2, now, true);
+    return this.say(`${favoriteReportLine(fav)}\n${favoriteRequestLine(fav, this.random())}`, 2, now, true);
+  }
+
+  trickTeach(id: TrickId, now = this.now()): TeachResult | null {
+    if (!this.toyReady(now)) return null;
+    const result = teachTrick(this.tricks, id);
+    this.saveBond();
+    const spec = trickSpec(id);
+    if (result.already) {
+      this.say(`${spec.label} 早就学会啦`, 1, now, true);
+      return result;
+    }
+    this.happyUntil = Math.max(this.happyUntil, now + 2_400);
+    this.ambientGesture = spec.gesture;
+    this.gestureUntil = now + gestureClip(spec.gesture).ms;
+    if (result.learned) {
+      this.rewardAffinity(0.02, now);
+      this.dayCounts.toys += 1;
+      this.noteQuest("play", now);
+      this.say(spec.line, 1, now, true);
+    } else {
+      this.say(`${spec.label} · 还差 ${spec.need - result.count} 次`, 1, now, true);
+    }
+    return result;
+  }
+
+  trickReportNow(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    this.lastUserAt = now;
+    return this.say(buildTrickReport(this.tricks).join("\n"), 2, now, true);
+  }
+
+  sniffTreasure(now = this.now()): TreasureFind | null {
+    if (!this.toyReady(now)) return null;
+    const find = findTreasure(this.treasures, this.random());
+    this.saveBond();
+    this.happyUntil = Math.max(this.happyUntil, now + 2_200);
+    this.ambientGesture = "peek";
+    this.gestureUntil = now + gestureClip("peek").ms;
+    this.say(`捡到${find.label}，先收好`, 1, now, true);
+    this.rewardAffinity(0.008, now);
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
+    return find;
+  }
+
+  treasureReportNow(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    this.lastUserAt = now;
+    const total = treasureTotal(this.treasures);
+    if (total <= 0) return this.say("小口袋 还没捡到过什么\n带我到处转转吧", 2, now, true);
+    const lines = [`小口袋 ${total} 件`];
+    const found = TREASURES.filter((item) => this.treasures.counts[item.id] > 0);
+    for (const item of found.slice(0, 3)) lines.push(`${item.label} ×${this.treasures.counts[item.id]}`);
+    if (found.length > 3) lines.push(`…还有 ${found.length - 3} 种`);
+    return this.say(lines.join("\n"), 2, now, true);
+  }
+
+  hideStart(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    this.hideOpen = true;
+    this.hideStartedAt = now;
+    this.happyUntil = Math.max(this.happyUntil, now + 2_600);
+    this.ambientGesture = "coverFace";
+    this.gestureUntil = now + gestureClip("coverFace").ms;
+    this.say("你来找我呀，数到三就探头", 1, now, true);
+    return true;
+  }
+
+  /** 渲染端在探头窗口里点中/窗口走完各回报一次；没有开局或超时都不认账。 */
+  hideResult(found: boolean, now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) {
+      this.hideOpen = false;
+      return false;
+    }
+    if (!this.hideOpen) return false;
+    if (now - this.hideStartedAt > HIDE_COVER_MS + HIDE_PEEK_MS + 500) {
+      this.hideOpen = false;
+      return false;
+    }
+    this.hideOpen = false;
+    if (!found) {
+      this.say("没找到我，我在这里呢", 1, now, true);
+      return true;
+    }
+    this.hides += 1;
+    this.saveBond();
+    this.rewardAffinity(0.02, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 2_600);
+    this.ambientGesture = "hop";
+    this.gestureUntil = now + gestureClip("hop").ms;
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
+    this.say("被找到啦！", 1, now, true);
+    return true;
+  }
+
+  gardenPlant(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    if (!plantGarden(this.garden, this.wallNow())) {
+      this.say("盆里还种着东西呢", 1, now, true);
+      return false;
+    }
+    this.saveBond();
+    this.happyUntil = Math.max(this.happyUntil, now + 2_400);
+    this.ambientGesture = "peek";
+    this.gestureUntil = now + gestureClip("peek").ms;
+    this.say("种下啦，等它发芽", 1, now, true);
+    return true;
+  }
+
+  gardenHarvest(now = this.now()): boolean {
+    if (!this.toyReady(now)) return false;
+    if (!harvestGarden(this.garden, this.wallNow())) {
+      this.say("还没长好，再等等", 1, now, true);
+      return false;
+    }
+    this.saveBond();
+    this.rewardAffinity(0.02, now);
+    this.happyUntil = Math.max(this.happyUntil, now + 2_800);
+    this.ambientGesture = "hop";
+    this.gestureUntil = now + gestureClip("hop").ms;
+    this.dayCounts.toys += 1;
+    this.noteQuest("play", now);
+    this.say("薄荷收好啦，香香的", 1, now, true);
+    return true;
+  }
+
+  gardenReportNow(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    this.ensureDay(this.wallNow());
+    this.lastUserAt = now;
+    return this.say(buildGardenReport(this.garden, this.wallNow()).join("\n"), 2, now, true);
+  }
+
   /**
    * 成长记录：不说数值细节，只说「认识多久、什么档、拿了几枚」。
    * 三行——气泡内宽只有 78px（v1.8 尺 #62），徽章与互动数各占一行，不折行。
@@ -1825,6 +2052,14 @@ export class CompanionEngine {
       snowLeft: Math.max(0, this.snowUntil - this.now()),
       quests: { counts: { ...this.quests.counts } },
       diary: this.diary.map((entry) => ({ ...entry })),
+      moodId: this.dailyMood.id,
+      favorite: favoriteToy(this.stats),
+      tricks: { counts: { ...this.tricks.counts } },
+      treasures: { counts: { ...this.treasures.counts } },
+      garden: { ...this.garden },
+      gardenAge: this.garden.plantedAt >= 0 ? Math.max(0, this.wallNow() - this.garden.plantedAt) : -1,
+      gardenStage: gardenStage(this.garden, this.wallNow()),
+      hides: this.hides,
     };
   }
 
@@ -2188,6 +2423,11 @@ export class CompanionEngine {
           dayCounts?: unknown;
           diary?: unknown;
           fortune?: unknown;
+          mood?: unknown;
+          tricks?: unknown;
+          treasures?: unknown;
+          garden?: unknown;
+          hides?: unknown;
         };
         found = true;
         if (typeof parsed?.metAt === "number" && Number.isFinite(parsed.metAt) && parsed.metAt > 0) {
@@ -2215,6 +2455,17 @@ export class CompanionEngine {
           && typeof f.line === "string"
           && typeof f.drawn === "boolean") {
           this.fortune = { day: f.day, tier: f.tier, line: f.line, drawn: f.drawn };
+        }
+        const mood = parseDailyMood(parsed.mood);
+        if (mood) {
+          this.dailyMood = mood;
+          this.moodRolled = true;
+        }
+        this.tricks = parseTricks(parsed.tricks);
+        this.treasures = parseTreasures(parsed.treasures);
+        this.garden = parseGarden(parsed.garden);
+        if (typeof parsed.hides === "number" && Number.isFinite(parsed.hides) && parsed.hides > 0) {
+          this.hides = Math.min(1_000_000, Math.floor(parsed.hides));
         }
         if (parsed.dayCounts && typeof parsed.dayCounts === "object") {
           const raw = parsed.dayCounts as Record<string, unknown>;
@@ -2251,6 +2502,11 @@ export class CompanionEngine {
         dayCounts: this.dayCounts,
         diary: this.diary,
         fortune: this.fortune,
+        mood: this.moodRolled ? this.dailyMood : null,
+        tricks: this.tricks,
+        treasures: this.treasures,
+        garden: this.garden,
+        hides: this.hides,
       }));
     } catch {
       // 同 save：写不进去只影响「第几天」，不影响本次行为。
@@ -2295,9 +2551,35 @@ export class CompanionEngine {
    * 外部 setVitals/读档不会把旧数值误报成「刚刚升级」。
    */
   private rewardAffinity(delta: number, now: number): void {
-    this.setVitals({ affinity: this.vitals.affinity + delta });
+    this.setVitals({ affinity: this.vitals.affinity + delta * this.moodAffinityScale() });
     this.refreshBond(now);
     this.refreshAchievements(now);
+  }
+
+  /** 心情从第二天起参与换算；第一天保持旧口径，免得老秒表/老存档被悄悄改拍。 */
+  private moodAffinityScale(): number {
+    return this.moodRolled ? moodTuning(this.dailyMood.id).affinityScale : 1;
+  }
+
+  private restAfterMs(): number {
+    return this.moodRolled ? moodTuning(this.dailyMood.id).restAfterMs : REST_AFTER_MS;
+  }
+
+  private chatScale(): number {
+    return this.moodRolled ? moodTuning(this.dailyMood.id).chatScale : 1;
+  }
+
+  private achievementExtras(): AchievementExtras {
+    const fav = favoriteToy(this.stats);
+    // 只有一件够格的玩具时谈不上「本命」——至少要跟第二名比过一次。
+    const contested = fav && favoriteRivals(this.stats) >= 2 ? fav.count : 0;
+    return {
+      tricks: tricksLearned(this.tricks),
+      treasures: treasureTotal(this.treasures),
+      hides: this.hides,
+      harvests: this.garden.harvests,
+      favorite: contested,
+    };
   }
 
   /** 呼噜：同一串互动只记一次；已经在呼噜就把终点往后推。 */
@@ -2351,14 +2633,25 @@ export class CompanionEngine {
    */
   private ensureDay(wall: number): void {
     const key = dateKey(wall);
-    if (!key || key === this.questDay) return;
+    if (!key || key === this.questDay) {
+      // 旧存档没有心情这一项：当天先按「精神满满」走，明天再按今天的照顾量滚。
+      if (this.dailyMood.day !== this.questDay) this.dailyMood = { day: this.questDay, id: "lively" };
+      return;
+    }
+    const firstDay = this.questDay === "";
     const day = this.dayCounts;
-    if (this.questDay !== "" && day.pats + day.plays + day.feeds + day.toys > 0) {
+    if (!firstDay && day.pats + day.plays + day.feeds + day.toys > 0) {
       this.diary = pushDiary(this.diary, { day: this.questDay, text: composeDiaryLine(day) });
     }
     this.questDay = key;
     this.quests = createQuests();
     this.dayCounts = { pats: 0, plays: 0, feeds: 0, toys: 0 };
+    if (firstDay) {
+      this.dailyMood = { day: key, id: "lively" };
+    } else {
+      this.dailyMood = { day: key, id: rollMood(day, this.random()) };
+      this.moodRolled = true;
+    }
     this.saveBond();
   }
 
@@ -2373,6 +2666,7 @@ export class CompanionEngine {
       daysTogether(this.metAt, this.wallNow()),
       bondTierOf(this.vitals.affinity).id,
       this.achievements,
+      this.achievementExtras(),
     );
     if (next.length === 0) return;
     const id = next[0];
@@ -2441,7 +2735,7 @@ export class CompanionEngine {
     if (
       this.form === "girl"
       && this.activity === "idle"
-      && now - this.lastUserAt >= REST_AFTER_MS
+      && now - this.lastUserAt >= this.restAfterMs()
     ) {
       this.startRest(now);
       return;
@@ -2453,11 +2747,17 @@ export class CompanionEngine {
     }
     if (this.bubble === null && !this.quiet && now >= this.chatAt) {
       const wall = this.wallNow();
-      const chatter = this.form === "girl"
-        ? chatterPoolFor(new Date(wall).getHours(), new Date(wall).getDay(), this.random())
-        : CHATTER;
+      const fav = this.form === "girl" ? favoriteToy(this.stats) : null;
+      const moody = this.form === "girl" && this.moodRolled && this.random() < 0.35;
+      const chatter: readonly string[] = moody
+        ? moodChatter(this.dailyMood.id)
+        : fav && this.random() < 0.25
+          ? [favoriteRequestLine(fav, this.random())]
+          : this.form === "girl"
+            ? chatterPoolFor(new Date(wall).getHours(), new Date(wall).getDay(), this.random())
+            : CHATTER;
       this.say(this.pickLine(chatter), 1, now);
-      this.chatAt = now + CHAT_MIN_MS + this.random() * CHAT_SPAN_MS;
+      this.chatAt = now + (CHAT_MIN_MS + this.random() * CHAT_SPAN_MS) * this.chatScale();
     }
     if (now < this.idleUntil) return;
 

@@ -335,6 +335,14 @@ import {
   type FortuneState,
 } from "./girl-fortune";
 import { buildPurrOps } from "./girl-purr";
+import {
+  HIDE_COVER_MS, HIDE_FOUND_MS, HIDE_MISS_MS, HIDE_PEEK_MS,
+  buildHideOps, createHide, hidePhase, tapHide, type HideState,
+} from "./girl-hide";
+import { buildGardenOps, type GardenState } from "./girl-garden";
+import { trickFromCommand } from "../../shared/pet-trick";
+import { tricksLearned } from "./girl-trick";
+import { treasureTotal } from "./girl-treasure";
 import { rpsFromCommand } from "../../shared/pet-rps";
 import { GESTURE_COMMANDS, accessoryFromCommand, type PetCommand } from "../../shared/pet-commands";
 import type { WorkStatusTier } from "../../shared/work-status-types";
@@ -587,6 +595,10 @@ export class PixelPetRenderer {
   private fortune: FortuneState | null = null;
   /** 今天那张签（引擎给的同一天同一档）：揭晓时要把档位原样还回去，引擎才认账。 */
   private fortuneToday: { tier: number; line: string } | null = null;
+  /** v1.17 躲猫猫：捂眼/探头/逮到/落空四段；记账与说话都在引擎。 */
+  private hide: HideState | null = null;
+  /** 落空那句话只报一次（探头窗口走完那一拍），之后只剩 fade 记号。 */
+  private hideMissReported = false;
   /** 走路留下的爪印（屏幕坐标，窗口搬走时留在桌布上）。 */
   private prints: PawMark[] = [];
   private lastPrintAt = 0;
@@ -912,6 +924,58 @@ export class PixelPetRenderer {
       else this.startFortune(now);
       return;
     }
+    const trickId = trickFromCommand(command);
+    if (trickId) {
+      // 教一次记一次：攒够次数的那一下引擎会说台词并自己记账。
+      const now = performance.now();
+      if (this.engine?.trickTeach(trickId, now)) {
+        this.engine.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
+    if (command === "mood" || command === "favorite" || command === "tricks"
+      || command === "treasures" || command === "garden") {
+      // 五本账都只借引擎的嘴：渲染端不另算一份数值。
+      const now = performance.now();
+      const said = command === "mood" ? this.engine?.moodReport(now)
+        : command === "favorite" ? this.engine?.favoriteReportNow(now)
+        : command === "tricks" ? this.engine?.trickReportNow(now)
+        : command === "treasures" ? this.engine?.treasureReportNow(now)
+        : this.engine?.gardenReportNow(now);
+      if (said) {
+        this.engine?.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
+    if (command === "treasure") {
+      const now = performance.now();
+      if (this.engine?.sniffTreasure(now)) {
+        this.engine.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
+    if (command === "garden-plant" || command === "garden-harvest") {
+      // 盆里还有东西/还没长好也要说：引擎拒收时同样带一句回执，照画不误。
+      const now = performance.now();
+      if (command === "garden-plant") this.engine?.gardenPlant(now);
+      else this.engine?.gardenHarvest(now);
+      this.engine?.save();
+      if (!this.paused) this.draw(now);
+      return;
+    }
+    if (command === "hide-seek") {
+      const now = performance.now();
+      if (this.engine?.hideStart(now)) {
+        this.clearSoloToys();
+        this.hide = createHide(now);
+        this.hideMissReported = false;
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
     if (command === "quests" || command === "diary") {
       // 两本账都由引擎开口：渲染端只负责把气泡画出来。
       const now = performance.now();
@@ -1080,6 +1144,14 @@ export class PixelPetRenderer {
       piles: Array<{ x: number; y: number; w: number; h: number }>;
     } | null;
     fortune: { x: number; y: number; tier: number; revealed: boolean; phase: string; left: number } | null;
+    /** v1.17.0：心情/本命/小把戏/小口袋/薄荷盆/躲猫猫的读数口（都来自引擎快照）。 */
+    mood: string;
+    favorite: CompanionSnapshot["favorite"];
+    tricks: number;
+    treasures: number;
+    garden: { stage: CompanionSnapshot["gardenStage"]; ageMs: number; harvests: number };
+    hides: number;
+    hide: { phase: string; left: number } | null;
     purrLeft: number;
     prints: number;
     follow: { left: number; lastTargetX: number; arrived: boolean } | null;
@@ -1389,6 +1461,18 @@ export class PixelPetRenderer {
         };
       }
     }
+    let hideDiag: { phase: string; left: number } | null = null;
+    if (this.hide) {
+      const phase = hidePhase(this.hide, now);
+      if (phase !== "gone") {
+        const until = phase === "found"
+          ? this.hide.tappedAt + HIDE_FOUND_MS
+          : phase === "cover" ? this.hide.bornAt + HIDE_COVER_MS
+          : phase === "peek" ? this.hide.bornAt + HIDE_COVER_MS + HIDE_PEEK_MS
+          : this.hide.bornAt + HIDE_COVER_MS + HIDE_PEEK_MS + HIDE_MISS_MS;
+        hideDiag = { phase, left: Math.max(0, until - now) };
+      }
+    }
     return {
       presence: { ...this.presencePose },
       noticeAgeMs: this.noticeAt < 0 ? -1 : now - this.noticeAt,
@@ -1485,6 +1569,17 @@ export class PixelPetRenderer {
       hopscotch: hopDiag,
       snow: snowDiag,
       fortune: fortuneDiag,
+      mood: snapshot?.moodId ?? "lively",
+      favorite: snapshot?.favorite ?? null,
+      tricks: snapshot ? tricksLearned(snapshot.tricks) : 0,
+      treasures: snapshot ? treasureTotal(snapshot.treasures) : 0,
+      garden: {
+        stage: snapshot?.gardenStage ?? "empty",
+        ageMs: snapshot?.gardenAge ?? -1,
+        harvests: snapshot?.garden?.harvests ?? 0,
+      },
+      hides: snapshot?.hides ?? 0,
+      hide: hideDiag,
       purrLeft: snapshot?.purrLeft ?? 0,
       prints: this.prints.length,
       follow: this.follow
@@ -1867,6 +1962,8 @@ export class PixelPetRenderer {
     this.hop = null;
     this.fortune = null;
     this.fortuneToday = null;
+    this.hide = null;
+    this.hideMissReported = false;
   }
 
   /** 本地闸门（安静/拖拽/睡着/被抛）；引擎另有更细的闸（眩晕/活动中）。 */
@@ -2492,6 +2589,40 @@ export class PixelPetRenderer {
     return buildRainOps(this.rain, now, w, h);
   }
 
+  /** 薄荷盆：盘里的种下时刻是墙钟，快照给的是「种了多久」，这里换回行为时钟再画。 */
+  private tickGarden(
+    now: number,
+    face: ReturnType<typeof girlFaceBox>,
+    snapshot: CompanionSnapshot | null,
+  ): DrawOp[] {
+    if (this.form !== "girl" || !snapshot || snapshot.gardenAge < 0) return [];
+    const garden: GardenState = { plantedAt: now - snapshot.gardenAge, harvests: snapshot.garden.harvests };
+    return buildGardenOps(garden, now, face, this.cat.center.y);
+  }
+
+  /** 躲猫猫的记号层；探头窗口走完那一拍替她报一次「没找到」（只报一次）。 */
+  private tickHide(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.hide) {
+      this.hide = null;
+      this.hideMissReported = false;
+      return [];
+    }
+    const phase = hidePhase(this.hide, now);
+    if (phase === "gone") {
+      this.hide = null;
+      if (!this.hideMissReported) {
+        this.hideMissReported = true;
+        this.engine?.hideResult(false, now);
+      }
+      return [];
+    }
+    if ((phase === "miss" || phase === "found") && !this.hideMissReported) {
+      this.hideMissReported = true;
+      if (phase === "miss") this.engine?.hideResult(false, now);
+    }
+    return buildHideOps(this.hide, now, face);
+  }
+
   /** 呼噜的计时在引擎里：这里只按剩余毫秒画声纹，不另存一份。 */
   private tickPurr(now: number, face: ReturnType<typeof girlFaceBox>, snapshot: CompanionSnapshot | null): DrawOp[] {
     if (this.form !== "girl") return [];
@@ -2545,6 +2676,9 @@ export class PixelPetRenderer {
       ...this.tickHopscotch(now, face),
       ...this.tickFortune(now, face),
       ...this.tickPurr(now, face, snapshot),
+      // v1.17 薄荷盆长在脚边；躲猫猫的记号在脸上，都压在旧道具之上。
+      ...this.tickGarden(now, face, snapshot),
+      ...this.tickHide(now, face),
       // 纸箱压在所有道具之上：她钻进去时箱身必须挡住整个人。
       ...this.tickBox(now, face),
     ];
@@ -3430,6 +3564,20 @@ export class PixelPetRenderer {
       this.engine?.touch("pet", now);
       this.engine?.save();
       return;
+    }
+    // 躲猫猫：捂眼时点＝太早（这一下归数数，不摸头）；探头时点中＝逮到。
+    if (this.hide) {
+      const outcome = tapHide(this.hide, now);
+      if (outcome === "late") {
+        if (!this.paused) this.draw(now);
+        return;
+      }
+      if (outcome === "found") {
+        this.hideMissReported = true;
+        if (this.engine?.hideResult(true, now)) this.engine.save();
+        if (!this.paused) this.draw(now);
+        return;
+      }
     }
     const zoom = this.zoom || 1;
     const dx = cssX / zoom;
