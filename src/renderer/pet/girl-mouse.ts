@@ -31,8 +31,8 @@ export function createMouse(now: number, seed = Math.random()): MouseState {
 }
 
 export function mouseAlive(state: MouseState, now: number): boolean {
-  const age = now - state.bornAt;
-  if (age < 0) return false;
+  // rAF 的帧时间戳是帧起点，可能早于出生那一拍；夹到 0 当「刚出生」，别判死。
+  const age = Math.max(0, now - state.bornAt);
   if (state.caughtAt >= 0) return now - state.caughtAt <= MOUSE_CATCH_MS;
   return age < MOUSE_MS;
 }

@@ -40,6 +40,14 @@ describe("发条老鼠", () => {
     }
   });
 
+  it("帧时间戳早于出生时刻（rAF 的帧起点）不算死：一帧之差把小老鼠判死会当场说「溜走了」", () => {
+    const s = createMouse(1_000, 0.1);
+    expect(mouseAlive(s, 984)).toBe(true);
+    expect(mouseAlive(s, 1_000)).toBe(true);
+    expect(mouseAlive(s, 1_000 + MOUSE_MS - 1)).toBe(true);
+    expect(mouseAlive(s, 1_000 + MOUSE_MS)).toBe(false);
+  });
+
   it("按住后停在原地并往上拎；800ms 后收走", () => {
     const s = createMouse(0, 0.2);
     const at = mouseAt(s, 1_200, FACE, FLOOR);
