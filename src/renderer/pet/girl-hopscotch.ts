@@ -46,8 +46,9 @@ export function createHopscotch(now: number, seed = Math.random()): HopState {
 }
 
 export function hopAlive(state: HopState, now: number): boolean {
-  const age = now - state.bornAt;
-  return age >= 0 && age < HOP_MS;
+  // rAF 的帧时间戳是帧起点，可能早于出生那一拍；夹到 0 当「刚出生」，别判死。
+  const age = Math.max(0, now - state.bornAt);
+  return age < HOP_MS;
 }
 
 function clamp(v: number, lo: number, hi: number): number {

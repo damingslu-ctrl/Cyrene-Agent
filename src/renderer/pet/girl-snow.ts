@@ -67,8 +67,9 @@ export function createSnow(now: number, seed = Math.random()): SnowState {
 }
 
 export function snowAlive(state: SnowState, now: number): boolean {
-  const age = now - state.bornAt;
-  return age >= 0 && age < SNOW_MS;
+  // 帧起点可能早于出生那一拍：夹到 0 当「刚出生」，别判死（出生前依旧不画，见 snowAmount）。
+  const age = Math.max(0, now - state.bornAt);
+  return age < SNOW_MS;
 }
 
 /** 入场 700ms 淡入、收尾 1000ms 淡出；雪花与积雪共用同一条包络。 */

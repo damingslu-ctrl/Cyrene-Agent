@@ -31,6 +31,13 @@ function finite(ops: ReturnType<typeof buildSnowOps>): boolean {
 }
 
 describe("下雪与堆雪人", () => {
+  it("帧时间戳早于出生那一拍时只当刚出生，不许判死", () => {
+    const s = createSnow(1_000, 0.3);
+    expect(snowAlive(s, 984)).toBe(true);
+    expect(snowAlive(s, 1_000 + SNOW_MS - 1)).toBe(true);
+    expect(snowAlive(s, 1_000 + SNOW_MS)).toBe(false);
+  });
+
   it("收放包络：入场 700ms、收尾 1000ms", () => {
     const s = createSnow(0, 0.3);
     expect(snowAmount(s, 0)).toBe(0);

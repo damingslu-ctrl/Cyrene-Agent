@@ -29,6 +29,13 @@ function finite(ops: ReturnType<typeof buildMoleOps>): boolean {
 }
 
 describe("打地鼠", () => {
+  it("帧时间戳早于出生那一拍时只当刚出生，不许判死", () => {
+    const s = createMole(1_000, 0.1);
+    expect(moleAlive(s, 984)).toBe(true);
+    expect(moleAlive(s, 1_000 + MOLE_MS - 1)).toBe(true);
+    expect(moleAlive(s, 1_000 + MOLE_MS)).toBe(false);
+  });
+
   it("三个洞等距排开，洞心都在脚边", () => {
     const gap = moleHoleGap(FACE);
     const a = moleHoleAt(FACE, FLOOR, 0);

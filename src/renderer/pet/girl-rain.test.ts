@@ -13,6 +13,12 @@ const W = 82;
 const H = 108;
 
 describe("雨天", () => {
+  it("帧时间戳早于出生那一拍时只当刚出生，不许判死；但出生前仍不画", () => {
+    const rain = createRain(5_000, 0.4);
+    expect(rainAlive(rain, 4_984)).toBe(true);
+    expect(buildRainOps(rain, 4_984, W, H)).toEqual([]);
+  });
+
   it("寿命 20 秒；窗外的时刻一律不画", () => {
     const rain = createRain(5_000, 0.4);
     expect(rainAlive(rain, 5_000)).toBe(true);

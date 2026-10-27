@@ -46,8 +46,9 @@ export function createMole(now: number, seed = Math.random()): MoleState {
 }
 
 export function moleAlive(state: MoleState, now: number): boolean {
-  const age = now - state.bornAt;
-  return age >= 0 && age < MOLE_MS;
+  // 帧起点可能早于出生那一拍：夹到 0 当「刚出生」，别判死。
+  const age = Math.max(0, now - state.bornAt);
+  return age < MOLE_MS;
 }
 
 export function moleHoleGap(face: MoleFace): number {

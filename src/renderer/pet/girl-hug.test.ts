@@ -25,6 +25,13 @@ function finite(ops: ReturnType<typeof buildHugOps>): boolean {
 }
 
 describe("抱抱", () => {
+  it("帧时间戳早于出生那一拍时只当刚出生，不许判死", () => {
+    const s = createHug(1_000, 0.3);
+    expect(hugAlive(s, 984)).toBe(true);
+    expect(hugAlive(s, 1_000 + HUG_MS - 1)).toBe(true);
+    expect(hugAlive(s, 1_000 + HUG_MS)).toBe(false);
+  });
+
   it("3.6 秒寿命；抱紧有 450ms 冷却，最多五下", () => {
     const s = createHug(0, 0.3);
     expect(hugAlive(s, 0)).toBe(true);

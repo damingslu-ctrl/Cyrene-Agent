@@ -28,6 +28,14 @@ function finite(ops: ReturnType<typeof buildBellOps>): boolean {
 }
 
 describe("铃铛球", () => {
+  it("帧时间戳早于出生那一拍时只当刚出生，不许判死", () => {
+    // rAF 回调参数是帧起点：命令在帧中途落下时，bornAt 会比下一帧的 now 还大。
+    const s = createBell(1_000, 0.25);
+    expect(bellAlive(s, 984)).toBe(true);
+    expect(bellAlive(s, 1_000 + BELL_MS - 1)).toBe(true);
+    expect(bellAlive(s, 1_000 + BELL_MS)).toBe(false);
+  });
+
   it("寿命 5.6s；球在脚边范围内滚动，始终落在地面上方一颗球高处", () => {
     const s = createBell(0, 0.25);
     expect(bellAlive(s, 0)).toBe(true);

@@ -26,6 +26,13 @@ function finite(ops: ReturnType<typeof buildHopOps>): boolean {
 }
 
 describe("跳格子", () => {
+  it("帧时间戳早于出生那一拍时只当刚出生，不许判死", () => {
+    const s = createHopscotch(1_000, 0.1);
+    expect(hopAlive(s, 984)).toBe(true);
+    expect(hopAlive(s, 1_000 + HOP_MS - 1)).toBe(true);
+    expect(hopAlive(s, 1_000 + HOP_MS)).toBe(false);
+  });
+
   it("三个粉笔格从左到右排开，都在窗内", () => {
     const s = createHopscotch(0, 0.3);
     const squares = [0, 1, 2].map((i) => hopSquareAt(s, 0, FACE, FLOOR, i as 0 | 1 | 2));

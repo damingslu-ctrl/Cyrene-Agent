@@ -18,8 +18,9 @@ export function createRain(now: number, seed = Math.random()): RainState {
 }
 
 export function rainAlive(state: RainState, now: number): boolean {
-  const age = now - state.bornAt;
-  return age >= 0 && age < RAIN_MS;
+  // 帧起点可能早于出生那一拍：夹到 0 当「刚出生」，别判死（出生前 rainAmount 仍是 0，不画）。
+  const age = Math.max(0, now - state.bornAt);
+  return age < RAIN_MS;
 }
 
 /** 收放包络：入场 600ms、收尾 900ms。 */

@@ -30,8 +30,9 @@ export function createHug(now: number, seed = Math.random()): HugState {
 }
 
 export function hugAlive(state: HugState, now: number): boolean {
-  const age = now - state.bornAt;
-  return age >= 0 && age < HUG_MS;
+  // 帧起点可能早于出生那一拍：夹到 0 当「刚出生」，别判死。
+  const age = Math.max(0, now - state.bornAt);
+  return age < HUG_MS;
 }
 
 /** 抱抱的命中区：整段上身（不是整只猫），避开脚边玩具。 */

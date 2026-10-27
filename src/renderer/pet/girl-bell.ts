@@ -34,7 +34,9 @@ export function createBell(now: number, seed = Math.random()): BellState {
 }
 
 export function bellAlive(state: BellState, now: number): boolean {
-  return now - state.bornAt >= 0 && now - state.bornAt < BELL_MS;
+  // rAF 的帧时间戳是帧起点，可能早于出生那一拍；夹到 0 当「刚出生」，别判死。
+  // rAF 的帧时间戳是帧起点，可能早于出生那一拍；夹到 0 当「刚出生」，别判死。
+  return Math.max(0, now - state.bornAt) < BELL_MS;
 }
 
 export function bellRadius(face: BellFace): number {
