@@ -374,6 +374,8 @@ const FPS_HOVER = 60;
 
 /** fps 闸的容差：贴着 1000/fps 卡线时，浮点抖动不该把重绘顺延到下一档（再空 250ms）。 */
 const FPS_GATE_SLACK_MS = 2.5;
+/** 绘制异常的最小上报间隔：同一处坏图会每帧抛，不能每帧刷一条日志。 */
+const DRAW_FAULT_LOG_EVERY_MS = 10_000;
 
 /** 深夜提醒询问引擎的节拍。诊断把「距下一拍」报出去，验收才能卡点喂伪时钟。 */
 const NIGHT_NUDGE_POLL_MS = 30_000;
@@ -431,6 +433,10 @@ export class PixelPetRenderer {
   /** rAF 句柄。0 = 没在跑；拖窗期 pause() 冻结绘制，DWM 快照逐位不变（Task 5 尖峰）。 */
   private ticker = 0;
   private paused = false;
+  /** 上一次「绘制异常」日志的时刻：同一处坏图会每帧抛，不能每帧刷一条。 */
+  private lastFaultLogAt = 0;
+  /** 已销毁：finally 的「保命重挂」不许把销毁后的窗口再挂活。 */
+  private disposed = false;
   private fps = FPS_IDLE;
   /** fps 闸的上一次重绘时刻；闸挡掉的是重绘，挡不掉猫时钟（猫相位取绝对 t）。 */
   private lastDrawAt = 0;
@@ -706,6 +712,7 @@ export class PixelPetRenderer {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.stop();
   }
 
@@ -809,6 +816,10 @@ export class PixelPetRenderer {
     this.dragging = false;
     this.lastFrameAt = null;
     this.lastCompanionAt = performance.now();
+    // 起手是 pause() 停的 ticker：收口必须由**自己**保证继续画。
+    // 交给 main.ts 的 `if (petVisible) resume()` 会漏——拖拽途中窗口被判不可见时那条路直接跳过，
+    // 松手之后猫就停在原地，要再碰一下才活。渲染器自己的暂停，自己收。
+    if (this.paused) this.resume();
     if (!this.catOrigin) return;
     this.idleSecs = 0;
     if (position) {
@@ -2790,16 +2801,33 @@ export class PixelPetRenderer {
    * 被后台化/节流时 rAF 自然挂起，比自建 timer 更像 native 的 vsync 排程。
    */
   private start(): void {
-    if (this.ticker || this.paused) return;
+    if (this.paused || this.disposed) return;
+    // 旧 handle 一律作废：链条断过一次之后 ticker 还留着上一个号，
+    // 「有 ticker 就不重挂」会把这个陈旧号码当成「还活着」，resume() 永远救不回来。
+    if (this.ticker) {
+      window.cancelAnimationFrame(this.ticker);
+      this.ticker = 0;
+    }
     this.lastDrawAt = performance.now();
     // rAF 重挂即新会话：帧距从 0 重算，暂停期的空洞不许灌进闲置计时或缓动 dt。
     this.lastFrameAt = null;
     const loop = (now: number): void => {
-      if (now - this.lastDrawAt >= 1000 / this.fps - FPS_GATE_SLACK_MS) {
-        this.lastDrawAt = now;
-        this.draw(now);
+      try {
+        if (now - this.lastDrawAt >= 1000 / this.fps - FPS_GATE_SLACK_MS) {
+          this.lastDrawAt = now;
+          this.draw(now);
+        }
+      } catch (error) {
+        // 一帧画坏了只是少一帧，不许把整条 rAF 链带走：桌面宠物停住就是「卡死」。
+        if (now - this.lastFaultLogAt >= DRAW_FAULT_LOG_EVERY_MS) {
+          this.lastFaultLogAt = now;
+          console.error("[verge] 宠物绘制异常，本帧跳过", error);
+        }
+      } finally {
+        // 重挂放在 finally：draw 抛错也照样排下一帧（这一行是「不会永久停住」的全部保证）。
+        // 唯一的例外是已销毁——否则 dispose() 之后还会被这条重挂拉活，窗口没了却还在跑。
+        if (!this.disposed) this.ticker = window.requestAnimationFrame(loop);
       }
-      this.ticker = window.requestAnimationFrame(loop);
     };
     this.ticker = window.requestAnimationFrame(loop);
   }
