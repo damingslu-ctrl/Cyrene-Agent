@@ -168,6 +168,41 @@ describe("v1.15.0 显式手势落到真姿态", () => {
     expect(poseCellsDrawn(raw, 400)).toEqual([]);
     r.dispose();
   });
+
+  it("引擎抽到的余兴手势不许把正在举的显式手势顶掉", async () => {
+    const { r, clock, raw } = await makeGirl();
+    r.playGesture("wave");
+    clock.ms += 40;
+    raw.draw(clock.ms);
+    const eng = raw.engine as unknown as { ambientGesture: string | null; gestureUntil: number };
+    eng.ambientGesture = "hop";
+    eng.gestureUntil = clock.ms + 5_000;
+    // 站定超过 600ms 的余兴闸门已经开了：这一帧必须还认「招手」。
+    clock.ms += 700;
+    raw.draw(clock.ms);
+    const d = r.getGirlDiagnostics(clock.ms);
+    expect(d.gestureId).toBe("wave");
+    expect(d.pose).toBe("wave");
+    r.dispose();
+  });
+
+  it("被挡下的余兴不丢：显式手势举完照常接上", async () => {
+    const { r, clock, raw } = await makeGirl();
+    r.playGesture("wave");
+    clock.ms += 40;
+    raw.draw(clock.ms);
+    const eng = raw.engine as unknown as { ambientGesture: string | null; gestureUntil: number };
+    eng.ambientGesture = "hop";
+    eng.gestureUntil = clock.ms + 8_000;
+    clock.ms += gesturePoseFor("wave")!.holdMs + 40;
+    raw.draw(clock.ms);
+    // 显式手势举完的这一帧先收掉自己，下一帧余兴才补得上台。
+    expect(r.getGirlDiagnostics(clock.ms).gestureId).toBeNull();
+    clock.ms += 16;
+    raw.draw(clock.ms);
+    expect(r.getGirlDiagnostics(clock.ms).gestureId).toBe("hop");
+    r.dispose();
+  });
 });
 
 describe("v1.15.0 真趴下", () => {

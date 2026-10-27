@@ -3115,13 +3115,17 @@ export class PixelPetRenderer {
       this.startGirlGesture(explicit.id, explicit.startedAt, false);
     } else {
       const ambient = snapshot?.gesture ?? null;
+      // 显式手势举到一半时，引擎抽到的余兴不许把它顶掉——用户点的「剪刀手」被半路换成
+      // 一段蹦跳，读起来就是「她只动了下手」。这条余兴不记进 lastAmbientGesture，举完还能接上。
+      const explicitInFlight = this.animGesture !== null && !this.ambientGestureActive;
       // 待机编排才吃「站定且已经站了一拍」的闸：坐/蜷/回头时被抽中会把歇息打断成抽搐。
       // 非 idle 的活动（摸头 → pet、挠脚、喂食、休息…）里的 ambient 是**互动回馈**，
       // 必须照演——否则点脸只换了底片，看门的那一下就没了。
       // 玩具在场时一律不接——很多玩具开局会塞一条 ambient，那是道具演出的余兴，
       // 不该把「玩玩具时站定」的底子换成一整段帧动画。刚换段的前 600ms 也不接，
       // 让新姿态有机会被看见（换段瞬间接一段帧动画，读起来像姿态没生效）。
-      const ambientAllowed = !this.girlToyOnScreen()
+      const ambientAllowed = !explicitInFlight
+        && !this.girlToyOnScreen()
         && (activity !== "idle"
           || (this.idle.phase === "stand"
             && this.ambientGestureBout !== this.idle.bouts
@@ -3129,7 +3133,7 @@ export class PixelPetRenderer {
       if (ambientAllowed && ambient && ambient !== this.lastAmbientGesture) {
         if (this.startGirlGesture(ambient, now, true)) this.ambientGestureBout = this.idle.bouts;
       }
-      this.lastAmbientGesture = ambient;
+      if (!explicitInFlight) this.lastAmbientGesture = ambient;
     }
 
     // 收尾有两种：帧动画自己报 done；真姿态按表举够时长（帧动画的 done 对静帧永远 false）。
