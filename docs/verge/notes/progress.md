@@ -805,3 +805,69 @@
   归类为自主时间块的探针抖动（真窗报告已保留）。
 - 只做本地两笔提交（`a46272fd` 渲染循环、`549e0a4b` 发条鼠），**未改版本号、未发布**；
   当前 `package.json` 仍是 1.15.0。
+
+### v1.17.0：六套日常系统与两条真窗红的收口（2026-10-27）
+
+六个纯模块（`girl-mood/girl-favorite/girl-trick/girl-treasure/girl-garden/girl-hide`）
++ 引擎 13 条新命令（`mood/favorite/tricks/treasure/treasures/hide-seek/garden-plant/
+garden/garden-harvest` 与 `trick:` 四件）+ 右键菜单 10 项（含「教她点小把戏」四子项）
++ 五枚新成就（`trick-master/treasure-hunter/hide-seeker/garden-keeper/true-favorite`，
+总数 27→**32**）。
+
+- **心情是节奏，不是贴纸**：昨天怎么被陪（`careScore` 摸头 1 / 陪玩 2 / 喂食 2 / 玩具 1）
+  滚出今天四档，只通过三根旋钮被看见——`restAfterMs`（26s~55s）、`affinityScale`
+  （0.9~1.18）、`chatScale`（0.8~1.4），**不新增任何常驻墨迹**。第一天没有「昨天」，
+  固定 `lively` 且 `moodRolled=false` 不参与换算：老存档、老秒表的口径不许被悄悄改掉。
+- **本命玩具不新建计数器**：从既有 `PetStats` 里挑，`FAVORITE_MIN=3` 够三次才算，
+  打平按词表顺序——同一份统计永远给同一个答案。`true-favorite` 额外要
+  `favoriteRivals>=2`：只有一件够格的玩具谈不上「本命」。
+- **学会＝次数推出来的，不另存布尔表**：击掌 3 / 转圈 4 / 点头 3 / 害羞 5，
+  再教一次也只回「早就学会啦」。菜单与渲染端对同一组 id 靠新的 `src/shared/pet-trick.ts`
+  + 单测锁，躲猫猫的命令叫 `hide-seek`（`hide` 已被主窗「隐藏窗口」占走）。
+- **三本新账不进 `PetStats`**：那份表的形状被既有存档与测试钉住，改由
+  `AchievementExtras` 把 `tricks/treasures/hides/harvests/favorite` 单独递给成就判定。
+- **薄荷盆走墙钟**：`plantedAt` 存 `wallNow()`，跨重启继续长（3min 发芽 / 8min 长叶 /
+  15min 可收）；空盆用 `-1` 当哨兵，跟「刚在 0 时刻种下」区分开。渲染端拿快照
+  `gardenAge` 换回行为时钟再画，不自己存一份计时。
+- **躲猫猫的账在引擎、记号在渲染端**：`hideOpen` 是一次性闸门，且「开局后
+  `COVER+PEEK+500ms` 之外的回报一律不认」——防止上一局迟到的回执串进下一局；
+  落空那句「没找到我，我在这里呢」由 `hideMissReported` 保证只报一次；捂眼时点她＝太早，
+  这一下归数数、不算摸头。
+- **诊断只增不改**：新增 `mood/favorite/tricks/treasures/garden{stage,ageMs,harvests}/
+  hides/hide{phase,left}` 七列，旧列口径不动。
+
+### 本轮两条真窗红（都是产品缺陷，不是探针放水）
+
+- **负年龄一帧判死还没清干净**：v1.16 只修了发条鼠，`bell/hopscotch/hug/mole/snow/rain`
+  六处 `*Alive` 里仍留着 `age >= 0`。本轮真窗铃铛整条链红 5 条（`bell.spawn` 读到
+  `bell=null`，可气泡已经说了「铃铛球！叮铃叮铃」）——和发条鼠同一个机制。统一夹成
+  `Math.max(0, now - bornAt)`；雨天「窗外的时刻一律不画」仍由 `rainAmount`/`buildRainOps`
+  把住，不靠 liveness 兜。
+- **自主余兴不许顶掉用户点的手势**：`tickGirlScene` 的余兴分支无条件 `startGirlGesture`，
+  用户点「剪刀手」举到一半被引擎抽到的 `hop` 换掉（`gesture.point` 读到 `gestureId=hop`）。
+  加 `explicitInFlight` 闸门，并且这条余兴**不写进** `lastAmbientGesture`——显式手势举完
+  的下一帧照常接上，不悄悄丢掉。非 idle 的互动回馈路径不受牵连（闸门只认显式来源）。
+
+### 门与验收（v1.17.0）
+
+- 单测全绿 **730 文件 / 7508 passed + 1 skipped（7509，273.46s）**，比 v1.16 多 8 文件、
+  62 条（六个纯模块 29 + `companion-girl-v117` 16 + `renderer-girl-v117` 7，另有菜单/
+  命令/成就三处测试同步扩）。`check:renderer` / `check:main` / `check:preload` /
+  `check:brand` / `check:roster` / `check:sprites` / `palette:check` /
+  `palette:migrate:check` / `check:plugin-schema` / `check:adapted-models` 十条全绿；
+  `build:renderer` 通过。
+- 变异自检三条：① bell 回退 `age >= 0` → 新测试红；② rain 同 → 红；③ 把
+  `explicitInFlight` 注掉 → `renderer-girl-v115` 红 2 条（顶掉 + 补台）。均已还原并复跑绿。
+- 真窗 **295/295 `all clear`**（26 条 `v117.*`，`D:/cyrene-p5-accept/shots-v117/`，71 张截图）：
+  击掌 `还差 2 次 → 还差 1 次 → 把手举高一点…啪！` 落盘 `high-five:3`、账本
+  `小把戏 1/4`；`今天的心情 · 懒洋洋`；小口袋 `还没捡到过什么 → 捡到汽水瓶盖 →
+  1 件 汽水瓶盖 ×1`；薄荷盆 `seed ageMs=272`、盆区绿像素 0→3、重种「盆里还种着东西呢」、
+  未熟「还没长好，再等等」；躲猫猫 cover(剩 855ms)→头顶记号 above=14/base=0→早tap
+  不认账(hides 仍 0)→peek(剩 2511ms)→found(hides=1「被找到啦！」)→收摊→落空只报一次。
+  同一次里铃铛 `spawn(left=5351)→rings 1→冷却→rings 2→gone`、`gesture.point pose=peace`、
+  作息 站 `1.31s`→坐 `9.25s`→蜷 `28.43s`→趴 `37.53s`→起身 `51.97s`、发条鼠
+  `6093→6138` 全绿。
+- 只做本地提交（`66aa09fc` 六处夹零、`f65dac3c` 日常六件套、`39e50f8b` 余兴闸门），
+  **未改版本号、未发布、未推送**；当前 `package.json` 仍是 1.15.0。
+  提交后重新 `build:renderer`，`dist/renderer` 全部 JS 的 md5 聚合与真窗探针所用那一份
+  逐字一致（`36362431cfc76fad3e7fb2d9b9431462`），探针结论对得上现在的树。
