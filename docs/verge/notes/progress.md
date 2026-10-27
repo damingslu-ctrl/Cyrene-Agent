@@ -774,3 +774,34 @@
 - Release [v1.15.0](https://github.com/damingslu-ctrl/Cyrene-Agent/releases/tag/v1.15.0)：
   非草稿、非预发布、latest，`publishedAt 2026-10-26T07:58:45Z`；附件 `Mochi-Setup-1.15.0.exe`
   `296,982,786 B`，GitHub asset digest `sha256:ecc76ae3…` 与本地 hash 一致。
+
+### v1.16 卡死自愈与发条鼠一帧判死（2026-10-27）
+
+- **「卡死」是 rAF 链断掉，不是渲染变慢**：三条入口都实测可停摆——
+  ① `draw()` 抛一次错，异常从回调里逃出去，`requestAnimationFrame(loop)` 那一行再也执行不到；
+  ② 链条断过一次后 `ticker` 还留着旧 handle，`start()` 的 `if (this.ticker) return` 把陈旧号码
+  当成「还活着」，`resume()` 永远救不回来；③ 拖拽起手 `pause()` 停了 ticker，收口依赖 main.ts
+  的 `if (petVisible) resume()`，窗口在拖拽途中被判不可见时那条路直接跳过。
+- 修法：循环体 `try/catch/finally`，重挂放 `finally`；`start()` 先 `cancelAnimationFrame` 再清零旧
+  handle；`endDrag()` 自己 `if (this.paused) this.resume()`；新增 `disposed` 守卫，`dispose()` 之后
+  不许被 `finally` 拉活。坏图每帧抛错时日志按 `DRAW_FAULT_LOG_EVERY_MS=10s` 限流，不刷屏。
+  `renderer-liveness.test.ts` 四条测试一条对一条；三条变异（去掉 finally 重挂 / 保留旧 ticker 守卫 /
+  去掉 endDrag 恢复）各红一条，均已还原。
+- **发条鼠「溜走了…」的根因**：rAF 回调参数是**帧起点**时间，可能早于 `mouseStart` 记的
+  `bornAt`；`mouseAlive` 是唯一把负年龄判死的玩具（其余都当「刚出生」），于是下一帧就
+  `mouseMiss`，刚放出的老鼠当场消失。真窗探针两次抓到 `mouse.spawn` 失败（`mouse=null`、
+  `stats.mice=0`、气泡是「溜走了…」），而同一次报告的 `results.mouse.second.mouse.left=6135.5`
+  证明第二只是健康的。改成 `Math.max(0, now - bornAt)`；到期判据 `age < MOUSE_MS` 不变，测试
+  同时钉住 `MOUSE_MS-1` 活 / `MOUSE_MS` 死。回退该行 → 新测试红，牙在。
+- **门**：`CI=true npx vitest run` 全量 **722 文件 / 7445 passed + 1 skipped（7447，250.20s）**；
+  唯一红是 `document-tools` 的 Excel 基线 15s 超时（722 worker 并发），单跑 5/5 绿，与宠物无关。
+  `check:renderer` / `check:main` / `check:preload` / `check:brand` / `check:roster` / `check:sprites` /
+  `palette:check` / `palette:migrate:check` / `check:plugin-schema` / `check:adapted-models` 全绿；
+  `vite build` 通过。
+- **真窗 269/269 `all clear`**（`D:/cyrene-p5-accept/shots-v117/`，69 张截图）：发条鼠整条链
+  `spawn(left=6090)→发条老鼠？咔哒咔哒的→caught(mice+1)→看你往哪儿跑→persist→gone→respawn(left=6135.9)
+  →溜走(老鼠太快了啦)`；同一次 `rest.starts=rest`、`night.line=眼睛该休息啦`、
+  `idle` 站→坐→蜷（脸心 59.62）→趴（67.09）→起身（54.18）全绿。前两次失败里那 16 条红未复现，
+  归类为自主时间块的探针抖动（真窗报告已保留）。
+- 只做本地两笔提交（`a46272fd` 渲染循环、`549e0a4b` 发条鼠），**未改版本号、未发布**；
+  当前 `package.json` 仍是 1.15.0。
