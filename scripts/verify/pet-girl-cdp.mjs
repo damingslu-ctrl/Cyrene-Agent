@@ -166,6 +166,230 @@ function sourceMoodLabels() {
 const MOOD_LABELS = sourceMoodLabels();
 const MOOD_IDS = Object.keys(MOOD_LABELS);
 
+/**
+ * v1.18 自娱的句子表在 shared/pet-solo.ts：开场句是字典字面量，收场句是 `(n) => \`…${n}…\``
+ * 的模板。两处都从源码读，探针不另抄一份——改词、加件都会跟着一起核对。
+ */
+function sourceSoloLines() {
+  const src = fs.readFileSync(path.join(ROOT, "src/shared/pet-solo.ts"), "utf8");
+  const start = src.match(/const SOLO_START[^;]*?=\s*\{([\s\S]*?)\n\};/)?.[1];
+  const end = src.match(/const SOLO_END[^;]*?=\s*\{([\s\S]*?)\n\};/)?.[1];
+  if (!start || !end) throw new Error("[ENV] 读不出 SOLO_START/SOLO_END：自娱的句子没处核对，先看源码");
+  const starts = Object.fromEntries(
+    [...start.matchAll(/(\w+):\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => [m[1], JSON.parse(`"${m[2]}"`)]),
+  );
+  const ends = Object.fromEntries(
+    [...end.matchAll(/(\w+):\s*\(n\)\s*=>\s*`([^`]*)`/g)].map((m) => [m[1], m[2]]),
+  );
+  const kinds = src.match(/export const SOLO_KINDS\s*=\s*\[([\s\S]*?)\]\s*as const/)?.[1];
+  if (!kinds) throw new Error("[ENV] 读不出 SOLO_KINDS：自娱有几件玩具没处核对，先看源码");
+  const list = [...kinds.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
+  const idle = src.match(/export const SOLO_IDLE_LINE\s*=\s*"((?:[^"\\]|\\.)*)"/)?.[1];
+  const empty = src.match(/export const SOLO_EMPTY_LINE\s*=\s*"((?:[^"\\]|\\.)*)"/)?.[1];
+  if (!idle || !empty) throw new Error("[ENV] 读不出 SOLO_IDLE_LINE/SOLO_EMPTY_LINE：零战果的说法没处核对");
+  return { kinds: list, starts, ends, idle: JSON.parse(`"${idle}"`), empty: JSON.parse(`"${empty}"`) };
+}
+const SOLO = sourceSoloLines();
+/** 收场句按源码模板拼：`皮球连到 ${n} 下` 这种带数字的一句，探针只认拼出来的那一条。 */
+const soloEndLine = (kind, n) => (SOLO.ends[kind] ?? "").split("${n}").join(String(n));
+
+/**
+ * 皮球的落地拍是解析量（周期 820ms、落地前后各 260ms），三个数都在 `girl-ball.ts`。
+ * 探针按源码常量算「下一次落地后多久点」，不抄数字：改了周期探针跟着改点法，
+ * 不会出现「产品改了、探针还按老拍子点」那种假红。
+ */
+function sourceBallTiming() {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/girl-ball.ts"), "utf8");
+  const num = (name) => {
+    const hit = src.match(new RegExp(`export const ${name}\\s*=\\s*([\\d_]+)`));
+    if (!hit) throw new Error(`[ENV] 读不出 girl-ball.ts 的 ${name}：落地拍窗没处算，先看源码`);
+    return Number(hit[1].replace(/_/g, ""));
+  };
+  return { ms: num("BALL_MS"), period: num("BALL_PERIOD_MS"), window: num("BALL_WINDOW_MS"), cooldown: num("BALL_COOLDOWN_MS") };
+}
+const BALL = sourceBallTiming();
+
+/**
+ * 每件玩具落到账本上的字段名（`SOLO_FIELD`）也从源码读：探针不许自己拼 `ballBest` 这种键，
+ * 否则改了字段名会「探针读不到→当成 0→看着像没记账」那种假红。
+ */
+function sourceSoloFieldMap() {
+  const src = fs.readFileSync(path.join(ROOT, "src/shared/pet-solo.ts"), "utf8");
+  const body = src.match(/export const SOLO_FIELD[^;]*?=\s*\{([\s\S]*?)\n\};/)?.[1];
+  if (!body) throw new Error("[ENV] 读不出 SOLO_FIELD：自娱账本的字段名没处核对，先看源码");
+  const map = Object.fromEntries([...body.matchAll(/(\w+):\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => [m[1], m[2]]));
+  if (Object.keys(map).length === 0) throw new Error("[ENV] SOLO_FIELD 读出来是空的：尺子坏了，不是账本空着");
+  return map;
+}
+const SOLO_FIELD_READ = sourceSoloFieldMap();
+
+/**
+ * 页面内的一轮玩具：读坐标与点下去必须落在同一拍里，所以整轮写在页面里跑。
+ * 每步都先 `draw()` 催一帧——Electron 后台把 rAF 压得很稀，不催就读不到推进后的读数。
+ * 坐标一律「设计空间 × layout.zoom」（tapAt 吃窗口 CSS 坐标），且每次点前现读，不缓存。
+ *
+ * 这段是**注入页面的源码字符串**，内部不许出现模板插值；判据仍由 Node 侧算，页面只带样本回来。
+ */
+const SOLO_PROBE_SRC = `(() => {
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  const D = () => window.__cyrene.getPetDiagnostics();
+  const frame = () => { try { window.__cyrene.renderer.draw(performance.now()); } catch (e) { /* 催不动帧：照旧读同一拍 */ } };
+  const click = (x, y, z) => { window.__cyrene.renderer.tapAt(x * z, y * z, 40); };
+  window.__soloProbe = {
+    ballRound: async (count, period, life, win) => {
+      const out = [];
+      for (let i = 0; i < count; i += 1) {
+        frame();
+        const b = D().girl.ball;
+        if (!b) { out.push({ i: i, gone: true }); break; }
+        const age = life - b.left;
+        const local = age - Math.floor(age / period) * period;
+        const waitMs = ((period - local) % period) + Math.round(win / 3);
+        await sleep(waitMs);
+        const g = D();
+        const now = g.girl.ball;
+        if (!now) { out.push({ i: i, gone: true }); break; }
+        click(now.x, now.y, g.layout.zoom);
+        frame();
+        const a = D().girl.ball;
+        out.push({ i: i, waitMs: waitMs, x: now.x, y: now.y, r: now.r,
+          bounces: a ? a.bounces : null, streak: a ? a.streak : null,
+          drops: a ? a.drops : null, best: a ? a.best : null, left: a ? Math.round(a.left) : null });
+      }
+      return out;
+    },
+    lanternRound: async (pats, gap, mothMs) => {
+      const taps = [];
+      for (let i = 0; i < pats; i += 1) {
+        frame();
+        const g = D();
+        const l = g.girl.lantern;
+        if (!l) { taps.push({ i: i, gone: true }); break; }
+        click(l.x, l.y, g.layout.zoom);
+        frame();
+        const a = D().girl.lantern;
+        taps.push({ i: i, flares: a ? a.flares : null, glow: a ? Math.round(a.glow * 100) / 100 : null });
+        await sleep(gap);
+      }
+      const tries = [];
+      const deadline = performance.now() + mothMs;
+      for (;;) {
+        if (performance.now() >= deadline) break;
+        const g = D();
+        const l = g.girl.lantern;
+        if (!l) { tries.push({ gone: true }); break; }
+        const far = Math.hypot(l.moth.x - l.x, l.moth.y - l.y);
+        if (far > 7) {
+          const before = l.scares;
+          click(l.moth.x, l.moth.y, g.layout.zoom);
+          frame();
+          const a = D().girl.lantern;
+          tries.push({ far: Math.round(far * 10) / 10, before: before, after: a ? a.scares : null });
+          if (a && a.scares > before) break;
+        }
+        await sleep(60);
+      }
+      return { taps: taps, mothTries: tries };
+    },
+    fishRound: async (step, maxMs) => {
+      const hits = [];
+      const phases = [];
+      let last = 0;
+      const deadline = performance.now() + maxMs;
+      for (;;) {
+        if (performance.now() >= deadline) break;
+        frame();
+        const g = D();
+        const f = g.girl.fishing;
+        if (!f) { break; }
+        if (phases.indexOf(f.phase) < 0) phases.push(f.phase);
+        if (f.phase === 'bite') {
+          click(f.x, f.y, g.layout.zoom);
+          frame();
+          const a = D().girl.fishing;
+          if (a && a.catches > last) {
+            last = a.catches;
+            hits.push({ catches: a.catches, misses: a.misses, left: Math.round(a.left) });
+          }
+        }
+        await sleep(step);
+      }
+      return { hits: hits, phases: phases };
+    },
+    /**
+     * 照镜子：每次「她在做脸」就点镜面。maxTaps 是刻意留的上限——镜子每点一下都算接住，
+     * 按 220ms 一路点下去一轮能攒到 32，越过 mirror-friend（12）那一档，收场句就被徽章顶掉，
+     * 「账本报数」这条就量不到了。点够几张脸就收手，把收场句留给这一轮自己。
+     */
+    mirrorRound: async (gap, maxMs, maxTaps) => {
+      const marks = [];
+      const faces = [];
+      let last = 0;
+      const deadline = performance.now() + maxMs;
+      for (;;) {
+        if (performance.now() >= deadline) break;
+        if (maxTaps && marks.length >= maxTaps) break;
+        frame();
+        const g = D();
+        const m = g.girl.mirror;
+        if (!m) { break; }
+        if (m.expression) {
+          if (faces.indexOf(m.expression) < 0) faces.push(m.expression);
+          click(m.x + m.w / 2, m.y + m.h / 2, g.layout.zoom);
+          frame();
+          const a = D().girl.mirror;
+          if (a && a.matched > last) {
+            last = a.matched;
+            marks.push({ expr: m.expression, matched: a.matched, streak: a.streak, best: a.best });
+          }
+        }
+        await sleep(gap);
+      }
+      return { marks: marks, faces: faces };
+    },
+    comboRound: async (gap, maxMs) => {
+      const claps = [];
+      const steps = [];
+      let last = 0;
+      let tail = null;
+      const deadline = performance.now() + maxMs;
+      for (;;) {
+        if (performance.now() >= deadline) break;
+        frame();
+        const g = D();
+        const c = g.girl.combo;
+        if (!c) { break; }
+        if (steps.indexOf(c.step) < 0) steps.push(c.step);
+        const h = g.hitRect;
+        click(h.x + h.width / 2, h.y + h.height * 0.55, g.layout.zoom);
+        frame();
+        const a = D().girl.combo;
+        tail = a;
+        if (a && a.claps > last) {
+          last = a.claps;
+          claps.push({ step: c.step, steps: c.steps, claps: a.claps, streak: a.streak, best: a.best });
+        }
+        await sleep(gap);
+      }
+      return { claps: claps, steps: steps, stepsTotal: tail ? tail.steps : null,
+        final: tail ? { claps: tail.claps, streak: tail.streak, best: tail.best } : null };
+    },
+    sfxWatch: async (ms) => {
+      const before = D().girl.sfx;
+      const deadline = performance.now() + ms;
+      let ticks = 0;
+      for (;;) {
+        if (performance.now() >= deadline) break;
+        frame();
+        ticks += 1;
+        await sleep(120);
+      }
+      return { before: before, after: D().girl.sfx, ticks: ticks };
+    },
+  };
+  return true;
+})()`;
+
 /** 小目标回执也走同一个气泡（pendingLine 在气泡空下来时说），收尾句可能被它顶掉。 */
 const QUEST_DONE_LINES = [
   ...sourceBlockLines("GIRL_QUEST_DONE_LINES"),
@@ -280,6 +504,19 @@ class Session {
 
 async function evaluate(session, expression, timeoutMs = 45_000) {
   const res = await session.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: false }, timeoutMs);
+  if (res.exceptionDetails) throw new Error(res.exceptionDetails.exception?.description ?? res.exceptionDetails.text);
+  return res.result.value;
+}
+
+/**
+ * v1.18 自娱用的「页面内跑完一整轮」：读坐标与点下去必须发生在同一拍里。
+ *
+ * CDP 一次往返 30–80ms，而皮球的拍窗是 ±260ms、咬钩窗 900ms、台本拍点是每段最后 400ms——
+ * 用 Node 侧循环去「先读后点」，点下去时那一拍早就过去了，量到的是探针的腿脚不利索，
+ * 不是玩具没接住。所以整轮放在页面里跑完，一次性把逐拍样本带回来。
+ */
+async function evaluateInPage(session, expression, timeoutMs = 45_000) {
+  const res = await session.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, timeoutMs);
   if (res.exceptionDetails) throw new Error(res.exceptionDetails.exception?.description ?? res.exceptionDetails.text);
   return res.result.value;
 }
@@ -2236,6 +2473,15 @@ async function main() {
     check("tail.line", !!tailASnap.bubble && TAIL_START_LINES.includes(tailASnap.bubble.text),
       `bubble=${tailASnap.bubble?.text ?? "null"}`);
     await wait(320);
+    // 尾巴前 500ms 是 warmup，点了也不算数（尾巴还没甩起来）。以前一上来就伸手，
+    // 第一下吞不吞全看截图那几百毫秒——2026-10-28 实拍 3 次里有一次读成 hits 2/3。
+    // 等它真进 chase 再出手，判据还是「三下尾巴尖＝三次」。
+    const tailChaseDeadline = Date.now() + 3_000;
+    for (;;) {
+      if ((await diag()).girl.tail?.phase === "chase") break;
+      if (Date.now() > tailChaseDeadline) break;
+      await wait(120);
+    }
     const tailHits = [];
     for (let i = 0; i < 4; i += 1) {
       if (i > 0) await wait(360);
@@ -2679,8 +2925,10 @@ async function main() {
     check("v13.counters",
       V13_STAT_KEYS.every((k) => v13Delta[k] === 1),
       `delta=${JSON.stringify(v13Delta)} before=${JSON.stringify(pickStats(v13Before, V13_STAT_KEYS))} after=${JSON.stringify(pickStats(v13StatsForReload, V13_STAT_KEYS))}`);
+    // 27 是 v1.17 的数；v1.18 加了 selfPlay（自娱玩出名堂的次数），所以是 28。
+    // 这行故意写死：新加一项统计必须来改一次，不能悄悄多一列。
     check("v13.stats-keys",
-      Object.keys(v13StatsForReload).length === 27,
+      Object.keys(v13StatsForReload).length === 28,
       `keys=${Object.keys(v13StatsForReload).length} stats=${JSON.stringify(v13StatsForReload)}`);
     check("v13.persist",
       V13_STAT_KEYS.every((k) => bondFinal?.stats?.[k] === v13StatsForReload[k]),
@@ -3137,7 +3385,11 @@ async function main() {
       for (let i = 0; i < data.length; i += 4) {
         const rr = data[i], gg = data[i + 1], bb = data[i + 2], aa = data[i + 3];
         if (aa > 20) drawn++;
-        if (aa > 160 && gg > 130 && gg - rr > 40 && gg - bb > 25) green++;
+        // 种下去那颗绿点直径只有 2.2 设计像素：只认 aa>160 的「瓷实核心」时，
+        // 猫待机漂 0.1px 的亚像素相位一变，读数就从 3 掉到 2（2026-10-28 实拍）。
+        // 按覆盖度认墨：半盖住的边缘只要还看得出绿（aa>80）也算这颗芽。
+        // 空盆里只有 PAPER/INK_SHADE，没有绿——同一道闸门在种之前读到的仍是 0，牙没松。
+        if (aa > 80 && gg > 130 && gg - rr > 40 && gg - bb > 25) green++;
       }
       return { green, drawn, gx: Math.round(gx * 10) / 10, floorY: Math.round(floorY * 10) / 10, box: [x0, y0, x1 - x0, y1 - y0] };
     })()`);
@@ -3438,6 +3690,367 @@ async function main() {
       !missGone && missAfter.girl.hides === 1
         && missAfterSnap.bubble?.text === "没找到我，我在这里呢",
       JSON.stringify(results.v117.hide.missGone));
+  }
+
+  // —— S. v1.18.0 自娱五件 + 声音：整轮在页面里跑完 ——
+  // 皮球的落地拍窗只有 BALL.window 那一小段，咬钩窗 900ms、台本拍点是每段最后 400ms，
+  // 而一次 CDP 往返 30–80ms 还夹着后台稀帧：Node 侧「先读坐标再点」量到的是探针的腿脚，
+  // 不是玩具没接住。所以每轮都在页面里读一拍点一拍，只把逐拍样本带回来判。
+  {
+    results.v118 = {};
+    const girlOf = async () => (await diag()).girl;
+    const bondNow = () => evaluate(s, `(() => {
+      try { return JSON.parse(localStorage.getItem("cyrene.pet.bond.v1") ?? "null"); } catch { return null; }
+    })()`);
+    /** 收场句命中记录：徽章/升档按设计顶得过动作回执，所以「原句命中几次」才是判据，不是「句句命中」。 */
+    const endLines = [];
+    const sayEnd = async (kind, value) => {
+      const want = soloEndLine(kind, value);
+      const got = await waitBubbleLine([want], 4_500);
+      endLines.push({ kind, want, got, exact: got === want });
+      return got;
+    };
+    const install = async () => {
+      const ok = await evaluate(s, SOLO_PROBE_SRC);
+      if (ok !== true) throw new Error("[ENV] 页面内跑轮的探针助手没装上（__soloProbe）：旧构建，不是产品红");
+    };
+    /** 页面里跑不完的一次往返（IPC）用全局摆渡：先踢一发，再轮询那个全局。 */
+    const kickGlobal = (expr) => evaluate(s, `(() => {
+      window.__probeBridge = null;
+      ${expr}
+      return true;
+    })()`);
+    const pollGlobal = async (timeoutMs = 6_000) => {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        const v = await evaluate(s, `window.__probeBridge === undefined ? null : window.__probeBridge`);
+        if (v !== null || Date.now() >= deadline) return v;
+        await wait(120);
+      }
+    };
+    const geoRead = () => kickGlobal(`window.verge.getPetGeometry().then((g) => {
+      window.__probeBridge = { keys: Object.keys(g).sort(), sfxEnabled: g.sfxEnabled };
+    }, (e) => { window.__probeBridge = { error: String(e) }; });`);
+    await install();
+    /** 起一件并把「她真的开场了」变成一条判据（首点结果才算，startToy 自己会补一次重试）。 */
+    const armSolo = async (command, key, where) => {
+      await awakeForPlay(where);
+      await dismissBubble();
+      await wait(240);
+      const started = await startToy(command, key, where);
+      check(`v118.${key}.start`, !!started.prop, `gate=${JSON.stringify(started.gateBefore)}`);
+      const snap0 = await snap();
+      return { started, startLine: snap0.bubble?.text ?? null };
+    };
+
+    // S0 开机面：声音通道与空账本（干净档上盘里没写过 sfx，默认必须是「开着」）。
+    const s0 = { channels: {}, solo: null, sfx: null };
+    s0.channels.onSfxChanged = await evaluate(s, `typeof window.verge.onSfxChanged`);
+    s0.channels.shape = await evaluate(s, `(() => {
+      const off = window.verge.onSfxChanged(() => { /* 只验通道能挂上：菜单才是唯一的写者，翻转本身归单测 */ });
+      const type = typeof off;
+      if (type === 'function') off();
+      return { offType: type };
+    })()`);
+    await geoRead();
+    s0.geo = await pollGlobal();
+    const g0 = await girlOf();
+    s0.solo = g0.solo;
+    s0.sfx = g0.sfx;
+    s0.selfPlay = g0.stats.selfPlay;
+    results.v118.boot = s0;
+    check("v118.boot.channel", s0.channels.onSfxChanged === "function" && s0.channels.shape?.offType === "function",
+      `onSfxChanged=${s0.channels.onSfxChanged} off=${JSON.stringify(s0.channels.shape)}`);
+    check("v118.boot.geometry", !!s0.geo && s0.geo.sfxEnabled === true && !s0.geo.error,
+      `geo=${JSON.stringify(s0.geo)}`);
+    check("v118.boot.solo-empty", s0.solo && SOLO.kinds.every((k) => s0.solo[SOLO_FIELD_READ[k]] === 0)
+      && Array.isArray(s0.solo.seen) && s0.solo.seen.length === 0,
+      `solo=${JSON.stringify(s0.solo)}`);
+    check("v118.boot.sfx-on", s0.sfx?.enabled === true && s0.selfPlay === 0,
+      `sfx=${JSON.stringify(s0.sfx)} selfPlay=${s0.selfPlay}`);
+
+    // S1 皮球：按落地拍连点五下 → 峰值进账本、轮数进统计、落盘。
+    const sp0 = (await girlOf()).stats.selfPlay;
+    const soloBeforeBall = JSON.stringify((await girlOf()).solo);
+    const s1 = await armSolo("ball", "ball", "v118-ball");
+    const ballStartOk = s1.startLine === SOLO.starts.ball;
+    check("v118.ball.start-line", ballStartOk, `bubble=${s1.startLine ?? "null"} want=${SOLO.starts.ball}`);
+    await shot("girl-solo-ball.png");
+    s1.samples = await evaluateInPage(
+      s, `window.__soloProbe.ballRound(5, ${BALL.period}, ${BALL.ms}, ${BALL.window})`, 60_000);
+    const ballLast = [...s1.samples].reverse().find((x) => typeof x.bounces === "number") ?? null;
+    const ballGone = await waitPropGone("ball", 12_000);
+    const g1 = await girlOf();
+    const ballEndLine = await sayEnd("ball", ballLast?.best ?? 0);
+    results.v118.ball = {
+      startLine: s1.startLine, samples: s1.samples, last: ballLast, gone: ballGone,
+      end: ballEndLine, solo: g1.solo, sfx: g1.sfx, achievements: g1.achievements,
+      selfPlay: g1.stats.selfPlay, ballBestNow: (await girlOf()).solo.ballBest,
+    };
+    check("v118.ball.beat", (ballLast?.bounces ?? 0) >= 4 && (ballLast?.best ?? 0) >= 4,
+      `samples=${JSON.stringify(s1.samples)}`);
+    check("v118.ball.settle", !ballGone && g1.solo.ballBest === (ballLast?.best ?? -1)
+      && g1.stats.selfPlay === sp0 + 1,
+      `gone=${JSON.stringify(ballGone)} ballBest=${g1.solo.ballBest} last=${JSON.stringify(ballLast)} selfPlay=${g1.stats.selfPlay}`);
+    check("v118.ball.line", ballEndLine === soloEndLine("ball", ballLast?.best ?? 0)
+      || shownAchievementLine(g1)?.line === ballEndLine,
+      `bubble=${ballEndLine ?? "null"} want=${soloEndLine("ball", ballLast?.best ?? 0)} steal=${JSON.stringify(shownAchievementLine(g1))}`);
+    check("v118.ball.achievement", g1.achievements.includes("ball-rhythm"),
+      `achievements=${JSON.stringify(g1.achievements)}`);
+    check("v118.sfx.wired", g1.sfx.played > 0 && g1.sfx.enabled === true,
+      `sfx=${JSON.stringify(g1.sfx)}（played>0 才算渲染桥真接上了出声口；响没响人耳才晓得，脚本只认台账）`);
+    check("v118.ball.disk", (await bondNow())?.solo?.ballBest === g1.solo.ballBest
+      && JSON.stringify(g1.solo) !== soloBeforeBall,
+      `disk=${JSON.stringify((await bondNow())?.solo ?? null)} solo=${JSON.stringify(g1.solo)}`);
+
+    // S2 夜灯：点四下火苗 + 吓走一只蛾子（蛾子另记一笔，不进战果）。
+    const soloBeforeLantern = (await girlOf()).solo;
+    const s2 = await armSolo("lantern", "lantern", "v118-lantern");
+    results.v118.lantern = { startLine: s2.startLine };
+    check("v118.lantern.start-line", s2.startLine === SOLO.starts.lantern,
+      `bubble=${s2.startLine ?? "null"} want=${SOLO.starts.lantern}`);
+    await shot("girl-solo-lantern.png");
+    s2.round = await evaluateInPage(s, `window.__soloProbe.lanternRound(4, 420, 5_000)`, 40_000);
+    const lanternGone = await waitPropGone("lantern", 14_000);
+    const g2 = await girlOf();
+    const lanternFlares = s2.round.taps.map((t) => t.flares).filter((n) => typeof n === "number").pop() ?? 0;
+    const lanternEndLine = await sayEnd("lantern", lanternFlares);
+    const mothDelta = g2.solo.moths - (soloBeforeLantern.moths ?? 0);
+    results.v118.lantern = { ...results.v118.lantern, round: s2.round, gone: lanternGone,
+      end: lanternEndLine, solo: g2.solo, moths: g2.solo.moths, mothsBefore: soloBeforeLantern.moths };
+    check("v118.lantern.flares", lanternFlares >= 4, `taps=${JSON.stringify(s2.round.taps)}`);
+    check("v118.lantern.moth", (s2.round.mothTries ?? []).some((t) => typeof t.after === "number" && t.after > t.before)
+      && mothDelta >= 1,
+      `tries=${JSON.stringify(s2.round.mothTries)} moths=${g2.solo.moths} before=${soloBeforeLantern.moths}`);
+    check("v118.lantern.ledger", !lanternGone && g2.solo.flares === (soloBeforeLantern.flares ?? 0) + lanternFlares
+      && lanternEndLine === soloEndLine("lantern", lanternFlares),
+      `gone=${JSON.stringify(lanternGone)} flares=${g2.solo.flares} round=${lanternFlares} bubble=${lanternEndLine ?? "null"}`);
+
+    // S3 钓鱼：只在咬钩那一拍伸爪。
+    const soloBeforeFish = (await girlOf()).solo;
+    const s3 = await armSolo("fishing", "fishing", "v118-fishing");
+    check("v118.fishing.start-line", (await snap()).bubble?.text === SOLO.starts.fishing,
+      `bubble=${s3.startLine ?? "null"} want=${SOLO.starts.fishing}`);
+    await shot("girl-solo-fishing.png");
+    s3.round = await evaluateInPage(s, `window.__soloProbe.fishRound(150, 16_500)`, 40_000);
+    const fishGone = await waitPropGone("fishing", 6_000);
+    const g3 = await girlOf();
+    const fishCatches = s3.round.hits.length;
+    const fishEnd = await sayEnd("fishing", fishCatches);
+    results.v118.fishing = { round: s3.round, gone: fishGone, end: fishEnd, solo: g3.solo };
+    check("v118.fishing.bite", fishCatches >= 3 && s3.round.phases.includes("bite"),
+      `hits=${JSON.stringify(s3.round.hits)} phases=${JSON.stringify(s3.round.phases)}`);
+    check("v118.fishing.ledger", !fishGone && g3.solo.fish === (soloBeforeFish.fish ?? 0) + fishCatches
+      && fishEnd === soloEndLine("fishing", fishCatches),
+      `gone=${JSON.stringify(fishGone)} fish=${g3.solo.fish} round=${fishCatches} bubble=${fishEnd ?? "null"}`);
+
+    // S4 照镜子：镜面中心跟着换脸点。
+    const soloBeforeMirror = (await girlOf()).solo;
+    const s4 = await armSolo("mirror", "mirror", "v118-mirror");
+    check("v118.mirror.start-line", s4.startLine === SOLO.starts.mirror,
+      `bubble=${s4.startLine ?? "null"} want=${SOLO.starts.mirror}`);
+    await shot("girl-solo-mirror.png");
+    // 220ms 连点能把镜子点到 32 次、当场解锁 mirror-friend，收场句就被徽章顶掉；
+    // 改成 800ms 摊开点五下：三张脸都见到、又摸不到 12 的门槛，收场句才是这一轮自己的。
+    s4.round = await evaluateInPage(s, `window.__soloProbe.mirrorRound(800, 11_000, 5)`, 30_000);
+    const mirrorGone = await waitPropGone("mirror", 6_000);
+    const g4 = await girlOf();
+    const mirrorMatched = (g4.mirror === null ? (s4.round.marks.at(-1)?.matched ?? 0) : g4.mirror.matched);
+    const mirrorEndLine = await sayEnd("mirror", mirrorMatched);
+    results.v118.mirror = { round: s4.round, gone: mirrorGone, end: mirrorEndLine, solo: g4.solo };
+    check("v118.mirror.copy", mirrorMatched >= 3 && s4.round.faces.length >= 3,
+      `marks=${JSON.stringify(s4.round.marks)} faces=${JSON.stringify(s4.round.faces)}`);
+    check("v118.mirror.ledger", !mirrorGone && g4.solo.mirror === (soloBeforeMirror.mirror ?? 0) + mirrorMatched
+      && mirrorEndLine === soloEndLine("mirror", mirrorMatched),
+      `gone=${JSON.stringify(mirrorGone)} mirror=${g4.solo.mirror} round=${mirrorMatched} bubble=${mirrorEndLine ?? "null"}`);
+
+    // S5 台本：整场跟着拍，一步不落地走完。
+    const soloBeforeCombo = (await girlOf()).solo;
+    const spBeforeCombo = (await girlOf()).stats.selfPlay;
+    const s5 = await armSolo("combo", "combo", "v118-combo");
+    check("v118.combo.start-line", s5.startLine === SOLO.starts.combo,
+      `bubble=${s5.startLine ?? "null"} want=${SOLO.starts.combo}`);
+    await shot("girl-solo-combo.png");
+    s5.round = await evaluateInPage(s, `window.__soloProbe.comboRound(150, 14_000)`, 30_000);
+    const comboGone = await waitPropGone("combo", 6_000);
+    const g5 = await girlOf();
+    const segCount = (s5.round.stepsTotal ?? 0) + 1;
+    const comboEndLine = await sayEnd("combo", s5.round.final?.best ?? 0);
+    results.v118.combo = { round: s5.round, gone: comboGone, end: comboEndLine, solo: g5.solo,
+      achievements: g5.achievements, segCount };
+    check("v118.combo.full", (s5.round.final?.claps ?? 0) >= segCount && (s5.round.final?.best ?? 0) >= segCount,
+      `final=${JSON.stringify(s5.round.final)} segs=${segCount} steps=${JSON.stringify(s5.round.steps)}`);
+    check("v118.combo.ledger", !comboGone && g5.solo.comboBest === (s5.round.final?.best ?? -1)
+      && g5.stats.selfPlay === spBeforeCombo + 1
+      && (s5.round.final?.best ?? 0) >= (soloBeforeCombo.comboBest ?? 0),
+      `gone=${JSON.stringify(comboGone)} comboBest=${g5.solo.comboBest} final=${JSON.stringify(s5.round.final)} selfPlay=${g5.stats.selfPlay}`);
+    check("v118.combo.achievement", g5.achievements.includes("full-rundown")
+      && g5.achievements.includes("solo-player"),
+      `achievements=${JSON.stringify(g5.achievements)}`);
+    check("v118.end-lines", endLines.filter((e) => e.exact).length >= 3,
+      `lines=${JSON.stringify(endLines)}`);
+
+    // S6 互斥与零战果：新件顶掉旧件，但被顶的那一轮不许结算；空手回来只说「没玩出名堂」。
+    const soloBeforePreempt = (await girlOf()).solo;
+    const spBeforePreempt = (await girlOf()).stats.selfPlay;
+    const preBall = await startToy("ball", "ball", "v118-preempt-ball");
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("lantern")`);
+    await wait(320);
+    const gPre = await girlOf();
+    const preSnap = await snap();
+    results.v118.preempt = { ball: !!preBall.prop, solo: gPre.solo, bubble: preSnap.bubble?.text ?? null,
+      ballNow: gPre.ball, lanternNow: gPre.lantern };
+    check("v118.preempt.swap", !!preBall.prop && gPre.ball === null && !!gPre.lantern,
+      `ball=${JSON.stringify(gPre.ball)} lantern=${JSON.stringify(gPre.lantern)}`);
+    check("v118.preempt.no-settle", JSON.stringify(gPre.solo) === JSON.stringify(soloBeforePreempt)
+      && gPre.stats.selfPlay === spBeforePreempt,
+      `solo=${JSON.stringify(gPre.solo)} before=${JSON.stringify(soloBeforePreempt)} selfPlay=${gPre.stats.selfPlay}`);
+    check("v118.preempt.line", preSnap.bubble?.text === SOLO.starts.lantern,
+      `bubble=${preSnap.bubble?.text ?? "null"} want=${SOLO.starts.lantern}`);
+    const emptyGone = await waitPropGone("lantern", 14_000);
+    await forceFrame();
+    const gEmpty = await girlOf();
+    const emptyLine = await waitBubbleLine([SOLO.empty], 3_000);
+    const spAfterEmpty = (await girlOf()).stats.selfPlay;
+    results.v118.emptyRound = { gone: emptyGone, line: emptyLine, solo: gEmpty.solo, selfPlay: spAfterEmpty };
+    check("v118.empty.clears", !emptyGone, `lantern=${JSON.stringify(emptyGone)}`);
+    check("v118.empty-line", emptyLine === SOLO.empty, `bubble=${emptyLine ?? "null"} want=${SOLO.empty}`);
+    check("v118.empty-no-account", gEmpty.solo.flares === soloBeforePreempt.flares && spAfterEmpty === spBeforePreempt,
+      `flares=${gEmpty.solo.flares} before=${soloBeforePreempt.flares} selfPlay=${spAfterEmpty}`);
+
+    // S7 三道闸：免打扰、猫形态、声音开关。前两道是「根本不接」，最后一道只咽声音。
+    const s7 = {};
+    await evaluate(s, `window.__cyrene.renderer.setQuiet(true)`);
+    await wait(260);
+    await dismissBubble();
+    await wait(200);
+    const soloBeforeQuiet = JSON.stringify((await girlOf()).solo);
+    const sfxBeforeQuiet = (await girlOf()).sfx;
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("ball")`);
+    await wait(420);
+    const gQuiet = await girlOf();
+    const quietSnap = await snap();
+    const sfxAfterQuiet = gQuiet.sfx;
+    s7.quiet = { ball: gQuiet.ball, bubble: quietSnap.bubble?.text ?? null, soloSame: JSON.stringify(gQuiet.solo) === soloBeforeQuiet,
+      playedBefore: sfxBeforeQuiet.played, playedAfter: sfxAfterQuiet.played };
+    await evaluate(s, `window.__cyrene.renderer.setQuiet(false)`);
+    await wait(320);
+    check("v118.quiet-refused", s7.quiet.ball === null && s7.quiet.soloSame && s7.quiet.playedAfter === s7.quiet.playedBefore,
+      JSON.stringify(s7.quiet));
+    await dismissBubble();
+    await evaluate(s, `window.__cyrene.renderer.setForm("cat")`);
+    await wait(700);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("ball")`);
+    await wait(420);
+    const gCat = await diag();
+    s7.cat = { form: gCat.form, ball: gCat.girl.ball, solo: gCat.girl.solo };
+    await evaluate(s, `window.__cyrene.renderer.setForm("girl")`);
+    await wait(900);
+    s7.formRestored = (await diag()).form;
+    check("v118.form-refused", s7.cat.form === "cat" && s7.cat.ball === null && s7.formRestored === "girl",
+      JSON.stringify(s7.cat) + " restored=" + s7.formRestored);
+
+    await awakeForPlay("v118-sfx-gate");
+    const sfxGateStart = await startToy("ball", "ball", "v118-sfx-gate");
+    await evaluate(s, `window.__cyrene.renderer.setSfxEnabled(false)`);
+    await wait(160);
+    s7.sfxOff = await evaluateInPage(s, `window.__soloProbe.sfxWatch(1_600)`, 30_000);
+    const offDelta = { played: s7.sfxOff.after.played - s7.sfxOff.before.played,
+      blocked: s7.sfxOff.after.blocked - s7.sfxOff.before.blocked };
+    await evaluate(s, `window.__cyrene.renderer.setSfxEnabled(true)`);
+    await wait(160);
+    s7.sfxOn = await evaluateInPage(s, `window.__soloProbe.sfxWatch(1_600)`, 30_000);
+    const onDelta = { played: s7.sfxOn.after.played - s7.sfxOn.before.played,
+      blocked: s7.sfxOn.after.blocked - s7.sfxOn.before.blocked };
+    results.v118.sfxGate = { started: !!sfxGateStart.prop, off: s7.sfxOff, offDelta: offDelta, on: s7.sfxOn, onDelta: onDelta };
+    check("v118.sfx-off", !!sfxGateStart.prop && offDelta.played === 0 && offDelta.blocked >= 1
+      && s7.sfxOff.after.enabled === false,
+      `delta=${JSON.stringify(offDelta)} watch=${JSON.stringify(s7.sfxOff)}`);
+    check("v118.sfx-on", s7.sfxOn.after.enabled === true && onDelta.played >= 1,
+      `delta=${JSON.stringify(onDelta)} watch=${JSON.stringify(s7.sfxOn)}`);
+    const sfxBallGone = await waitPropGone("ball", 12_000);
+    results.v118.sfxGate.ballGone = sfxBallGone;
+
+    // S8 汇报：一句「自娱 5/5 件 · 战果 N」——N 由账本原样相加，探针不重算。
+    await dismissBubble();
+    await wait(240);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("solo")`);
+    await wait(300);
+    const gReport = await girlOf();
+    const reportSnap = await snap();
+    const reportText = reportSnap.bubble?.text ?? null;
+    const reportScore = SOLO.kinds.reduce((sum, k) => sum + (gReport.solo[SOLO_FIELD_READ[k]] ?? 0), 0);
+    results.v118.report = { bubble: reportText, solo: gReport.solo, score: reportScore, idle: gReport.solo.seen.length };
+    check("v118.report-head", reportText?.startsWith(`自娱 ${SOLO.kinds.length}/${SOLO.kinds.length} 件 · 战果 ${reportScore}`),
+      `bubble=${JSON.stringify(reportText)} score=${reportScore} solo=${JSON.stringify(gReport.solo)}`);
+    check("v118.report-seen", gReport.solo.seen.length === SOLO.kinds.length
+      && SOLO.kinds.every((k) => gReport.solo.seen.includes(k)),
+      `seen=${JSON.stringify(gReport.solo.seen)}`);
+    check("v118.report-noToy", gReport.ball === null && gReport.combo === null && gReport.lantern === null
+      && gReport.fishing === null && gReport.mirror === null,
+      `ball=${JSON.stringify(gReport.ball)} combo=${JSON.stringify(gReport.combo)} lantern=${JSON.stringify(gReport.lantern)}`);
+
+    // S9 跨重启：账本原样回来，声音按盘里的默认（开着）重建，不继承渲染端那次翻转。
+    const reloadPre = {
+      origin: await evaluate(s, `performance.timeOrigin`),
+      solo: (await girlOf()).solo,
+      selfPlay: (await girlOf()).stats.selfPlay,
+      achievements: (await girlOf()).achievements,
+    };
+    await geoRead();
+    const geoBeforeReload = await pollGlobal();
+    let reloadAt = 0;
+    let lastError = null;
+    const reloadDeadline = Date.now() + 40_000;
+    for (;;) {
+      const now = Date.now();
+      if (now >= reloadAt) {
+        try { await s.send("Page.reload", { ignoreCache: false }, 20_000); } catch (e) { lastError = String(e); }
+        reloadAt = now + 8_000;
+      }
+      const st = await evaluate(s, `(() => ({
+        origin: performance.timeOrigin,
+        bridge: !!window.__cyrene,
+        canvas: !!document.getElementById("pet-canvas"),
+      }))()`, 5_000).catch(() => null);
+      if (st && st.bridge && st.canvas && st.origin > reloadPre.origin) break;
+      if (Date.now() > reloadDeadline) {
+        throw new Error(`[ENV] 重载后 40s 没等到新页面的渲染桥（last=${JSON.stringify(lastError)}）`);
+      }
+      await wait(150);
+    }
+    if (!(await waitPetInk(s, 20_000, appLog, child))) {
+      dumpAndKill(child, appLog, "重载后 20s 猫窗没现身（ENV：启动动画没让位，不是自娱账本丢了）");
+    }
+    await evaluate(s, `window.__cyrene.setGazeFrozen(true)`).catch(() => {});
+    await install();
+    const ledgerDeadline = Date.now() + 30_000;
+    let gReload = await girlOf();
+    for (;;) {
+      gReload = await girlOf();
+      if (gReload.solo?.seen?.length === SOLO.kinds.length || Date.now() >= ledgerDeadline) break;
+      await wait(250);
+    }
+    await geoRead();
+    const geoAfterReload = await pollGlobal();
+    const bondReload = await bondNow();
+    results.v118.reload = {
+      before: reloadPre, after: { solo: gReload.solo, selfPlay: gReload.stats.selfPlay, sfx: gReload.sfx },
+      geoBefore: geoBeforeReload, geoAfter: geoAfterReload, disk: bondReload?.solo ?? null,
+    };
+    check("v118.reload.ledger", JSON.stringify(gReload.solo) === JSON.stringify(reloadPre.solo)
+      && gReload.stats.selfPlay === reloadPre.selfPlay,
+      `after=${JSON.stringify(gReload.solo)} before=${JSON.stringify(reloadPre.solo)} selfPlay=${gReload.stats.selfPlay}/${reloadPre.selfPlay}`);
+    check("v118.reload.disk", JSON.stringify(bondReload?.solo ?? null) === JSON.stringify(reloadPre.solo),
+      `disk=${JSON.stringify(bondReload?.solo ?? null)} memory=${JSON.stringify(reloadPre.solo)}`);
+    check("v118.reload.sfx", geoBeforeReload?.sfxEnabled === true && geoAfterReload?.sfxEnabled === true
+      && gReload.sfx.enabled === true,
+      `geoBefore=${JSON.stringify(geoBeforeReload)} geoAfter=${JSON.stringify(geoAfterReload)} sfx=${JSON.stringify(gReload.sfx)}`);
+    check("v118.reload.achievements", SOLO.kinds.length === 5
+      && ["ball-rhythm", "full-rundown", "solo-player"].every((id) => gReload.achievements.includes(id))
+      && reloadPre.achievements.includes("ball-rhythm"),
+      `after=${JSON.stringify(gReload.achievements)} before=${JSON.stringify(reloadPre.achievements)}`);
+    await shot("girl-solo-v118.png");
   }
 
   const failed = checks.filter((c) => !c.ok);
