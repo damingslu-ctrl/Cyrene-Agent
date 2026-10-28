@@ -10,6 +10,7 @@ import {
 } from "./pet-commands";
 import { ACCESSORY_IDS } from "./pet-accessory";
 import { RPS_SIGNS } from "./pet-rps";
+import { SOLO_KINDS } from "./pet-solo";
 import { TRICK_COMMANDS, TRICK_IDS, trickCommandFor, trickFromCommand } from "./pet-trick";
 
 describe("右键菜单命令表", () => {
@@ -89,5 +90,22 @@ describe("右键菜单命令表", () => {
     }
     expect(trickFromCommand("trick:hug")).toBeNull();
     expect(trickFromCommand("rps:rock")).toBeNull();
+  });
+
+  it("v1.18 自娱五件 + 汇报：件名即命令名，汇报命令不与件名同名", () => {
+    for (const kind of SOLO_KINDS) {
+      expect(PET_COMMANDS as readonly string[]).toContain(kind);
+      expect(isPetCommand(kind), kind).toBe(true);
+    }
+    expect(PET_COMMANDS as readonly string[]).toContain("solo");
+    expect(isPetCommand("solo")).toBe(true);
+    // `solo` 是「看她自己玩到哪了」的汇报口，不是第六件玩具：混进词表会被当成可开场的一件。
+    expect(SOLO_KINDS).not.toContain("solo");
+    // 名字不跟已有的抢话筒：`mirror` 不是手势、`ball` 不是那两颗旧命令。
+    for (const taken of ["hop", "play", "follow", "hide"]) {
+      expect(SOLO_KINDS).not.toContain(taken);
+    }
+    expect(GESTURE_COMMANDS).not.toHaveProperty("mirror");
+    expect(GESTURE_COMMANDS).not.toHaveProperty("ball");
   });
 });

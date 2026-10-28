@@ -628,5 +628,12 @@ export const IPC = {
   VERGE_WORK_STATUS_GET: "verge:work-status:get",
   /** main → 宠物窗：工作状态变更（载荷 WorkStatus | null）。 */
   VERGE_WORK_STATUS_UPDATE: "verge:work-status:update",
+  // —— v1.18 声音 ——
+  /**
+   * main → 所有窗口：音效开关变更（载荷 `{ sfxEnabled }`）。
+   * 唯一写路径是宠物窗右键菜单（主进程侧直接落盘 + 广播），所以这里只有出站一条——
+   * 面板要加开关时再补入站通道，「无调用方不进表」同样管着通道表。
+   */
+  VERGE_SFX_CHANGED: "verge:sfx-changed",
 
 } as const;

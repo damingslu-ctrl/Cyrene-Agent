@@ -3,7 +3,7 @@ import { buildPetMenuItems, type PetMenuInput } from "./pet-menu";
 import { profileFor } from "../../shared/pet-profile";
 
 const input = (over: Partial<PetMenuInput> = {}): PetMenuInput =>
-  ({ quietUntil: null, now, tuckEnabled: true, form: "cat", tier: "standard", ...over });
+  ({ quietUntil: null, now, tuckEnabled: true, sfxEnabled: true, form: "cat", tier: "standard", ...over });
 
 const now = 1_700_000_000_000;
 
@@ -26,10 +26,21 @@ describe("buildPetMenuItems", () => {
     });
   });
 
+  it("声音开关紧跟在藏身之后：勾跟着状态走，两种形态都能勾（不是猫娘专属）", () => {
+    expect(buildPetMenuItems(input({ sfxEnabled: false }))[3]).toMatchObject({
+      label: "给她配上声音", checked: false, enabled: true,
+    });
+    expect(buildPetMenuItems(input({ form: "cat" }))[3]).toMatchObject({ checked: true, enabled: true });
+    // 没注入 toggleSfx 时与藏身同规矩：项还在、也能点，只是什么都不做。
+    const bare = buildPetMenuItems(input({ form: "cat" }), {});
+    expect(bare[3]).toMatchObject({ label: "给她配上声音", enabled: true });
+    expect(bare[3].action).toBeUndefined();
+  });
+
   it("互动动作接在安静三条之后、窗口动作另起一段：只有「隐藏」带分隔线", () => {
     const items = buildPetMenuItems(input());
     expect(items.map((item) => item.label)).toEqual([
-      "安静半小时", "取消安静", "贴边藏身",
+      "安静半小时", "取消安静", "贴边藏身", "给她配上声音",
       "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样",
       "给她打扮", "放只小虫逗逗她", "陪她散散步",
       "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来", "猜拳",
@@ -41,6 +52,7 @@ describe("buildPetMenuItems", () => {
       "今天心情如何", "她最喜欢哪件玩具", "教她点小把戏", "教过的小把戏",
       "闻闻有什么好东西", "看看她的小口袋", "来玩躲猫猫",
       "种一盆猫薄荷", "看看薄荷盆", "收薄荷",
+      "让她拍皮球", "让她演全套", "让她点夜灯", "让她钓条鱼", "让她照镜子", "她自娱到哪了",
       "让它做个动作",
       "打开网络面板",
       "形象：像素猫", "形象：猫娘",
@@ -64,6 +76,7 @@ describe("buildPetMenuItems", () => {
       mood: () => {}, favorite: () => {}, trick: () => {}, tricks: () => {},
       treasure: () => {}, treasures: () => {}, hideSeek: () => {},
       gardenPlant: () => {}, garden: () => {}, gardenHarvest: () => {},
+      ball: () => {}, combo: () => {}, lantern: () => {}, fishing: () => {}, mirror: () => {}, solo: () => {},
     });
     const girlItems = buildPetMenuItems(input({ form: "girl" }), {
       accessory: () => {}, critter: () => {}, wander: () => {},
@@ -76,6 +89,7 @@ describe("buildPetMenuItems", () => {
       mood: () => {}, favorite: () => {}, trick: () => {}, tricks: () => {},
       treasure: () => {}, treasures: () => {}, hideSeek: () => {},
       gardenPlant: () => {}, garden: () => {}, gardenHarvest: () => {},
+      ball: () => {}, combo: () => {}, lantern: () => {}, fishing: () => {}, mirror: () => {}, solo: () => {},
     });
     const find = (items: typeof catItems, label: string) => items.find((i) => i.label === label)!;
     for (const label of [
@@ -89,6 +103,7 @@ describe("buildPetMenuItems", () => {
       "今天心情如何", "她最喜欢哪件玩具", "教她点小把戏", "教过的小把戏",
       "闻闻有什么好东西", "看看她的小口袋", "来玩躲猫猫",
       "种一盆猫薄荷", "看看薄荷盆", "收薄荷",
+      "让她拍皮球", "让她演全套", "让她点夜灯", "让她钓条鱼", "让她照镜子", "她自娱到哪了",
     ]) {
       expect(find(catItems, label).enabled, label).toBe(false);
       expect(find(girlItems, label).enabled, label).toBe(true);
@@ -145,6 +160,12 @@ describe("buildPetMenuItems", () => {
       gardenPlant: () => sent.push("garden-plant"),
       garden: () => sent.push("garden"),
       gardenHarvest: () => sent.push("garden-harvest"),
+      ball: () => sent.push("ball"),
+      combo: () => sent.push("combo"),
+      lantern: () => sent.push("lantern"),
+      fishing: () => sent.push("fishing"),
+      mirror: () => sent.push("mirror"),
+      solo: () => sent.push("solo"),
     });
     for (const child of items.find((i) => i.label === "给她打扮")!.submenu!) child.action?.();
     items.find((i) => i.label === "放只小虫逗逗她")!.action?.();
@@ -159,6 +180,7 @@ describe("buildPetMenuItems", () => {
       "今天心情如何", "她最喜欢哪件玩具",
       "教过的小把戏", "闻闻有什么好东西", "看看她的小口袋", "来玩躲猫猫",
       "种一盆猫薄荷", "看看薄荷盆", "收薄荷",
+      "让她拍皮球", "让她演全套", "让她点夜灯", "让她钓条鱼", "让她照镜子", "她自娱到哪了",
     ]) {
       items.find((i) => i.label === label)!.action?.();
     }
@@ -175,6 +197,7 @@ describe("buildPetMenuItems", () => {
       "growth", "quests", "diary",
       "mood", "favorite", "tricks", "treasure", "treasures", "hide-seek",
       "garden-plant", "garden", "garden-harvest",
+      "ball", "combo", "lantern", "fishing", "mirror", "solo",
       "trick:high-five", "trick:spin", "trick:nod", "trick:shy",
       "rps:rock", "rps:scissors", "rps:paper",
     ]);
@@ -224,6 +247,7 @@ describe("buildPetMenuItems", () => {
       input({ tuckEnabled: false }),
       {
         quiet: action("quiet"), cancelQuiet: action("cancel"), toggleTuck: action("tuck"),
+        toggleSfx: action("sfx"),
         pet: action("pet"), feed: action("feed"), play: action("play"),
         toggleSleep: action("sleep"), status: action("status"), openNetwork: action("network"),
         hide: action("hide"), quit: action("quit"),
@@ -231,7 +255,7 @@ describe("buildPetMenuItems", () => {
     );
     for (const item of items) item.action?.();
     expect(calls).toEqual([
-      "quiet", "cancel", "tuck", "pet", "feed", "play", "sleep", "status", "network", "hide", "quit",
+      "quiet", "cancel", "tuck", "sfx", "pet", "feed", "play", "sleep", "status", "network", "hide", "quit",
     ]);
   });
 });

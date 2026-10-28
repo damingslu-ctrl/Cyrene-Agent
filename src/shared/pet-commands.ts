@@ -29,6 +29,12 @@ export type PetCommand =
    */
   | "mood" | "favorite" | "tricks" | "treasure" | "treasures" | "hide-seek"
   | "garden-plant" | "garden" | "garden-harvest"
+  /**
+   * v1.18.0 自娱五件 + 汇报。件名即命令名（`SOLO_KINDS`），`solo` 是「看她自己玩到哪了」
+   * 的汇报口，不是第六件玩具。`mirror` 与 `ball` 都不进 `GESTURE_COMMANDS`：它们是开场
+   * 姿态的引用，不是「做个动作」那组的成员，混进去会被当成纯表演而不记账。
+   */
+  | "ball" | "combo" | "lantern" | "fishing" | "mirror" | "solo"
   | TrickCommand
   | RpsCommand
   | AccessoryCommand;
@@ -48,6 +54,7 @@ const BASE_COMMANDS: ReadonlyArray<PetCommand> = [
   "tail", "knead", "roll", "book", "gift", "wish", "hopscotch", "snow", "fortune",
   "mood", "favorite", "tricks", "treasure", "treasures", "hide-seek",
   "garden-plant", "garden", "garden-harvest",
+  "ball", "combo", "lantern", "fishing", "mirror", "solo",
 ];
 
 export const PET_COMMANDS: ReadonlyArray<PetCommand> = [

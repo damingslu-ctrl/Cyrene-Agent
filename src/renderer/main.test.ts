@@ -35,3 +35,32 @@ describe("main.ts 触摸接线（Task 22）", () => {
     expect(src).toContain("onPetCommand");
   });
 });
+
+describe("v1.18.0 声音接线", () => {
+  const preload = readFileSync(join(__dirname, "../preload/index.ts"), "utf8");
+  const bridge = readFileSync(join(__dirname, "types/cyrene.d.ts"), "utf8");
+  const mainApp = readFileSync(join(__dirname, "../main/application/default-dependencies.ts"), "utf8");
+
+  it("渲染端把 WebAudio 出口注入渲染器，并在第一次真手势上解锁", () => {
+    expect(src).toMatch(/createSfxAudioOutput\(\s*browserAudioContext\s*\)/);
+    expect(src).toMatch(/renderer\.setSfxSink\(\s*sfxOutput\s*\)/);
+    expect(src).toMatch(/addTrackedEventListener\(canvas, "pointerdown"[\s\S]{0,320}sfxOutput\.unlock\(\)/);
+  });
+
+  it("菜单那一勾走同一条路：boot 随几何读一次，下行订阅再读一次", () => {
+    expect(src).toMatch(/renderer\.setSfxEnabled\(geo\.sfxEnabled\)/);
+    expect(src).toMatch(/onSfxChanged\(\(\{ sfxEnabled \}\) => \{\s*\n\s*renderer\.setSfxEnabled\(sfxEnabled\);/);
+  });
+
+  it("主端把开关混进几何基线一次回给渲染端；preload 与桥接类型两边都收下这条通道", () => {
+    expect(mainApp).toMatch(/VERGE_GET_PET_GEOMETRY[\s\S]{0,700}sfxEnabled: state\.sfxEnabled/);
+    expect(preload).toMatch(/onSfxChanged:[\s\S]{0,260}VERGE_SFX_CHANGED/);
+    expect(preload).toMatch(/getPetGeometry[\s\S]{0,420}sfxEnabled: boolean/);
+    expect(bridge).toMatch(/sfxEnabled: boolean/);
+    expect(bridge).toMatch(/onSfxChanged/);
+  });
+
+  it("退出时把话筒摘了：不给下一次启动留一个哑 sink", () => {
+    expect(src).toMatch(/renderer\.setSfxSink\(null\)/);
+  });
+});

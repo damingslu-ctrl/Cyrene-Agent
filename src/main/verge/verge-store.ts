@@ -12,6 +12,11 @@ export interface VergeState {
   tuckEnabled: boolean;
   /** 「第一次藏身先解释一句」的凭据，跨重启只说一次。 */
   tuckHinted: boolean;
+  /**
+   * v1.18 音效开关。**默认开**：升级前的盘里根本没有这个键，读回来必须是「有声」，
+   * 不然一次普通升级会把她的声音静悄悄地带走。
+   */
+  sfxEnabled: boolean;
   /** 形态（v1.5.0）：存量盘里没有就读默认。 */
   form: PetForm;
   /** 身形档位（v1.5.0）：同上。 */
@@ -24,6 +29,7 @@ export const DEFAULT_VERGE_STATE: VergeState = {
   quietUntil: null,
   tuckEnabled: true,
   tuckHinted: false,
+  sfxEnabled: true,
   form: "girl",
   tier: "large",
 };
@@ -37,6 +43,8 @@ function toState(raw: unknown): VergeState {
       : null,
     tuckEnabled: typeof input.tuckEnabled === "boolean" ? input.tuckEnabled : DEFAULT_VERGE_STATE.tuckEnabled,
     tuckHinted: input.tuckHinted === true,
+    // 只有显式的 false 才关掉；缺键/脏值一律回「有声」（同 tuckHinted 的反向：那边默认无凭据，这边默认能响）。
+    sfxEnabled: input.sfxEnabled === false ? false : true,
     form: PET_FORMS.find((f) => f === input.form) ?? DEFAULT_VERGE_STATE.form,
     tier: SIZE_TIERS.find((t) => t === input.tier) ?? DEFAULT_VERGE_STATE.tier,
   };

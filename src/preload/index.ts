@@ -1086,6 +1086,8 @@ const vergeApi = {
       workArea: PetRect;
       tuckEnabled: boolean;
       tuckHinted: boolean;
+      /** v1.18：声音开关随几何基线一起回，渲染端不为一个布尔多开一次 invoke。 */
+      sfxEnabled: boolean;
       tuckLimit: number;
     } | null>,
   /** main → 渲染端：display-metrics-changed 重夹取后推新 bounds + workArea。 */
@@ -1099,6 +1101,12 @@ const vergeApi = {
     const listener = (_e: unknown, payload: { tuckEnabled: boolean }) => callback(payload);
     ipcRenderer.on(IPC.VERGE_TUCK_CHANGED, listener);
     return () => ipcRenderer.off(IPC.VERGE_TUCK_CHANGED, listener);
+  },
+  /** main → 渲染端：声音开关变更（右键菜单那一勾经收口后广播）。 */
+  onSfxChanged: (callback: (payload: { sfxEnabled: boolean }) => void) => {
+    const listener = (_e: unknown, payload: { sfxEnabled: boolean }) => callback(payload);
+    ipcRenderer.on(IPC.VERGE_SFX_CHANGED, listener);
+    return () => ipcRenderer.off(IPC.VERGE_SFX_CHANGED, listener);
   },
   /** 渲染端 → main：第一次藏身开口说过 TUCK_HINT，落盘 tuckHinted，不再重说。 */
   tuckHinted: () => ipcRenderer.send(IPC.VERGE_TUCK_HINTED),

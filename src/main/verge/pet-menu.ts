@@ -5,6 +5,7 @@
  * - 「安静半小时 / 安静中 · 剩 N 分 / 取消安静」：quiet_toggle 双向回执的菜单化
  *   （main.rs:2503 的翻转语义 + main.rs:2534 的剩余分钟口径「安静 剩 N 分」）。
  * - 「贴边藏身」开关：native 的 Persist.tuck 页脚开关（main.rs:970）。
+ * - 「给她配上声音」开关：v1.18 新增，与藏身同一套勾选语义（不是猫娘专属，四足也叫）。
  * - 「隐藏 / 退出」：托盘菜单的两条常驻动作。
  * 菜单纯动作：`params.x/y` 对宠物窗用不上，也不弹「拷贝图片」这类内容项。
  */
@@ -36,6 +37,8 @@ export interface PetMenuInput {
   now: number;
   /** 贴边藏身开关当前值：菜单勾选态来自它。 */
   tuckEnabled: boolean;
+  /** v1.18 声音开关当前值：勾选态同样从盘上的当下值来，不硬编码。 */
+  sfxEnabled: boolean;
   /** 形态与档位（v1.5.0）：菜单里两组单选。 */
   form: PetForm;
   tier: SizeTier;
@@ -67,6 +70,8 @@ export interface PetMenuActions {
   quiet: () => void;
   cancelQuiet: () => void;
   toggleTuck: () => void;
+  /** v1.18：声音开关（落盘 + 广播在装配层，菜单只管发意图）。 */
+  toggleSfx: () => void;
   pet: () => void;
   feed: () => void;
   play: () => void;
@@ -124,6 +129,16 @@ export interface PetMenuActions {
   gardenPlant: () => void;
   garden: () => void;
   gardenHarvest: () => void;
+  /**
+   * v1.18.0 自娱五件玩具 + 战况汇报。前五是「她自己玩」的玩具（四足形态置灰），
+   * `solo` 只念账、不动她一根毛。
+   */
+  ball: () => void;
+  combo: () => void;
+  lantern: () => void;
+  fishing: () => void;
+  mirror: () => void;
+  solo: () => void;
   openNetwork: () => void;
   /** v1.5.0：形态与档位切换（落盘 + 广播在装配层，菜单只管发意图）。 */
   setForm: (form: PetForm) => void;
@@ -153,6 +168,8 @@ export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenu
         },
     { label: "取消安静", enabled: quietOn, ...bind(actions?.cancelQuiet) },
     { label: "贴边藏身", enabled: true, checked: input.tuckEnabled, ...bind(actions?.toggleTuck) },
+    // 声音也紧跟在藏身之后：同是「不牵动她身体」的全局开关，两种形态都能勾。
+    { label: "给她配上声音", enabled: true, checked: input.sfxEnabled, ...bind(actions?.toggleSfx) },
     { label: "摸摸头", enabled: true, ...bind(actions?.pet) },
     { label: "喂小鱼干", enabled: true, ...bind(actions?.feed) },
     { label: "陪它玩", enabled: true, ...bind(actions?.play) },
@@ -230,6 +247,13 @@ export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenu
     { label: "种一盆猫薄荷", enabled: input.form === "girl" && !!actions?.gardenPlant, ...bind(actions?.gardenPlant) },
     { label: "看看薄荷盆", enabled: input.form === "girl" && !!actions?.garden, ...bind(actions?.garden) },
     { label: "收薄荷", enabled: input.form === "girl" && !!actions?.gardenHarvest, ...bind(actions?.gardenHarvest) },
+    // —— v1.18.0 自娱：五件不用你动手、她自己玩给自己的玩具，最后一件只念战况 ——
+    { label: "让她拍皮球", enabled: input.form === "girl" && !!actions?.ball, ...bind(actions?.ball) },
+    { label: "让她演全套", enabled: input.form === "girl" && !!actions?.combo, ...bind(actions?.combo) },
+    { label: "让她点夜灯", enabled: input.form === "girl" && !!actions?.lantern, ...bind(actions?.lantern) },
+    { label: "让她钓条鱼", enabled: input.form === "girl" && !!actions?.fishing, ...bind(actions?.fishing) },
+    { label: "让她照镜子", enabled: input.form === "girl" && !!actions?.mirror, ...bind(actions?.mirror) },
+    { label: "她自娱到哪了", enabled: input.form === "girl" && !!actions?.solo, ...bind(actions?.solo) },
     // 「让它做个动作」：只演一次手势，不改数值。放在互动组末尾，与喂/玩区分开。
     {
       label: "让它做个动作",
@@ -281,6 +305,12 @@ export interface PetContextMenuInput {
    */
   onTuckStateChange(enabled: boolean): void;
   /**
+   * v1.18 声音开关写盘后的唯一收口（onTuckStateChange 同构）：向渲染端广播当下值。
+   * 渲染端的声音闸门只认这条广播与开机的快照——菜单若绕过它，取消勾选后要等到下次
+   * 重启她才真的安静下来。
+   */
+  onSfxStateChange(enabled: boolean): void;
+  /**
    * 互动动作发给宠物窗（摸摸/喂食/玩耍/睡觉/状态）。菜单不持有宠物状态，
    * 只负责把意图送达；执行与落盘都在渲染端。
    */
@@ -299,11 +329,11 @@ export interface PetContextMenuInput {
  * context-menu 事件 → Menu.buildFromTemplate → popup）。宠物窗菜单纯动作，
  * 没有 params.x/y（弹在猫身上、不给坐标），也没有编辑/复制类内容项。
  *
- * 每次右键都现读 service 的 quietUntil/tuckEnabled——菜单快照必须反映当下，
+ * 每次右键都现读 service 的 quietUntil/tuckEnabled/sfxEnabled——菜单快照必须反映当下，
  * 不能缓存一份在挂载时算好的 items。
  */
 export function attachPetContextMenu(input: PetContextMenuInput): void {
-  const { window, service, quit, onQuietStateChange, onTuckStateChange, onPetCommand, openNetworkPanel, onProfileStateChange } = input;
+  const { window, service, quit, onQuietStateChange, onTuckStateChange, onSfxStateChange, onPetCommand, openNetworkPanel, onProfileStateChange } = input;
   window.webContents.on("context-menu", (_event, _params) => {
     if (window.isDestroyed()) return;
     const now = Date.now();
@@ -312,6 +342,7 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
         quietUntil: service.getState().quietUntil,
         now,
         tuckEnabled: service.getState().tuckEnabled,
+        sfxEnabled: service.getState().sfxEnabled,
         form: service.getState().form,
         tier: service.getState().tier,
       },
@@ -335,6 +366,12 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
           service.setTuckEnabled(next);
           // 落盘 + 广播同一个收口（Task 11 quiet 的先例）：两处各写各的就会有一处漏上行。
           onTuckStateChange(next);
+        },
+        toggleSfx: () => {
+          const next = !service.getState().sfxEnabled;
+          service.setSfxEnabled(next);
+          // 与藏身同构：只写盘的话，渲染端要等下次重启才安静下来。
+          onSfxStateChange(next);
         },
         pet: () => onPetCommand("pet"),
         feed: () => onPetCommand("feed"),
@@ -384,6 +421,12 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
         gardenPlant: () => onPetCommand("garden-plant"),
         garden: () => onPetCommand("garden"),
         gardenHarvest: () => onPetCommand("garden-harvest"),
+        ball: () => onPetCommand("ball"),
+        combo: () => onPetCommand("combo"),
+        lantern: () => onPetCommand("lantern"),
+        fishing: () => onPetCommand("fishing"),
+        mirror: () => onPetCommand("mirror"),
+        solo: () => onPetCommand("solo"),
         openNetwork: () => openNetworkPanel(),
         setForm: (form) => {
           service.setForm(form);

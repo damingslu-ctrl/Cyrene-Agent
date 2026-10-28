@@ -1,8 +1,9 @@
 /**
- * 二十七枚小成就。条件全部来自已经存在的计数器：不新增一套成长线，只在她做到某件事的
+ * 三十八枚小成就。条件全部来自已经存在的计数器：不新增一套成长线，只在她做到某件事的
  * 时候把这一刻记住（跨重启）。徽章只在解锁当场弹出 3.6 秒，之后收进存档。
  */
 import { ACCENT, GREEN, PAPER, ROSE, withAlpha } from "../../shared/pet-tokens";
+import { COMBO_STEPS } from "./girl-combo";
 import type { BondTier } from "./girl-bond";
 import type { DrawOp } from "./ops";
 
@@ -16,13 +17,16 @@ export const ACHIEVEMENT_IDS = [
   "tail-chaser", "knead-master", "roll-artist", "bookworm", "gift-opener",
   "wish-maker", "hopscotch-pro", "snow-builder", "fortune-fan",
   "trick-master", "treasure-hunter", "hide-seeker", "garden-keeper", "true-favorite",
+  "ball-rhythm", "full-rundown", "lantern-keeper", "fish-feast", "mirror-friend",
+  "solo-player",
 ] as const;
 
 export type AchievementId = (typeof ACHIEVEMENT_IDS)[number];
 
 /**
  * v1.17 的日常系统不往 `PetStats` 里塞计数器（那份表的形状被既有存档与测试钉住了），
- * 只把五件事的账单独递给成就判定。
+ * 只把五件事的账单独递给成就判定。v1.18 的自娱账本走同一条路：整套 `SoloLedger`
+ * 的字段原样搬进来，成就只读不写。
  */
 export interface AchievementExtras {
   /** 已学会的小把戏件数（0..4）。 */
@@ -35,10 +39,25 @@ export interface AchievementExtras {
   harvests: number;
   /** 本命玩具的累计次数（没有本命时为 0）。 */
   favorite: number;
+  /** 皮球连击的历史峰值。 */
+  ballBest: number;
+  /** 台本全套走完的历史峰值。 */
+  comboBest: number;
+  /** 拨亮夜灯的累计次数。 */
+  flares: number;
+  /** 赶走的飞蛾：单独一笔，不进任何门槛。 */
+  moths: number;
+  /** 钓上鱼的累计条数。 */
+  fish: number;
+  /** 照镜子的累计次数。 */
+  mirror: number;
+  /** 自娱开场的累计轮数（与 `PetStats.selfPlay` 同源，成就只看这一份）。 */
+  selfPlay: number;
 }
 
 export const EMPTY_EXTRAS: AchievementExtras = {
   tricks: 0, treasures: 0, hides: 0, harvests: 0, favorite: 0,
+  ballBest: 0, comboBest: 0, flares: 0, moths: 0, fish: 0, mirror: 0, selfPlay: 0,
 };
 
 export interface PetStats {
@@ -96,6 +115,8 @@ export interface PetStats {
   snowmen: number;
   /** 揭晓每日签文的次数（一天最多一次）。 */
   fortunes: number;
+  /** v1.18：自娱开场的轮数（一次「让她自己玩」记一轮，不管玩的是哪件）。 */
+  selfPlay: number;
 }
 
 export const EMPTY_STATS: PetStats = {
@@ -103,7 +124,7 @@ export const EMPTY_STATS: PetStats = {
   boxes: 0, lasers: 0, brushes: 0, catnips: 0, planes: 0,
   scratches: 0, bells: 0, mice: 0, moles: 0, hugs: 0, purrs: 0, rains: 0, quests: 0,
   tails: 0, kneads: 0, rolls: 0, books: 0, gifts: 0,
-  wishes: 0, hopscotch: 0, snowmen: 0, fortunes: 0,
+  wishes: 0, hopscotch: 0, snowmen: 0, fortunes: 0, selfPlay: 0,
 };
 
 export interface AchievementDef {
@@ -145,6 +166,12 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: "hide-seeker", title: "躲猫猫高手", line: "三次都被你找到了…再来一局" },
   { id: "garden-keeper", title: "薄荷园丁", line: "第二茬薄荷，也长好了" },
   { id: "true-favorite", title: "本命认定", line: "玩来玩去，还是它最好" },
+  { id: "ball-rhythm", title: "皮球节奏", line: "咚、咚、咚…我连到五下啦" },
+  { id: "full-rundown", title: "全套演完", line: "从招手到鞠躬，一步都没漏" },
+  { id: "lantern-keeper", title: "点灯的人", line: "夜里亮着的，都是我先看见的" },
+  { id: "fish-feast", title: "小鱼满篓", line: "五条了…今晚加餐！" },
+  { id: "mirror-friend", title: "镜中好友", line: "她跟我说了十二次悄悄话" },
+  { id: "solo-player", title: "自娱自乐", line: "我一个人，也能玩得很开心" },
 ];
 
 export function achievementById(id: string): AchievementDef | null {
@@ -193,6 +220,14 @@ export function newlyUnlocked(
   if (extras.hides >= 3) hits.push("hide-seeker");
   if (extras.harvests >= 2) hits.push("garden-keeper");
   if (extras.favorite >= 8) hits.push("true-favorite");
+  // v1.18 自娱：best 型看峰值、total 型看累计；`moths`（赶走的飞蛾）刻意不进任何门槛——
+  // 它是顺手做的事，不是玩出来的名堂。
+  if (extras.ballBest >= 5) hits.push("ball-rhythm");
+  if (extras.comboBest >= COMBO_STEPS.length) hits.push("full-rundown");
+  if (extras.flares >= 10) hits.push("lantern-keeper");
+  if (extras.fish >= 5) hits.push("fish-feast");
+  if (extras.mirror >= 12) hits.push("mirror-friend");
+  if (extras.selfPlay >= 5) hits.push("solo-player");
   return hits.filter((id) => !done.has(id));
 }
 
@@ -233,6 +268,7 @@ export function parseStats(raw: unknown): PetStats {
     hopscotch: count(obj.hopscotch),
     snowmen: count(obj.snowmen),
     fortunes: count(obj.fortunes),
+    selfPlay: count(obj.selfPlay),
   };
 }
 
@@ -277,11 +313,13 @@ export function buildAchievementOps(
     || id === "scratch-art" || id === "hug-lover" || id === "purr-engine"
     || id === "tail-chaser" || id === "knead-master" || id === "gift-opener"
     || id === "hide-seeker" || id === "true-favorite"
+    || id === "ball-rhythm" || id === "mirror-friend"
     ? ROSE
     : id === "seven-days" || id === "catnip-high" || id === "rain-listener"
       || id === "daily-perfect" || id === "mole-master" || id === "bookworm"
       || id === "hopscotch-pro" || id === "fortune-fan"
       || id === "treasure-hunter" || id === "garden-keeper"
+      || id === "lantern-keeper" || id === "fish-feast" || id === "solo-player"
       ? GREEN
       : ACCENT;
   ops.push({ kind: "fillEllipse", fill: withAlpha(tone, 0.96 * alpha), cx: x, cy: y - r * 0.15, rx: r * 1.05, ry: r * 1.05 });

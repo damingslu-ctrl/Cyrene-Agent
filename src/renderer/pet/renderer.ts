@@ -336,6 +336,66 @@ import {
 } from "./girl-fortune";
 import { buildPurrOps } from "./girl-purr";
 import {
+  BALL_MS,
+  BALL_PERIOD_MS,
+  ballAge,
+  ballAlive,
+  ballAt,
+  ballAtPoint,
+  buildBallOps,
+  createBall,
+  patBall,
+  type BallState,
+} from "./girl-ball";
+import {
+  COMBO_MS,
+  COMBO_STEPS,
+  buildComboOps,
+  comboAge,
+  comboAlive,
+  comboApplaud,
+  comboStepAt,
+  createCombo,
+  type ComboState,
+} from "./girl-combo";
+import {
+  LANTERN_MS,
+  buildLanternOps,
+  createLantern,
+  flareLantern,
+  lanternAge,
+  lanternAlive,
+  lanternFlameAt,
+  lanternGlow,
+  mothAt,
+  type LanternState,
+} from "./girl-lantern";
+import {
+  FISH_MS,
+  buildFishingOps,
+  createFishing,
+  fishAge,
+  fishBobberAt,
+  fishPhaseAt,
+  fishingAlive,
+  reelFish,
+  type FishingState,
+} from "./girl-fishing";
+import {
+  MIRROR_MS,
+  buildMirrorOps,
+  copyFace,
+  createMirror,
+  mirrorAge,
+  mirrorAlive,
+  mirrorFaceAt,
+  mirrorRectAt,
+  type MirrorState,
+} from "./girl-mirror";
+import { createSfxBudget, planSfx, sfxAllow, type SfxBudget, type SfxEvent } from "./girl-sfx";
+import type { SfxSink } from "./girl-sfx-audio";
+import { EMPTY_SOLO } from "../../shared/pet-solo";
+import {
   HIDE_COVER_MS, HIDE_FOUND_MS, HIDE_MISS_MS, HIDE_PEEK_MS,
   buildHideOps, createHide, hidePhase, tapHide, type HideState,
 } from "./girl-hide";
@@ -387,6 +447,12 @@ const DRAW_FAULT_LOG_EVERY_MS = 10_000;
 
 /** 深夜提醒询问引擎的节拍。诊断把「距下一拍」报出去，验收才能卡点喂伪时钟。 */
 const NIGHT_NUDGE_POLL_MS = 30_000;
+
+/**
+ * 自娱声音的总输出增益。菜单只给开关（`sfxEnabled`），不给音量条：
+ * 桌宠的声是「有人在旁边」的提示，不是播放器，一档定死比让用户找不到旋钮更省心。
+ */
+const SFX_OUTPUT_VOLUME = 0.5;
 
 export class PixelPetRenderer {
   private readonly ctx: CanvasRenderingContext2D;
@@ -599,6 +665,30 @@ export class PixelPetRenderer {
   private hide: HideState | null = null;
   /** 落空那句话只报一次（探头窗口走完那一拍），之后只剩 fade 记号。 */
   private hideMissReported = false;
+  /**
+   * v1.18 自娱五件：她自己找乐子，用户的手只是「拍子」。都挤独演槽
+   * （一件开演就把前面几件清掉），记账与说话一律走 engine.soloStart/soloDone。
+   */
+  private ball: BallState | null = null;
+  private combo: ComboState | null = null;
+  private lantern: LanternState | null = null;
+  private fishing: FishingState | null = null;
+  private mirror: MirrorState | null = null;
+  /** 落地拍只认「周期号进了新的一格」：重画与踩点点击都不许把同一拍发出两声。 */
+  private ballBeatCycle = 0;
+  /** 节目单当前演到第几格；换格才起手势、才出声，同一格里重画不许重启。 */
+  private comboSegment = -1;
+  /** 已经报过几条鱼：escaped 只在自己涨上去的那一拍出声。 */
+  private fishEscaped = 0;
+  /**
+   * 声音输出缝：main.ts 注入 WebAudio 出口，测试注入记账桩。
+   * null＝没接出口（一切静默，played 恒 0）；enabled 是用户在菜单里的总开关。
+   */
+  private sfxSink: SfxSink | null = null;
+  private sfxEnabled = true;
+  private sfxBudget: SfxBudget = createSfxBudget(0);
+  private sfxPlayed = 0;
+  private sfxBlocked = 0;
   /** 走路留下的爪印（屏幕坐标，窗口搬走时留在桌布上）。 */
   private prints: PawMark[] = [];
   private lastPrintAt = 0;
@@ -755,6 +845,41 @@ export class PixelPetRenderer {
   setUserActive(active: boolean): void {
     this.userActive = active;
     this.engine?.setUserActive(active);
+  }
+
+  /**
+   * 发声层（v1.18）：渲染端只决定「该响什么」，怎么响交给外部——
+   * 真窗里是 WebAudio，测试里是一个记账的假 sink。传 null 就是把话筒摘了。
+   */
+  setSfxSink(sink: SfxSink | null): void {
+    this.sfxSink = sink;
+  }
+
+  /**
+   * 菜单「声音」那一勾。翻转时不用等重启、也不用重新起玩具：
+   * 闸门每声都过，下一拍落地就响（或从此不响）。
+   */
+  setSfxEnabled(enabled: boolean): void {
+    this.sfxEnabled = enabled;
+  }
+
+  /**
+   * 出一声。三重闸门任一不过就只++计数不出声：免打扰/取消勾选是用户的话，
+   * 同窗限流是保护耳朵，空谱是纯函数判死（NaN 音量、未知事件）。
+   * 声音永远不许把渲染器带崩，所以这里一处 `try` 也不设——谱是纯的，sink 只管播。
+   */
+  private emitSfx(event: SfxEvent, now: number, step = 0): void {
+    if (!this.sfxSink || !this.sfxEnabled || this.quiet) {
+      this.sfxBlocked += 1;
+      return;
+    }
+    const notes = planSfx(event, { volume: SFX_OUTPUT_VOLUME, muted: false, step });
+    if (notes.length === 0 || !sfxAllow(this.sfxBudget, event, now)) {
+      this.sfxBlocked += 1;
+      return;
+    }
+    this.sfxPlayed += 1;
+    this.sfxSink.play(event, notes);
   }
 
   /**
@@ -922,6 +1047,27 @@ export class PixelPetRenderer {
       else if (command === "hopscotch") this.startHopscotch(now);
       else if (command === "snow") this.startSnow(now);
       else this.startFortune(now);
+      return;
+    }
+    if (command === "ball" || command === "combo" || command === "lantern"
+      || command === "fishing" || command === "mirror") {
+      // v1.18 自娱：这五件不是手势命令（不借 GESTURE_COMMANDS 那条路），
+      // 起不起、说什么、记不记账全在引擎的 soloStart 里。
+      const now = performance.now();
+      if (command === "ball") this.startBall(now);
+      else if (command === "combo") this.startCombo(now);
+      else if (command === "lantern") this.startLantern(now);
+      else if (command === "fishing") this.startFishing(now);
+      else this.startMirror(now);
+      return;
+    }
+    if (command === "solo") {
+      // 「她自娱到哪了」只念账：不动玩具、不清场、不替她重来一局。
+      const now = performance.now();
+      if (this.engine?.selfPlayReportNow(now)) {
+        this.engine.save();
+        if (!this.paused) this.draw(now);
+      }
       return;
     }
     const trickId = trickFromCommand(command);
@@ -1144,6 +1290,24 @@ export class PixelPetRenderer {
       piles: Array<{ x: number; y: number; w: number; h: number }>;
     } | null;
     fortune: { x: number; y: number; tier: number; revealed: boolean; phase: string; left: number } | null;
+    /**
+     * v1.18.0 自娱五件：读数即命中靶（探针与点击共用同一拍坐标）。
+     * `lantern` 的 `x/y` 是**灯芯**不是灯身——点灯是拍一下火苗的事。
+     */
+    ball: { x: number; y: number; r: number; bounces: number; drops: number; streak: number; best: number; left: number } | null;
+    combo: { step: number; steps: number; claps: number; streak: number; best: number; left: number } | null;
+    lantern: { x: number; y: number; glow: number; moth: { x: number; y: number }; flares: number; scares: number; left: number } | null;
+    fishing: { x: number; y: number; r: number; phase: string; catches: number; misses: number; escaped: number; left: number } | null;
+    mirror: {
+      x: number; y: number; w: number; h: number;
+      /** 当前正在做的那张脸；null＝换脸的当口（此时点镜子＝没接上）。 */
+      expression: string | null;
+      matched: number; streak: number; best: number; left: number;
+    } | null;
+    /** 自娱账本原样搬出：探针不许自己按零件重算总分。 */
+    solo: CompanionSnapshot["solo"];
+    /** 发声台账：`blocked` 把「闸门吞了」和「根本没连 sink」合成一个数，验收只认 played 与 enabled。 */
+    sfx: { enabled: boolean; played: number; blocked: number };
     /** v1.17.0：心情/本命/小把戏/小口袋/薄荷盆/躲猫猫的读数口（都来自引擎快照）。 */
     mood: string;
     favorite: CompanionSnapshot["favorite"];
@@ -1473,6 +1637,59 @@ export class PixelPetRenderer {
         hideDiag = { phase, left: Math.max(0, until - now) };
       }
     }
+    // v1.18 自娱五件：读数走的是与绘制、命中同一套纯函数，探针点的就是这一拍的坐标。
+    let ballDiag: { x: number; y: number; r: number; bounces: number; drops: number; streak: number; best: number; left: number } | null = null;
+    if (this.ball && ballAlive(this.ball, now)) {
+      const p = ballAt(this.ball, now, face, floorY);
+      ballDiag = {
+        x: p.x, y: p.y, r: p.r,
+        bounces: this.ball.bounces, drops: this.ball.drops,
+        streak: this.ball.streak, best: this.ball.best,
+        left: Math.max(0, BALL_MS - ballAge(this.ball, now)),
+      };
+    }
+    let comboDiag: { step: number; steps: number; claps: number; streak: number; best: number; left: number } | null = null;
+    if (this.combo && comboAlive(this.combo, now)) {
+      comboDiag = {
+        step: comboStepAt(this.combo, now)?.index ?? COMBO_STEPS.length,
+        steps: COMBO_STEPS.length,
+        claps: this.combo.claps, streak: this.combo.streak, best: this.combo.best,
+        left: Math.max(0, COMBO_MS - comboAge(this.combo, now)),
+      };
+    }
+    let lanternDiag: { x: number; y: number; glow: number; moth: { x: number; y: number }; flares: number; scares: number; left: number } | null = null;
+    if (this.lantern && lanternAlive(this.lantern, now)) {
+      const flame = lanternFlameAt(this.lantern, now, face, floorY);
+      const moth = mothAt(this.lantern, now, face, floorY);
+      lanternDiag = {
+        x: flame.x, y: flame.y, glow: lanternGlow(this.lantern, now),
+        moth: { x: moth.x, y: moth.y },
+        flares: this.lantern.flares, scares: this.lantern.scares,
+        left: Math.max(0, LANTERN_MS - lanternAge(this.lantern, now)),
+      };
+    }
+    let fishingDiag: { x: number; y: number; r: number; phase: string; catches: number; misses: number; escaped: number; left: number } | null = null;
+    if (this.fishing && fishingAlive(this.fishing, now)) {
+      const bob = fishBobberAt(this.fishing, now, face, floorY);
+      fishingDiag = {
+        x: bob.x, y: bob.y, r: bob.r, phase: fishPhaseAt(this.fishing, now),
+        catches: this.fishing.catches, misses: this.fishing.misses, escaped: this.fishing.escaped,
+        left: Math.max(0, FISH_MS - fishAge(this.fishing, now)),
+      };
+    }
+    let mirrorDiag: {
+      x: number; y: number; w: number; h: number; expression: string | null;
+      matched: number; streak: number; best: number; left: number;
+    } | null = null;
+    if (this.mirror && mirrorAlive(this.mirror, now)) {
+      const glass = mirrorRectAt(this.mirror, now, face, floorY);
+      mirrorDiag = {
+        x: glass.x, y: glass.y, w: glass.w, h: glass.h,
+        expression: mirrorFaceAt(this.mirror, now)?.expression ?? null,
+        matched: this.mirror.matched, streak: this.mirror.streak, best: this.mirror.best,
+        left: Math.max(0, MIRROR_MS - mirrorAge(this.mirror, now)),
+      };
+    }
     return {
       presence: { ...this.presencePose },
       noticeAgeMs: this.noticeAt < 0 ? -1 : now - this.noticeAt,
@@ -1569,6 +1786,13 @@ export class PixelPetRenderer {
       hopscotch: hopDiag,
       snow: snowDiag,
       fortune: fortuneDiag,
+      ball: ballDiag,
+      combo: comboDiag,
+      lantern: lanternDiag,
+      fishing: fishingDiag,
+      mirror: mirrorDiag,
+      solo: snapshot?.solo ?? { ...EMPTY_SOLO, seen: [] },
+      sfx: { enabled: this.sfxEnabled, played: this.sfxPlayed, blocked: this.sfxBlocked },
       mood: snapshot?.moodId ?? "lively",
       favorite: snapshot?.favorite ?? null,
       tricks: snapshot ? tricksLearned(snapshot.tricks) : 0,
@@ -1964,6 +2188,15 @@ export class PixelPetRenderer {
     this.fortuneToday = null;
     this.hide = null;
     this.hideMissReported = false;
+    // v1.18 自娱五件：被顶掉的那一轮不结算——自己玩到一半被打断，不该记成「玩成了」。
+    this.ball = null;
+    this.combo = null;
+    this.lantern = null;
+    this.fishing = null;
+    this.mirror = null;
+    this.ballBeatCycle = 0;
+    this.comboSegment = -1;
+    this.fishEscaped = 0;
   }
 
   /** 本地闸门（安静/拖拽/睡着/被抛）；引擎另有更细的闸（眩晕/活动中）。 */
@@ -2205,6 +2438,61 @@ export class PixelPetRenderer {
     this.clearSoloToys();
     this.fortuneToday = today;
     this.fortune = createFortune(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  /**
+   * v1.18 自娱：起一件之前先问引擎（安静/睡着/被拖/被抛/眩晕都不接）。
+   * 开场白由 `soloStart` 说一句，渲染端不另起一条嘴——起球那句和「拍起来」的
+   * 收场白共用同一个闸门，多写一遍就会把前一句顶掉。
+   */
+  private startBall(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.soloStart("ball", now)) return false;
+    this.clearSoloToys();
+    this.ball = createBall(now);
+    this.ballBeatCycle = 0;
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startCombo(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.soloStart("combo", now)) return false;
+    this.clearSoloToys();
+    this.combo = createCombo(now);
+    // -1 = 还没演过任何一格：第一帧就把第一步的手势抬起来，不许空站一拍。
+    this.comboSegment = -1;
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startLantern(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.soloStart("lantern", now)) return false;
+    this.clearSoloToys();
+    this.lantern = createLantern(now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startFishing(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.soloStart("fishing", now)) return false;
+    this.clearSoloToys();
+    this.fishing = createFishing(now);
+    this.fishEscaped = 0;
+    this.emitSfx("cast", now);
+    if (!this.paused) this.draw(now);
+    return true;
+  }
+
+  private startMirror(now: number): boolean {
+    if (!this.soloToyAllowed()) return false;
+    if (this.engine && !this.engine.soloStart("mirror", now)) return false;
+    this.clearSoloToys();
+    this.mirror = createMirror(now);
     if (!this.paused) this.draw(now);
     return true;
   }
@@ -2623,6 +2911,115 @@ export class PixelPetRenderer {
     return buildHideOps(this.hide, now, face);
   }
 
+  /**
+   * 拍皮球：球自己按周期落，落地那一拍响一声。
+   * 声音只认「周期号进了一格」——同一拍里重画五次也只是一声，踩点的回响交给冷却。
+   * 一整轮走完把峰值连击交给引擎；被顶掉的那一轮在 clearSoloToys 里静默作废。
+   */
+  private tickBall(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.ball) {
+      this.ball = null;
+      return [];
+    }
+    if (!ballAlive(this.ball, now)) {
+      const best = this.ball.best;
+      this.ball = null;
+      this.ballBeatCycle = 0;
+      this.engine?.soloDone("ball", best, now);
+      return [];
+    }
+    const cycle = Math.floor(ballAge(this.ball, now) / BALL_PERIOD_MS);
+    if (cycle > this.ballBeatCycle) {
+      this.ballBeatCycle = cycle;
+      this.emitSfx("bounce", now);
+    }
+    return buildBallOps(this.ball, now, face, this.cat.center.y);
+  }
+
+  /**
+   * 节目单：一格一步，换格才把手势抬上去、才敲一拍。
+   * 这里直接写 `explicitGesture` 而不是调 `playGesture`——后者会当场重绘，
+   * 而绘制的这一帧里我又在推进节目单，那就是自己叫自己。
+   */
+  private tickCombo(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.combo) {
+      this.combo = null;
+      this.comboSegment = -1;
+      return [];
+    }
+    if (!comboAlive(this.combo, now)) {
+      const best = this.combo.best;
+      this.combo = null;
+      this.comboSegment = -1;
+      this.engine?.soloDone("combo", best, now);
+      return [];
+    }
+    const seg = comboStepAt(this.combo, now);
+    if (seg && seg.index !== this.comboSegment) {
+      this.comboSegment = seg.index;
+      this.explicitGesture = { id: seg.step.gesture, startedAt: now };
+      // 一格比一格高半音是「节目在往上走」的听觉记号；谢幕那一拍不参与升调。
+      if (seg.index >= COMBO_STEPS.length) this.emitSfx("combo-final", now);
+      else this.emitSfx("combo-step", now, seg.index);
+    }
+    return buildComboOps(this.combo, now, face, this.cat.center.y);
+  }
+
+  /** 夜灯：火光自己呼吸，蛾子绕着转。一轮走完只把「点亮的次数」入账，蛾子另有账。 */
+  private tickLantern(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.lantern) {
+      this.lantern = null;
+      return [];
+    }
+    if (!lanternAlive(this.lantern, now)) {
+      const flares = this.lantern.flares;
+      this.lantern = null;
+      this.engine?.soloDone("lantern", flares, now);
+      return [];
+    }
+    return buildLanternOps(this.lantern, now, face, this.cat.center.y);
+  }
+
+  /**
+   * 钓鱼：咬钩窗口没人伸手就是一条跑鱼。`buildFishingOps` 每帧推进一次状态，
+   * 跑鱼数也只在这里涨——出声认的是「它涨了」这个沿，不是某一帧。
+   */
+  private tickFishing(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.fishing) {
+      this.fishing = null;
+      this.fishEscaped = 0;
+      return [];
+    }
+    if (!fishingAlive(this.fishing, now)) {
+      const catches = this.fishing.catches;
+      this.fishing = null;
+      this.fishEscaped = 0;
+      this.engine?.soloDone("fishing", catches, now);
+      return [];
+    }
+    const ops = buildFishingOps(this.fishing, now, face, this.cat.center.y);
+    if (this.fishing.escaped > this.fishEscaped) {
+      this.fishEscaped = this.fishing.escaped;
+      this.emitSfx("escape", now);
+    }
+    return ops;
+  }
+
+  /** 照镜子：镜里一张一张换脸，一轮按「接住了几张」入账。 */
+  private tickMirror(now: number, face: ReturnType<typeof girlFaceBox>): DrawOp[] {
+    if (this.form !== "girl" || !this.mirror) {
+      this.mirror = null;
+      return [];
+    }
+    if (!mirrorAlive(this.mirror, now)) {
+      const matched = this.mirror.matched;
+      this.mirror = null;
+      this.engine?.soloDone("mirror", matched, now);
+      return [];
+    }
+    return buildMirrorOps(this.mirror, now, face, this.cat.center.y);
+  }
+
   /** 呼噜的计时在引擎里：这里只按剩余毫秒画声纹，不另存一份。 */
   private tickPurr(now: number, face: ReturnType<typeof girlFaceBox>, snapshot: CompanionSnapshot | null): DrawOp[] {
     if (this.form !== "girl") return [];
@@ -2679,6 +3076,12 @@ export class PixelPetRenderer {
       // v1.17 薄荷盆长在脚边；躲猫猫的记号在脸上，都压在旧道具之上。
       ...this.tickGarden(now, face, snapshot),
       ...this.tickHide(now, face),
+      // v1.18 自娱五件：她自己的玩意儿压在旧道具之上（互斥由 clearSoloToys 保证，同屏只有一件）。
+      ...this.tickBall(now, face),
+      ...this.tickCombo(now, face),
+      ...this.tickLantern(now, face),
+      ...this.tickFishing(now, face),
+      ...this.tickMirror(now, face),
       // 纸箱压在所有道具之上：她钻进去时箱身必须挡住整个人。
       ...this.tickBox(now, face),
     ];
@@ -3089,6 +3492,8 @@ export class PixelPetRenderer {
       || this.tail !== null || this.knead !== null || this.roll !== null
       || this.book !== null || this.gift !== null || this.wish !== null
       || this.hop !== null || this.fortune !== null
+      || this.ball !== null || this.combo !== null || this.lantern !== null
+      || this.fishing !== null || this.mirror !== null
       || this.snack !== null || this.critter !== null || this.follow !== null;
   }
 
@@ -3236,6 +3641,9 @@ export class PixelPetRenderer {
       || this.tail !== null || this.knead !== null || this.roll !== null
       || this.book !== null || this.gift !== null || this.wish !== null
       || this.hop !== null || this.snow !== null || this.fortune !== null
+      // v1.18 自娱：皮球一拍 820ms、咬钩窗口 900ms——留在 4fps 档会直接错过拍子。
+      || this.ball !== null || this.combo !== null || this.lantern !== null
+      || this.fishing !== null || this.mirror !== null
       || (snapshot !== null && snapshot.purrLeft > 0)
       || (snapshot !== null && snapshot.achievementLeft > 0)
     );
@@ -3634,6 +4042,60 @@ export class PixelPetRenderer {
     // 尤其纸箱整只盖住脚边的球，球却先被点中过一次（v1.11 真窗探针 O1 抓到）。
     const tapFacing = this.cat.facing ?? 1;
     const tapFloorY = this.cat.center.y;
+    // v1.18 自娱五件画在旧玩具之上：命中也走在前面。判「这一下是不是冲着她那件玩意儿」
+    // 用几何，判「拍没拍到」交给各自的纯函数——冷却里被吞掉的那一下不许穿过去摸到她。
+    if (this.mirror && mirrorAlive(this.mirror, now)) {
+      const glass = mirrorRectAt(this.mirror, now, tapFace, tapFloorY);
+      if (dx >= glass.x - 3 && dx <= glass.x + glass.w + 3 && dy >= glass.y - 3 && dy <= glass.y + glass.h + 3) {
+        const copy = copyFace(this.mirror, now, tapFace, tapFloorY, dx, dy);
+        if (copy === "match") this.emitSfx("match", now, this.mirror.matched);
+        else if (copy === "wrong") this.emitSfx("wrong", now);
+        if (!this.paused) this.draw(now);
+        return;
+      }
+    }
+    if (this.fishing && fishingAlive(this.fishing, now)) {
+      const bob = fishBobberAt(this.fishing, now, tapFace, tapFloorY);
+      if (Math.hypot(dx - bob.x, dy - bob.y) <= bob.r + 5) {
+        const reel = reelFish(this.fishing, now, tapFace, tapFloorY, dx, dy);
+        if (reel === "catch") this.emitSfx("catch", now, this.fishing.catches);
+        else if (reel === "nibble") this.emitSfx("nibble", now);
+        else if (reel === "empty") this.emitSfx("empty", now, this.fishing.misses);
+        if (!this.paused) this.draw(now);
+        return;
+      }
+    }
+    if (this.lantern && lanternAlive(this.lantern, now)) {
+      const flame = lanternFlameAt(this.lantern, now, tapFace, tapFloorY);
+      const moth = mothAt(this.lantern, now, tapFace, tapFloorY);
+      if (Math.hypot(dx - flame.x, dy - flame.y) <= flame.r + 6
+        || Math.hypot(dx - moth.x, dy - moth.y) <= 7) {
+        const touch = flareLantern(this.lantern, now, tapFace, tapFloorY, dx, dy);
+        if (touch === "flare") this.emitSfx("flare", now, this.lantern.flares);
+        else if (touch === "moth") {
+          this.emitSfx("moth", now);
+          // 吓跑一只当场进账：它绕回来还得再吓，蛾子这一笔不参与「点了几回灯」。
+          this.engine?.soloScare(now);
+        }
+        if (!this.paused) this.draw(now);
+        return;
+      }
+    }
+    if (this.combo && comboAlive(this.combo, now)) {
+      // 节目在演的时候，台下的手掌不分落点：点哪儿都算拍一下（拍早了只算催她）。
+      const seg = comboStepAt(this.combo, now);
+      const clap = comboApplaud(this.combo, now);
+      if (clap === "clap") this.emitSfx("combo-step", now, seg?.index ?? 0);
+      if (!this.paused) this.draw(now);
+      return;
+    }
+    if (this.ball && ballAlive(this.ball, now) && ballAtPoint(this.ball, now, tapFace, tapFloorY, dx, dy)) {
+      const pat = patBall(this.ball, now, tapFace, tapFloorY, dx, dy);
+      if (pat === "hit") this.emitSfx("bounce", now);
+      else if (pat === "off") this.emitSfx("pat-off", now, this.ball.drops);
+      if (!this.paused) this.draw(now);
+      return;
+    }
     // v1.13.0 九件新玩具画在抱抱与旧玩具之上：命中按绘制倒序，最上层先判。
     // 签纸挂在脸侧、星子浮在头顶、书在胸前——都落在 hugAtPoint 的大椭圆里，
     // 不先拦下来，点星子会被读成「再抱一下」。

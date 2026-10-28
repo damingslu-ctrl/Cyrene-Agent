@@ -2,6 +2,7 @@ import "./ui/theme";
 import { CONSOLE_PREFIX } from "../shared/brand";
 import { PixelPetRenderer } from "./pet/renderer";
 import { ClickThroughController } from "./pet/click-through";
+import { browserAudioContext, createSfxAudioOutput } from "./pet/girl-sfx-audio";
 
 const canvas = document.getElementById("pet-canvas") as HTMLCanvasElement;
 if (!canvas) throw new Error("Canvas #pet-canvas not found");
@@ -38,6 +39,7 @@ let petZoomOff: (() => void) | null = null;
 let petVisibilityOff: (() => void) | null = null;
 let quietChangedOff: (() => void) | null = null;
 let tuckChangedOff: (() => void) | null = null;
+let sfxChangedOff: (() => void) | null = null;
 let geometryChangedOff: (() => void) | null = null;
 let petCommandOff: (() => void) | null = null;
 let workStatusOff: (() => void) | null = null;
@@ -132,7 +134,10 @@ const renderer = new PixelPetRenderer({
     // 几何基线起帧拉一次。null = 主端还没窗——不许兜底拼一份假基线：
     // 状态机没有基线就不跑（没窗本就没有猫）。
     void window.verge?.getPetGeometry().then((geo) => {
-      if (geo) renderer.syncGeometry(geo);
+      if (!geo) return;
+      renderer.syncGeometry(geo);
+      // 声音开关搭在同一次 invoke 上回来：boot 只认盘上的值，不另开一条通道。
+      renderer.setSfxEnabled(geo.sfxEnabled);
     }).catch(() => { /* 拉不到基线：藏身不启动，不影响猫本身画出来 */ });
     geometryChangedOff = window.verge?.onPetGeometryChanged(({ bounds, workArea }) => {
       // display-metrics-changed 主端重夹取后的推送：渲染端跟着重建 catOrigin，
@@ -141,6 +146,9 @@ const renderer = new PixelPetRenderer({
     }) ?? null;
     tuckChangedOff = window.verge?.onTuckChanged(({ tuckEnabled }) => {
       renderer.setTuckEnabled(tuckEnabled);
+    }) ?? null;
+    sfxChangedOff = window.verge?.onSfxChanged(({ sfxEnabled }) => {
+      renderer.setSfxEnabled(sfxEnabled);
     }) ?? null;
     // 右键菜单的互动动作（摸摸/喂/玩/睡/状态）：菜单在主端，执行权在渲染端。
     petCommandOff = window.verge?.onPetCommand((command) => {
@@ -202,6 +210,11 @@ const renderer = new PixelPetRenderer({
     console.error(`${CONSOLE_PREFIX} Failed to init pixel pet renderer:`, err);
   },
 });
+
+// v1.18 自娱的声音：渲染端只决定「该响什么」，怎么响交给这个出口。
+// 上下文是惰性建的（第一次真手势才 unlock），猫出生时不许抢占音频设备。
+const sfxOutput = createSfxAudioOutput(browserAudioContext);
+renderer.setSfxSink(sfxOutput);
 
 renderer.init();
 
@@ -274,6 +287,8 @@ window.addEventListener("beforeunload", () => {
   quietChangedOff = null;
   tuckChangedOff?.();
   tuckChangedOff = null;
+  sfxChangedOff?.();
+  sfxChangedOff = null;
   geometryChangedOff?.();
   geometryChangedOff = null;
   petCommandOff?.();
@@ -282,6 +297,7 @@ window.addEventListener("beforeunload", () => {
   workStatusOff = null;
   profileOff?.();
   profileOff = null;
+  renderer.setSfxSink(null);
   renderer.dispose();
   for (const off of disposers) off();
   disposers.length = 0;
@@ -545,6 +561,9 @@ addTrackedEventListener(canvas, "pointerleave", () => {
 });
 
 addTrackedEventListener(canvas, "pointerdown", (e) => {
+  // 音频上下文要等一次真手势才允许起来（浏览器不给没有手势的页面出声）。
+  // 放在按钮判断之前：右键也是用户动的手，解锁不分左右。
+  sfxOutput.unlock();
   const event = e as PointerEvent;
   // 只认左键：右键是「安静半小时」的手势，不能被拖窗顺手吃掉。
   if (event.button !== 0) return;

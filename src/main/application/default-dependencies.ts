@@ -284,6 +284,9 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
   // tuck 开关收口（Task 12）：与 quiet 同构——菜单与 VERGE_SET_TUCK 共用一条广播，
   // 「取消勾选立刻回位且不再藏」要求渲染端即时收到新值，不许等重启。
   let onVergeTuckStateChange: ((enabled: boolean) => void) | null = null;
+  // 声音开关收口（v1.18）：与 tuck 同构，但写路径只有宠物窗菜单一条（没有渲染端 invoke），
+  // 所以这里只需要「菜单 → 广播」的方向；渲染端起帧时从 getPetGeometry 的快照拉当下值。
+  let onVergeSfxStateChange: ((enabled: boolean) => void) | null = null;
   // 自动压缩与 CHATS_COMPACT 必须共享同一个会话级压缩器，避免两条路径各自组装 provider。
   const getTranscriptCompactor = createTranscriptCompactorGetter(() =>
     createModelBackedConversationTranscriptCompactor({
@@ -574,6 +577,13 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
             if (!win.isDestroyed()) win.webContents.send(IPC.VERGE_TUCK_CHANGED, { tuckEnabled: enabled });
           }
         };
+        // 声音开关变更的唯一收口（applyTuckState 同构）：只有菜单一条写路径，
+        // 但落盘与广播仍要成对——只写盘的话，取消勾选后要等下次重启她才真的闭嘴。
+        const applySfxState = (enabled: boolean): void => {
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) win.webContents.send(IPC.VERGE_SFX_CHANGED, { sfxEnabled: enabled });
+          }
+        };
         // 启动即重排：盘上若躺着未来截止（含重启验收的 now+5000），进程一起来
         // 自醒钟就到位——不依赖下一次 toggle 才排上定时器。
         quietClock.rearm();
@@ -592,6 +602,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
             quit: () => app.quit(),
             onQuietStateChange: applyQuietState,
             onTuckStateChange: (enabled) => onVergeTuckStateChange?.(enabled),
+            onSfxStateChange: (enabled) => onVergeSfxStateChange?.(enabled),
             onProfileStateChange: (form, tier) => applyProfileState(form, tier),
             onPetCommand: (command) => {
               if (!win.isDestroyed()) win.webContents.send(IPC.VERGE_PET_COMMAND, command);
@@ -607,6 +618,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         };
         onVergeQuietStateChange = applyQuietState;
         onVergeTuckStateChange = applyTuckState;
+        onVergeSfxStateChange = applySfxState;
         shutdown.register({
           id: "verge-quiet-clock",
           phase: "stopLocalResources",
@@ -910,6 +922,9 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
             workArea,
             tuckEnabled: state.tuckEnabled,
             tuckHinted: state.tuckHinted,
+            // v1.18 声音开关搭在几何基线上一起回：渲染端起帧只 invoke 一次，
+            // 不为一个布尔再开一条 invoke 通道（改值另有 VERGE_SFX_CHANGED 下行）。
+            sfxEnabled: state.sfxEnabled,
             // native main.rs:5648 的同一个开关：--tuck-probe 把藏身阈值缩到 2.5s，
             // 让屏幕验收在几秒内拍到藏身；阈值权威在主端，渲染端只消费。
             tuckLimit: process.argv.includes("--tuck-probe") ? TUCK_PROBE_IDLE_SECS : TUCK_IDLE_SECS,

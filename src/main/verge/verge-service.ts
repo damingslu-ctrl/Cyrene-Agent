@@ -9,6 +9,8 @@ export interface VergeService {
   setQuietUntil(until: number | null): void;
   setTuckEnabled(enabled: boolean): void;
   markTuckHinted(): void;
+  /** v1.18：音效开关（落盘；广播由装配层的 applySfxState 收口）。 */
+  setSfxEnabled(enabled: boolean): void;
   /** v1.5.0：形态与档位（落盘；广播由装配层的 applyProfileState 收口）。 */
   setForm(form: PetForm): void;
   setTier(tier: SizeTier): void;
@@ -29,6 +31,7 @@ export function createVergeService(userDataDir: string): VergeService {
     setQuietUntil: (until) => { state = { ...state, quietUntil: until }; persist(); },
     setTuckEnabled: (enabled) => { state = { ...state, tuckEnabled: enabled }; persist(); },
     markTuckHinted: () => { state = { ...state, tuckHinted: true }; persist(); },
+    setSfxEnabled: (enabled) => { state = { ...state, sfxEnabled: enabled }; persist(); },
     setForm: (form) => { state = { ...state, form }; persist(); },
     setTier: (tier) => { state = { ...state, tier }; persist(); },
   };

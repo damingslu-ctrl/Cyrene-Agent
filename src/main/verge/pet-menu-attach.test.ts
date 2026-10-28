@@ -36,17 +36,23 @@ import { BrowserWindow } from "electron";
 import { attachPetContextMenu } from "./pet-menu";
 import type { VergeService } from "./verge-service";
 
-/** 有账的 service mock：quietUntil/tuckEnabled 的读写都被记录。 */
-function makeService(initial: { quietUntil: number | null; tuckEnabled: boolean }): VergeService & {
+/** 有账的 service mock：quietUntil/tuckEnabled/sfxEnabled 的读写都被记录。 */
+function makeService(initial: { quietUntil: number | null; tuckEnabled: boolean; sfxEnabled?: boolean }): VergeService & {
   writes: Array<{ quietUntil: number | null }>;
   tuckWrites: boolean[];
+  sfxWrites: boolean[];
 } {
   const writes: Array<{ quietUntil: number | null }> = [];
   const tuckWrites: boolean[] = [];
-  let state = { ...initial, tuckHinted: false, form: "cat" as const, tier: "standard" as const };
+  const sfxWrites: boolean[] = [];
+  let state = {
+    ...initial, sfxEnabled: initial.sfxEnabled ?? true,
+    tuckHinted: false, form: "cat" as const, tier: "standard" as const,
+  };
   return {
     writes,
     tuckWrites,
+    sfxWrites,
     getSnapshot: vi.fn(() => ({ module: "verge", ready: true, statePath: "", quietUntil: state.quietUntil })),
     getState: vi.fn(() => ({ ...state })),
     setQuietUntil: vi.fn((until) => {
@@ -56,6 +62,10 @@ function makeService(initial: { quietUntil: number | null; tuckEnabled: boolean 
     setTuckEnabled: vi.fn((enabled) => {
       tuckWrites.push(enabled);
       state = { ...state, tuckEnabled: enabled };
+    }),
+    setSfxEnabled: vi.fn((enabled) => {
+      sfxWrites.push(enabled);
+      state = { ...state, sfxEnabled: enabled };
     }),
     markTuckHinted: vi.fn(),
     setForm: vi.fn((form: "cat" | "girl") => { state = { ...state, form }; }),
@@ -72,6 +82,7 @@ function rightClick(
   onPetCommand = vi.fn(),
   openNetworkPanel = vi.fn(),
   onProfileStateChange = vi.fn(),
+  onSfxStateChange = vi.fn(),
 ) {
   const win = new BrowserWindow() as unknown as BrowserWindow & { isDestroyed: () => boolean };
   attachPetContextMenu({
@@ -80,6 +91,7 @@ function rightClick(
     quit,
     onQuietStateChange,
     onTuckStateChange,
+    onSfxStateChange,
     onPetCommand,
     openNetworkPanel,
     onProfileStateChange,
@@ -94,6 +106,7 @@ function rightClick(
     win,
     onQuietStateChange,
     onTuckStateChange,
+    onSfxStateChange,
     onPetCommand,
     openNetworkPanel,
   };
@@ -112,11 +125,11 @@ beforeEach(() => {
 });
 
 describe("attachPetContextMenu", () => {
-  it("右键弹出互动 + 安静 + 形态/身形 + 窗口动作共 59 项（两条分隔线）", () => {
+  it("右键弹出互动 + 安静 + 形态/身形 + 窗口动作共 66 项（两条分隔线）", () => {
     const { template, popup } = rightClick(makeService({ quietUntil: null, tuckEnabled: true }));
     const labels = template.filter((entry) => entry.type !== "separator").map((entry) => entry.label);
     expect(labels).toEqual([
-      "安静半小时", "取消安静", "贴边藏身",
+      "安静半小时", "取消安静", "贴边藏身", "给她配上声音",
       "摸摸头", "喂小鱼干", "陪它玩", "哄它睡觉", "它现在怎么样",
       "给她打扮", "放只小虫逗逗她", "陪她散散步",
       "挥挥逗猫棒", "吹一串泡泡", "撒一把落叶", "跟我来", "猜拳",
@@ -128,6 +141,7 @@ describe("attachPetContextMenu", () => {
       "今天心情如何", "她最喜欢哪件玩具", "教她点小把戏", "教过的小把戏",
       "闻闻有什么好东西", "看看她的小口袋", "来玩躲猫猫",
       "种一盆猫薄荷", "看看薄荷盆", "收薄荷",
+      "让她拍皮球", "让她演全套", "让她点夜灯", "让她钓条鱼", "让她照镜子", "她自娱到哪了",
       "让它做个动作",
       "打开网络面板",
       "形象：像素猫", "形象：猫娘",
@@ -207,6 +221,24 @@ describe("attachPetContextMenu", () => {
     expect(quit).toHaveBeenCalledOnce();
   });
 
+  it("点「给她配上声音」翻转并走 sfx 收口广播新值；不碰 quiet/tuck 的盘", () => {
+    const service = makeService({ quietUntil: null, tuckEnabled: true, sfxEnabled: true });
+    const { template, onSfxStateChange } = rightClick(service);
+    // 勾从 service 的当下值来，不是硬编码：关掉再点一次看得见。
+    expect(itemByLabel(template, "给她配上声音")).toMatchObject({ type: "checkbox", checked: true });
+    itemByLabel(template, "给她配上声音").click?.();
+    expect(service.sfxWrites).toEqual([false]);
+    // 与 tuck 同构：落盘只是半件事，另一半是把新值广播上屏（渲染端的声音闸门只认这条）。
+    expect(onSfxStateChange.mock.calls).toEqual([[false]]);
+    const again = rightClick(service);
+    expect(itemByLabel(again.template, "给她配上声音")).toMatchObject({ type: "checkbox", checked: false });
+    itemByLabel(again.template, "给她配上声音").click?.();
+    expect(service.sfxWrites).toEqual([false, true]);
+    expect(again.onSfxStateChange.mock.calls).toEqual([[true]]);
+    expect(service.writes).toEqual([]);
+    expect(service.tuckWrites).toEqual([]);
+  });
+
   it("点「隐藏」就地收窗（hide 走 BrowserWindow，不穿 IPC）", () => {
     const service = makeService({ quietUntil: null, tuckEnabled: true });
     const { template, win } = rightClick(service);
@@ -216,9 +248,9 @@ describe("attachPetContextMenu", () => {
     expect(hide).toHaveBeenCalledOnce();
   });
 
-  it("三十七条互动各送一条命令、网络项唤起主窗：不写盘也不惊动 quiet/tuck 收口", () => {
+  it("四十三条互动各送一条命令、网络项唤起主窗：不写盘也不惊动 quiet/tuck/sfx 收口", () => {
     const service = makeService({ quietUntil: null, tuckEnabled: true });
-    const { template, onPetCommand, openNetworkPanel, onQuietStateChange, onTuckStateChange } = rightClick(service);
+    const { template, onPetCommand, openNetworkPanel, onQuietStateChange, onTuckStateChange, onSfxStateChange } = rightClick(service);
     const cases: Array<[string, string]> = [
       ["摸摸头", "pet"],
       ["喂小鱼干", "feed"],
@@ -253,6 +285,12 @@ describe("attachPetContextMenu", () => {
       ["种一盆猫薄荷", "garden-plant"],
       ["看看薄荷盆", "garden"],
       ["收薄荷", "garden-harvest"],
+      ["让她拍皮球", "ball"],
+      ["让她演全套", "combo"],
+      ["让她点夜灯", "lantern"],
+      ["让她钓条鱼", "fishing"],
+      ["让她照镜子", "mirror"],
+      ["她自娱到哪了", "solo"],
     ];
     for (const [label, command] of cases) itemByLabel(template, label).click?.();
     const trickChildren = itemByLabel(template, "教她点小把戏").submenu as Array<Record<string, unknown>>;
@@ -263,11 +301,13 @@ describe("attachPetContextMenu", () => {
     ]);
     itemByLabel(template, "打开网络面板").click?.();
     expect(openNetworkPanel).toHaveBeenCalledOnce();
-    // 互动只是转发意图：菜单不持有宠物状态，更不许顺手改安静/藏身。
+    // 互动只是转发意图：菜单不持有宠物状态，更不许顺手改安静/藏身/声音。
     expect(onQuietStateChange).not.toHaveBeenCalled();
     expect(onTuckStateChange).not.toHaveBeenCalled();
+    expect(onSfxStateChange).not.toHaveBeenCalled();
     expect(service.writes).toEqual([]);
     expect(service.tuckWrites).toEqual([]);
+    expect(service.sfxWrites).toEqual([]);
   });
 
   it("隐藏/退出不误发宠物命令，也不打开网络面板", () => {

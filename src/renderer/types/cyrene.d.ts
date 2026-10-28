@@ -45,6 +45,8 @@ declare global {
         workArea: { x: number; y: number; width: number; height: number };
         tuckEnabled: boolean;
         tuckHinted: boolean;
+        /** v1.18：声音开关随几何基线一起回（改值走 onSfxChanged）。 */
+        sfxEnabled: boolean;
         tuckLimit: number;
       } | null>;
       /** main → 渲染端：display-metrics-changed 重夹取后推新 bounds + workArea。 */
@@ -56,6 +58,8 @@ declare global {
       ): () => void;
       /** main → 渲染端：tuck 开关变更（菜单与 IPC 双路经收口闸口后统一广播）。 */
       onTuckChanged(callback: (payload: { tuckEnabled: boolean }) => void): () => void;
+      /** main → 渲染端：声音开关变更（右键菜单那一勾经收口后广播）。 */
+      onSfxChanged(callback: (payload: { sfxEnabled: boolean }) => void): () => void;
       /** 渲染端 → main：第一次藏身开口说过 TUCK_HINT，落盘 tuckHinted，不再重说。 */
       tuckHinted(): void;
       /** 主窗侧边栏「网络」页：读/写本机 mihomo 控制面。 */

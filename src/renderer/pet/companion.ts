@@ -80,6 +80,20 @@ import {
   type GardenState,
 } from "./girl-garden";
 import { HIDE_COVER_MS, HIDE_PEEK_MS } from "./girl-hide";
+import {
+  EMPTY_SOLO,
+  buildSoloReport,
+  isSoloKind,
+  parseSolo,
+  soloEndLine,
+  soloMarkSeen,
+  soloScore as scoreSolo,
+  soloScare as scareSolo,
+  soloStartLine,
+  SOLO_GESTURES,
+  type SoloKind,
+  type SoloLedger,
+} from "../../shared/pet-solo";
 import { judgeRps, RPS_SIGNS, type RpsOutcome, type RpsSign } from "../../shared/pet-rps";
 import { PURR_MS } from "./girl-purr";
 import { RAIN_MS } from "./girl-rain";
@@ -250,6 +264,8 @@ export interface CompanionSnapshot {
   gardenStage: GardenStage;
   /** 躲猫猫逮到的次数（跨重启）。 */
   hides: number;
+  /** v1.18 自娱账本（副本：渲染端改不动她的真账）。 */
+  solo: SoloLedger;
 }
 
 export interface CompanionOptions {
@@ -850,6 +866,8 @@ export class CompanionEngine {
   private treasures: TreasureState = createTreasures();
   private garden: GardenState = createGarden();
   private hides = 0;
+  /** v1.18 自娱账本：五件的峰值/累计 + 玩过的件数。 */
+  private solo: SoloLedger = { ...EMPTY_SOLO, seen: [] };
   /** 躲猫猫开局后等渲染端回报「逮到/溜走」；没有开局就不认账。 */
   private hideOpen = false;
   private hideStartedAt = 0;
@@ -2001,6 +2019,72 @@ export class CompanionEngine {
   }
 
   /**
+   * v1.18 自娱：开场只登记「这件玩过」并摆出那件玩具的起手姿势，分数留给渲染端
+   * 在玩具真演完时回报。四足/安静/睡着都不接——她不会自己玩这些。
+   */
+  soloStart(kind: SoloKind, now = this.now()): boolean {
+    if (!isSoloKind(kind) || !this.toyReady(now)) return false;
+    soloMarkSeen(this.solo, kind);
+    this.saveBond();
+    this.happyUntil = Math.max(this.happyUntil, now + 2_400);
+    const gesture = SOLO_GESTURES[kind];
+    this.ambientGesture = gesture;
+    this.gestureUntil = now + gestureClip(gesture).ms;
+    // 开场句挤不进气泡只是少一句话，玩具该演还是得演（与 boxStart/hideStart 同口径）：
+    // 渲染端认这个返回值决定挂不挂玩具，返回 say 的成败会留下「姿态已摆、玩具却没出现」的半截态。
+    this.say(soloStartLine(kind), 1, now, true);
+    return true;
+  }
+
+  /** 演一段报一次数：best 型抬峰值、total 型累加；不认识的档一律 null。 */
+  soloScore(kind: SoloKind, value: number, now = this.now()): number | null {
+    if (!isSoloKind(kind) || !this.toyReady(now)) return null;
+    const next = scoreSolo(this.solo, kind, value);
+    this.saveBond();
+    this.refreshAchievements(now);
+    return next;
+  }
+
+  /** 点灯时顺手赶走一只飞蛾：只进 `moths`，不进战果、不进成就，也不另起一句话。 */
+  soloScare(now = this.now()): number | null {
+    if (!this.toyReady(now)) return null;
+    const total = scareSolo(this.solo);
+    this.saveBond();
+    return total;
+  }
+
+  /**
+   * 一轮玩完的收账。空手回来（`result <= 0`）只补一句、不改口粮：不涨亲密度、
+   * 不记今日陪玩、更不算「自娱一次」，否则成就门槛会被一轮失败喂出来。
+   */
+  soloDone(kind: SoloKind, result: number, now = this.now()): boolean {
+    if (!isSoloKind(kind) || !this.toyReady(now)) return false;
+    soloMarkSeen(this.solo, kind);
+    const scored = Number.isFinite(result) && result > 0;
+    let value = 0;
+    if (scored) {
+      value = scoreSolo(this.solo, kind, result);
+      this.stats.selfPlay += 1;
+      this.rewardAffinity(0.012, now);
+      // 先滚一天再记今日陪玩：noteQuest 跨天时会把 dayCounts 清零，反过来写就把刚记的那次冲掉。
+      this.noteQuest("play", now);
+      this.dayCounts.toys += 1;
+      this.happyUntil = Math.max(this.happyUntil, now + 2_600);
+    }
+    this.saveBond();
+    this.refreshAchievements(now);
+    this.say(soloEndLine(kind, value), 1, now, true);
+    return scored;
+  }
+
+  /** 「她自娱到哪了」：只读账本，三行封顶（气泡内宽 78px）。 */
+  selfPlayReportNow(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    this.lastUserAt = now;
+    return this.say(buildSoloReport(this.solo).join("\n"), 2, now, true);
+  }
+
+  /**
    * 成长记录：不说数值细节，只说「认识多久、什么档、拿了几枚」。
    * 三行——气泡内宽只有 78px（v1.8 尺 #62），徽章与互动数各占一行，不折行。
    */
@@ -2060,6 +2144,7 @@ export class CompanionEngine {
       gardenAge: this.garden.plantedAt >= 0 ? Math.max(0, this.wallNow() - this.garden.plantedAt) : -1,
       gardenStage: gardenStage(this.garden, this.wallNow()),
       hides: this.hides,
+      solo: { ...this.solo, seen: [...this.solo.seen] },
     };
   }
 
@@ -2428,6 +2513,7 @@ export class CompanionEngine {
           treasures?: unknown;
           garden?: unknown;
           hides?: unknown;
+          solo?: unknown;
         };
         found = true;
         if (typeof parsed?.metAt === "number" && Number.isFinite(parsed.metAt) && parsed.metAt > 0) {
@@ -2464,6 +2550,7 @@ export class CompanionEngine {
         this.tricks = parseTricks(parsed.tricks);
         this.treasures = parseTreasures(parsed.treasures);
         this.garden = parseGarden(parsed.garden);
+        this.solo = parseSolo(parsed.solo);
         if (typeof parsed.hides === "number" && Number.isFinite(parsed.hides) && parsed.hides > 0) {
           this.hides = Math.min(1_000_000, Math.floor(parsed.hides));
         }
@@ -2507,6 +2594,7 @@ export class CompanionEngine {
         treasures: this.treasures,
         garden: this.garden,
         hides: this.hides,
+        solo: this.solo,
       }));
     } catch {
       // 同 save：写不进去只影响「第几天」，不影响本次行为。
@@ -2579,6 +2667,13 @@ export class CompanionEngine {
       hides: this.hides,
       harvests: this.garden.harvests,
       favorite: contested,
+      ballBest: this.solo.ballBest,
+      comboBest: this.solo.comboBest,
+      flares: this.solo.flares,
+      moths: this.solo.moths,
+      fish: this.solo.fish,
+      mirror: this.solo.mirror,
+      selfPlay: this.stats.selfPlay,
     };
   }
 
