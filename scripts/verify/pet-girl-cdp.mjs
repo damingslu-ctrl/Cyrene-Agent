@@ -48,6 +48,10 @@
 // - v1.17 日常系统：心情/本命/小把戏/小口袋/薄荷盆/躲猫猫六列读数与引擎快照同源；击掌教三次
 //   学会并当场落盘；五本账报告各说一句；嗅一件进小口袋；薄荷盆种下后脚边真的多出一点绿、
 //   未熟收不了；躲猫猫捂眼点＝太早、探头点中＝逮到（hides+1 落盘）、第二轮没人点只报一次落空。
+// - v1.19「她的一天」：`clock`/`festival` 两张嘴的句子按源码表认（报时三行、节日两行/三行）；
+//   黄昏那枚记号画在窗角、点它＝一起看天（skies.sunset+1、看完即收、回执同一句），点别处不算；
+//   圣诞节头上多一枚蓝星挂饰（同一块头侧区域的像素 A/B）且账本 festive-day 解锁；
+//   23:40 人走开满三分钟自己睡（月亮记号随之收掉），05:00 自己伸懒腰醒来（日出记号亮起）。
 // 任一条不成立就红；环境问题（没窗/没墨）报 ENV，不冒充产品红。
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -423,6 +427,97 @@ function sourceAchievementCount() {
 const FIRST_CATCH_LINE = sourceAchievementLine("first-catch");
 const FIRST_WAND_LINE = sourceAchievementLine("first-wand");
 const ACHIEVEMENT_COUNT = sourceAchievementCount();
+
+/**
+ * v1.19 她的一天：时辰表、天色台词、节日表、窗角记号的位置全从源码读。
+ * 探针只负责「拨表 → 按表算期望」，不另抄一份标签/句子——改词就会一起红。
+ */
+function sourcePhaseTable() {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/girl-clock.ts"), "utf8");
+  const body = src.match(/export const PHASES[^=]*=\s*\[([\s\S]*?)\]\s*as const/)?.[1];
+  if (!body) throw new Error("[ENV] 读不出 PHASES：时辰表没处核对，先看源码");
+  return [...body.matchAll(/phase:\s*"(\w+)",\s*label:\s*"([^"]+)",\s*fromMinute:\s*([\d\s*+]+),\s*sky:\s*(?:null|"(\w+)")/g)]
+    .map((m) => ({
+      phase: m[1],
+      label: m[2],
+      // `5 * 60` 这种算式按乘号拆开算，不拿 eval 开洞。
+      fromMinute: m[3].split("*").reduce((acc, part) => acc * Number(part.trim()), 1),
+      sky: m[4] ?? null,
+    }));
+}
+
+function sourceSkyLines() {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/girl-clock.ts"), "utf8");
+  const body = src.match(/const SKY_LINES[^=]*=\s*\{([\s\S]*?)\};/)?.[1];
+  if (!body) throw new Error("[ENV] 读不出 SKY_LINES：天色台词没处核对，先看源码");
+  return Object.fromEntries(
+    [...body.matchAll(/(\w+):\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => [m[1], JSON.parse(`"${m[2]}"`)]),
+  );
+}
+
+function sourceFestivals() {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/girl-festival.ts"), "utf8");
+  const body = src.match(/export const FESTIVALS[^=]*=\s*\[([\s\S]*?)\]\s*as const/)?.[1];
+  if (!body) throw new Error("[ENV] 读不出 FESTIVALS：节日表没处核对，先看源码");
+  return [...body.matchAll(
+    /\{\s*id:\s*"([\w-]+)",\s*month:\s*(\d+),\s*day:\s*(\d+),\s*label:\s*"([^"]+)",\s*line:\s*"([^"]+)",\s*ornament:\s*"(\w+)"/g,
+  )].map((m) => ({
+    id: m[1], month: Number(m[2]), day: Number(m[3]), label: m[4], line: m[5], ornament: m[6],
+  }));
+}
+
+/** 窗角那枚记号的位置：命中的点必须落在真画出来的那枚上。 */
+function sourceSkyMark() {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/girl-day-art.ts"), "utf8");
+  const body = src.match(/export const SKY_MARK[^=]*=\s*\{([\s\S]*?)\};/)?.[1];
+  if (!body) throw new Error("[ENV] 读不出 SKY_MARK：天色记号没处核对，先看源码");
+  return Object.fromEntries([...body.matchAll(/(\w+):\s*(-?[\d.]+)/g)].map((m) => [m[1], Number(m[2])]));
+}
+
+/** 两张汇报嘴的模板：固定字从引擎源码抄，时刻/节日/天数由探针按上面几张表算。 */
+function sourceReportTemplates() {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/companion.ts"), "utf8");
+  const clock = src.match(/`([^`]*\$\{clockLine\(wall\)\}[^`]*)`/)?.[1];
+  const plain = src.match(/`([^`]*今天不是节日[^`]*)`/)?.[1];
+  const today = src.match(/`([^`]*今天是 \$\{today\.label\}[^`]*)`/)?.[1];
+  if (!clock || !plain || !today) throw new Error("[ENV] 读不出报时/节日模板：验收句子没处核对，先看源码");
+  // 源码里的 `\n` 是字面量，气泡里的是真换行。
+  const unesc = (text) => text.replace(/\\n/g, "\n");
+  return { clock: unesc(clock), plain: unesc(plain), today: unesc(today) };
+}
+
+const PHASES = sourcePhaseTable();
+const SKY_LINES = sourceSkyLines();
+const FESTIVALS = sourceFestivals();
+const SKY_MARK = sourceSkyMark();
+const REPORT_TPL = sourceReportTemplates();
+
+const phaseOfMinute = (minute) => PHASES.reduce((acc, p) => (minute >= p.fromMinute ? p : acc), PHASES[0]);
+const clockLineOf = (wallMs) => {
+  const d = new Date(wallMs);
+  const minute = d.getHours() * 60 + d.getMinutes();
+  return `${phaseOfMinute(minute).label} · ${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+};
+const festivalOnOf = (wallMs) => {
+  const d = new Date(wallMs);
+  return FESTIVALS.find((f) => f.month === d.getMonth() + 1 && f.day === d.getDate()) ?? null;
+};
+/** 严格在「今天之后」的第一个节日：按日历逐日找，不调用产品的 nextFestival。 */
+const nextFestivalOf = (wallMs) => {
+  const d = new Date(wallMs);
+  const start = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  for (let day = 1; day <= 370; day += 1) {
+    const t = new Date(start + day * 86_400_000);
+    const hit = FESTIVALS.find((f) => f.month === t.getUTCMonth() + 1 && f.day === t.getUTCDate());
+    if (hit) return { def: hit, days: day };
+  }
+  throw new Error("[ENV] 一年内找不到下一个节日：节日表坏了");
+};
+const fillReport = (tpl, vars) => tpl.replace(/\$\{([^}]+)\}/g, (whole, expr) => {
+  const key = expr.trim();
+  if (!(key in vars)) throw new Error(`[ENV] 汇报模板里出现没约定的量 ${key}：先从源码补断言`);
+  return String(vars[key]);
+});
 
 /** 当前在展示的徽章台词（没在展示＝null）：用来认「徽章按设计压过了玩具句」。 */
 function shownAchievementLine(girl) {
@@ -4051,6 +4146,346 @@ async function main() {
       && reloadPre.achievements.includes("ball-rhythm"),
       `after=${JSON.stringify(gReload.achievements)} before=${JSON.stringify(reloadPre.achievements)}`);
     await shot("girl-solo-v118.png");
+  }
+
+  // —— T. v1.19「她的一天」：窗角天色记号 / 一起看天 / 节日挂饰 / 自己睡 / 自己醒 ——
+  // 判据全部按源码表算：拨到黄昏看角落那枚落日（玫瑰像素）、点它只看一次（账本+台词+记号收掉）、
+  // 节日挂饰按同一块头侧区域做像素 A/B、23:41 人走开满三分钟自己睡（月亮记号随之收掉）、
+  // 05:00 自己伸懒腰醒来（日出记号亮起且没被记成「看过」）。
+  // 整段只在页面里拨 Date.now（引擎的壁钟），行为秒表 performance.now 不动。
+  {
+    results.v119 = {};
+    const bondNow = () => evaluate(s, `(() => {
+      try { return JSON.parse(localStorage.getItem("cyrene.pet.bond.v1") ?? "null"); } catch { return null; }
+    })()`);
+    const setWall = (ms) => evaluate(s, `(() => {
+      if (typeof window.__realDateNowV119 !== "function") window.__realDateNowV119 = Date.now;
+      Date.now = () => ${Math.round(ms)};
+      return Date.now();
+    })()`);
+    const restoreWall = () => evaluate(s, `(() => {
+      if (typeof window.__realDateNowV119 === "function") {
+        Date.now = window.__realDateNowV119;
+        delete window.__realDateNowV119;
+      }
+      return Date.now();
+    })()`);
+    const settle = async (frames = 2) => {
+      for (let i = 0; i < frames; i += 1) { await forceFrame(); await wait(110); }
+    };
+    /**
+     * 窗角那枚记号：先画一帧再数（气泡换宽会把画布清成透明），只认两族颜色——
+     * 玫瑰（日轮）与强调蓝（月亮/地平线）。Zzz 是奶油墨，不进这两族，别把睡脸算成记号。
+     */
+    const cornerCount = () => evaluate(s, `(() => {
+      window.__cyrene.renderer.draw(performance.now());
+      const d = window.__cyrene.getPetDiagnostics();
+      const c = document.getElementById("pet-canvas");
+      if (!c) return { rose: 0, blue: 0, scale: 0 };
+      const ctx = c.getContext("2d", { willReadFrequently: true });
+      const scale = (c.width / Math.max(1, c.clientWidth)) * ((d.layout && d.layout.zoom) || 1);
+      const x0 = Math.max(0, Math.floor((${SKY_MARK.x} - 8) * scale));
+      const x1 = Math.min(c.width, Math.ceil((${SKY_MARK.x} + 9) * scale));
+      const y0 = Math.max(0, Math.floor((${SKY_MARK.y} - 7) * scale));
+      const y1 = Math.min(c.height, Math.ceil((${SKY_MARK.y} + 8) * scale));
+      const data = ctx.getImageData(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0)).data;
+      let rose = 0, blue = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+        if (a > 120 && r > 200 && g > 70 && g < 200 && b > 95 && b < 215) rose += 1;
+        if (a > 120 && b > 150 && b - r > 55 && b - g > 40) blue += 1;
+      }
+      return { rose, blue, scale: +scale.toFixed(2), box: [x0, y0, x1 - x0, y1 - y0] };
+    })()`);
+    /** 头侧挂饰那一小块：脸框 / 朝向 / 半径都按 girl-day-art 的同一条算式现算。 */
+    const headBlue = () => evaluate(s, `(() => {
+      window.__cyrene.renderer.draw(performance.now());
+      const d = window.__cyrene.getPetDiagnostics();
+      const snap = window.__cyrene.renderer.getCompanionSnapshot();
+      const face = d.girl && d.girl.face;
+      if (!face) return { blue: 0, face: null };
+      const c = document.getElementById("pet-canvas");
+      if (!c) return { blue: 0, face };
+      const ctx = c.getContext("2d", { willReadFrequently: true });
+      const scale = (c.width / Math.max(1, c.clientWidth)) * ((d.layout && d.layout.zoom) || 1);
+      const facing = (snap && snap.facing) ?? 1;
+      const r = Math.max(2.8, face.w * 0.15);
+      const cx = face.cx - facing * face.w * 0.56;
+      const cy = face.top + face.h * 0.1;
+      const x0 = Math.max(0, Math.floor((cx - r * 1.9) * scale));
+      const x1 = Math.min(c.width, Math.ceil((cx + r * 1.9) * scale));
+      const y0 = Math.max(0, Math.floor((cy - r * 1.9) * scale));
+      const y1 = Math.min(c.height, Math.ceil((cy + r * 1.9) * scale));
+      const data = ctx.getImageData(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0)).data;
+      let blue = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const rr = data[i], gg = data[i + 1], bb = data[i + 2], aa = data[i + 3];
+        if (aa > 120 && bb > 150 && bb - rr > 55 && bb - gg > 40) blue += 1;
+      }
+      return { blue, facing, cx: +cx.toFixed(2), cy: +cy.toFixed(2), r: +r.toFixed(2), scale: +scale.toFixed(2) };
+    })()`);
+
+    const t0 = await diag();
+    if (!t0.girl?.clock) {
+      throw new Error(`[ENV] 诊断里没有 girl.clock（拿到 ${JSON.stringify(t0.girl?.clock ?? null)}）：旧构建，不是产品红`);
+    }
+    results.v119.diag = { clock: t0.girl.clock, checkInMs: t0.girl.clockCheckInMs };
+    const quietNow = await evaluate(s, `window.__cyrene.renderer.quiet === true`);
+    check("v119.diag", typeof t0.girl.clockCheckInMs === "number"
+      && t0.girl.clockCheckInMs >= 0 && t0.girl.clockCheckInMs <= 30_000,
+      `clock=${JSON.stringify(t0.girl.clock)} checkInMs=${t0.girl.clockCheckInMs}`);
+    check("v119.not-quiet", quietNow === false, `renderer.quiet=${quietNow}`);
+    await awakeForPlay("v119");
+
+    // 挑三个「当天和次日都不是节日」的日子：黄昏 / 平常日 / 睡觉日各占一个。
+    const dayStart = (offset) => {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() + offset);
+      return d;
+    };
+    const atHour = (day, h, m) => {
+      const d = new Date(day.getTime());
+      d.setHours(h, m, 0, 0);
+      return d.getTime();
+    };
+    const goodDays = [];
+    for (let i = 1; i <= 60 && goodDays.length < 3; i += 1) {
+      const day = dayStart(i);
+      const next = dayStart(i + 1);
+      if (festivalOnOf(day.getTime()) === null && festivalOnOf(next.getTime()) === null) {
+        goodDays.push({ offset: i, day });
+      }
+    }
+    if (goodDays.length < 3) throw new Error("[ENV] 60 天里凑不出三个「当天和次日都不是节日」的日子：节日表坏了");
+    const duskAt = atHour(goodDays[0].day, 18, 20);
+    const plainAt = atHour(goodDays[1].day, 10, 0);
+    const sleepAt = atHour(goodDays[2].day, 23, 35);
+    const sleepLaterAt = atHour(goodDays[2].day, 23, 41);
+    const wakeAt = atHour(dayStart(goodDays[2].offset + 1), 5, 0) + 10_000;
+    // 圣诞节取「今天之后的下一个 12-25」：今年的已经过去了（含当天）就说明年，保证账本键是新的。
+    const todayMid = dayStart(0);
+    let xmasYear = todayMid.getFullYear();
+    let xmasDay = new Date(xmasYear, 11, 25, 0, 0, 0, 0);
+    if (xmasDay.getTime() <= todayMid.getTime()) {
+      xmasYear += 1;
+      xmasDay = new Date(xmasYear, 11, 25, 0, 0, 0, 0);
+    }
+    const xmasAt = atHour(xmasDay, 10, 0);
+    results.v119.walls = {
+      dusk: new Date(duskAt).toISOString(), plain: new Date(plainAt).toISOString(),
+      sleep: new Date(sleepAt).toISOString(), sleepLater: new Date(sleepLaterAt).toISOString(),
+      wake: new Date(wakeAt).toISOString(), xmas: new Date(xmasAt).toISOString(),
+    };
+
+    // T1 黄昏：角落亮起落日记号，报时那张嘴按源码模板对句子。
+    await dismissBubble();
+    await setWall(duskAt);
+    await settle(2);
+    const duskClock = (await diag()).girl.clock;
+    const duskMark = await cornerCount();
+    results.v119.dusk = { clock: duskClock, mark: duskMark };
+    check("v119.phase.dusk", duskClock?.phase === "dusk", `phase=${duskClock?.phase}`);
+    check("v119.sky.sunset", duskClock?.sky?.kind === "sunset", `sky=${JSON.stringify(duskClock?.sky ?? null)}`);
+    check("v119.sky.fresh", duskClock?.sky?.watched === false
+      && duskClock?.skies?.sunrise === 0 && duskClock?.skies?.sunset === 0 && duskClock?.skies?.moon === 0,
+      `sky=${JSON.stringify(duskClock?.sky ?? null)} skies=${JSON.stringify(duskClock?.skies ?? null)}`);
+    check("v119.festival.none", duskClock?.festival === null && duskClock?.autoSleep === false,
+      `festival=${JSON.stringify(duskClock?.festival ?? null)} autoSleep=${duskClock?.autoSleep}`);
+    check("v119.sky.mark", duskMark.rose >= 12, `corner=${JSON.stringify(duskMark)}`);
+    await shot("girl-day-sunset-mark.png");
+
+    const nextDusk = nextFestivalOf(duskAt);
+    await dismissBubble();
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("clock")`);
+    await wait(260);
+    const clockSnap = await snap();
+    const clockWant = fillReport(REPORT_TPL.clock, {
+      "clockLine(wall)": clockLineOf(duskAt),
+      "next.def.label": nextDusk.def.label,
+      "next.days": nextDusk.days,
+    });
+    results.v119.clockMouth = { got: clockSnap?.bubble?.text ?? null, want: clockWant };
+    check("v119.clock.mouth", clockSnap?.bubble?.text === clockWant,
+      `got=${JSON.stringify(clockSnap?.bubble?.text ?? null)} want=${JSON.stringify(clockWant)}`);
+
+    // T2 平常日：节日那张嘴报倒计时。
+    await dismissBubble();
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("festival")`);
+    await wait(260);
+    const plainSnap = await snap();
+    const plainWant = fillReport(REPORT_TPL.plain, {
+      "next.def.label": nextDusk.def.label,
+      "next.days": nextDusk.days,
+    });
+    results.v119.festivalPlain = { got: plainSnap?.bubble?.text ?? null, want: plainWant };
+    check("v119.festival.plain", plainSnap?.bubble?.text === plainWant,
+      `got=${JSON.stringify(plainSnap?.bubble?.text ?? null)} want=${JSON.stringify(plainWant)}`);
+
+    // T3 一起看天：点窗角那一枚 → 账本 +1、watched 翻真、回执就是天色那句、记号收掉。
+    // 重复点不会多记账（同一天同一场只看一次），所以躲猫猫之类抢掉的一手可以补点。
+    await dismissBubble();
+    await settle(1);
+    const zoomAtTap = (await diag()).layout.zoom;
+    let watchClock = null;
+    for (let i = 0; i < 3; i += 1) {
+      await tapAt(SKY_MARK.x * zoomAtTap, SKY_MARK.y * zoomAtTap);
+      await wait(260);
+      watchClock = (await diag()).girl.clock;
+      if (watchClock?.skies?.sunset === 1) break;
+    }
+    const watchSnap = await snap();
+    const markWatched = await cornerCount();
+    const bondWatched = await bondNow();
+    results.v119.watch = {
+      clock: watchClock, bubble: watchSnap?.bubble?.text ?? null, mark: markWatched,
+      disk: bondWatched?.skies ?? null, skyKey: bondWatched?.skyKey ?? null,
+    };
+    check("v119.watch.count", watchClock?.skies?.sunset === 1,
+      `skies=${JSON.stringify(watchClock?.skies ?? null)}`);
+    check("v119.watch.flag", watchClock?.sky?.kind === "sunset" && watchClock?.sky?.watched === true,
+      `sky=${JSON.stringify(watchClock?.sky ?? null)}`);
+    check("v119.watch.line", watchSnap?.bubble?.text === SKY_LINES.sunset,
+      `got=${JSON.stringify(watchSnap?.bubble?.text ?? null)} want=${JSON.stringify(SKY_LINES.sunset)}`);
+    check("v119.watch.mark-off", markWatched.rose <= 2, `corner=${JSON.stringify(markWatched)}`);
+    check("v119.watch.disk", bondWatched?.skies?.sunset === 1,
+      `disk=${JSON.stringify(bondWatched?.skies ?? null)}`);
+    await shot("girl-day-sunset-watched.png");
+
+    // T4 圣诞节：同一块头侧区域做像素 A/B（平常日 vs 圣诞），账本 +1、徽章 festive-day、报节日。
+    await dismissBubble();
+    await setWall(plainAt);
+    await settle(2);
+    const plainClock = (await diag()).girl.clock;
+    const headA = await headBlue();
+    await setWall(xmasAt);
+    await settle(2);
+    const xmasClock = (await diag()).girl.clock;
+    const headB = await headBlue();
+    await shot("girl-day-christmas.png");
+    const xmas = FESTIVALS.find((f) => f.id === "christmas");
+    results.v119.xmas = { plain: plainClock?.festival ?? null, xmas: xmasClock?.festival ?? null, headA, headB };
+    check("v119.ornament.diag", !!xmas && (plainClock?.festival ?? null) === null
+      && xmasClock?.festival?.id === "christmas"
+      && xmasClock?.festival?.label === xmas.label
+      && xmasClock?.festival?.ornament === xmas.ornament,
+      `plain=${JSON.stringify(plainClock?.festival ?? null)} xmas=${JSON.stringify(xmasClock?.festival ?? null)}`);
+    check("v119.ornament.pixels", headB.blue >= headA.blue + 8 && headB.blue >= 8,
+      `A=${headA.blue} B=${headB.blue} A@(${headA.cx},${headA.cy}) facing=${headA.facing} `
+      + `B@(${headB.cx},${headB.cy}) facing=${headB.facing}`);
+
+    const festivalsBase = t0.girl.clock.festivals;
+    const ledgerDeadline = Date.now() + 40_000;
+    let xmasLedger = null;
+    while (Date.now() < ledgerDeadline) {
+      await forceFrame();
+      const n = await snap();
+      xmasLedger = n?.clock ?? null;
+      if (xmasLedger?.festivals === festivalsBase + 1) break;
+      await wait(180);
+    }
+    const bondXmas = await bondNow();
+    results.v119.festivalLedger = { base: festivalsBase, clock: xmasLedger, disk: bondXmas?.festival ?? null };
+    check("v119.festival.ledger", xmasLedger?.festivals === festivalsBase + 1,
+      `base=${festivalsBase} now=${xmasLedger?.festivals}`);
+    check("v119.festival.disk", bondXmas?.festival?.count === festivalsBase + 1,
+      `disk=${JSON.stringify(bondXmas?.festival ?? null)} base=${festivalsBase}`);
+
+    // 徽章一次只弹一枚：走产品自己的判定函数把之前的欠账排空（festivalTick 用的同一条路）。
+    let festive = ((await diag()).girl.achievements ?? []).includes("festive-day");
+    let drained = 0;
+    while (!festive && drained < 24) {
+      const step = await evaluate(s, `(() => {
+        const engine = window.__cyrene.renderer?.engine;
+        if (!engine || typeof engine.refreshAchievements !== "function") return "no-engine";
+        engine.refreshAchievements(performance.now());
+        return "ok";
+      })()`);
+      if (step !== "ok") throw new Error("[ENV] refreshAchievements 不可达：" + step);
+      await forceFrame();
+      await wait(110);
+      drained += 1;
+      festive = ((await diag()).girl.achievements ?? []).includes("festive-day");
+    }
+    results.v119.achievement = { drained, festive, achievements: (await diag()).girl.achievements };
+    check("v119.festival.achievement", festive,
+      `drained=${drained} achievements=${JSON.stringify((await diag()).girl.achievements)}`);
+
+    await dismissBubble();
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("festival")`);
+    await wait(260);
+    const todaySnap = await snap();
+    const todayWant = fillReport(REPORT_TPL.today, { "today.label": xmas.label, "today.line": xmas.line });
+    results.v119.festivalToday = { got: todaySnap?.bubble?.text ?? null, want: todayWant };
+    check("v119.festival.today", todaySnap?.bubble?.text === todayWant,
+      `got=${JSON.stringify(todaySnap?.bubble?.text ?? null)} want=${JSON.stringify(todayWant)}`);
+
+    // T5 自己睡 / 自己醒：先把「上一次看见你」钉在 23:35（同一次求值里翻两下，不给帧插队），
+    // 再拨到 23:41——三分钟没人理，下一次时辰拍就该自己钻进被窝。
+    try {
+      await awakeForPlay("v119-night");
+      await dismissBubble();
+      await evaluate(s, `(() => {
+        if (typeof window.__realDateNowV119 !== "function") window.__realDateNowV119 = Date.now;
+        Date.now = () => ${Math.round(sleepAt)};
+        const r = window.__cyrene.renderer;
+        r.setUserActive(true);
+        r.setUserActive(false);
+        return true;
+      })()`);
+      await settle(2);
+      const nightClock = (await diag()).girl.clock;
+      const nightMark = await cornerCount();
+      results.v119.night = { clock: nightClock, mark: nightMark };
+      check("v119.night.moon", nightClock?.phase === "night" && nightClock?.sky?.kind === "moon"
+        && nightClock?.sky?.watched === false,
+        `phase=${nightClock?.phase} sky=${JSON.stringify(nightClock?.sky ?? null)}`);
+      check("v119.night.mark", nightMark.blue >= 8, `corner=${JSON.stringify(nightMark)}`);
+      await shot("girl-day-night.png");
+
+      await setWall(sleepLaterAt);
+      const sleepDeadline = Date.now() + 40_000;
+      let slept = null;
+      while (Date.now() < sleepDeadline) {
+        await forceFrame();
+        const n = await snap();
+        slept = { autoSleep: n?.clock?.autoSleep ?? null, activity: n?.activity ?? null };
+        if (slept.autoSleep === true && slept.activity === "sleep") break;
+        await wait(180);
+      }
+      const asleepMark = await cornerCount();
+      results.v119.autoSleep = { observed: slept, mark: asleepMark };
+      check("v119.autosleep", slept?.autoSleep === true && slept?.activity === "sleep",
+        `observed=${JSON.stringify(slept)}`);
+      check("v119.autosleep.mark-off", asleepMark.blue < 3 && asleepMark.rose < 3,
+        `corner=${JSON.stringify(asleepMark)}`);
+      await shot("girl-day-autosleep.png");
+
+      await setWall(wakeAt);
+      const wakeDeadline = Date.now() + 40_000;
+      let woke = null;
+      while (Date.now() < wakeDeadline) {
+        await forceFrame();
+        const n = await snap();
+        woke = { autoSleep: n?.clock?.autoSleep ?? null, activity: n?.activity ?? null };
+        if (woke.autoSleep === false && woke.activity !== "sleep") break;
+        await wait(180);
+      }
+      await settle(2);
+      const dawnClock = (await diag()).girl.clock;
+      const dawnMark = await cornerCount();
+      results.v119.autoWake = { observed: woke, clock: dawnClock, mark: dawnMark };
+      check("v119.autowake", woke?.autoSleep === false && woke?.activity !== "sleep",
+        `observed=${JSON.stringify(woke)}`);
+      check("v119.autowake.mark", dawnClock?.sky?.kind === "sunrise" && dawnMark.rose >= 10,
+        `sky=${JSON.stringify(dawnClock?.sky ?? null)} corner=${JSON.stringify(dawnMark)}`);
+      check("v119.sky.no-watch", dawnClock?.skies?.sunrise === 0 && dawnClock?.sky?.watched === false,
+        `skies=${JSON.stringify(dawnClock?.skies ?? null)} sky=${JSON.stringify(dawnClock?.sky ?? null)}`);
+      await shot("girl-day-dawn.png");
+    } finally {
+      // 拨过的表必须还回去：后面就算有检查红了，也不能把伪时间留给下一次读盘。
+      await restoreWall();
+    }
   }
 
   const failed = checks.filter((c) => !c.ok);
