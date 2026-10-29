@@ -53,6 +53,7 @@ describe("buildPetMenuItems", () => {
       "闻闻有什么好东西", "看看她的小口袋", "来玩躲猫猫",
       "种一盆猫薄荷", "看看薄荷盆", "收薄荷",
       "让她拍皮球", "让她演全套", "让她点夜灯", "让她钓条鱼", "让她照镜子", "她自娱到哪了",
+      "看看现在几点", "今天是节日吗",
       "让它做个动作",
       "打开网络面板",
       "形象：像素猫", "形象：猫娘",
@@ -77,6 +78,7 @@ describe("buildPetMenuItems", () => {
       treasure: () => {}, treasures: () => {}, hideSeek: () => {},
       gardenPlant: () => {}, garden: () => {}, gardenHarvest: () => {},
       ball: () => {}, combo: () => {}, lantern: () => {}, fishing: () => {}, mirror: () => {}, solo: () => {},
+      clock: () => {}, festival: () => {},
     });
     const girlItems = buildPetMenuItems(input({ form: "girl" }), {
       accessory: () => {}, critter: () => {}, wander: () => {},
@@ -90,6 +92,7 @@ describe("buildPetMenuItems", () => {
       treasure: () => {}, treasures: () => {}, hideSeek: () => {},
       gardenPlant: () => {}, garden: () => {}, gardenHarvest: () => {},
       ball: () => {}, combo: () => {}, lantern: () => {}, fishing: () => {}, mirror: () => {}, solo: () => {},
+      clock: () => {}, festival: () => {},
     });
     const find = (items: typeof catItems, label: string) => items.find((i) => i.label === label)!;
     for (const label of [
@@ -104,6 +107,7 @@ describe("buildPetMenuItems", () => {
       "闻闻有什么好东西", "看看她的小口袋", "来玩躲猫猫",
       "种一盆猫薄荷", "看看薄荷盆", "收薄荷",
       "让她拍皮球", "让她演全套", "让她点夜灯", "让她钓条鱼", "让她照镜子", "她自娱到哪了",
+      "看看现在几点", "今天是节日吗",
     ]) {
       expect(find(catItems, label).enabled, label).toBe(false);
       expect(find(girlItems, label).enabled, label).toBe(true);
@@ -166,6 +170,8 @@ describe("buildPetMenuItems", () => {
       fishing: () => sent.push("fishing"),
       mirror: () => sent.push("mirror"),
       solo: () => sent.push("solo"),
+      clock: () => sent.push("clock"),
+      festival: () => sent.push("festival"),
     });
     for (const child of items.find((i) => i.label === "给她打扮")!.submenu!) child.action?.();
     items.find((i) => i.label === "放只小虫逗逗她")!.action?.();
@@ -181,6 +187,7 @@ describe("buildPetMenuItems", () => {
       "教过的小把戏", "闻闻有什么好东西", "看看她的小口袋", "来玩躲猫猫",
       "种一盆猫薄荷", "看看薄荷盆", "收薄荷",
       "让她拍皮球", "让她演全套", "让她点夜灯", "让她钓条鱼", "让她照镜子", "她自娱到哪了",
+      "看看现在几点", "今天是节日吗",
     ]) {
       items.find((i) => i.label === label)!.action?.();
     }
@@ -198,6 +205,7 @@ describe("buildPetMenuItems", () => {
       "mood", "favorite", "tricks", "treasure", "treasures", "hide-seek",
       "garden-plant", "garden", "garden-harvest",
       "ball", "combo", "lantern", "fishing", "mirror", "solo",
+      "clock", "festival",
       "trick:high-five", "trick:spin", "trick:nod", "trick:shy",
       "rps:rock", "rps:scissors", "rps:paper",
     ]);

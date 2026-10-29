@@ -139,6 +139,9 @@ export interface PetMenuActions {
   fishing: () => void;
   mirror: () => void;
   solo: () => void;
+  /** v1.19.0：报时辰 / 报节日（只念账，不动她）。 */
+  clock: () => void;
+  festival: () => void;
   openNetwork: () => void;
   /** v1.5.0：形态与档位切换（落盘 + 广播在装配层，菜单只管发意图）。 */
   setForm: (form: PetForm) => void;
@@ -254,6 +257,9 @@ export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenu
     { label: "让她钓条鱼", enabled: input.form === "girl" && !!actions?.fishing, ...bind(actions?.fishing) },
     { label: "让她照镜子", enabled: input.form === "girl" && !!actions?.mirror, ...bind(actions?.mirror) },
     { label: "她自娱到哪了", enabled: input.form === "girl" && !!actions?.solo, ...bind(actions?.solo) },
+    // —— v1.19.0「她的一天」：报时辰与节日，同样只念账 ——
+    { label: "看看现在几点", enabled: input.form === "girl" && !!actions?.clock, ...bind(actions?.clock) },
+    { label: "今天是节日吗", enabled: input.form === "girl" && !!actions?.festival, ...bind(actions?.festival) },
     // 「让它做个动作」：只演一次手势，不改数值。放在互动组末尾，与喂/玩区分开。
     {
       label: "让它做个动作",
@@ -427,6 +433,8 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
         fishing: () => onPetCommand("fishing"),
         mirror: () => onPetCommand("mirror"),
         solo: () => onPetCommand("solo"),
+        clock: () => onPetCommand("clock"),
+        festival: () => onPetCommand("festival"),
         openNetwork: () => openNetworkPanel(),
         setForm: (form) => {
           service.setForm(form);

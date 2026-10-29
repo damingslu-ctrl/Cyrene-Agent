@@ -35,6 +35,8 @@ export type PetCommand =
    * 姿态的引用，不是「做个动作」那组的成员，混进去会被当成纯表演而不记账。
    */
   | "ball" | "combo" | "lantern" | "fishing" | "mirror" | "solo"
+  /** v1.19.0「她的一天」：报时辰 / 报节日。只有嘴，不动身体。 */
+  | "clock" | "festival"
   | TrickCommand
   | RpsCommand
   | AccessoryCommand;
@@ -55,6 +57,7 @@ const BASE_COMMANDS: ReadonlyArray<PetCommand> = [
   "mood", "favorite", "tricks", "treasure", "treasures", "hide-seek",
   "garden-plant", "garden", "garden-harvest",
   "ball", "combo", "lantern", "fishing", "mirror", "solo",
+  "clock", "festival",
 ];
 
 export const PET_COMMANDS: ReadonlyArray<PetCommand> = [

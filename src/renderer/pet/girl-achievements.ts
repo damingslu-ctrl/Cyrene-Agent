@@ -1,5 +1,5 @@
 /**
- * 三十八枚小成就。条件全部来自已经存在的计数器：不新增一套成长线，只在她做到某件事的
+ * 四十一枚小成就。条件全部来自已经存在的计数器：不新增一套成长线，只在她做到某件事的
  * 时候把这一刻记住（跨重启）。徽章只在解锁当场弹出 3.6 秒，之后收进存档。
  */
 import { ACCENT, GREEN, PAPER, ROSE, withAlpha } from "../../shared/pet-tokens";
@@ -19,6 +19,7 @@ export const ACHIEVEMENT_IDS = [
   "trick-master", "treasure-hunter", "hide-seeker", "garden-keeper", "true-favorite",
   "ball-rhythm", "full-rundown", "lantern-keeper", "fish-feast", "mirror-friend",
   "solo-player",
+  "dawn-watch", "moon-watch", "festive-day",
 ] as const;
 
 export type AchievementId = (typeof ACHIEVEMENT_IDS)[number];
@@ -53,11 +54,20 @@ export interface AchievementExtras {
   mirror: number;
   /** 自娱开场的累计轮数（与 `PetStats.selfPlay` 同源，成就只看这一份）。 */
   selfPlay: number;
+  /** 一起过节的次数（节日当天记一次）。 */
+  festivals: number;
+  /** 一起看日出的次数。 */
+  sunrise: number;
+  /** 一起看日落的次数（只记账，不设门槛）。 */
+  sunset: number;
+  /** 一起看月亮的次数。 */
+  moon: number;
 }
 
 export const EMPTY_EXTRAS: AchievementExtras = {
   tricks: 0, treasures: 0, hides: 0, harvests: 0, favorite: 0,
   ballBest: 0, comboBest: 0, flares: 0, moths: 0, fish: 0, mirror: 0, selfPlay: 0,
+  festivals: 0, sunrise: 0, sunset: 0, moon: 0,
 };
 
 export interface PetStats {
@@ -172,6 +182,9 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: "fish-feast", title: "小鱼满篓", line: "五条了…今晚加餐！" },
   { id: "mirror-friend", title: "镜中好友", line: "她跟我说了十二次悄悄话" },
   { id: "solo-player", title: "自娱自乐", line: "我一个人，也能玩得很开心" },
+  { id: "dawn-watch", title: "看日出的人", line: "今天的头一道光，你在" },
+  { id: "moon-watch", title: "月色收藏", line: "月亮升起来时，你也在" },
+  { id: "festive-day", title: "节日搭子", line: "这个日子，我们一起过" },
 ];
 
 export function achievementById(id: string): AchievementDef | null {
@@ -228,6 +241,10 @@ export function newlyUnlocked(
   if (extras.fish >= 5) hits.push("fish-feast");
   if (extras.mirror >= 12) hits.push("mirror-friend");
   if (extras.selfPlay >= 5) hits.push("solo-player");
+  // v1.19 时辰：日出与月亮各一枚；日落只是过程，不设门槛。
+  if (extras.sunrise >= 1) hits.push("dawn-watch");
+  if (extras.moon >= 1) hits.push("moon-watch");
+  if (extras.festivals >= 1) hits.push("festive-day");
   return hits.filter((id) => !done.has(id));
 }
 

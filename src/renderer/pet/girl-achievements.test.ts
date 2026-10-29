@@ -10,6 +10,7 @@ const stats = (over: Partial<PetStats> = {}): PetStats => ({ ...EMPTY_STATS, ...
 const extras = (over: Partial<AchievementExtras> = {}): AchievementExtras => ({
   tricks: 0, treasures: 0, hides: 0, harvests: 0, favorite: 0,
   ballBest: 0, comboBest: 0, flares: 0, moths: 0, fish: 0, mirror: 0, selfPlay: 0,
+  festivals: 0, sunrise: 0, sunset: 0, moon: 0,
   ...over,
 });
 
@@ -47,8 +48,8 @@ describe("成就条件", () => {
       .toEqual(["box-hide", "laser-catch", "brush-lover", "catnip-high", "plane-catch"]);
   });
 
-  it("v1.13 九枚新成就各有门槛，差一记不给；v1.17 再加五枚、v1.18 再加六枚，整表 38 枚", () => {
-    expect(ACHIEVEMENT_IDS).toHaveLength(38);
+  it("v1.13 九枚新成就各有门槛，差一记不给；v1.17 再加五枚、v1.18 再加六枚、v1.19 再三枚，整表 41 枚", () => {
+    expect(ACHIEVEMENT_IDS).toHaveLength(41);
     expect(newlyUnlocked(stats({ tails: 2 }), 1, "new", [])).toEqual([]);
     expect(newlyUnlocked(stats({ tails: 3 }), 1, "new", [])).toEqual(["tail-chaser"]);
     expect(newlyUnlocked(stats({ kneads: 2 }), 1, "new", [])).toEqual([]);
@@ -107,6 +108,19 @@ describe("成就条件", () => {
     }))).toEqual(["ball-rhythm", "full-rundown", "lantern-keeper", "fish-feast", "mirror-friend", "solo-player"]);
     // 飞蛾是单独一笔账：赶走再多也不给拨灯那枚。
     expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ moths: 20, flares: 0 }))).toEqual([]);
+  });
+
+  it("v1.19 三枚时辰成就：日出/月亮各一枚，节日一枚；日落只是过程，不算命门", () => {
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ sunrise: 1 }))).toEqual(["dawn-watch"]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ moon: 1 }))).toEqual(["moon-watch"]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ festivals: 1 }))).toEqual(["festive-day"]);
+    // 只有日落、次数为零的旧账：一枚都不给。
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ sunset: 9 }))).toEqual([]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ sunrise: 1, moon: 1, festivals: 1 })))
+      .toEqual(["dawn-watch", "moon-watch", "festive-day"]);
+    // 三枚不碰自娱与日常：拉满也各归各的。
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ sunrise: 5, moon: 5, festivals: 5, selfPlay: 0 })))
+      .toEqual(["dawn-watch", "moon-watch", "festive-day"]);
   });
 
   it("成就表与 id 表一一对应，文案不空", () => {

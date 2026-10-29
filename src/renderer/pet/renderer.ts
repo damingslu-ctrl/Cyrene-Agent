@@ -238,6 +238,7 @@ import {
   type HugState,
 } from "./girl-hug";
 import { RAIN_MS, buildRainOps, createRain, rainAlive, rainAmount, type RainState } from "./girl-rain";
+import { buildFestivalOrnamentOps, buildSkyMarkOps, skyMarkHit } from "./girl-day-art";
 import {
   TAIL_MS,
   buildTailOps,
@@ -447,6 +448,8 @@ const DRAW_FAULT_LOG_EVERY_MS = 10_000;
 
 /** 深夜提醒询问引擎的节拍。诊断把「距下一拍」报出去，验收才能卡点喂伪时钟。 */
 const NIGHT_NUDGE_POLL_MS = 30_000;
+/** 时辰/节日/作息的询问节拍（v1.19）。同样报「距下一拍」给验收卡点。 */
+const CLOCK_POLL_MS = 30_000;
 
 /**
  * 自娱声音的总输出增益。菜单只给开关（`sfxEnabled`），不给音量条：
@@ -497,6 +500,9 @@ export class PixelPetRenderer {
   private readonly tease = new TeaseTracker();
   /** 深夜提醒的轮询闸：每 30s 问引擎一次，去重（同一晚 45min）由引擎管。 */
   private lastNightNudgeCheckAt = 0;
+  /** v1.19 时辰拍的轮询闸：-inf 让开机第一帧就走一拍（只记账，不出声）。 */
+  private lastClockCheckAt = Number.NEGATIVE_INFINITY;
+  private clockPrimed = false;
   /** 槽位时钟：每层「当前片 + 起点」（ms）。只存状态，采样在 draw 里按 now 算。 */
   private slots: Partial<Record<"body" | "gesture", { id: string; startedAt: number }>> = {};
   /** 手势层的显式片（playGesture/touch）；空则按活动映射。 */
@@ -1061,6 +1067,16 @@ export class PixelPetRenderer {
       else this.startMirror(now);
       return;
     }
+    if (command === "clock" || command === "festival") {
+      // 两张嘴都只借引擎：报时辰 / 报节日，不动身体、不清场。
+      const now = performance.now();
+      const said = command === "clock" ? this.engine?.clockReport(now) : this.engine?.festivalReport(now);
+      if (said) {
+        this.engine?.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
     if (command === "solo") {
       // 「她自娱到哪了」只念账：不动玩具、不清场、不替她重来一局。
       const now = performance.now();
@@ -1326,6 +1342,10 @@ export class PixelPetRenderer {
     sleepSince: number;
     /** 距下一拍深夜提醒询问还有多久（真窗验收要卡在拍点上伪时钟）。 */
     nightCheckInMs: number;
+    /** v1.19.0：她的一天读数口——时辰 / 天色 / 节日 / 自动睡。四足形态恒 null。 */
+    clock: CompanionSnapshot["clock"];
+    /** 距下一拍时辰询问还有多久（真窗验收要卡在拍点上伪时钟）。 */
+    clockCheckInMs: number;
   } {
     const snapshot = this.engine?.getSnapshot();
     const face = this.girlFaceAt(now);
@@ -1816,6 +1836,8 @@ export class PixelPetRenderer {
       stats: snapshot?.stats ?? { ...EMPTY_STATS },
       sleepSince: this.sleepSince,
       nightCheckInMs: Math.max(0, NIGHT_NUDGE_POLL_MS - (now - this.lastNightNudgeCheckAt)),
+      clock: snapshot?.clock ?? null,
+      clockCheckInMs: Math.max(0, CLOCK_POLL_MS - (now - this.lastClockCheckAt)),
     };
   }
 
@@ -1956,6 +1978,18 @@ export class PixelPetRenderer {
     if (this.form === "girl" && now - this.lastNightNudgeCheckAt >= NIGHT_NUDGE_POLL_MS) {
       this.lastNightNudgeCheckAt = now;
       engine.nightNudge(now);
+    }
+
+    // 时辰拍 v1.19：换段说话、节日开口、夜里自己睡/早上自己醒都走这一拍。
+    // 开机第一拍只记账：启动问候已经占着嘴，换段台词留给真正的换段。
+    if (this.form === "girl" && now - this.lastClockCheckAt >= CLOCK_POLL_MS) {
+      this.lastClockCheckAt = now;
+      if (this.clockPrimed) {
+        engine.clockTick(now);
+      } else {
+        this.clockPrimed = true;
+        engine.primeClock();
+      }
     }
 
     const snapshot = engine.update(now, {
@@ -3049,6 +3083,10 @@ export class PixelPetRenderer {
     snapshot: CompanionSnapshot | null,
   ): DrawOp[] {
     const ops = [
+      // v1.19 天色记号：钉在窗角、看过就收；安静期不画（月牙是安静唯一的记号）。
+      ...(snapshot?.clock?.sky && !snapshot.clock.sky.watched && !this.quiet
+        ? buildSkyMarkOps(snapshot.clock.sky.kind, now / 1000)
+        : []),
       ...this.tickWand(now),
       ...this.tickBubbles(now),
       ...this.tickLeaves(now),
@@ -3082,6 +3120,10 @@ export class PixelPetRenderer {
       ...this.tickLantern(now, face),
       ...this.tickFishing(now, face),
       ...this.tickMirror(now, face),
+      // 节日挂饰与 v1.9 的装扮槽并存，永远挂在装扮的对面（转身跟着换边）。
+      ...(snapshot?.clock?.festival
+        ? buildFestivalOrnamentOps(snapshot.clock.festival.ornament, face, this.cat.facing ?? 1, now / 1000)
+        : []),
       // 纸箱压在所有道具之上：她钻进去时箱身必须挡住整个人。
       ...this.tickBox(now, face),
     ];
@@ -3994,6 +4036,15 @@ export class PixelPetRenderer {
     const zoom = this.zoom || 1;
     const dx = cssX / zoom;
     const dy = cssY / zoom;
+    // v1.19 天色记号：窗角那一枚只认「点它看天」。看过的/睡着的/安静的由引擎拒收，
+    // 这一手照收不误——那块角落没有别的落点，穿过去只会误摸到头以外的地方。
+    if (skyMarkHit(dx, dy)) {
+      if (this.engine?.watchSky(now)) {
+        this.engine.save();
+        if (!this.paused) this.draw(now);
+      }
+      return;
+    }
     // 雪堆画在最上层（天气层），点它先于脚边的一切玩具：这里是 82px 窗里唯一「能伸手」的雪。
     if (this.snow && snowAlive(this.snow, now)) {
       const tapFaceForSnow = this.girlFaceAt(now);

@@ -125,7 +125,7 @@ beforeEach(() => {
 });
 
 describe("attachPetContextMenu", () => {
-  it("右键弹出互动 + 安静 + 形态/身形 + 窗口动作共 66 项（两条分隔线）", () => {
+  it("右键弹出互动 + 安静 + 形态/身形 + 窗口动作共 68 项（两条分隔线）", () => {
     const { template, popup } = rightClick(makeService({ quietUntil: null, tuckEnabled: true }));
     const labels = template.filter((entry) => entry.type !== "separator").map((entry) => entry.label);
     expect(labels).toEqual([
@@ -142,6 +142,7 @@ describe("attachPetContextMenu", () => {
       "闻闻有什么好东西", "看看她的小口袋", "来玩躲猫猫",
       "种一盆猫薄荷", "看看薄荷盆", "收薄荷",
       "让她拍皮球", "让她演全套", "让她点夜灯", "让她钓条鱼", "让她照镜子", "她自娱到哪了",
+      "看看现在几点", "今天是节日吗",
       "让它做个动作",
       "打开网络面板",
       "形象：像素猫", "形象：猫娘",

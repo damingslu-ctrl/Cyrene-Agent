@@ -81,6 +81,35 @@ import {
 } from "./girl-garden";
 import { HIDE_COVER_MS, HIDE_PEEK_MS } from "./girl-hide";
 import {
+  AUTO_SLEEP_IDLE_MS,
+  EMPTY_SKIES,
+  autoSleepAt,
+  autoWakeAt,
+  clockAt,
+  clockLine,
+  minuteOfDay,
+  normalizeClockKey,
+  normalizeWatchedKey,
+  parseSkies,
+  phaseKey,
+  phaseLine,
+  skyLine,
+  watchedKey,
+  type GirlPhase,
+  type SkyCounters,
+  type SkyKind,
+} from "./girl-clock";
+import {
+  EMPTY_FESTIVAL_STATE,
+  festivalKey,
+  festivalOn,
+  nextFestival,
+  parseFestivalState,
+  type FestivalState,
+  type FestivalId,
+  type FestivalOrnament,
+} from "./girl-festival";
+import {
   EMPTY_SOLO,
   buildSoloReport,
   isSoloKind,
@@ -189,6 +218,21 @@ export interface CompanionBubble {
   expiresAt: number;
 }
 
+/** v1.19「她的一天」：换段、天色、节日与自动睡。四足形态恒 null。 */
+export interface ClockSnapshot {
+  phase: GirlPhase;
+  /** 此刻天上有东西可看（睡着时为 null）；`watched` 是「这一场已经一起看过」。 */
+  sky: { kind: SkyKind; watched: boolean } | null;
+  /** 三项天色账（副本）。 */
+  skies: SkyCounters;
+  /** 今天是什么节（没有则为 null）；挂饰由渲染端照着画。 */
+  festival: { id: FestivalId; label: string; ornament: FestivalOrnament } | null;
+  /** 一起过节的次数（跨重启）。 */
+  festivals: number;
+  /** 这一觉是她自己睡着的（天亮会自己醒），不是手动哄睡的。 */
+  autoSleep: boolean;
+}
+
 export interface CompanionSnapshot {
   activity: CompanionActivity;
   mood: Mood;
@@ -266,6 +310,8 @@ export interface CompanionSnapshot {
   hides: number;
   /** v1.18 自娱账本（副本：渲染端改不动她的真账）。 */
   solo: SoloLedger;
+  /** v1.19 她的一天；四足为 null（不报时、不做天色、不自动睡）。 */
+  clock: ClockSnapshot | null;
 }
 
 export interface CompanionOptions {
@@ -871,6 +917,15 @@ export class CompanionEngine {
   /** 躲猫猫开局后等渲染端回报「逮到/溜走」；没有开局就不认账。 */
   private hideOpen = false;
   private hideStartedAt = 0;
+  /** v1.19：最近一次开口的段（`日期:段`）与最近一场看过的天色（`日期:种类`）。 */
+  private clockKey = "";
+  private skyKey = "";
+  private skies: SkyCounters = { ...EMPTY_SKIES };
+  private festivalState: FestivalState = { ...EMPTY_FESTIVAL_STATE };
+  /** 到点自己钻进被窝的那一觉：天亮要自己醒；手动哄睡不归这里管。 */
+  private autoSleeping = false;
+  /** 墙上时钟的「上一次有人陪」：夜里满 3 分钟没人理她才睡（行为时钟测不了这个）。 */
+  private lastUserWall = 0;
 
   constructor(options: CompanionOptions = {}) {
     this.random = options.random ?? Math.random;
@@ -881,6 +936,7 @@ export class CompanionEngine {
     this.onSettle = options.onSettle;
     this.lastNow = this.now();
     this.lastUserAt = this.lastNow;
+    this.lastUserWall = this.wallNow();
     this.idleUntil = this.lastNow + this.idleDelay();
     this.chatAt = this.lastNow + CHAT_MIN_MS + this.random() * CHAT_SPAN_MS;
     this.load();
@@ -1074,6 +1130,153 @@ export class CompanionEngine {
     this.ambientGesture = "yawn";
     this.gestureUntil = now + gestureClip("yawn").ms;
     return true;
+  }
+
+  // —— v1.19 她的一天 ——
+
+  /**
+   * 渲染端每 30s 问一次。三件事按顺序：节日 → 作息 → 换段。
+   * 节日排在换段前面：节日那天的第一句话该是节日那句，换段句让位（但段照样记账，
+   * 否则下一个 30s 会把节日句顶掉）。四足形态整段不接。
+   */
+  /**
+   * 开机第一拍只记账不出声：启动问候已经在说人话，换段台词留给真正的换段。
+   * 安静期不记（醒来第一拍照补当前段）。
+   */
+  primeClock(): void {
+    if (this.form !== "girl" || this.quiet) return;
+    this.clockKey = phaseKey(this.wallNow());
+    this.saveBond();
+  }
+
+  clockTick(now = this.now()): boolean {
+    if (this.form !== "girl") return false;
+    // 与 update 同口径：过期的气泡先收掉，快照里不该还挂着上一句。
+    if (this.bubble && now >= this.bubble.expiresAt) this.bubble = null;
+    const wall = this.wallNow();
+    const festival = this.festivalTick(now, wall);
+    this.rhythmTick(now, wall);
+    const phase = this.phaseTick(now, wall);
+    return festival || phase;
+  }
+
+  /** 节日当天第一次问：记事、挂饰（快照里按日期现算）、说一句。安静期留到醒来。 */
+  private festivalTick(now: number, wall: number): boolean {
+    if (this.quiet) return false;
+    const def = festivalOn(wall);
+    if (!def) return false;
+    const key = festivalKey(def, wall);
+    if (this.festivalState.last === key) return false;
+    this.festivalState = { last: key, count: this.festivalState.count + 1 };
+    this.saveBond();
+    this.refreshAchievements(now);
+    return this.say(def.line, 2, now, true);
+  }
+
+  /**
+   * 23:30 后你满 3 分钟没理她，她自己钻进被窝；05:00 天亮自己伸个懒腰醒来。
+   * 看着（user_active）、安静期、被拖/被投掷时都不睡；手动哄睡的不归这里叫醒。
+   */
+  private rhythmTick(now: number, wall: number): void {
+    if (this.activity === "drag" || this.activity === "thrown") return;
+    const minute = minuteOfDay(wall);
+    if (this.autoSleeping) {
+      if (autoWakeAt(minute)) {
+        this.target = null;
+        this.vx = 0;
+        this.vy = 0;
+        this.startAction("stretch", now, ACTION_MS.stretch);
+        this.idleUntil = now + IDLE_MIN_MS;
+      }
+      return;
+    }
+    if (this.activity === "sleep" || this.quiet || this.userActive) return;
+    if (!autoSleepAt(minute)) return;
+    if (wall - this.lastUserWall < AUTO_SLEEP_IDLE_MS) return;
+    this.activity = "sleep";
+    this.autoSleeping = true;
+    this.sleepManual = false;
+    this.sleepUntil = 0;
+    this.target = null;
+    this.vx = 0;
+    this.vy = 0;
+    this.actionDuration = 0;
+    this.ambientGesture = null;
+    this.gestureUntil = 0;
+    this.idleUntil = now + IDLE_MIN_MS;
+  }
+
+  /**
+   * 换段开口：同一段一天只说一次（键里带日期），安静期与睡着不记账。
+   * 记账与「真说出口」分开：被节日/徽章那句占着槽时算说过，
+   * 否则 30s 后那句迟到的话会把刚说的节日句顶掉。
+   */
+  private phaseTick(now: number, wall: number): boolean {
+    if (this.quiet || this.activity === "sleep") return false;
+    const key = phaseKey(wall);
+    if (this.clockKey === key) return false;
+    this.clockKey = key;
+    this.saveBond();
+    return this.say(phaseLine(clockAt(wall).phase), 0, now);
+  }
+
+  /**
+   * 一起看天色：点脑袋时顶上来的那一手。同一场只看一次（按日期+天色记账），
+   * 睡着/安静/被拖时不接。看完 `sky.watched` 变 true，渲染端把记号收掉。
+   */
+  watchSky(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
+    const wall = this.wallNow();
+    const kind = clockAt(wall).sky;
+    if (!kind) return false;
+    const key = watchedKey(wall, kind);
+    if (this.skyKey === key) return false;
+    this.lastUserAt = now;
+    this.skyKey = key;
+    this.skies = { ...this.skies, [kind]: this.skies[kind] + 1 };
+    this.saveBond();
+    const said = this.say(skyLine(kind), 1, now, true);
+    this.refreshAchievements(now, !said);
+    return said;
+  }
+
+  /** 报时三行：此刻 / 下一个节日 / 还有几天。 */
+  clockReport(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    const wall = this.wallNow();
+    const next = nextFestival(wall);
+    this.lastUserAt = now;
+    return this.say(`${clockLine(wall)}\n下一个 ${next.def.label}\n还有 ${next.days} 天`, 2, now, true);
+  }
+
+  /** 节日两行/三行：当天报自己，平常日子报倒计时。 */
+  festivalReport(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    const wall = this.wallNow();
+    const today = festivalOn(wall);
+    const next = nextFestival(wall);
+    this.lastUserAt = now;
+    const text = today
+      ? `今天是 ${today.label}\n${today.line}`
+      : `今天不是节日\n下一个 ${next.def.label}\n还有 ${next.days} 天`;
+    return this.say(text, 2, now, true);
+  }
+
+  private clockSnapshot(wall: number): ClockSnapshot {
+    const reading = clockAt(wall);
+    const def = festivalOn(wall);
+    return {
+      phase: reading.phase,
+      // 睡着时天上还有月亮，但她闭着眼：记号不该亮着（醒了再点同样的机制）。
+      sky: reading.sky && this.activity !== "sleep"
+        ? { kind: reading.sky, watched: this.skyKey === watchedKey(wall, reading.sky) }
+        : null,
+      skies: { ...this.skies },
+      festival: def ? { id: def.id, label: def.label, ornament: def.ornament } : null,
+      festivals: this.festivalState.count,
+      autoSleep: this.autoSleeping,
+    };
   }
 
   /**
@@ -2145,6 +2348,7 @@ export class CompanionEngine {
       gardenStage: gardenStage(this.garden, this.wallNow()),
       hides: this.hides,
       solo: { ...this.solo, seen: [...this.solo.seen] },
+      clock: this.form === "girl" ? this.clockSnapshot(this.wallNow()) : null,
     };
   }
 
@@ -2166,7 +2370,11 @@ export class CompanionEngine {
 
   /** user_active 的另一个消费面：看着它的时候不主动走开（已经起步的那趟不打断）。 */
   setUserActive(active: boolean): void {
+    // 只在真的翻转时重记墙钟：渲染端可能每帧都推同一个值，重复推送不能把
+    // 「三分钟没人理」的秒表一直清零。
+    if (this.userActive === active) return;
     this.userActive = active;
+    this.lastUserWall = this.wallNow();
   }
 
   // —— 自主行为 ——
@@ -2184,10 +2392,11 @@ export class CompanionEngine {
     this.lastNow = now;
   }
 
-  /** 开工/被摸/被抱走都算醒了：清掉小睡计时与手动睡眠标记。 */
+  /** 开工/被摸/被抱走都算醒了：清掉小睡计时、手动睡眠与「自己睡」的标记。 */
   private wakeFromSleep(): void {
     this.sleepManual = false;
     this.sleepUntil = 0;
+    this.autoSleeping = false;
   }
 
   update(now: number, context: CompanionContext): CompanionSnapshot {
@@ -2201,8 +2410,9 @@ export class CompanionEngine {
 
     switch (this.activity) {
       case "sleep":
-        // 自主小睡到点自醒；手动 toggle 的睡眠一直睡到用户再点一次。
-        if (!this.sleepManual && now >= this.sleepUntil) {
+        // 自主小睡到点自醒；手动 toggle 的睡眠一直睡到用户再点一次；
+        // 自己睡下的那一觉没有终点，等 05:00 的 clockTick 叫醒（不是这里）。
+        if (!this.sleepManual && !this.autoSleeping && now >= this.sleepUntil) {
           this.activity = "idle";
           this.wakeFromSleep();
           this.idleUntil = now + this.idleDelay();
@@ -2514,6 +2724,10 @@ export class CompanionEngine {
           garden?: unknown;
           hides?: unknown;
           solo?: unknown;
+          clockKey?: unknown;
+          skyKey?: unknown;
+          skies?: unknown;
+          festival?: unknown;
         };
         found = true;
         if (typeof parsed?.metAt === "number" && Number.isFinite(parsed.metAt) && parsed.metAt > 0) {
@@ -2551,6 +2765,10 @@ export class CompanionEngine {
         this.treasures = parseTreasures(parsed.treasures);
         this.garden = parseGarden(parsed.garden);
         this.solo = parseSolo(parsed.solo);
+        this.clockKey = normalizeClockKey(parsed.clockKey);
+        this.skyKey = normalizeWatchedKey(parsed.skyKey);
+        this.skies = parseSkies(parsed.skies);
+        this.festivalState = parseFestivalState(parsed.festival);
         if (typeof parsed.hides === "number" && Number.isFinite(parsed.hides) && parsed.hides > 0) {
           this.hides = Math.min(1_000_000, Math.floor(parsed.hides));
         }
@@ -2595,6 +2813,10 @@ export class CompanionEngine {
         garden: this.garden,
         hides: this.hides,
         solo: this.solo,
+        clockKey: this.clockKey,
+        skyKey: this.skyKey,
+        skies: this.skies,
+        festival: this.festivalState,
       }));
     } catch {
       // 同 save：写不进去只影响「第几天」，不影响本次行为。
@@ -2674,6 +2896,10 @@ export class CompanionEngine {
       fish: this.solo.fish,
       mirror: this.solo.mirror,
       selfPlay: this.stats.selfPlay,
+      festivals: this.festivalState.count,
+      sunrise: this.skies.sunrise,
+      sunset: this.skies.sunset,
+      moon: this.skies.moon,
     };
   }
 
