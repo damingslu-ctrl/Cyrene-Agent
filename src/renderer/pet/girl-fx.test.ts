@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { CatInput } from "./art";
 import { girlAnimBodyFor, girlFaceBox, girlInkBox, type GirlFaceBox } from "./girl-sprite";
 import { NOTICE_FX_MS, buildGirlFxOps, type GirlFxInput } from "./girl-fx";
+import { WILD_HUNT_MS } from "./girl-wild";
+import type { DrawOp } from "./ops";
 import { restingPresence } from "./girl-presence";
 import { BOND_UP_MS } from "./girl-bond";
 import { STARTLE_MS } from "./companion";
@@ -50,6 +52,7 @@ function mkFx(over: Partial<GirlFxInput> = {}): GirlFxInput {
     startleLeft: 0,
     milestoneLeft: 0,
     milestoneDays: 0,
+    wild: null,
     ...over,
   };
 }
@@ -299,5 +302,53 @@ describe("姿态图的脸框/墨框覆盖", () => {
         .map((o) => (o.kind === "fillEllipse" ? o.rx : 0)),
     );
     expect(widest(mkFx({ body, ink }))).toBeGreaterThan(widest(mkFx({ body })) + 20);
+  });
+});
+
+describe("v1.20 野性记号", () => {
+  const body = girlAnimBodyFor(mkCat());
+  const ink = girlInkBox(body, 0);
+  const face = girlFaceBox(body, 0);
+  const withWild = (act: "zoom" | "stalk" | "hunt" | null, left: number) =>
+    buildGirlFxOps(mkFx({ wild: act ? { act, left } : null }));
+  const base = buildGirlFxOps(mkFx({ wild: null }));
+
+  const strokes = (ops: DrawOp[]) =>
+    ops.filter((op): op is Extract<DrawOp, { kind: "strokePath" }> => op.kind === "strokePath");
+  const colors = (ops: DrawOp[]) => ops.map((op) =>
+    op.kind === "strokePath" ? op.stroke : op.kind === "fillEllipse" ? op.fill : "");
+
+  it("没在撒野就不多画一笔", () => {
+    expect(base.above.length).toBe(buildGirlFxOps(mkFx()).above.length);
+    expect(withWild(null, 0).above.length).toBe(base.above.length);
+  });
+
+  it("冲刺：身后三道速度线，奶油光边 + 强调色芯（桌布上的记号必须双色）", () => {
+    const ops = withWild("zoom", 1_000).above.slice(base.above.length);
+    expect(ops.length).toBeGreaterThanOrEqual(6);
+    for (const op of ops) expect(op.layer).toBe("stars");
+    for (const op of strokes(ops)) {
+      // 朝向默认向右：拖尾整段在她身后（墨心左侧）。
+      for (const [x] of op.points) expect(x).toBeLessThan(ink.cx);
+    }
+    expect(new Set(colors(ops)).size).toBeGreaterThanOrEqual(2);
+  });
+
+  it("潜行：脸前两条「专注」短线，压低身子时只在朝向前方", () => {
+    const ops = withWild("stalk", 1_000).above.slice(base.above.length);
+    expect(ops.length).toBeGreaterThanOrEqual(4);
+    for (const op of strokes(ops)) {
+      for (const [x] of op.points) expect(x).toBeGreaterThan(face.cx);
+    }
+    expect(new Set(colors(ops)).size).toBeGreaterThanOrEqual(2);
+  });
+
+  it("扑击：冲击线只在落点那一下，尾巴上不再闪", () => {
+    const hot = withWild("hunt", WILD_HUNT_MS - 80).above.slice(base.above.length);
+    expect(hot.length).toBeGreaterThanOrEqual(6);
+    for (const op of hot) expect(op.layer).toBe("stars");
+    expect(new Set(colors(hot)).size).toBeGreaterThanOrEqual(2);
+    const cold = withWild("hunt", 200).above.slice(base.above.length);
+    expect(cold.length).toBe(0);
   });
 });

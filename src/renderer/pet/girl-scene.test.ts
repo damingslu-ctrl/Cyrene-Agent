@@ -1,16 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { GIRL_ANIM_FADE_MS, clipDurationMs, type GirlActivity } from "./girl-anim";
+import { girlActionDurationMs, girlActionRedrawFloor } from "./girl-action";
 import type { GirlLifePhase } from "./girl-idle";
 import {
   GIRL_POSE_REDRAW_FPS,
   GirlScenePlayer,
   girlBaseVisualFor,
+  girlWildVisualFor,
   type GirlVisual,
 } from "./girl-scene";
 
 const T0 = 10_000;
 const pose = (id: "stand" | "sit" | "curl" | "look" | "stretch" | "joy"): GirlVisual => ({ kind: "pose", id });
 const clip = (id: "walk" | "wave" | "idle" | "sit", loop = false): GirlVisual => ({ kind: "clip", id, loop });
+const action = (id: "zoom" | "stalk" | "hunt"): GirlVisual => ({ kind: "action", id });
 
 describe("girl scene player", () => {
   it("starts on the requested pose and holds it", () => {
@@ -97,6 +100,37 @@ describe("girl scene player", () => {
     expect(scene.isFading(T0 + 240)).toBe(true);
     expect(scene.isFading(T0 + 200 + GIRL_ANIM_FADE_MS)).toBe(false);
   });
+
+  it("动作从第 0 帧起播、按自己的节拍走，读完是动作不是姿态", () => {
+    const scene = new GirlScenePlayer(pose("stand"), T0);
+    scene.setVisual(action("zoom"), T0 + 1_000);
+    expect(scene.sample(T0 + 1_000).current).toEqual({ kind: "action", id: "zoom", index: 0 });
+    // 冲刺 12fps：90ms 已经进了第 1 格。
+    expect(scene.sample(T0 + 1_090).current).toMatchObject({ kind: "action", id: "zoom", index: 1 });
+    expect(scene.actionId()).toBe("zoom");
+    expect(scene.poseId()).toBeNull();
+    expect(scene.clipId()).toBeNull();
+    expect(scene.redrawFloor()).toBe(girlActionRedrawFloor("zoom"));
+  });
+
+  it("扑击演完停在最后一格并报 done；冲刺一直循环", () => {
+    const oneShot = new GirlScenePlayer(action("hunt"), T0);
+    expect(oneShot.isDone(T0 + girlActionDurationMs("hunt") - 1)).toBe(false);
+    expect(oneShot.isDone(T0 + girlActionDurationMs("hunt") + 1)).toBe(true);
+    expect(oneShot.sample(T0 + girlActionDurationMs("hunt") + 1).current)
+      .toMatchObject({ kind: "action", id: "hunt", index: 5 });
+    const loop = new GirlScenePlayer(action("zoom"), T0);
+    expect(loop.isDone(T0 + girlActionDurationMs("zoom") * 4)).toBe(false);
+  });
+
+  it("切走时冻住屏幕上那一格动作，同一式重设不重播", () => {
+    const scene = new GirlScenePlayer(action("stalk"), T0);
+    scene.sample(T0 + 200);
+    expect(scene.setVisual(action("stalk"), T0 + 250)).toBe(false);
+    scene.setVisual(pose("stand"), T0 + 300);
+    // 潜行 6fps：200ms 已经进了第 1 格。
+    expect(scene.sample(T0 + 300).prev).toEqual({ kind: "action", id: "stalk", index: 1 });
+  });
 });
 
 describe("base visual mapping", () => {
@@ -142,5 +176,62 @@ describe("base visual mapping", () => {
     expect(base("rest", "stand", { posesReady: false })).toEqual({ kind: "clip", id: "sit", loop: true });
     expect(base("sleep", "stand", { posesReady: false })).toEqual({ kind: "clip", id: "sleep", loop: true });
     expect(base("sleep", "stand", { posesReady: false, quiet: true })).toEqual({ kind: "clip", id: "idle", loop: true });
+  });
+});
+
+describe("v1.20 野性三式的姿态", () => {
+  const wild = (
+    act: "zoom" | "stalk" | "hunt" | null,
+    opts: { posesReady?: boolean; poses2Ready?: boolean; actionsReady?: boolean } = {},
+  ) => girlWildVisualFor(act, {
+    posesReady: opts.posesReady ?? true,
+    poses2Ready: opts.poses2Ready ?? true,
+    actionsReady: opts.actionsReady ?? false,
+  });
+
+  it("冲刺=奔跑、潜行=压低身子、扑击=跃起；没在撒野就不抢底子", () => {
+    expect(wild(null)).toBeNull();
+    expect(wild("zoom")).toEqual({ kind: "pose", id: "run" });
+    expect(wild("stalk")).toEqual({ kind: "pose", id: "prone" });
+    expect(wild("hunt")).toEqual({ kind: "pose", id: "joy" });
+  });
+
+  it("图集缺席时退回最接近的帧段，且两套图各拉各的", () => {
+    // 奔跑在图集 I，趴在图集 II：坏一套不许把另一套也拖下水。
+    expect(wild("zoom", { posesReady: false })).toEqual({ kind: "clip", id: "walk", loop: true });
+    expect(wild("stalk", { poses2Ready: false })).toEqual({ kind: "clip", id: "sit", loop: true });
+    expect(wild("stalk", { posesReady: false, poses2Ready: true })).toEqual({ kind: "pose", id: "prone" });
+    expect(wild("hunt", { posesReady: false })).toEqual({ kind: "clip", id: "happy", loop: true });
+  });
+});
+
+describe("v1.21 野性三式各有一条独立动画", () => {
+  const wild = (
+    act: "zoom" | "stalk" | "hunt" | null,
+    opts: { posesReady?: boolean; poses2Ready?: boolean; actionsReady?: boolean } = {},
+  ) => girlWildVisualFor(act, {
+    posesReady: opts.posesReady ?? true,
+    poses2Ready: opts.poses2Ready ?? true,
+    actionsReady: opts.actionsReady ?? true,
+  });
+
+  it("动作图集在位：三式各播自己那一行，不再借姿态图当舞台", () => {
+    expect(wild("zoom")).toEqual({ kind: "action", id: "zoom" });
+    expect(wild("stalk")).toEqual({ kind: "action", id: "stalk" });
+    expect(wild("hunt")).toEqual({ kind: "action", id: "hunt" });
+    expect(wild(null)).toBeNull();
+    // 三种冲动 → 三条不同的动画：不是同一段换了张底图。
+    const ids = new Set(["zoom", "stalk", "hunt"].map((act) => {
+      const v = wild(act as "zoom");
+      return v && v.kind === "action" ? v.id : null;
+    }));
+    expect(ids.size).toBe(3);
+  });
+
+  it("动作图集坏了才退回姿态；姿态也坏了才退帧段（两套姿态图各拉各的）", () => {
+    expect(wild("zoom", { actionsReady: false })).toEqual({ kind: "pose", id: "run" });
+    expect(wild("stalk", { actionsReady: false, poses2Ready: false })).toEqual({ kind: "clip", id: "sit", loop: true });
+    expect(wild("zoom", { actionsReady: false, posesReady: false })).toEqual({ kind: "clip", id: "walk", loop: true });
+    expect(wild("hunt", { actionsReady: false, posesReady: false })).toEqual({ kind: "clip", id: "happy", loop: true });
   });
 });

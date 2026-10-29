@@ -9,6 +9,9 @@ import {
 } from "./girl-anim";
 import { girlIdlePose, type GirlLifePhase } from "./girl-idle";
 import { girlPoseAtlasId, type GirlPoseName } from "./girl-pose-atlas";
+import { girlActionFrameAt, girlActionRedrawFloor } from "./girl-action";
+import type { GirlActionId } from "./girl-actions-meta";
+import type { WildImpulse } from "./girl-wild";
 
 /**
  * 猫娘的「这一幕」：一段帧动画，或一张真姿态静帧。
@@ -23,11 +26,13 @@ import { girlPoseAtlasId, type GirlPoseName } from "./girl-pose-atlas";
 
 export type GirlVisual =
   | { kind: "clip"; id: GirlClipId; loop?: boolean }
-  | { kind: "pose"; id: GirlPoseName };
+  | { kind: "pose"; id: GirlPoseName }
+  | { kind: "action"; id: GirlActionId };
 
 export type GirlShown =
   | { kind: "clip"; id: GirlClipId; index: number }
-  | { kind: "pose"; id: GirlPoseName };
+  | { kind: "pose"; id: GirlPoseName }
+  | { kind: "action"; id: GirlActionId; index: number };
 
 export interface GirlSceneSample {
   current: GirlShown;
@@ -109,12 +114,31 @@ export function girlBaseVisualFor(input: GirlBaseVisualInput): GirlVisual {
   return { kind: "clip", id: baseClipFor(input.activity, input.quiet), loop: true };
 }
 
+/**
+ * v1.21 野性三式：冲刺/潜行/扑击各播自己那一行动作帧（图集 III）。
+ * 动作图缺席时才退到 v1.20 的姿态舞台（奔跑/趴/跃起），姿态也缺席才退帧动画——
+ * 三级兜底各管各的，坏一套不许把别的也拖下水。
+ */
+export function girlWildVisualFor(
+  act: WildImpulse | null,
+  input: Pick<GirlBaseVisualInput, "posesReady" | "poses2Ready"> & { actionsReady?: boolean },
+): GirlVisual | null {
+  if (act === null) return null;
+  if (input.actionsReady) return { kind: "action", id: act };
+  const pose: GirlPoseName = act === "zoom" ? "run" : act === "stalk" ? "prone" : "joy";
+  return girlPoseReadyFor(pose, input)
+    ? { kind: "pose", id: pose }
+    : { kind: "clip", id: GIRL_POSE_FALLBACK_CLIP[pose], loop: true };
+}
+
 type Run =
   | { kind: "clip"; id: GirlClipId; loop: boolean; startedAt: number }
-  | { kind: "pose"; id: GirlPoseName; startedAt: number };
+  | { kind: "pose"; id: GirlPoseName; startedAt: number }
+  | { kind: "action"; id: GirlActionId; startedAt: number };
 
 function normalize(visual: GirlVisual): Run {
   if (visual.kind === "pose") return { kind: "pose", id: visual.id, startedAt: 0 };
+  if (visual.kind === "action") return { kind: "action", id: visual.id, startedAt: 0 };
   return {
     kind: "clip",
     id: visual.id,
@@ -132,9 +156,12 @@ export class GirlScenePlayer {
   }
 
   get visual(): GirlVisual {
-    return this.run.kind === "clip"
-      ? { kind: "clip", id: this.run.id, loop: this.run.loop }
-      : { kind: "pose", id: this.run.id };
+    if (this.run.kind === "clip") {
+      return { kind: "clip", id: this.run.id, loop: this.run.loop };
+    }
+    return this.run.kind === "pose"
+      ? { kind: "pose", id: this.run.id }
+      : { kind: "action", id: this.run.id };
   }
 
   clipId(): GirlClipId | null {
@@ -145,11 +172,17 @@ export class GirlScenePlayer {
     return this.run.kind === "pose" ? this.run.id : null;
   }
 
+  actionId(): GirlActionId | null {
+    return this.run.kind === "action" ? this.run.id : null;
+  }
+
   /** 同一幕重复调用是空操作；返回 false 表示没有重启。 */
   setVisual(next: GirlVisual, nowMs: number): boolean {
     const n = normalize(next);
     let same = false;
     if (n.kind === "pose" && this.run.kind === "pose") {
+      same = n.id === this.run.id;
+    } else if (n.kind === "action" && this.run.kind === "action") {
       same = n.id === this.run.id;
     } else if (n.kind === "clip" && this.run.kind === "clip") {
       same = n.id === this.run.id && n.loop === this.run.loop;
@@ -165,11 +198,15 @@ export class GirlScenePlayer {
   }
 
   isDone(nowMs: number): boolean {
+    if (this.run.kind === "action") {
+      return girlActionFrameAt(this.run.id, nowMs - this.run.startedAt).done;
+    }
     if (this.run.kind !== "clip" || this.run.loop) return false;
     return frameAt(this.run.id, nowMs - this.run.startedAt, false).done;
   }
 
   redrawFloor(): number {
+    if (this.run.kind === "action") return girlActionRedrawFloor(this.run.id);
     return this.run.kind === "clip" ? redrawFloorFor(this.run.id) : GIRL_POSE_REDRAW_FPS;
   }
 
@@ -184,6 +221,10 @@ export class GirlScenePlayer {
 
   private shownAt(nowMs: number): GirlShown {
     if (this.run.kind === "pose") return { kind: "pose", id: this.run.id };
+    if (this.run.kind === "action") {
+      const f = girlActionFrameAt(this.run.id, nowMs - this.run.startedAt);
+      return { kind: "action", id: this.run.id, index: f.index };
+    }
     const f = frameAt(this.run.id, nowMs - this.run.startedAt, this.run.loop);
     return { kind: "clip", id: this.run.id, index: f.index };
   }

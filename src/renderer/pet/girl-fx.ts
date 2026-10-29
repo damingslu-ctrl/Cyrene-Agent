@@ -8,6 +8,7 @@ import type { GirlPresencePose } from "./girl-presence";
 import { STARTLE_MS, type CompanionActivity } from "./companion";
 import { BOND_UP_MS } from "./girl-bond";
 import { MILESTONE_MS } from "./girl-milestone";
+import { WILD_HUNT_MS, type WildImpulse } from "./girl-wild";
 
 /**
  * 猫娘的「屏幕记号」层：画在**她身上和桌布上的小东西**。
@@ -68,6 +69,8 @@ export interface GirlFxInput {
   milestoneLeft: number;
   /** 正在庆祝的是第几天（7/30/100/365）。 */
   milestoneDays: number;
+  /** v1.20 野性：当前那一式与剩余毫秒；null＝没在撒野。 */
+  wild: { act: WildImpulse; left: number } | null;
 }
 
 export interface GirlFxOps {
@@ -507,6 +510,68 @@ function dustOps(input: GirlFxInput): DrawOp[] {
   return ops;
 }
 
+/** 铺一条双色短线：奶油光边垫宽、深色/强调色芯压细（桌布上的记号必须双色）。 */
+function twoToneLine(
+  x0: number, y0: number, x1: number, y1: number, alpha: number,
+): DrawOp[] {
+  return [
+    { kind: "strokePath", stroke: withAlpha(PAPER, 0.9 * alpha), width: 2.4, points: [[x0, y0], [x1, y1]], layer: "stars" },
+    { kind: "strokePath", stroke: withAlpha(ACCENT, alpha), width: 1.1, points: [[x0, y0], [x1, y1]], layer: "stars" },
+  ];
+}
+
+/**
+ * v1.20 野性记号：冲刺拖三道身后速度线、潜行在脸前亮两条专注线、
+ * 扑击只在落点那 450ms 放一圈放射冲击线。全部画在她身外，一律双色。
+ */
+function wildOps(input: GirlFxInput): DrawOp[] {
+  const wild = input.wild;
+  if (!wild) return [];
+  const ink = inkOf(input);
+  const face = faceOf(input);
+  const dir = input.body.facing;
+  const ops: DrawOp[] = [];
+
+  if (wild.act === "zoom") {
+    for (let i = 0; i < 3; i += 1) {
+      const ph = ((input.nowSec * 2.4 + i * 0.33) % 1 + 1) % 1;
+      const a = smoothFade(ph, 0.08, 0.72) * 0.8;
+      if (a <= 0.02) continue;
+      const y = ink.top + ink.h * (0.30 + i * 0.20);
+      const len = Math.max(5, ink.w * (0.22 + 0.10 * i)) * (0.7 + ph * 0.8);
+      const x1 = ink.cx - dir * (ink.w * 0.34 + ph * ink.w * 0.55);
+      ops.push(...twoToneLine(x1 - dir * len, y, x1, y, a));
+    }
+  } else if (wild.act === "stalk") {
+    const a = 0.34 + 0.16 * Math.sin(input.nowSec * 3.4);
+    const reach = Math.max(4, face.w * 0.24);
+    for (const side of [-1, 1]) {
+      const y = face.cy + side * face.h * 0.24;
+      const x0 = face.cx + dir * face.w * 0.72;
+      ops.push(...twoToneLine(x0, y, x0 + dir * reach, y, a));
+    }
+  } else {
+    const age = Math.max(0, WILD_HUNT_MS - wild.left);
+    const p = clamp01(age / 450);
+    const a = smoothFade(p, 0.06, 0.7);
+    if (a > 0.02) {
+      const r0 = ink.w * 0.34;
+      const r1 = r0 + ink.w * (0.28 + p * 0.32);
+      for (const [bx, by] of [[-1, -0.8], [-1, 0], [-1, 0.8]] as const) {
+        const len = Math.hypot(bx, by);
+        const ux = (bx / len) * dir;
+        const uy = by / len;
+        ops.push(...twoToneLine(
+          ink.cx + ux * r0, ink.cy + uy * r0,
+          ink.cx + ux * r1, ink.cy + uy * r1,
+          a,
+        ));
+      }
+    }
+  }
+  return ops;
+}
+
 /**
  * 全部记号：`below` = 坐垫 + 投影（垫子先铺，影子压在上面，她才「坐在垫子里」）；
  * 其余都在 `above`。顺序即叠放顺序：贴脸的在前，头顶的记号在后，尘埃最后。
@@ -526,6 +591,7 @@ export function buildGirlFxOps(input: GirlFxInput): GirlFxOps {
       ...dizzyOps(input),
       ...milestoneOps(input),
       ...dustOps(input),
+      ...wildOps(input),
     ],
   };
 }

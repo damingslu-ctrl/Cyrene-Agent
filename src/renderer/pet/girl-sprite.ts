@@ -11,6 +11,13 @@ import {
   girlPoseGeom,
   girlPoseInkRect,
 } from "./girl-pose-atlas";
+import {
+  GIRL_ACTIONS,
+  GIRL_ACTION_FACE,
+  GIRL_ACTION_INK,
+  GIRL_ACTION_ROWS,
+  type GirlActionId,
+} from "./girl-actions-meta";
 
 /**
  * 猫娘位图立绘的几何与记号钉位。
@@ -361,9 +368,134 @@ export function buildGirlPoseOverlayOps(
   });
 }
 
+/**
+ * 动作图集的刚体位姿（v1.21.0）：帧本身画的是这一式（冲刺/潜行/扑击），
+ * 这里只叠「动作之外」的整身量——落地压扁、歪头、朝向、存在感。
+ * **没有 sprawl**：趴伏压扁是给帧图集假扮坐/趴用的，叠在真动作上会把她压成一张饼。
+ */
+export interface GirlActionBody {
+  pivot: { x: number; y: number };
+  rot: number;
+  sx: number;
+  sy: number;
+  facing: 1 | -1;
+  /** 本行自己的尺：三式的 inkRefPx 各不同，k 逐行给，换行画出来不换身高。 */
+  k: number;
+}
+
+export function girlActionBodyFor(
+  input: CatInput, action: GirlActionId, presence?: GirlPresenceMotion,
+): GirlActionBody {
+  const s = (input.u * 2) / VB;
+  const p = input.pose;
+  const walk = p.walk ?? 0;
+  const walkLift = Math.max(0, Math.sin(walk)) * 1.2;
+  const squash = Math.max(0, Math.min(1, p.squash ?? 0));
+  const stretch = Math.max(0, Math.min(1, p.stretch));
+  const dizzy = Math.max(0, Math.min(1, presence?.dizzy ?? 0));
+  const wobble = dizzy > 0 ? Math.sin(input.t * 9.5) * 1.8 * dizzy : 0;
+  const startle = Math.max(0, Math.min(1, presence?.startle ?? 0));
+  const jolt = startle > 0 ? Math.sin(input.t * 34) * 2.6 * startle : 0;
+  const deg = p.tilt * 0.7 + Math.sin(walk) * 1.0 + (presence?.leanDeg ?? 0) + wobble + jolt;
+  return {
+    pivot: { x: input.center.x + (presence?.shiftX ?? 0), y: input.center.y + input.jumpY - walkLift },
+    rot: (deg * Math.PI) / 180,
+    sx: (1 + 0.12 * squash) * (1 + 0.01 * stretch),
+    sy: (1 - 0.16 * squash) * (1 + 0.02 * stretch) * (1 - 0.03 * dizzy),
+    facing: presence?.facing ?? input.facing ?? 1,
+    k: s * (GIRL_ACTIONS.inkVb / GIRL_ACTION_ROWS[action].inkRefPx),
+  };
+}
+
+/**
+ * 动作格内的归一化坐标 → 绘制空间。躯干轴逐行不同（横向打包各宽各的），
+ * 拿别行的 anchorX 去算，整格会横移、脚心就对不上了。
+ */
+export function girlActionCellPoint(
+  body: GirlActionBody, action: GirlActionId, fx: number, fy: number,
+): { x: number; y: number } {
+  const row = GIRL_ACTION_ROWS[action];
+  const w = GIRL_ACTIONS.cellW * body.k;
+  const h = GIRL_ACTIONS.cellH * body.k;
+  const lx = (fx - row.anchorX) * w * body.sx * body.facing;
+  const ly = (fy - GIRL_ACTIONS.anchorY) * h * body.sy;
+  const c = Math.cos(body.rot);
+  const s = Math.sin(body.rot);
+  return { x: body.pivot.x + lx * c - ly * s, y: body.pivot.y + lx * s + ly * c };
+}
+
+function actionBoxCorners(
+  body: GirlActionBody, action: GirlActionId, cx: number, cy: number, w: number, h: number,
+): GirlFaceBox {
+  const unit = (px: number, py: number) => girlActionCellPoint(
+    body, action, px / GIRL_ACTIONS.cellW, py / GIRL_ACTIONS.cellH,
+  );
+  const corners = [
+    unit(cx - w / 2, cy - h / 2),
+    unit(cx + w / 2, cy - h / 2),
+    unit(cx - w / 2, cy + h / 2),
+    unit(cx + w / 2, cy + h / 2),
+  ];
+  const center = unit(cx, cy);
+  return {
+    cx: center.x,
+    cy: center.y,
+    w: w * body.k * body.sx,
+    h: h * body.k * body.sy,
+    left: Math.min(...corners.map((p) => p.x)),
+    right: Math.max(...corners.map((p) => p.x)),
+    top: Math.min(...corners.map((p) => p.y)),
+    bottom: Math.max(...corners.map((p) => p.y)),
+  };
+}
+
+/** 动作某一帧的脸框（绘制空间）：记号与点击都钉在画出来的那张脸上。 */
+export function girlActionFaceBox(
+  body: GirlActionBody, action: GirlActionId, frame: number,
+): GirlFaceBox {
+  const table = GIRL_ACTION_FACE[action];
+  const [cx, cy, w, h] = table[Math.max(0, Math.min(table.length - 1, Math.floor(frame)))];
+  return actionBoxCorners(body, action, cx, cy, w, h);
+}
+
+/** 动作某一帧的墨框（绘制空间）：投影、命中提示从这一格的实际占位来。 */
+export function girlActionInkBox(
+  body: GirlActionBody, action: GirlActionId, frame: number,
+): GirlFaceBox {
+  const table = GIRL_ACTION_INK[action];
+  const [x0, y0, x1, y1] = table[Math.max(0, Math.min(table.length - 1, Math.floor(frame)))];
+  return actionBoxCorners(body, action, (x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0);
+}
+
+/**
+ * 动作记号（Zzz/爱心/徽章）的虚拟身子中心：跟着当前这一帧的脸走。
+ * 冲刺每格头都在颠，记号钉死在一个高度就会一会儿钻进头发、一会儿飘在半空。
+ */
+export function girlActionOverlayCenter(
+  body: GirlActionBody, action: GirlActionId, frame: number,
+): { x: number; y: number } {
+  const face = girlActionFaceBox(body, action, frame);
+  const s = body.k * (GIRL_ACTION_ROWS[action].inkRefPx / GIRL_ACTIONS.inkVb);
+  return { x: face.cx, y: face.top + GIRL_POSE_FACE_CLEAR_VB * s };
+}
+
+/** 动作下的屏幕记号：把动作锚点翻译回 `buildGirlOverlayOps` 的脚底系。 */
+export function buildGirlActionOverlayOps(
+  input: CatInput,
+  action: GirlActionId,
+  frame: number,
+  body: GirlActionBody = girlActionBodyFor(input, action),
+): DrawOp[] {
+  const center = girlActionOverlayCenter(body, action, frame);
+  const s = (input.u * 2) / VB;
+  return buildGirlOverlayOps({
+    ...input,
+    center: { x: center.x, y: center.y + GIRL_OVERLAY_LIFT_VB * s },
+  });
+}
+
 /** viewBox x=60 的镜像（朝向 −1 时徽章跟着换边，与四足的 xfn 同口径）。 */
 const MIRROR_X60 = { a: -1, b: 0, c: 0, d: 1, e: VB, f: 0 };
-
 export function girlBadgeMap(input: CatInput): Map2 {
   const s = (input.u * 2) / VB;
   const root = matRoot(girlOverlayCenter(input), s);
