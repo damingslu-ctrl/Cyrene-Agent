@@ -52,6 +52,10 @@
 //   黄昏那枚记号画在窗角、点它＝一起看天（skies.sunset+1、看完即收、回执同一句），点别处不算；
 //   圣诞节头上多一枚蓝星挂饰（同一块头侧区域的像素 A/B）且账本 festive-day 解锁；
 //   23:40 人走开满三分钟自己睡（月亮记号随之收掉），05:00 自己伸懒腰醒来（日出记号亮起）。
+// - v1.20「野性觉醒」：阶位门槛与三行汇报按源码 WILD_LEVELS 现算（家猫 0 / 醒爪 3 各念一次）；
+//   当场撒野按阶位挑式子——家猫冲刺＝奔跑图、醒爪潜行＝趴姿图、猎手扑击＝跃起图，
+//   身上带双色记号；玩成才记账并当场落盘；半路「野性到哪了」叫停的那一轮不算，
+//   剩下的路走完也不记账；每个种子都改盘后整页重载，账本只从盘里回来。
 // 任一条不成立就红；环境问题（没窗/没墨）报 ENV，不冒充产品红。
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -491,6 +495,45 @@ const SKY_LINES = sourceSkyLines();
 const FESTIVALS = sourceFestivals();
 const SKY_MARK = sourceSkyMark();
 const REPORT_TPL = sourceReportTemplates();
+
+/**
+ * v1.20 野性觉醒：阶位表与三式台词从源码读。门槛（0/3/8/15）与阶名是产品契约，
+ * 改表就要让这条探针跟着改，不另抄一份「家猫/醒爪/猎手/小野猫」。
+ */
+function sourceWildLevels() {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/girl-wild.ts"), "utf8");
+  const body = src.match(/const WILD_LEVELS[^=]*=\s*\[([\s\S]*?)\];/)?.[1];
+  if (!body) throw new Error("[ENV] 读不出 WILD_LEVELS：野性门槛表没处核对，先看源码");
+  const levels = [...body.matchAll(/\{\s*id:\s*"(\w+)",\s*label:\s*"([^"]+)",\s*at:\s*(\d+)\s*\}/g)]
+    .map((m) => ({ id: m[1], label: m[2], at: Number(m[3]) }));
+  if (levels.length < 2) throw new Error("[ENV] WILD_LEVELS 解析不出两阶：表格式变了，先看源码");
+  return levels;
+}
+
+function sourceWildLines() {
+  const src = fs.readFileSync(path.join(ROOT, "src/renderer/pet/girl-wild.ts"), "utf8");
+  const body = src.match(/const WILD_LINES[^=]*=\s*\{([\s\S]*?)\n\};/)?.[1];
+  if (!body) throw new Error("[ENV] 读不出 WILD_LINES：野性台词没处核对，先看源码");
+  const lines = Object.fromEntries([...body.matchAll(/(zoom|stalk|hunt):\s*\[([\s\S]*?)\]/g)].map((m) => [
+    m[1], [...m[2].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((s) => JSON.parse(`"${s[1]}"`)),
+  ]));
+  if (!lines.zoom || !lines.stalk || !lines.hunt) throw new Error("[ENV] WILD_LINES 少了一式：先看源码");
+  return lines;
+}
+
+const WILD_LEVELS = sourceWildLevels();
+const WILD_ACT_LINES = sourceWildLines();
+const WILD_RUN_ACH_LINE = sourceAchievementLine("wild-run");
+const wildLevelAt = (points) => WILD_LEVELS.reduce((acc, l) => (points >= l.at ? l : acc), WILD_LEVELS[0]);
+const wildNextAt = (points) => WILD_LEVELS.find((l) => l.at > points)?.at ?? null;
+/** `wildReport` 的三行同款算式：阶名/点数/差额/三式计数都来自同一份账。 */
+const wildReportOf = (wild) => [
+  `${wildLevelAt(wild.points).label} · 野性 ${wild.points}`,
+  wildNextAt(wild.points) === null
+    ? "野性全开了"
+    : `再 ${wildNextAt(wild.points) - wild.points} 点成${wildLevelAt(wildNextAt(wild.points)).label}`,
+  `冲${wild.zooms} 潜${wild.stalks} 扑${wild.hunts}`,
+].join("\n");
 
 const phaseOfMinute = (minute) => PHASES.reduce((acc, p) => (minute >= p.fromMinute ? p : acc), PHASES[0]);
 const clockLineOf = (wallMs) => {
@@ -947,6 +990,49 @@ async function main() {
   // —— C. 三区：点头（coverFace/shy）与点脚（shiver/wink）——
   const tapAt = (x, y) => evaluate(s, `window.__cyrene.renderer.tapAt(${x}, ${y}, 40)`);
   const dismissBubble = () => evaluate(s, `window.__cyrene.renderer.dismissBubble()`);
+  // 探针不动真光标，可桌面上那只真光标会自己进出宠物窗：pointerenter/pointerleave 走
+  // renderer.setUserActive → engine.setUserActive。「没人理」的几段窗口（静息 / 深夜 / 自睡）
+  // 一旦被悬停的每一帧刷新 lastUserAt，或者把 lastUserWall 重新盖成当前（伪）时钟，
+  // 门槛就永远凑不够——测到的是「光标恰好压在窗上」而不是她怎么过夜。
+  // 这里只吞「有人来了」（true）；false 照旧走产品通道，落点与生产一致。
+  const holdInputAway = () => evaluate(s, `(() => {
+    const e = window.__cyrene.renderer.engine;
+    if (!e || typeof e.setUserActive !== "function") return "no-engine";
+    if (!e.__holdAwayOrig) {
+      e.__holdAwayOrig = e.setUserActive.bind(e);
+      e.setUserActive = (v) => { if (!v) e.__holdAwayOrig(false); };
+    }
+    e.__holdAwayOrig(false);
+    return "ok";
+  })()`);
+  const releaseInputAway = () => evaluate(s, `(() => {
+    const e = window.__cyrene.renderer.engine;
+    if (!e || !e.__holdAwayOrig) return "not-held";
+    e.setUserActive = e.__holdAwayOrig;
+    delete e.__holdAwayOrig;
+    return "ok";
+  })()`);
+  // 反向夹具：待机编排那一段要「她在场、但没人动」。真光标自己离开窗口时
+  // pointerleave → setUserActive(false)：引擎 40s 后照常歇、编排被挂起，渲染端的
+  // idleSecs 也一路累计（够久就贴边收起，脸框跟着搬家）。这里把渲染端入口整个钉住——
+  // true 照常走、false 吞掉，引擎与收起计时器都读到同一个「在场」。夹具只活那一段。
+  const holdInputPresent = () => evaluate(s, `(() => {
+    const r = window.__cyrene.renderer;
+    if (!r || typeof r.setUserActive !== "function") return "no-renderer";
+    if (!r.__holdPresentOrig) {
+      r.__holdPresentOrig = r.setUserActive.bind(r);
+      r.setUserActive = (v) => { if (v) r.__holdPresentOrig(true); };
+    }
+    r.__holdPresentOrig(true);
+    return "ok";
+  })()`);
+  const releaseInputPresent = () => evaluate(s, `(() => {
+    const r = window.__cyrene.renderer;
+    if (!r || !r.__holdPresentOrig) return "not-held";
+    r.setUserActive = r.__holdPresentOrig;
+    delete r.__holdPresentOrig;
+    return "ok";
+  })()`);
   // 睡着不接地面玩具是产品设计（renderer-girl-toys2 的锁）——夜里跑探针时她可能真睡着了，
   // 探针要玩玩具就得先按菜单同一条命令叫醒，否则测到的是「设计静默拒收」而不是玩具。
   const awakeForPlay = async (why) => {
@@ -1225,8 +1311,10 @@ async function main() {
 
   // —— E. 静息：最后一次互动 40s 后坐下（引擎是唯一计时权威，这里只等）——
   // 探针不动真光标，但真光标可能正好压在窗上（userActive=true 会按设计延后坐下）。
-  // 这是一次性清场，不是绕过产品判据：之后再没有 pointer 事件进来。
-  await evaluate(s, `window.__cyrene.renderer.setUserActive(false)`);
+  // 这一段考的是「你走了以后她怎么过」：悬停信号必须整个窗口关掉，只清一次场不够——
+  // 清完之后真光标每进出一次就又把 lastUserAt 盖回当下。
+  const heldAway = await holdInputAway();
+  results.restInputHold = heldAway;
   const restDeadline = Date.now() + 56_000;
   let restSnap = null;
   let restDiag = null;
@@ -1314,6 +1402,8 @@ async function main() {
   }
   results.night = { phaseReady: nightPhaseReady, bubble: nightBubble };
   check("night.line", !!nightBubble, nightPhaseReady ? `bubble=${nightBubble ?? "null"}` : "32s 内没等到询问拍点");
+  // 静息/深夜两段都过完了，输入传感器交还生产实现：后面的玩法窗口要她「看得到你」。
+  results.restInputRelease = await releaseInputAway();
 
   // —— L. v1.9.0：装扮 / 伴飞小虫 / 小鱼干 / 睡毯 / 散步 ——
   // 全部走右键菜单同一条命令通道（handleCommand），验的是「菜单 → 引擎 → 画」整条线；
@@ -3200,6 +3290,7 @@ async function main() {
       r.setUserActive(true);
       return true;
     })()`);
+    results.idle = { inputHold: await holdInputPresent() };
     let act = await snap();
     const idleDeadline = Date.now() + 15_000;
     while (act.activity !== "idle" && Date.now() < idleDeadline) {
@@ -3209,7 +3300,7 @@ async function main() {
     check("idle.activity", act.activity === "idle", `activity=${act.activity}`);
     await forceFrame();
     const start = await readIdle();
-    results.idle = { start: start.idle, startPose: start.pose, startClip: start.clip, startGesture: start.gesture };
+    results.idle = { ...results.idle, start: start.idle, startPose: start.pose, startClip: start.clip, startGesture: start.gesture };
     // 复位后从站定起跳；姿态图就绪时基础段必须是真姿态格，而不是循环帧段。
     check("idle.start",
       !!start.idle && start.idle.phase === "stand" && start.idle.pose === "stand"
@@ -3342,6 +3433,7 @@ async function main() {
       `pose=${wakeHush.pose} clip=${wakeHush.clip}`);
     await evaluate(s, `window.__cyrene.renderer.setQuiet(false)`);
     await evaluate(s, `window.__cyrene.renderer.handleCommand("toggle-sleep")`);
+    results.idle.inputRelease = await releaseInputPresent();
   }
 
   // v1.15：手势落到真姿态。招手/鞠躬/剪刀手/歪头/洗脸/哈欠各是一张画，不是舞蹈片段；
@@ -3475,18 +3567,26 @@ async function main() {
       const y1 = Math.min(c.height, Math.ceil(Math.max(ay, by)));
       if (x1 - x0 < 2 || y1 - y0 < 2) return { green: -1, drawn: -1, why: "empty box", box: [x0, y0, x1, y1] };
       const data = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
-      let green = 0;
+      let greenCov = 0;
+      let greenPx = 0;
       let drawn = 0;
       for (let i = 0; i < data.length; i += 4) {
         const rr = data[i], gg = data[i + 1], bb = data[i + 2], aa = data[i + 3];
         if (aa > 20) drawn++;
         // 种下去那颗绿点直径只有 2.2 设计像素：只认 aa>160 的「瓷实核心」时，
-        // 猫待机漂 0.1px 的亚像素相位一变，读数就从 3 掉到 2（2026-10-28 实拍）。
-        // 按覆盖度认墨：半盖住的边缘只要还看得出绿（aa>80）也算这颗芽。
-        // 空盆里只有 PAPER/INK_SHADE，没有绿——同一道闸门在种之前读到的仍是 0，牙没松。
-        if (aa > 80 && gg > 130 && gg - rr > 40 && gg - bb > 25) green++;
+        // 猫待机漂 0.1px 的亚像素相位一变，读数就从 3 掉到 2（2026-10-28 实拍）；
+        // 收紧到 aa>80 仍会掉到 2（2026-10-29）。按覆盖度认墨：只要一个像素还看得出绿
+        // （gg 压过红蓝一截），就按它的 alpha 记一份——半盖住的边缘也是这颗芽。
+        // 空盆里只有 PAPER/INK_SHADE，种之前读数仍是 0（牙没松）。
+        if (aa > 40 && gg > rr + 12 && gg > bb + 8) {
+          greenCov += aa / 255;
+          greenPx += 1;
+        }
       }
-      return { green, drawn, gx: Math.round(gx * 10) / 10, floorY: Math.round(floorY * 10) / 10, box: [x0, y0, x1 - x0, y1 - y0] };
+      return {
+        green: Math.round(greenCov * 100) / 100, greenPx, drawn,
+        gx: Math.round(gx * 10) / 10, floorY: Math.round(floorY * 10) / 10, box: [x0, y0, x1 - x0, y1 - y0],
+      };
     })()`);
     // 气泡开合会清画布：空帧（drawn=0）不是「没长叶子」，重取再判。
     const potGreenSettled = async () => {
@@ -3499,6 +3599,53 @@ async function main() {
       return r;
     };
 
+    /**
+     * 躲猫猫捂眼时头顶那三颗点（girl-hide.ts buildHideOps）：中间玫瑰芯、两侧墨芯，
+     * 压在头发上。这一层走独演槽（collectGirlAboveOps），不在 fx.above 笔数里——
+     * 旧判据拿「+3 笔」当记号，量到的其实是别处的转场（notice/startle），一直是假绿。
+     * 气泡把窗口撑宽的瞬间，画布还是上一帧的放大残影（整块 HUD 墨底 26,29,38），
+     * 所以连采三拍、只取 cover 相位的那几拍里玫瑰像素最多的一拍。
+     */
+    const hideDotBand = async () => {
+      let best = null;
+      for (let i = 0; i < 3; i += 1) {
+        const cur = await evaluate(s, `(() => {
+          const r = window.__cyrene.renderer;
+          r.draw(performance.now());
+          const d = window.__cyrene.getPetDiagnostics();
+          const f = d.girl.face;
+          const c = document.getElementById("pet-canvas");
+          if (!f || !c) return { why: "no face/canvas", phase: null, rose: -1 };
+          const ctx = c.getContext("2d", { willReadFrequently: true });
+          const m = ctx.getTransform();
+          const y = f.top - f.h * 0.14;
+          const map = (x, yy) => [m.a * x + m.c * yy + m.e, m.b * x + m.d * yy + m.f];
+          const [ax, ay] = map(f.cx - f.w * 0.16 - 3, y - 2);
+          const [bx, by] = map(f.cx + f.w * 0.16 + 3, y + 2);
+          const x0 = Math.max(0, Math.floor(Math.min(ax, bx)));
+          const y0 = Math.max(0, Math.floor(Math.min(ay, by)));
+          const x1 = Math.min(c.width, Math.ceil(Math.max(ax, bx)));
+          const y1 = Math.min(c.height, Math.ceil(Math.max(ay, by)));
+          if (x1 - x0 < 2 || y1 - y0 < 2) return { why: "empty box", phase: null, rose: -1 };
+          const data = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+          let rose = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            const rr = data[i], gg = data[i + 1], bb = data[i + 2], aa = data[i + 3];
+            if (aa > 120 && rr - gg >= 35 && rr >= 150 && bb >= 80) rose += 1;
+          }
+          return {
+            phase: d.girl.hide?.phase ?? null, rose,
+            box: [x0, y0, x1 - x0, y1 - y0],
+          };
+        })()`);
+        if (cur.phase === null || cur.phase === "cover") {
+          if (!best || cur.rose > best.rose) best = cur;
+        }
+        if (i < 2) await wait(140);
+      }
+      return best ?? { why: "no cover sample", phase: null, rose: -1 };
+    };
+
     await awakeForPlay("v117");
     await dismissBubble();
     await wait(240);
@@ -3506,7 +3653,6 @@ async function main() {
     // R0 六列读数：全部来自引擎快照（渲染端不另算一份），盘上也还没有任何 v1.17 进度。
     const rBase = await diag();
     const rBaseBond = await bondNow();
-    const rBaseAbove = rBase.girl.fx.above;
     results.v117 = {
       base: {
         mood: rBase.girl.mood,
@@ -3666,7 +3812,7 @@ async function main() {
         && typeof plantBond?.garden?.plantedAt === "number" && plantBond.garden.plantedAt > 0,
       `garden=${JSON.stringify(plantDiag.girl.garden)} bubble=${plantText ?? "null"} bond=${JSON.stringify(plantBond?.garden ?? null)}`);
     check("v117.garden-pot-pixels",
-      potAfter.green >= 3 && potAfter.green - potBefore.green >= 3,
+      potAfter.green >= 2 && potAfter.green - potBefore.green >= 2 && potAfter.greenPx >= 2,
       `before=${JSON.stringify(potBefore)} after=${JSON.stringify(potAfter)}`);
     await evaluate(s, `window.__cyrene.renderer.handleCommand("garden-plant")`);
     await wait(220);
@@ -3690,6 +3836,7 @@ async function main() {
     // R5 躲猫猫第一轮：捂眼点＝太早（不记账、不摸头）→ 探头点中＝逮到（hides+1 落盘）→ 收走。
     await dismissBubble();
     await wait(200);
+    const dotBase = await hideDotBand();
     await evaluate(s, `window.__cyrene.renderer.handleCommand("hide-seek")`);
     await wait(240);
     const hideA = await diag();
@@ -3706,9 +3853,6 @@ async function main() {
       hideA.girl.hide?.phase === "cover" && hideA.girl.hides === 0
         && hideASnap.bubble?.text === "你来找我呀，数到三就探头",
       `hide=${JSON.stringify(hideA.girl.hide)} bubble=${hideASnap.bubble?.text ?? "null"}`);
-    check("v117.hide-marks",
-      hideA.girl.fx.above - rBaseAbove >= 3,
-      `above=${hideA.girl.fx.above} base=${rBaseAbove}`);
     const earlyTap = await tapFaceNow();
     await wait(160);
     const hideEarly = await diag();
@@ -3723,6 +3867,14 @@ async function main() {
       !!earlyTap.ok && hideEarly.girl.hides === 0 && hideEarly.girl.hide?.phase === "cover"
         && hideEarlySnap.bubble?.text === "你来找我呀，数到三就探头",
       JSON.stringify(results.v117.hide.early));
+
+    // 头部记号＝画布上真有三颗点：玫瑰芯比没躲的时候多出至少 2 个像素。
+    // 时机卡在早点点完之后、探头之前（捂眼剩 ~700ms），不抢那两条相位判据。
+    const dotCover = await hideDotBand();
+    results.v117.hide.dots = { base: dotBase, cover: dotCover };
+    check("v117.hide-marks",
+      dotCover.phase === "cover" && dotCover.rose - dotBase.rose >= 2,
+      `cover=${JSON.stringify(dotCover)} base=${JSON.stringify(dotBase)}`);
 
     const peek = await waitHidePhase("peek", 2_200);
     const peekSnap = await snap();
@@ -4412,9 +4564,12 @@ async function main() {
       `drained=${drained} achievements=${JSON.stringify((await diag()).girl.achievements)}`);
 
     await dismissBubble();
-    await evaluate(s, `window.__cyrene.renderer.handleCommand("festival")`);
-    await wait(260);
-    const todaySnap = await snap();
+    // 菜单同一条命令，读数放在**同一次求值里**：隔 260ms 再读会跟真光标的一下点击
+    // （main.ts:576 气泡点击 → dismissBubble）抢同一只话筒，测到的是竞态不是嘴。
+    const todaySnap = await evaluate(s, `(() => {
+      window.__cyrene.renderer.handleCommand("festival");
+      return window.__cyrene.renderer.getCompanionSnapshot();
+    })()`);
     const todayWant = fillReport(REPORT_TPL.today, { "today.label": xmas.label, "today.line": xmas.line });
     results.v119.festivalToday = { got: todaySnap?.bubble?.text ?? null, want: todayWant };
     check("v119.festival.today", todaySnap?.bubble?.text === todayWant,
@@ -4425,6 +4580,9 @@ async function main() {
     try {
       await awakeForPlay("v119-night");
       await dismissBubble();
+      // 伪时钟横跨好几天：悬停一下就把 lastUserWall 盖到 23:41，三分钟门槛再也凑不满。
+      // 这一段同样是「你不在」的窗口，输入传感器整个关掉。
+      results.v119.inputHold = await holdInputAway();
       await evaluate(s, `(() => {
         if (typeof window.__realDateNowV119 !== "function") window.__realDateNowV119 = Date.now;
         Date.now = () => ${Math.round(sleepAt)};
@@ -4485,7 +4643,331 @@ async function main() {
     } finally {
       // 拨过的表必须还回去：后面就算有检查红了，也不能把伪时间留给下一次读盘。
       await restoreWall();
+      results.v119.inputRelease = await releaseInputAway();
     }
+  }
+
+  // —— U. v1.20「野性觉醒」：阶位账 / 两张嘴 / 三式各演一遍 / 中途叫停 / 跨重启 ——
+  // 每个阶段都先把**盘上的账**写成种子再整页重载：家猫 0 点（冲刺）、醒爪 3 点（潜行）、
+  // 猎手 8 点（扑击）。判据只看渲染器自己报的读数与屏幕上真在画的那张姿态：
+  // 冲刺＝奔跑图、潜行＝趴姿图、扑击＝跃起图，且身上带双色记号；玩成才记账、半路叫停不算；
+  // 每笔当场落盘。冷却只在引擎里（不落盘），所以重载后的「冷却满格」也是开局契约的一部分。
+  {
+    results.v120 = {};
+    const girlOf = async () => (await diag()).girl;
+    const wildOf = async () => (await girlOf()).wild;
+    const bondNow = () => evaluate(s, `(() => {
+      try { return JSON.parse(localStorage.getItem("cyrene.pet.bond.v1") ?? "null"); } catch { return null; }
+    })()`);
+    const wildLedger = (w) => (w ? { points: w.points, zooms: w.zooms, stalks: w.stalks, hunts: w.hunts } : null);
+    /** 撒野回执可能被一枚新成就顶掉（wild-run 就是这一轮解锁的）：两句都认，别把设计当 bug。 */
+    const wildLineOk = (impulse, text, ach) => (WILD_ACT_LINES[impulse] ?? []).includes(text)
+      || (ach?.id === "wild-run" && text === WILD_RUN_ACH_LINE);
+    /** 一整拍：气泡/活动/账本/成就同一拍读，避免「读句子时那枚徽章已经过期」的假红。 */
+    const afterBeat = () => evaluate(s, `(() => {
+      const cy = window.__cyrene;
+      const snap = cy.renderer.getCompanionSnapshot();
+      const g = cy.getPetDiagnostics().girl;
+      return {
+        bubble: snap.bubble?.text ?? null,
+        activity: snap.activity,
+        wild: g && g.wild,
+        pose: g && g.pose,
+        action: g && g.action,
+        actionFrame: g && g.actionFrame,
+        atlases: g && g.atlases,
+        fx: g && g.fx,
+        achievement: g && g.achievement,
+        achievements: g ? g.achievements : [],
+      };
+    })()`);
+    /**
+     * 改本应用自己的 bond 后立刻重载：野性账只从盘里回来，不许拿内存快照蒙混。
+     *
+     * 开机头几百毫秒里真实光标还活着（轮询要等下一页自己把闸闸上），她可能真扑一下——
+     * 「亲手扑中一次也算一笔野性」（companion.pounce → noteWild("hunt")，不看当前阶），
+     * 盘上清零之后账本就会多出一笔合法的扑。所以落种要带自检：账本原样等于种子才算种干净，
+     * 否则重落种再重载（最多三次）；冻光标也提前到「桥一露头」，别等猫窗画完墨。
+     */
+    const seedAndReload = async (patchExpr) => {
+      const writeSeed = () => evaluate(s, `(() => {
+        const KEY = "cyrene.pet.bond.v1";
+        let bond = {};
+        try { bond = JSON.parse(localStorage.getItem(KEY) ?? "{}") ?? {}; } catch { bond = {}; }
+        ${patchExpr}
+        localStorage.setItem(KEY, JSON.stringify(bond));
+        return bond.wild ?? null;
+      })()`);
+      const readDoc = () => evaluate(s, `(() => ({
+        origin: performance.timeOrigin,
+        bridge: !!window.__cyrene,
+        canvas: !!document.getElementById("pet-canvas"),
+      }))()`, 5_000).catch(() => null);
+      const want = (await writeSeed()) ?? { points: 0, zooms: 0, stalks: 0, hunts: 0 };
+      results.wildSeeds ??= [];
+      let lastSeen = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const originBefore = await evaluate(s, `performance.timeOrigin`);
+        const deadline = Date.now() + 40_000;
+        let lastError = null;
+        let reloadAt = 0;
+        for (;;) {
+          const now = Date.now();
+          if (now >= reloadAt) {
+            try { await s.send("Page.reload", { ignoreCache: false }, 20_000); } catch (e) { lastError = String(e); }
+            reloadAt = now + 8_000;
+          }
+          const st = await readDoc();
+          if (st && st.bridge && st.canvas && st.origin > originBefore) break;
+          if (Date.now() > deadline) {
+            throw new Error(`[ENV] 重载后 40s 没等到新页面的渲染桥（last=${JSON.stringify(lastError)}）`);
+          }
+          await wait(150);
+        }
+        // 桥已经在了、猫窗还没画墨：这一刻就把真实光标这一路闸掉（页启动时的轮询不等我们）。
+        await evaluate(s, `window.__cyrene.setGazeFrozen(true)`).catch(() => {});
+        if (!(await waitPetInk(s, 20_000, appLog, child))) {
+          dumpAndKill(child, appLog, "重载后 20s 猫窗没现身（ENV：启动动画没让位，不是野性账本丢了）");
+        }
+        lastSeen = await evaluate(s, `(() => {
+          const g = window.__cyrene.getPetDiagnostics().girl;
+          return { pounces: g?.pounces ?? 0, wild: g?.wild ?? null };
+        })()`);
+        const ledger = lastSeen.wild
+          ? { points: lastSeen.wild.points, zooms: lastSeen.wild.zooms, stalks: lastSeen.wild.stalks, hunts: lastSeen.wild.hunts }
+          : null;
+        const clean = !!ledger && lastSeen.pounces === 0
+          && ledger.points === want.points && ledger.zooms === want.zooms
+          && ledger.stalks === want.stalks && ledger.hunts === want.hunts;
+        results.wildSeeds.push({ attempt, pounces: lastSeen.pounces, want, ledger, clean });
+        if (!clean) {
+          // 种子上多出来的那笔只可能是开机扑光标（引擎 2 分钟内不许自主撒野）——重来一次。
+          await writeSeed().catch(() => {});
+          await wait(200);
+          continue;
+        }
+        // 开场演出期间 pose 是 null（启动动画不是她），姿态图也还没解码：量姿势前两个都要到位。
+        const ready = Date.now() + 20_000;
+        for (;;) {
+          const g = await girlOf();
+          if (g && g.pose !== null && g.atlases?.poses && g.atlases?.poses2 && g.atlases?.actions) return g;
+          if (Date.now() > ready) break;
+          await wait(300);
+        }
+        throw new Error("[ENV] 重载后 20s 她没回到可量姿态的待机图（形态/图集没起来，不是野性红的）");
+      }
+      throw new Error(`[ENV] 三次落种都没种干净（账本对不上种子，pounces=${lastSeen?.pounces}）：${JSON.stringify(results.wildSeeds)}`);
+    };
+    /** 野性只从待机起手（引擎自己的闸）：走/睡/被拖/晕都不收，能量不够先喂两口。 */
+    const settleForWild = async (why) => {
+      const deadline = Date.now() + 15_000;
+      for (;;) {
+        await forceFrame();
+        const n = await snap();
+        const idleEnough = !["walk", "drag", "thrown", "sleep"].includes(n.activity);
+        if (idleEnough && (n.vitals?.energy ?? 1) >= 0.3) return n;
+        if (Date.now() > deadline) {
+          throw new Error(`[ENV] 15s 内没回到可撒野的待机态（activity=${n.activity} energy=${n.vitals?.energy}；${why}）`);
+        }
+        if (idleEnough) await evaluate(s, `window.__cyrene.renderer.handleCommand("feed")`);
+        await dismissBubble().catch(() => {});
+        await wait(320);
+      }
+    };
+    /**
+     * 起一式并连拍四拍：姿态换图有 160ms 交叉淡化、冲刺激光般的虚线也在走相位，
+     * 单拍可能正好落在「笔全淡掉」的那一格；四拍取记号最多的一拍当读数。
+     */
+    const startWild = async (why) => {
+      await settleForWild(why);
+      const before = await wildOf();
+      await dismissBubble();
+      await wait(240);
+      await evaluate(s, `window.__cyrene.renderer.handleCommand("wild")`);
+      let best = null;
+      const beats = [];
+      for (let i = 0; i < 4; i += 1) {
+        await forceFrame();
+        const beat = await afterBeat();
+        beats.push(beat);
+        if (!best || (beat.fx?.above ?? 0) > (best.fx?.above ?? 0)) best = beat;
+        await wait(80);
+      }
+      return { before, run: best, frames: beats.map((b) => b.actionFrame ?? null) };
+    };
+    const waitWildDone = async (ms = 20_000) => {
+      const deadline = Date.now() + ms;
+      for (;;) {
+        await forceFrame();
+        const w = await wildOf();
+        if ((w?.act ?? null) === null || Date.now() > deadline) return w;
+        await wait(120);
+      }
+    };
+    const hourNow = () => evaluate(s, `new Date().getHours()`);
+    const gainFor = (hour) => (hour >= 22 || hour < 5 ? 2 : 1);
+
+    // U0 家猫：盘上清空 → 0 点、只会冲刺、冷却满格。
+    await seedAndReload(`bond.wild = { points: 0, zooms: 0, stalks: 0, hunts: 0 };`);
+    await awakeForPlay("v120-home");
+    const h0 = await girlOf();
+    results.v120.boot = { wild: h0.wild, energy: (await snap()).vitals?.energy, pounces: h0.pounces };
+    check("v120.boot.level", !!h0.wild
+      && h0.wild.points === 0 && h0.wild.level === WILD_LEVELS[0].id && h0.wild.label === WILD_LEVELS[0].label
+      && h0.wild.act === null && h0.wild.zooms === 0 && h0.wild.stalks === 0 && h0.wild.hunts === 0
+      && h0.wild.next === wildNextAt(0)
+      && h0.wild.unlocked?.zoom === true && h0.wild.unlocked?.stalk === false && h0.wild.unlocked?.hunt === false,
+      `wild=${JSON.stringify(h0.wild)} pounces=${h0.pounces} seed=${JSON.stringify(results.wildSeeds)} levels=${JSON.stringify(WILD_LEVELS)}`);
+    check("v120.boot.cooldown", typeof h0.wild?.cooldownLeft === "number" && h0.wild.cooldownLeft >= 60_000,
+      `cooldownLeft=${h0.wild?.cooldownLeft}`);
+
+    // U1 两张嘴：「野性到哪了」三行逐字对表；念账不动身体、不替她重来一发。
+    await settleForWild("v120-report");
+    await dismissBubble();
+    await wait(240);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("wild-report")`);
+    await wait(260);
+    const u1 = await afterBeat();
+    results.v120.report = { bubble: u1.bubble, want: wildReportOf(u1.wild), wild: u1.wild };
+    check("v120.report.text", u1.bubble === wildReportOf(u1.wild),
+      `got=${JSON.stringify(u1.bubble)} want=${JSON.stringify(wildReportOf(u1.wild))}`);
+    // 念账不许动账本：拿开机那一拍当基线（不是写死 0——落种已自证干净，基线仍以现场为准）。
+    check("v120.report.still", !!h0.wild && !!u1.wild
+      && u1.wild.points === h0.wild.points && u1.wild.hunts === h0.wild.hunts
+      && u1.wild.zooms === h0.wild.zooms && u1.wild.stalks === h0.wild.stalks
+      && u1.wild.act === null,
+      `wild=${JSON.stringify(u1.wild)} boot=${JSON.stringify(wildLedger(h0.wild))}`);
+    await shot("girl-wild-report.png");
+
+    // U2 家猫撒野：冲刺＝奔跑图 + 三道双色风线，跑完才记 1 点（22:00–05:00 双倍），当场落盘。
+    const u2 = await startWild("v120-zoom");
+    results.v120.zoom = { before: wildLedger(u2.before), run: u2.run };
+    check("v120.zoom.act", u2.run?.wild?.act === "zoom" && u2.run?.activity === "walk",
+      `act=${u2.run?.wild?.act} activity=${u2.run?.activity} pose=${u2.run?.pose}`);
+    // v1.21：冲刺播的是动作图集里自己那一行——诊断读 action，姿态读数让位（pose=null）。
+    check("v120.zoom.action", u2.run?.atlases?.actions === true
+      && u2.run?.action === "zoom" && u2.run?.pose === null,
+      `atlases=${JSON.stringify(u2.run?.atlases)} action=${u2.run?.action} pose=${u2.run?.pose}`);
+    check("v120.zoom.frames", new Set((u2.frames ?? []).filter((f) => f !== null)).size >= 2,
+      `frames=${JSON.stringify(u2.frames)}`);
+    check("v120.zoom.fx", (u2.run?.fx?.above ?? 0) >= 4, `fx=${JSON.stringify(u2.run?.fx ?? null)}`);
+    await shot("girl-wild-zoom.png");
+    const u2Done = await waitWildDone();
+    const u2Beat = await afterBeat();
+    const u2Hour = await hourNow();
+    const u2Gain = gainFor(u2Hour);
+    const u2Disk = (await bondNow())?.wild ?? null;
+    results.v120.zoomDone = {
+      ledger: wildLedger(u2Done), gain: u2Gain, hour: u2Hour,
+      bubble: u2Beat.bubble, achievement: u2Beat.achievement, disk: u2Disk,
+    };
+    check("v120.zoom.credit", u2Done?.points === u2.before.points + u2Gain
+      && u2Done?.zooms === u2.before.zooms + 1
+      && u2Done?.stalks === u2.before.stalks && u2Done?.hunts === u2.before.hunts,
+      `before=${JSON.stringify(wildLedger(u2.before))} after=${JSON.stringify(wildLedger(u2Done))} gain=${u2Gain} hour=${u2Hour}`);
+    check("v120.zoom.line", wildLineOk("zoom", u2Beat.bubble, u2Beat.achievement),
+      `bubble=${JSON.stringify(u2Beat.bubble)} ach=${JSON.stringify(u2Beat.achievement)} lines=${JSON.stringify(WILD_ACT_LINES.zoom)}`);
+    check("v120.zoom.achievement", u2Beat.achievements.includes("wild-run"),
+      `achievements=${JSON.stringify(u2Beat.achievements)}`);
+    check("v120.zoom.disk", JSON.stringify(u2Disk) === JSON.stringify(wildLedger(u2Done)),
+      `disk=${JSON.stringify(u2Disk)} memory=${JSON.stringify(wildLedger(u2Done))}`);
+
+    // U3 中途叫停：「野性到哪了」撤掉野性标记；剩下的路慢慢走完也不记账（盘上也不动）。
+    const u3 = await startWild("v120-abort");
+    check("v120.abort.running", u3.run?.wild?.act === "zoom", `run=${JSON.stringify(u3.run)}`);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("wild-report")`);
+    await wait(220);
+    const u3Beat = await afterBeat();
+    results.v120.abort = { running: wildLedger(u3.before), stopped: wildLedger(u3Beat.wild), bubble: u3Beat.bubble };
+    check("v120.abort.stopped", u3Beat.wild?.act === null && u3Beat.bubble === wildReportOf(u3Beat.wild),
+      `wild=${JSON.stringify(u3Beat.wild)} bubble=${JSON.stringify(u3Beat.bubble)} want=${JSON.stringify(wildReportOf(u3Beat.wild))}`);
+    const walkDeadline = Date.now() + 20_000;
+    let u3Walk = await afterBeat();
+    while (u3Walk.activity === "walk" && Date.now() < walkDeadline) {
+      await forceFrame();
+      await wait(160);
+      u3Walk = await afterBeat();
+    }
+    const u3Final = await wildOf();
+    const u3Disk = (await bondNow())?.wild ?? null;
+    results.v120.abort.final = { activity: u3Walk.activity, ledger: wildLedger(u3Final), disk: u3Disk };
+    check("v120.abort.no-credit", u3Final?.points === u3.before.points && u3Final?.zooms === u3.before.zooms
+      && JSON.stringify(u3Disk) === JSON.stringify(wildLedger(u3Final)),
+      `before=${JSON.stringify(wildLedger(u3.before))} after=${JSON.stringify(wildLedger(u3Final))} disk=${JSON.stringify(u3Disk)} activity=${u3Walk.activity}`);
+
+    // U4 醒爪（3 点）：潜行＝趴姿图（另一套图集）+ 脸侧两根双色胡须线；走完记 1 点。
+    await seedAndReload(`bond.wild = { points: 3, zooms: 3, stalks: 0, hunts: 0 };`);
+    await awakeForPlay("v120-claw");
+    const clawLedger = await wildOf();
+    results.v120.claw = clawLedger;
+    check("v120.claw.level", clawLedger?.points === 3 && clawLedger?.level === WILD_LEVELS[1].id
+      && clawLedger?.label === WILD_LEVELS[1].label
+      && clawLedger?.unlocked?.stalk === true && clawLedger?.unlocked?.hunt === false
+      && clawLedger?.next === wildNextAt(3),
+      `wild=${JSON.stringify(clawLedger)} levels=${JSON.stringify(WILD_LEVELS)}`);
+    // 念一次 3 点档的账：行二必须按门槛表算出「再 5 点成猎手」。
+    await settleForWild("v120-claw-report");
+    await dismissBubble();
+    await wait(240);
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("wild-report")`);
+    await wait(260);
+    const u4Rep = await afterBeat();
+    results.v120.clawReport = { bubble: u4Rep.bubble, want: wildReportOf(u4Rep.wild) };
+    check("v120.clawReport.text", u4Rep.bubble === wildReportOf(u4Rep.wild),
+      `got=${JSON.stringify(u4Rep.bubble)} want=${JSON.stringify(wildReportOf(u4Rep.wild))}`);
+    const u4 = await startWild("v120-stalk");
+    results.v120.stalk = { before: wildLedger(u4.before), run: u4.run };
+    check("v120.stalk.act", u4.run?.wild?.act === "stalk" && u4.run?.activity === "walk",
+      `act=${u4.run?.wild?.act} activity=${u4.run?.activity} pose=${u4.run?.pose}`);
+    check("v120.stalk.action", u4.run?.action === "stalk" && u4.run?.pose === null,
+      `action=${u4.run?.action} pose=${u4.run?.pose}`);
+    check("v120.stalk.fx", (u4.run?.fx?.above ?? 0) >= 4, `fx=${JSON.stringify(u4.run?.fx ?? null)}`);
+    await shot("girl-wild-stalk.png");
+    const u4Done = await waitWildDone();
+    const u4Hour = await hourNow();
+    const u4Gain = gainFor(u4Hour);
+    const u4Disk = (await bondNow())?.wild ?? null;
+    results.v120.stalkDone = { ledger: wildLedger(u4Done), gain: u4Gain, hour: u4Hour, disk: u4Disk };
+    check("v120.stalk.credit", u4Done?.points === u4.before.points + u4Gain
+      && u4Done?.stalks === u4.before.stalks + 1
+      && u4Done?.hunts === u4.before.hunts && u4Done?.zooms === u4.before.zooms,
+      `before=${JSON.stringify(wildLedger(u4.before))} after=${JSON.stringify(wildLedger(u4Done))} gain=${u4Gain} hour=${u4Hour}`);
+    check("v120.stalk.no-chain", u4Done?.hunts === 0 && u4Done?.act === null,
+      `after=${JSON.stringify(wildLedger(u4Done))} act=${u4Done?.act}`);
+    check("v120.stalk.disk", JSON.stringify(u4Disk) === JSON.stringify(wildLedger(u4Done)),
+      `disk=${JSON.stringify(u4Disk)} memory=${JSON.stringify(wildLedger(u4Done))}`);
+
+    // U5 猎手（8 点）：扑击＝跃起图 + 一圈双色爆线；原来地演完再记账。
+    await seedAndReload(`bond.wild = { points: 8, zooms: 5, stalks: 3, hunts: 0 };`);
+    await awakeForPlay("v120-hunter");
+    const hunterLedger = await wildOf();
+    results.v120.hunter = hunterLedger;
+    check("v120.hunter.level", hunterLedger?.points === 8 && hunterLedger?.level === WILD_LEVELS[2].id
+      && hunterLedger?.label === WILD_LEVELS[2].label && hunterLedger?.unlocked?.hunt === true
+      && hunterLedger?.next === wildNextAt(8),
+      `wild=${JSON.stringify(hunterLedger)} levels=${JSON.stringify(WILD_LEVELS)}`);
+    const u5 = await startWild("v120-hunt");
+    results.v120.hunt = { before: wildLedger(u5.before), run: u5.run };
+    check("v120.hunt.act", u5.run?.wild?.act === "hunt" && u5.run?.activity === "play",
+      `act=${u5.run?.wild?.act} activity=${u5.run?.activity} pose=${u5.run?.pose}`);
+    check("v120.hunt.action", u5.run?.action === "hunt" && u5.run?.pose === null,
+      `action=${u5.run?.action} pose=${u5.run?.pose}`);
+    check("v120.hunt.fx", (u5.run?.fx?.above ?? 0) >= 4, `fx=${JSON.stringify(u5.run?.fx ?? null)}`);
+    await shot("girl-wild-hunt.png");
+    const u5Done = await waitWildDone(6_000);
+    const u5Beat = await afterBeat();
+    const u5Hour = await hourNow();
+    const u5Gain = gainFor(u5Hour);
+    const u5Disk = (await bondNow())?.wild ?? null;
+    results.v120.huntDone = {
+      ledger: wildLedger(u5Done), gain: u5Gain, hour: u5Hour, bubble: u5Beat.bubble, disk: u5Disk,
+    };
+    check("v120.hunt.credit", u5Done?.points === u5.before.points + u5Gain
+      && u5Done?.hunts === u5.before.hunts + 1
+      && u5Done?.zooms === u5.before.zooms && u5Done?.stalks === u5.before.stalks,
+      `before=${JSON.stringify(wildLedger(u5.before))} after=${JSON.stringify(wildLedger(u5Done))} gain=${u5Gain} hour=${u5Hour}`);
+    check("v120.hunt.disk", JSON.stringify(u5Disk) === JSON.stringify(wildLedger(u5Done)),
+      `disk=${JSON.stringify(u5Disk)} memory=${JSON.stringify(wildLedger(u5Done))}`);
   }
 
   const failed = checks.filter((c) => !c.ok);
