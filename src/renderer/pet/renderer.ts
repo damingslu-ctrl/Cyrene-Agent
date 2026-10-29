@@ -60,7 +60,7 @@ import {
   type GirlIdleState,
   type GirlLifePhase,
 } from "./girl-idle";
-import { GirlScenePlayer, girlBasePoseFor, girlBaseVisualFor, girlWildVisualFor, type GirlShown } from "./girl-scene";
+import { GirlScenePlayer, GIRL_GESTURE_ACTION, girlBasePoseFor, girlBaseVisualFor, girlWildVisualFor, type GirlShown } from "./girl-scene";
 import { gesturePoseFor } from "./girl-gesture";
 import { blinkAt, bodyClip, gestureClip, mixPose, sampleClip, type Slots } from "./motion";
 import { faceOf, MOOD_TO_EXPRESSION, type Expression } from "./face";
@@ -558,8 +558,8 @@ export class PixelPetRenderer {
   private readonly girlPoses2 = new Image();
   private girlPoses2Ready = false;
   /**
-   * 动作图集（v1.21.0）：野性三式各占一行，冲刺/潜行/扑击各播自己那条动画。
-   * 缺席时野性退回 v1.20 的姿态舞台（奔跑/趴/跃起），其他待机/走路由姿态图照旧。
+   * 动作图集（v1.21.0 野性三式，v1.22.0 吃/拍/跳/打字）：每个动作各占一行、各播自己那条动画。
+   * 缺席时野性退回 v1.20 的姿态舞台（奔跑/趴/跃起）、互动退回原帧段，待机/走路由姿态图照旧。
    */
   private readonly girlActions = new Image();
   private girlActionsReady = false;
@@ -798,8 +798,8 @@ export class PixelPetRenderer {
       if (this.form === "girl" && !this.paused) this.draw(performance.now());
     }, { once: true });
     this.girlActions.addEventListener("error", () => {
-      // 只有野性三式缺席：退回姿态舞台，待机/走路一帧不受牵连。
-      console.warn("[verge] girl-actions 图集加载失败，野性三式退回姿态");
+      // 只有动作行缺席：野性退回姿态舞台、互动退回帧段，待机/走路一帧不受牵连。
+      console.warn("[verge] girl-actions 图集加载失败，野性/互动动作行退回姿态");
       if (this.form === "girl" && !this.paused) this.draw(performance.now());
     }, { once: true });
     this.girlActions.src = GIRL_ACTIONS.src;
@@ -3668,8 +3668,8 @@ export class PixelPetRenderer {
    * 1. 显式手势（点击反馈/workStatus）最高优先，一次性播完就回基础姿态；
    * 2. 引擎自主抽到的小动作（snapshot.gesture，权重 80）只在换 id 时起播；
    *    她坐着/蜷着/回头时这条闸关掉，否则编排永远走不到「歇一会」；
-   * 3. 其余时间由 `girlBaseVisualFor` 给真姿态：站/看/坐/蜷/伸懒腰/开心，
-   *    走路/梳毛/被拖等只能靠帧动画的活动才回动画段。
+   * 3. 其余时间由 `girlBaseVisualFor` 给真姿态或专属动作：站/看/坐/蜷/伸懒腰/开心，
+   *    吃饭/玩耍播自己的动作行（v1.22），走路/梳毛/被拖等只有帧动画的才回动画段。
    */
   private tickGirlScene(now: number, snapshot: CompanionSnapshot | null): void {
     const activity = (snapshot?.activity ?? "idle") as GirlActivity;
@@ -3734,16 +3734,26 @@ export class PixelPetRenderer {
         quiet: this.quiet,
         posesReady: this.girlPosesReady,
         poses2Ready: this.girlPoses2Ready,
+        actionsReady: this.girlActionsReady,
       }), now);
     }
   }
 
   /**
-   * 起一个手势：有真姿态就用真姿态（招手/鞠躬/剪刀手/歪头/洗脸/哈欠/伸懒腰），
-   * 没有对应画的（点头/摇头/打字/发抖/跳/拍手/捂脸/喝一口）照旧借帧动画。
+   * 起一个手势：v1.22 起有专属动作行的（跳/打字）先播那一行；
+   * 其次是有真姿态的（招手/鞠躬/剪刀手/歪头/洗脸/哈欠/伸懒腰）；
+   * 都没有的（点头/摇头/发抖/拍手/捂脸/喝一口）照旧借帧动画。
    * 返回 false＝这个手势既不认识、也没有兜底片段（什么也没发生）。
    */
   private startGirlGesture(id: string, at: number, ambient: boolean): boolean {
+    const act = GIRL_GESTURE_ACTION[id];
+    if (act && this.girlActionsReady) {
+      // 循环行自己不会报 done（type 是循环），收口靠手势时长；一次性行（hop）按自己的帧数谢幕。
+      this.animGesture = { id, clipId: null, startedAt: at, until: at + gestureClip(id).ms };
+      this.ambientGestureActive = ambient;
+      this.scene.setVisual({ kind: "action", id: act }, at);
+      return true;
+    }
     const pose = gesturePoseFor(id);
     if (pose && this.girlPoseReadyFor(pose.pose)) {
       this.animGesture = { id, clipId: null, startedAt: at, until: at + pose.holdMs };

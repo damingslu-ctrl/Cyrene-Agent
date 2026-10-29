@@ -80,6 +80,22 @@ export function girlBasePoseFor(
   return null;
 }
 
+/**
+ * v1.22 日常互动也各播自己那一行：喂食=吃饭、玩耍=拍打。
+ * 没列进来的活动（走路/梳毛/被拖/休息…）照旧走姿态或帧段——这张表只收
+ * 有专属画的，不许拿一行通用动作把所有互动都盖掉。
+ */
+export const GIRL_ACTIVITY_ACTION: Partial<Record<GirlActivity, GirlActionId>> = {
+  eat: "eat",
+  play: "bat",
+};
+
+/** 手势 → 专属动作行（跳=hop、打字=type）；其余手势仍走姿态/帧段优先级。 */
+export const GIRL_GESTURE_ACTION: Record<string, GirlActionId | undefined> = {
+  hop: "hop",
+  typeCode: "type",
+};
+
 export interface GirlBaseVisualInput {
   activity: GirlActivity;
   phase: GirlLifePhase;
@@ -91,6 +107,8 @@ export interface GirlBaseVisualInput {
    * 趴那一族退回帧动画，不许把坐姿一起拖回跳舞帧。缺省跟 `posesReady` 走。
    */
   poses2Ready?: boolean;
+  /** 动作图集 III（v1.21 野性三式、v1.22 吃/拍/跳/打字）。缺席时互动退回原帧段。 */
+  actionsReady?: boolean;
 }
 
 /** 这张姿态的图到底在不在屏上——按它所属的图集判，别拿另一套图的 ready 蒙混。 */
@@ -103,13 +121,17 @@ export function girlPoseReadyFor(
     : input.posesReady;
 }
 
-/** 当前活动该以什么打底：真姿态优先，姿态图缺席时退回最接近的循环帧段。 */
+/** 当前活动该以什么打底：专属动作 > 真姿态 > 最接近的循环帧段，三级各管各的。 */
 export function girlBaseVisualFor(input: GirlBaseVisualInput): GirlVisual {
   const pose = girlBasePoseFor(input.activity, input.phase, input.quiet);
   if (pose) {
     return girlPoseReadyFor(pose, input)
       ? { kind: "pose", id: pose }
       : { kind: "clip", id: GIRL_POSE_FALLBACK_CLIP[pose], loop: true };
+  }
+  if (input.actionsReady) {
+    const act = GIRL_ACTIVITY_ACTION[input.activity];
+    if (act) return { kind: "action", id: act };
   }
   return { kind: "clip", id: baseClipFor(input.activity, input.quiet), loop: true };
 }
