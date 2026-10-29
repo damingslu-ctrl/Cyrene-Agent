@@ -142,6 +142,9 @@ export interface PetMenuActions {
   /** v1.19.0：报时辰 / 报节日（只念账，不动她）。 */
   clock: () => void;
   festival: () => void;
+  /** v1.20.0：让她当场野一下 / 只念野性账。 */
+  wild: () => void;
+  wildReport: () => void;
   openNetwork: () => void;
   /** v1.5.0：形态与档位切换（落盘 + 广播在装配层，菜单只管发意图）。 */
   setForm: (form: PetForm) => void;
@@ -260,6 +263,9 @@ export function buildPetMenuItems(input: PetMenuInput, actions?: Partial<PetMenu
     // —— v1.19.0「她的一天」：报时辰与节日，同样只念账 ——
     { label: "看看现在几点", enabled: input.form === "girl" && !!actions?.clock, ...bind(actions?.clock) },
     { label: "今天是节日吗", enabled: input.form === "girl" && !!actions?.festival, ...bind(actions?.festival) },
+    // —— v1.20.0「野性觉醒」：一式当场演，另一式只念账 ——
+    { label: "让她野一下", enabled: input.form === "girl" && !!actions?.wild, ...bind(actions?.wild) },
+    { label: "野性到哪了", enabled: input.form === "girl" && !!actions?.wildReport, ...bind(actions?.wildReport) },
     // 「让它做个动作」：只演一次手势，不改数值。放在互动组末尾，与喂/玩区分开。
     {
       label: "让它做个动作",
@@ -435,6 +441,8 @@ export function attachPetContextMenu(input: PetContextMenuInput): void {
         solo: () => onPetCommand("solo"),
         clock: () => onPetCommand("clock"),
         festival: () => onPetCommand("festival"),
+        wild: () => onPetCommand("wild"),
+        wildReport: () => onPetCommand("wild-report"),
         openNetwork: () => openNetworkPanel(),
         setForm: (form) => {
           service.setForm(form);

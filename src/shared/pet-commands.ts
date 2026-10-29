@@ -37,6 +37,8 @@ export type PetCommand =
   | "ball" | "combo" | "lantern" | "fishing" | "mirror" | "solo"
   /** v1.19.0「她的一天」：报时辰 / 报节日。只有嘴，不动身体。 */
   | "clock" | "festival"
+  /** v1.20.0「野性觉醒」：当场撒一次野 / 只念野性账。 */
+  | "wild" | "wild-report"
   | TrickCommand
   | RpsCommand
   | AccessoryCommand;
@@ -57,7 +59,7 @@ const BASE_COMMANDS: ReadonlyArray<PetCommand> = [
   "mood", "favorite", "tricks", "treasure", "treasures", "hide-seek",
   "garden-plant", "garden", "garden-harvest",
   "ball", "combo", "lantern", "fishing", "mirror", "solo",
-  "clock", "festival",
+  "clock", "festival", "wild", "wild-report",
 ];
 
 export const PET_COMMANDS: ReadonlyArray<PetCommand> = [

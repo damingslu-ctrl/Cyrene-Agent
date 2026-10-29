@@ -172,12 +172,12 @@ describe("成长记录", () => {
   it("三行档位与天数、徽章与互动总数；数字随互动变化", () => {
     const engine = girl();
     expect(engine.growthReport(T0)).toBe(true);
-    expect(line(engine)).toBe("亲近 · 第 1 天\n徽章 0/41\n互动 0 次");
+    expect(line(engine)).toBe("亲近 · 第 1 天\n徽章 0/44\n互动 0 次");
 
     engine.boxCatch(T0 + 1_000);
     engine.planeEnd(T0 + 2_000, true);
     expect(engine.growthReport(T0 + 3_000)).toBe(true);
-    expect(line(engine)).toBe("亲近 · 第 1 天\n徽章 0/41\n互动 3 次");
+    expect(line(engine)).toBe("亲近 · 第 1 天\n徽章 0/44\n互动 3 次");
   });
 
   it("安静期与四足形态不答（免得当成系统播报）", () => {

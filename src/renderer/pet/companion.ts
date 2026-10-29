@@ -123,6 +123,30 @@ import {
   type SoloKind,
   type SoloLedger,
 } from "../../shared/pet-solo";
+import {
+  WILD_HUNT_MS,
+  WILD_MOVE_MS,
+  WILD_STALK_SPEED,
+  WILD_ZOOM_SPEED,
+  bestWildImpulse,
+  emptyWild,
+  nextWildAt,
+  pickWildImpulse,
+  recordWild,
+  sanitizeWild,
+  wildActLine,
+  wildChanceFor,
+  wildCooldownFor,
+  wildLevelFor,
+  wildLevelUpLine,
+  wildRank,
+  wildReport as buildWildReport,
+  wildUnlocks,
+  type WildImpulse,
+  type WildLevelId,
+  type WildState,
+  type WildUnlocks,
+} from "./girl-wild";
 import { judgeRps, RPS_SIGNS, type RpsOutcome, type RpsSign } from "../../shared/pet-rps";
 import { PURR_MS } from "./girl-purr";
 import { RAIN_MS } from "./girl-rain";
@@ -233,6 +257,25 @@ export interface ClockSnapshot {
   autoSleep: boolean;
 }
 
+/** v1.20 野性觉醒：她此刻的阶、正在演的冲动与冷却。四足恒 null。 */
+export interface WildSnapshot {
+  points: number;
+  level: WildLevelId;
+  label: string;
+  /** 正在演的冲动；null＝此刻不在撒野。 */
+  act: WildImpulse | null;
+  /** 这一式还剩多久（赶路时是上限，扑击是动作剩余）。 */
+  left: number;
+  /** 距下一次自主撒野还有多久（0＝随时可以）。 */
+  cooldownLeft: number;
+  zooms: number;
+  stalks: number;
+  hunts: number;
+  /** 下一阶门槛；满阶为 null。 */
+  next: number | null;
+  unlocked: WildUnlocks;
+}
+
 export interface CompanionSnapshot {
   activity: CompanionActivity;
   mood: Mood;
@@ -312,6 +355,8 @@ export interface CompanionSnapshot {
   solo: SoloLedger;
   /** v1.19 她的一天；四足为 null（不报时、不做天色、不自动睡）。 */
   clock: ClockSnapshot | null;
+  /** v1.20 野性觉醒；四足为 null（不冲刺、不潜行、不扑击）。 */
+  wild: WildSnapshot | null;
 }
 
 export interface CompanionOptions {
@@ -926,6 +971,18 @@ export class CompanionEngine {
   private autoSleeping = false;
   /** 墙上时钟的「上一次有人陪」：夜里满 3 分钟没人理她才睡（行为时钟测不了这个）。 */
   private lastUserWall = 0;
+  /** v1.20 野性账本：点数 + 三式次数，跨重启。 */
+  private wild: WildState = emptyWild();
+  /** 正在演的那一式；null＝没在撒野。赶路时靠它决定收尾记哪一笔。 */
+  private wildAct: WildImpulse | null = null;
+  /** 这一式的收场时限（赶路防挂死；扑击＝动作剩余）。 */
+  private wildUntil = 0;
+  /** 上一次撒野结束后的冷却；强制命令可以立刻再来一发，但仍会重设冷却。 */
+  private wildCooldownUntil = 0;
+  /** 「让她野一下」先跑起来再说的那句话：跑动时不开口（气泡会把迈步闸关掉）。 */
+  private wildSay: string | null = null;
+  /** 这一次迈步的速度：散步 55，冲刺 150，潜行 22。 */
+  private roamSpeed = WALK_SPEED;
 
   constructor(options: CompanionOptions = {}) {
     this.random = options.random ?? Math.random;
@@ -939,6 +996,8 @@ export class CompanionEngine {
     this.lastUserWall = this.wallNow();
     this.idleUntil = this.lastNow + this.idleDelay();
     this.chatAt = this.lastNow + CHAT_MIN_MS + this.random() * CHAT_SPAN_MS;
+    // 开机先看她自己的：头两分钟不撒野，免得一启动就绕着桌面跑。
+    this.wildCooldownUntil = this.lastNow + 120_000;
     this.load();
     this.loadBond();
     // 读档后的亲密度就是「当前档」：不把旧存档误报成刚升级。
@@ -970,6 +1029,7 @@ export class CompanionEngine {
     this.snowUntil = 0;
     this.pendingLine = null;
     this.hideOpen = false;
+    this.abortWild();
   }
 
   /**
@@ -1263,6 +1323,157 @@ export class CompanionEngine {
     return this.say(text, 2, now, true);
   }
 
+  // —— v1.20 野性觉醒 ——
+
+  /**
+   * 「让她野一下」：挑她当前最拿手的一式，立刻开演（跑动时不开口）。
+   * `bounds` 是**可走的 x 区间**（猫身左缘的界），调用方有工作区就该递进来：
+   * 不递时 wildAim 只管 ±420，贴着右边下令会瞄到界外、被夹成零距离——
+   * 起跑即「到达」，没有位移还照样记账（2026-10-29 真窗踩过）。
+   */
+  wildNow(now = this.now(), target?: Point, bounds?: { minX: number; maxX: number }): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
+    if (this.wildAct !== null || this.activity === "walk") return false;
+    if (now < this.dizzyUntil) return false;
+    const level = wildLevelFor(this.wild.points);
+    const impulse = bestWildImpulse(level);
+    const line = wildActLine(impulse, this.random());
+    return this.startWild(impulse, now, true, bounds, target, line);
+  }
+
+  /** 「野性到哪了」：三行账；只念，不动身体、不替她重来一发。 */
+  wildReportNow(now = this.now()): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
+    this.abortWild();
+    this.lastUserAt = now;
+    return this.say(buildWildReport(this.wild).join("\n"), 2, now, true);
+  }
+
+  /** 收下她玩成的这一式：记账、存盘、判阶；升阶那句排在当前气泡后面说。 */
+  private noteWild(event: WildImpulse, now: number): void {
+    const before = wildLevelFor(this.wild.points);
+    this.wild = recordWild(this.wild, event, new Date(this.wallNow()).getHours());
+    const after = wildLevelFor(this.wild.points);
+    this.saveBond();
+    this.refreshAchievements(now);
+    if (after.id === before.id) return;
+    const line = wildLevelUpLine(after.id, this.random());
+    if (!line) return;
+    this.pendingLine = { text: line, priority: 1, at: now };
+    this.flushPending(now);
+  }
+
+  /**
+   * 起一式。冲刺/潜行先赶路（到达才记账），扑击在原地演完再记账；
+   * 被摸、被拖、开口说话都会经 `abortWild` 取消——没收尾的那一下不算玩成。
+   */
+  private startWild(
+    impulse: WildImpulse,
+    now: number,
+    forced: boolean,
+    bounds?: { minX: number; maxX: number },
+    target?: Point,
+    queuedLine?: string,
+  ): boolean {
+    if (this.form !== "girl" || this.quiet) return false;
+    if (this.activity === "sleep" || this.activity === "drag" || this.activity === "thrown") return false;
+    if (this.wildAct !== null || this.activity === "walk") return false;
+    if (now < this.dizzyUntil) return false;
+    if (this.vitals.energy < 0.3) return false;
+    const level = wildLevelFor(this.wild.points);
+    if (!wildUnlocks(level.id)[impulse]) return false;
+    if (!forced && now < this.wildCooldownUntil) return false;
+    this.lastUserAt = now;
+    this.wildCooldownUntil = now + wildCooldownFor(level);
+    this.wildSay = queuedLine ?? null;
+    if (impulse === "hunt") {
+      this.startHunt(now);
+      return true;
+    }
+    const aim = this.wildAim(impulse, bounds, target);
+    this.target = aim;
+    this.facing = aim.x >= this.pos.x ? 1 : -1;
+    this.activity = "walk";
+    this.actionDuration = 0;
+    this.actionUntil = 0;
+    this.wildAct = impulse;
+    this.wildUntil = now + WILD_MOVE_MS;
+    this.roamSpeed = impulse === "zoom" ? WILD_ZOOM_SPEED : WILD_STALK_SPEED;
+    this.idleUntil = now + this.idleDelay();
+    return true;
+  }
+
+  private startHunt(now: number): void {
+    this.target = null;
+    this.roamSpeed = WALK_SPEED;
+    this.wildAct = "hunt";
+    this.wildUntil = now + WILD_HUNT_MS;
+    this.ambientGesture = null;
+    this.gestureUntil = 0;
+    this.startAction("play", now, WILD_HUNT_MS);
+  }
+
+  private wildAim(
+    impulse: WildImpulse,
+    bounds?: { minX: number; maxX: number },
+    target?: Point,
+  ): Point {
+    if (target && Number.isFinite(target.x) && Number.isFinite(target.y)) return { ...target };
+    const minX = bounds?.minX ?? this.pos.x - 420;
+    const maxX = bounds?.maxX ?? this.pos.x + 420;
+    const left = Math.max(0, this.pos.x - minX);
+    const right = Math.max(0, maxX - this.pos.x);
+    const dir = right >= left ? 1 : -1;
+    const room = Math.max(left, right);
+    const want = impulse === "zoom" ? 160 + this.random() * 120 : 60 + this.random() * 50;
+    const distance = Math.max(20, Math.min(want, room));
+    return { x: this.pos.x + dir * distance, y: this.pos.y };
+  }
+
+  /** 撤掉野性标记但不记账：被打断、被叫停、跑丢的那一轮都不算玩成。 */
+  private abortWild(): void {
+    if (this.wildAct === null) return;
+    this.wildAct = null;
+    this.wildUntil = 0;
+    this.wildSay = null;
+    this.roamSpeed = WALK_SPEED;
+  }
+
+  private finishWild(impulse: WildImpulse, now: number, chain = true): void {
+    const level = wildLevelFor(this.wild.points);
+    this.wildAct = null;
+    this.wildUntil = 0;
+    this.roamSpeed = WALK_SPEED;
+    this.target = null;
+    this.idleUntil = now + this.idleDelay();
+    const line = this.wildSay;
+    this.wildSay = null;
+    if (line && !this.quiet) this.say(line, 1, now, true);
+    this.noteWild(impulse, now);
+    // 潜行贴到跟前，猎手以上顺势补一扑；这一扑不另吃冷却。
+    if (impulse === "stalk" && chain && wildUnlocks(level.id).hunt) this.startHunt(now);
+  }
+
+  private wildSnapshot(): WildSnapshot {
+    const level = wildLevelFor(this.wild.points);
+    const now = this.now();
+    return {
+      points: this.wild.points,
+      level: level.id,
+      label: level.label,
+      act: this.wildAct,
+      left: this.wildAct !== null ? Math.max(0, this.wildUntil - now) : 0,
+      cooldownLeft: Math.max(0, this.wildCooldownUntil - now),
+      zooms: this.wild.zooms,
+      stalks: this.wild.stalks,
+      hunts: this.wild.hunts,
+      next: nextWildAt(this.wild.points),
+      unlocked: wildUnlocks(level.id),
+    };
+  }
+
   private clockSnapshot(wall: number): ClockSnapshot {
     const reading = clockAt(wall);
     const def = festivalOn(wall);
@@ -1313,6 +1524,8 @@ export class CompanionEngine {
     this.settle(now);
     this.say(this.pickLine([...GIRL_POUNCE_LINES]), 1, now, true);
     this.refreshAchievements(now);
+    // 亲手扑中一次也算一笔野性：她把光标当猎物，账本不分成「谁先动的」。
+    this.noteWild("hunt", now);
     return true;
   }
 
@@ -2349,6 +2562,7 @@ export class CompanionEngine {
       hides: this.hides,
       solo: { ...this.solo, seen: [...this.solo.seen] },
       clock: this.form === "girl" ? this.clockSnapshot(this.wallNow()) : null,
+      wild: this.form === "girl" ? this.wildSnapshot() : null,
     };
   }
 
@@ -2366,6 +2580,7 @@ export class CompanionEngine {
 
   setQuiet(quiet: boolean): void {
     this.quiet = quiet;
+    if (quiet) this.abortWild();
   }
 
   /** user_active 的另一个消费面：看着它的时候不主动走开（已经起步的那趟不打断）。 */
@@ -2382,6 +2597,8 @@ export class CompanionEngine {
   /** 起步漫游；目标会在 update 里按当前 workArea 夹取。 */
   roamTo(target: Point, now = this.now()): void {
     this.lastUserAt = now;
+    this.abortWild();
+    this.roamSpeed = WALK_SPEED;
     this.target = { x: target.x, y: target.y };
     this.activity = "walk";
     this.actionUntil = 0;
@@ -2405,6 +2622,13 @@ export class CompanionEngine {
 
     this.ensureDay(this.wallNow());
     this.tickVitals(dt);
+    // 野性赶路超时（窗口被占、目标被夹回原地）：撤标记、不记账，别挂着不撒手。
+    if (this.wildAct !== null && this.wildAct !== "hunt" && now >= this.wildUntil) {
+      this.target = null;
+      this.activity = "idle";
+      this.abortWild();
+      this.idleUntil = now + this.idleDelay();
+    }
     if (this.bubble && now >= this.bubble.expiresAt) this.bubble = null;
     this.flushPending(now);
 
@@ -2728,6 +2952,7 @@ export class CompanionEngine {
           skyKey?: unknown;
           skies?: unknown;
           festival?: unknown;
+          wild?: unknown;
         };
         found = true;
         if (typeof parsed?.metAt === "number" && Number.isFinite(parsed.metAt) && parsed.metAt > 0) {
@@ -2769,6 +2994,7 @@ export class CompanionEngine {
         this.skyKey = normalizeWatchedKey(parsed.skyKey);
         this.skies = parseSkies(parsed.skies);
         this.festivalState = parseFestivalState(parsed.festival);
+        this.wild = sanitizeWild(parsed.wild);
         if (typeof parsed.hides === "number" && Number.isFinite(parsed.hides) && parsed.hides > 0) {
           this.hides = Math.min(1_000_000, Math.floor(parsed.hides));
         }
@@ -2817,6 +3043,7 @@ export class CompanionEngine {
         skyKey: this.skyKey,
         skies: this.skies,
         festival: this.festivalState,
+        wild: this.wild,
       }));
     } catch {
       // 同 save：写不进去只影响「第几天」，不影响本次行为。
@@ -2900,6 +3127,9 @@ export class CompanionEngine {
       sunrise: this.skies.sunrise,
       sunset: this.skies.sunset,
       moon: this.skies.moon,
+      zooms: this.wild.zooms,
+      stalks: this.wild.stalks,
+      wildLevel: wildRank(this.wild.points),
     };
   }
 
@@ -3124,6 +3354,20 @@ export class CompanionEngine {
    */
   private stepIdleGirl(now: number, context: CompanionContext, hour: number): void {
     const night = hour >= 22 || hour < 7;
+    // 野性冲动排在常规签前面：冷却好了、精力够、这一拍抽中，就先撒野；
+    // 抽不中或抽到的这一式还没解锁，再回到老的四档。
+    // 人就在跟前（userActive）或正张着嘴（气泡开着）时不撒野：冲刺会把她从
+    // 刚开口的那句话里拽走，也和「你看着时她不乱走」的既有口径打架。
+    const level = wildLevelFor(this.wild.points);
+    if (this.wildAct === null
+      && this.bubble === null
+      && !this.userActive
+      && now >= this.wildCooldownUntil
+      && this.vitals.energy >= 0.3
+      && this.random() < wildChanceFor(level)) {
+      const impulse = pickWildImpulse(level, hour, this.random());
+      if (this.startWild(impulse, now, false, this.roamBounds(context))) return;
+    }
     const roll = pickRoll(this.random(), this.random(), {
       previousGesture: this.previousGesture,
       hour,
@@ -3175,6 +3419,7 @@ export class CompanionEngine {
   }
 
   private startRoam(context: CompanionContext, now: number): void {
+    this.roamSpeed = WALK_SPEED;
     const bounds = this.roamBounds(context);
     let target: Point = { x: 0, y: 0 };
     for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -3207,6 +3452,7 @@ export class CompanionEngine {
     if (!context.canRoam) {
       this.activity = "idle";
       this.target = null;
+      this.abortWild();
       this.idleUntil = now + 4_000;
       return;
     }
@@ -3228,11 +3474,13 @@ export class CompanionEngine {
       this.activity = "idle";
       this.target = null;
       this.idleUntil = now + this.idleDelay();
+      const wild = this.wildAct;
+      if (wild) this.finishWild(wild, now);
       this.settle(now);
       return;
     }
 
-    const speed = Math.max(WALK_MIN_SPEED, WALK_SPEED * Math.min(1, distance / WALK_EASE_PX));
+    const speed = Math.max(WALK_MIN_SPEED, this.roamSpeed * Math.min(1, distance / WALK_EASE_PX));
     const move = Math.min(distance, speed * dt);
     this.pos = {
       x: this.pos.x + (dx / distance) * move,
@@ -3245,6 +3493,8 @@ export class CompanionEngine {
       this.activity = "idle";
       this.target = null;
       this.idleUntil = now + this.idleDelay();
+      const wild = this.wildAct;
+      if (wild) this.finishWild(wild, now);
       this.onMove?.({ ...this.pos });
       this.settle(now);
       return;
@@ -3305,6 +3555,11 @@ export class CompanionEngine {
   }
 
   private startAction(activity: CompanionActivity, now: number, duration: number): void {
+    // 被别的动作接管＝这一轮野性没跑完：撤标记、不记账（扑击自己那一段除外）。
+    if (this.wildAct !== null && !(this.wildAct === "hunt" && activity === "play")) {
+      this.target = null;
+      this.abortWild();
+    }
     this.activity = activity;
     this.actionStartAt = now;
     this.actionDuration = duration;
@@ -3314,10 +3569,12 @@ export class CompanionEngine {
 
   private finishAction(now: number): void {
     const rested = this.activity === "rest";
+    const wild = this.wildAct;
     this.activity = "idle";
     this.target = null;
     this.actionDuration = 0;
     this.idleUntil = now + this.idleDelay();
+    if (wild) this.finishWild(wild, now, false);
     // 歇完先伸个懒腰再站好：直接从坐姿切回待机会像「被剪了一刀」。
     // 静息秒表也从「歇完」重新起算——否则坐 25s 再站 15s 就凑满 40s，
     // 一下变成坐一会儿、站一会儿，坐着反而成了常态。

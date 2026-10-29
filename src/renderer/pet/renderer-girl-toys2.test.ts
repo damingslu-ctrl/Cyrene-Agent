@@ -316,12 +316,12 @@ describe("v1.11.0 玩具互斥 / 成长记录 / 闸门", () => {
   it("成长记录：档位/天数/徽章/互动次数一行不差", async () => {
     const { r, clock } = await makeGirl();
     r.handleCommand("growth");
-    expect(r.getCompanionSnapshot()?.bubble?.text).toBe("亲近 · 第 1 天\n徽章 0/41\n互动 0 次");
+    expect(r.getCompanionSnapshot()?.bubble?.text).toBe("亲近 · 第 1 天\n徽章 0/44\n互动 0 次");
     r.handleCommand("wand");
     const d = r.getGirlDiagnostics(clock.ms);
     r.tapAt(d.wand!.x, d.wand!.y, 20, clock.ms);
     r.handleCommand("growth");
-    expect(r.getCompanionSnapshot()?.bubble?.text).toBe("亲近 · 第 1 天\n徽章 1/41\n互动 1 次");
+    expect(r.getCompanionSnapshot()?.bubble?.text).toBe("亲近 · 第 1 天\n徽章 1/44\n互动 1 次");
     r.dispose();
   });
 
