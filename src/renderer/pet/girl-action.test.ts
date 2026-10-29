@@ -43,10 +43,11 @@ function mk(overrides: Partial<CatInput> = {}): CatInput {
 }
 
 describe("动作图集：一式一条动画", () => {
-  it("三式各占一行、各有自己的帧表与节拍（不是同一段动画换皮）", () => {
+  it("每式各占一行、各有自己的帧表与节拍（不是同一段动画换皮）", () => {
     expect(GIRL_ACTIONS.cols * GIRL_ACTIONS.rows).toBe(GIRL_ACTIONS.count);
     expect(new Set(IDS.map((id) => GIRL_ACTION_ROWS[id].row)).size).toBe(IDS.length);
     expect(new Set(IDS.map((id) => GIRL_ACTION_ROWS[id].fps)).size).toBe(IDS.length);
+    expect(IDS).toEqual(["zoom", "stalk", "hunt", "eat", "bat", "hop", "type"]);
     for (const id of IDS) {
       const row = GIRL_ACTION_ROWS[id];
       expect(row.frames, id).toBe(GIRL_ACTIONS.cols);
@@ -62,6 +63,9 @@ describe("动作图集：一式一条动画", () => {
     expect(GIRL_ACTION_INK.zoom[0]).not.toEqual(GIRL_ACTION_INK.stalk[0]);
     expect(GIRL_ACTION_INK.stalk[0]).not.toEqual(GIRL_ACTION_INK.hunt[0]);
     expect(GIRL_ACTION_FACE.zoom[0]).not.toEqual(GIRL_ACTION_FACE.hunt[0]);
+    expect(GIRL_ACTION_INK.eat[0]).not.toEqual(GIRL_ACTION_INK.bat[0]);
+    expect(GIRL_ACTION_INK.bat[0]).not.toEqual(GIRL_ACTION_INK.type[0]);
+    expect(GIRL_ACTION_FACE.eat[0]).not.toEqual(GIRL_ACTION_FACE.type[0]);
   });
 
   it("运行时图集真在盘上且是 WebP（行数×列数就是画得出来的格子数）", () => {
@@ -73,10 +77,14 @@ describe("动作图集：一式一条动画", () => {
     expect(buf.byteLength).toBeGreaterThan(200_000);
   });
 
-  it("循环的两式往返播、扑击是 6 帧一次性（演完停在最后一格）", () => {
+  it("循环的往复播、一次性的停末格：扑击与蹦跳各按自己的帧数谢幕", () => {
     expect(GIRL_ACTION_ROWS.zoom.loop).toBe(true);
     expect(GIRL_ACTION_ROWS.stalk.loop).toBe(true);
     expect(GIRL_ACTION_ROWS.hunt.loop).toBe(false);
+    expect(GIRL_ACTION_ROWS.eat.loop).toBe(true);
+    expect(GIRL_ACTION_ROWS.bat.loop).toBe(true);
+    expect(GIRL_ACTION_ROWS.hop.loop).toBe(false);
+    expect(GIRL_ACTION_ROWS.type.loop).toBe(true);
   });
 });
 
@@ -104,6 +112,23 @@ describe("动作播放器（时间 → 帧号）", () => {
     expect(end).toBeCloseTo((6 * 1000) / 7, 6);
     expect(girlActionFrameAt("hunt", end + 0.01)).toEqual({ index: 5, done: true });
     expect(girlActionFrameAt("hunt", end + 5_000)).toEqual({ index: 5, done: true });
+  });
+
+  it("v1.22 四行各按自己的节拍：吃 9 / 拍 11 / 跳 10 / 打字 8", () => {
+    expect(girlActionDurationMs("eat")).toBeCloseTo(6_000 / 9, 6);
+    expect(girlActionDurationMs("bat")).toBeCloseTo(6_000 / 11, 6);
+    expect(girlActionDurationMs("hop")).toBeCloseTo(6_000 / 10, 6);
+    expect(girlActionDurationMs("type")).toBeCloseTo(6_000 / 8, 6);
+    // 蹦跳是一次性：600ms 演完停在落地格并报 done，不许自己重播。
+    expect(girlActionFrameAt("hop", 0).index).toBe(0);
+    expect(girlActionFrameAt("hop", 250).index).toBe(2);
+    expect(girlActionFrameAt("hop", girlActionDurationMs("hop") + 1))
+      .toEqual({ index: 5, done: true });
+    // 吃东西、拍打、打字都是循环：走满一圈回第 0 帧、永不报 done。
+    for (const id of ["eat", "bat", "type"] as const) {
+      expect(girlActionFrameAt(id, girlActionDurationMs(id) + 1).index, id).toBe(0);
+      expect(girlActionFrameAt(id, 60_000).done, id).toBe(false);
+    }
   });
 
   it("重绘下限跟着这一式的帧率走，且不低于 24fps（淡化期不许一格一格地淡）", () => {
@@ -161,7 +186,7 @@ describe("动作刚体与锚点", () => {
 });
 
 describe("动作的脸框与墨框", () => {
-  it("18 格全在墨框里：脸不越界、脚不穿地线，每组至少一格踩在地线上", () => {
+  it("每格全在墨框里：脸不越界、脚不穿地线，每组至少一格踩在地线上", () => {
     const slack = 1.5;
     for (const id of IDS) {
       let lowest = Number.NEGATIVE_INFINITY;
@@ -184,7 +209,7 @@ describe("动作的脸框与墨框", () => {
     }
   });
 
-  it("三式共用一个头围：脸宽 91vb 的尺差不到 2%（眼距定尺的全部意义）", () => {
+  it("七行共用一个头围：脸宽 91vb 的尺差不到 2%（眼距定尺的全部意义）", () => {
     const widths = IDS.map((id) => {
       const face = girlActionFaceBox(girlActionBodyFor(mk(), id), id, 0);
       return face.w / S;

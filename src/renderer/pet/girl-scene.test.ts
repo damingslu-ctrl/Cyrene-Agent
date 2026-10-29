@@ -4,6 +4,8 @@ import { girlActionDurationMs, girlActionRedrawFloor } from "./girl-action";
 import type { GirlLifePhase } from "./girl-idle";
 import {
   GIRL_POSE_REDRAW_FPS,
+  GIRL_ACTIVITY_ACTION,
+  GIRL_GESTURE_ACTION,
   GirlScenePlayer,
   girlBaseVisualFor,
   girlWildVisualFor,
@@ -137,12 +139,13 @@ describe("base visual mapping", () => {
   const base = (
     activity: GirlActivity,
     phase: GirlLifePhase,
-    opts: { quiet?: boolean; posesReady?: boolean } = {},
+    opts: { quiet?: boolean; posesReady?: boolean; actionsReady?: boolean } = {},
   ) => girlBaseVisualFor({
     activity,
     phase,
     quiet: opts.quiet ?? false,
     posesReady: opts.posesReady ?? true,
+    actionsReady: opts.actionsReady ?? false,
   });
 
   it("maps every life phase to its real pose", () => {
@@ -176,6 +179,44 @@ describe("base visual mapping", () => {
     expect(base("rest", "stand", { posesReady: false })).toEqual({ kind: "clip", id: "sit", loop: true });
     expect(base("sleep", "stand", { posesReady: false })).toEqual({ kind: "clip", id: "sleep", loop: true });
     expect(base("sleep", "stand", { posesReady: false, quiet: true })).toEqual({ kind: "clip", id: "idle", loop: true });
+  });
+});
+
+describe("v1.22 吃/拍/跳/打字各播自己那一行", () => {
+  it("喂食时打底就是吃饭那一行、玩耍时是拍打那一行（不再是 happy/wave 换皮）", () => {
+    const eat = girlBaseVisualFor({
+      activity: "eat", phase: "stand", quiet: false, posesReady: true, actionsReady: true,
+    });
+    const play = girlBaseVisualFor({
+      activity: "play", phase: "stand", quiet: false, posesReady: true, actionsReady: true,
+    });
+    expect(eat).toEqual({ kind: "action", id: "eat" });
+    expect(play).toEqual({ kind: "action", id: "bat" });
+  });
+
+  it("动作图缺席时退回原来那段帧动画，不空窗", () => {
+    expect(girlBaseVisualFor({
+      activity: "eat", phase: "stand", quiet: false, posesReady: true, actionsReady: false,
+    })).toEqual({ kind: "clip", id: "happy", loop: true });
+    expect(girlBaseVisualFor({
+      activity: "play", phase: "stand", quiet: false, posesReady: true, actionsReady: false,
+    })).toEqual({ kind: "clip", id: "wave", loop: true });
+  });
+
+  it("没配专属动画的活动一个都不许被这张表顺走", () => {
+    expect(GIRL_ACTIVITY_ACTION.walk).toBeUndefined();
+    expect(GIRL_ACTIVITY_ACTION.drag).toBeUndefined();
+    expect(GIRL_ACTIVITY_ACTION.sleep).toBeUndefined();
+    expect(girlBaseVisualFor({
+      activity: "walk", phase: "stand", quiet: false, posesReady: true, actionsReady: true,
+    })).toEqual({ kind: "clip", id: "walk", loop: true });
+  });
+
+  it("跳=hop、打字=type：手势也走自己那一行，且和野性三式不重名", () => {
+    expect(GIRL_GESTURE_ACTION.hop).toBe("hop");
+    expect(GIRL_GESTURE_ACTION.typeCode).toBe("type");
+    expect(GIRL_GESTURE_ACTION.wave).toBeUndefined();
+    expect(GIRL_GESTURE_ACTION.bow).toBeUndefined();
   });
 });
 
