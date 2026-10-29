@@ -11,6 +11,7 @@ const extras = (over: Partial<AchievementExtras> = {}): AchievementExtras => ({
   tricks: 0, treasures: 0, hides: 0, harvests: 0, favorite: 0,
   ballBest: 0, comboBest: 0, flares: 0, moths: 0, fish: 0, mirror: 0, selfPlay: 0,
   festivals: 0, sunrise: 0, sunset: 0, moon: 0,
+  zooms: 0, stalks: 0, wildLevel: 0,
   ...over,
 });
 
@@ -48,8 +49,8 @@ describe("成就条件", () => {
       .toEqual(["box-hide", "laser-catch", "brush-lover", "catnip-high", "plane-catch"]);
   });
 
-  it("v1.13 九枚新成就各有门槛，差一记不给；v1.17 再加五枚、v1.18 再加六枚、v1.19 再三枚，整表 41 枚", () => {
-    expect(ACHIEVEMENT_IDS).toHaveLength(41);
+  it("v1.13 九枚新成就各有门槛，差一记不给；v1.17 再加五枚、v1.18 再加六枚、v1.19 再三枚、v1.20 再三枚，整表 44 枚", () => {
+    expect(ACHIEVEMENT_IDS).toHaveLength(44);
     expect(newlyUnlocked(stats({ tails: 2 }), 1, "new", [])).toEqual([]);
     expect(newlyUnlocked(stats({ tails: 3 }), 1, "new", [])).toEqual(["tail-chaser"]);
     expect(newlyUnlocked(stats({ kneads: 2 }), 1, "new", [])).toEqual([]);
@@ -121,6 +122,20 @@ describe("成就条件", () => {
     // 三枚不碰自娱与日常：拉满也各归各的。
     expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ sunrise: 5, moon: 5, festivals: 5, selfPlay: 0 })))
       .toEqual(["dawn-watch", "moon-watch", "festive-day"]);
+  });
+
+  it("v1.20 三枚野性成就：冲刺一次、潜行三次、升到小野猫；三式各有自己的账", () => {
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ zooms: 0 }))).toEqual([]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ zooms: 1 }))).toEqual(["wild-run"]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ stalks: 2 }))).toEqual([]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ stalks: 3 }))).toEqual(["prowler"]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ wildLevel: 2 }))).toEqual([]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ wildLevel: 3 }))).toEqual(["little-wildcat"]);
+    // 扑击只是过程（pounce 早就能做），不单独设成就：拉满 hunts 也不给上面三枚。
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ zooms: 0, stalks: 0, wildLevel: 0 })))
+      .toEqual([]);
+    expect(newlyUnlocked(EMPTY_STATS, 1, "new", [], extras({ zooms: 9, stalks: 9, wildLevel: 3 })))
+      .toEqual(["wild-run", "prowler", "little-wildcat"]);
   });
 
   it("成就表与 id 表一一对应，文案不空", () => {

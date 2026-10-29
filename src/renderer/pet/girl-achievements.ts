@@ -1,5 +1,5 @@
 /**
- * 四十一枚小成就。条件全部来自已经存在的计数器：不新增一套成长线，只在她做到某件事的
+ * 四十四枚小成就。条件全部来自已经存在的计数器：不新增一套成长线，只在她做到某件事的
  * 时候把这一刻记住（跨重启）。徽章只在解锁当场弹出 3.6 秒，之后收进存档。
  */
 import { ACCENT, GREEN, PAPER, ROSE, withAlpha } from "../../shared/pet-tokens";
@@ -20,6 +20,7 @@ export const ACHIEVEMENT_IDS = [
   "ball-rhythm", "full-rundown", "lantern-keeper", "fish-feast", "mirror-friend",
   "solo-player",
   "dawn-watch", "moon-watch", "festive-day",
+  "wild-run", "prowler", "little-wildcat",
 ] as const;
 
 export type AchievementId = (typeof ACHIEVEMENT_IDS)[number];
@@ -62,12 +63,19 @@ export interface AchievementExtras {
   sunset: number;
   /** 一起看月亮的次数。 */
   moon: number;
+  /** v1.20 野性：冲刺玩成的次数。 */
+  zooms: number;
+  /** v1.20 野性：潜行玩成的次数。 */
+  stalks: number;
+  /** v1.20 野性：阶位序号（家猫 0 / 醒爪 1 / 猎手 2 / 小野猫 3）。 */
+  wildLevel: number;
 }
 
 export const EMPTY_EXTRAS: AchievementExtras = {
   tricks: 0, treasures: 0, hides: 0, harvests: 0, favorite: 0,
   ballBest: 0, comboBest: 0, flares: 0, moths: 0, fish: 0, mirror: 0, selfPlay: 0,
   festivals: 0, sunrise: 0, sunset: 0, moon: 0,
+  zooms: 0, stalks: 0, wildLevel: 0,
 };
 
 export interface PetStats {
@@ -185,6 +193,9 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: "dawn-watch", title: "看日出的人", line: "今天的头一道光，你在" },
   { id: "moon-watch", title: "月色收藏", line: "月亮升起来时，你也在" },
   { id: "festive-day", title: "节日搭子", line: "这个日子，我们一起过" },
+  { id: "wild-run", title: "追风的爪子", line: "跑起来…风都是甜的" },
+  { id: "prowler", title: "潜行大师", line: "压低身子，一步都没被听见" },
+  { id: "little-wildcat", title: "小野猫", line: "这片桌面…是我的猎场了" },
 ];
 
 export function achievementById(id: string): AchievementDef | null {
@@ -245,6 +256,10 @@ export function newlyUnlocked(
   if (extras.sunrise >= 1) hits.push("dawn-watch");
   if (extras.moon >= 1) hits.push("moon-watch");
   if (extras.festivals >= 1) hits.push("festive-day");
+  // v1.20 野性：只认「玩成的」三式账；扑击不设门槛（朝光标扑早就会了）。
+  if (extras.zooms >= 1) hits.push("wild-run");
+  if (extras.stalks >= 3) hits.push("prowler");
+  if (extras.wildLevel >= 3) hits.push("little-wildcat");
   return hits.filter((id) => !done.has(id));
 }
 
@@ -330,13 +345,14 @@ export function buildAchievementOps(
     || id === "scratch-art" || id === "hug-lover" || id === "purr-engine"
     || id === "tail-chaser" || id === "knead-master" || id === "gift-opener"
     || id === "hide-seeker" || id === "true-favorite"
-    || id === "ball-rhythm" || id === "mirror-friend"
+    || id === "ball-rhythm" || id === "mirror-friend" || id === "prowler"
     ? ROSE
     : id === "seven-days" || id === "catnip-high" || id === "rain-listener"
       || id === "daily-perfect" || id === "mole-master" || id === "bookworm"
       || id === "hopscotch-pro" || id === "fortune-fan"
       || id === "treasure-hunter" || id === "garden-keeper"
       || id === "lantern-keeper" || id === "fish-feast" || id === "solo-player"
+      || id === "wild-run"
       ? GREEN
       : ACCENT;
   ops.push({ kind: "fillEllipse", fill: withAlpha(tone, 0.96 * alpha), cx: x, cy: y - r * 0.15, rx: r * 1.05, ry: r * 1.05 });
