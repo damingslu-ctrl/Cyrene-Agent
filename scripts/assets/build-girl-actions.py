@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""野性动作帧图集：每个动作一套自己的 6 帧动画（不再是「借一张姿态 + 叠特效」）。
+"""动作帧图集：每个动作一套自己的 6 帧动画（不再是「借一张姿态 + 叠特效」）。
 
 用法（需要 Pillow + numpy + opencv）：
     python scripts/assets/build-girl-actions.py
@@ -48,6 +48,10 @@ ACTIONS = [
     ("zoom", "zoom-sheet.png", 12, True),
     ("stalk", "stalk-sheet.png", 6, True),
     ("hunt", "hunt-sheet.png", 7, False),
+    ("eat", "eat-sheet.png", 9, True),
+    ("bat", "bat-sheet.png", 11, True),
+    ("hop", "hop-sheet.png", 10, False),
+    ("type", "type-sheet.png", 8, True),
 ]
 
 # 每套动作的眼圈距（原始格像素）。自动检测只用来定「帧内脸心」：肉垫/耳朵/蝴蝶结
@@ -57,6 +61,10 @@ EYE_SPACING_ACTION = {
     "zoom": 56.2,   # 56.3 / 56.0 / 57.8 / 52.1（f4 20.4 误检、f3 64.7 偏远，弃）
     "stalk": 61.8,  # 61.8 / 63.3（f1 81.6、f5 79.1 是眼+肉垫，f2 26.3 是碎块，弃）
     "hunt": 59.0,   # 59.0 / 60.0 / 58.8（f0 21.3、f1 20.7 眉间碎块，f5 120.6 眼+耳，弃）
+    "eat": 66.0,    # 64.6 / 71.5 / 67.8（f1 39.6 咀嚼闭眼、f3 46.3 半闭、f4 103.6 眼+盘，弃）
+    "bat": 63.5,    # 61.6 / 61.3 / 64.7 / 65.3 / 62.6（f5 70.7 边帧偏大）
+    "hop": 56.5,    # 56.2 / 56.9 / 56.0 / 55.2 / 54.4（f0 62.4 起跳帧偏大）
+    "type": 73.0,   # 73.3 / 73.6 / 75.9（f3 34.5 眯眼、f4 58.1 手挡、f5 65.7 低头，弃）
 }
 
 
