@@ -72,6 +72,36 @@ declare global {
           Promise<import("../../shared/network-types").NetworkActionResult>;
         testGroup(group: string): Promise<import("../../shared/network-types").NetworkTestResult>;
         autoSelect(group: string): Promise<import("../../shared/network-types").NetworkAutoSelectResult>;
+        /** v1.22 明细页签：规则 / 连接 / 入站 / 配置 / 日志。 */
+        rules(force?: boolean): Promise<import("../../shared/network-detail-types").NetworkDetailResult<
+          import("../../shared/network-detail-types").RuleEntry[]
+        >>;
+        connections(): Promise<import("../../shared/network-detail-types").NetworkDetailResult<
+          import("../../shared/network-detail-types").ConnectionDetail[]
+        >>;
+        closeConnection(id: string): Promise<import("../../shared/network-detail-types").NetworkVoidResult>;
+        closeAllConnections(): Promise<import("../../shared/network-detail-types").NetworkVoidResult>;
+        providers(force?: boolean): Promise<import("../../shared/network-detail-types").NetworkDetailResult<
+          import("../../shared/network-detail-types").ProviderInfo[]
+        >>;
+        providerCheck(name: string): Promise<import("../../shared/network-detail-types").NetworkDetailResult<
+          import("../../shared/network-detail-types").ProviderInfo[]
+        >>;
+        getConfig(): Promise<import("../../shared/network-detail-types").NetworkDetailResult<
+          import("../../shared/network-detail-types").CoreConfigView
+        >>;
+        setConfig(patch: import("../../shared/network-detail-types").CoreConfigPatch): Promise<
+          import("../../shared/network-detail-types").NetworkDetailResult<
+            import("../../shared/network-detail-types").CoreConfigView
+          >
+        >;
+        startLogs(level?: import("../../shared/network-detail-types").LogLevel):
+          Promise<import("../../shared/network-detail-types").NetworkVoidResult>;
+        stopLogs(): Promise<import("../../shared/network-detail-types").NetworkVoidResult>;
+        getLogs(): Promise<import("../../shared/network-detail-types").NetworkDetailResult<
+          import("../../shared/network-detail-types").NetworkLogsState
+        >>;
+        onLog(callback: (entry: import("../../shared/network-detail-types").LogEntry) => void): () => void;
         onUpdate(callback: (update: import("../../shared/network-types").NetworkUpdate) => void): () => void;
       };
       /** main → 宠物窗：右键菜单选的互动动作。 */

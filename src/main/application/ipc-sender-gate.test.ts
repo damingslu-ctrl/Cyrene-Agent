@@ -88,6 +88,20 @@ describe("窗口类别登记簿（R-D11 的真实接线）", () => {
     expect(src, "窗口销毁时要 forget，否则 id 复用会串类别").toMatch(/forgetWebContents\s*\(/);
   });
 
+  /**
+   * 2026-10-29 Wave 1 真窗探针抓到：聊天窗从来没登记过 chat 类别，
+   * policy 里 19 条 `verge:network:*` + `verge:get-app-info` 全是 chat-only，
+   * 于是真机上网络页每个页签都读成「无法连接内核」（渲染端把 IPC 拒绝咽成网络错误）。
+   * 单测全绿是因为它们直接 stub 了 window.verge 桥，闸门根本没参与。
+   */
+  it("create-aux-windows 的聊天窗创建路径里必须登记 chat 类别（防只定义不接线）", async () => {
+    const fs = await import("node:fs/promises");
+    const src = await fs.readFile(new URL("../windows/create-aux-windows.ts", import.meta.url), "utf8");
+    expect(src, "create-aux-windows.ts 没调用 markWebContents").toMatch(/markWebContents\s*\(/);
+    expect(src, "登记时必须标成 chat").toMatch(/markWebContents\([^)]*"chat"/);
+    expect(src, "窗口销毁时要 forget，否则 id 复用会串类别").toMatch(/forgetWebContents\s*\(/);
+  });
+
   it("policy 表里的每条 pet 通道都真的在渲染端有调用方（死行比没表更糟）", () => {
     // 只对 pet 侧做：chat 侧的调用方分布在多处，这条锁只负责「猫窗那半边」。
     // 名单来自渲染端实际 invoke 的通道，改任何一边都要同时改另一边的这份名单。

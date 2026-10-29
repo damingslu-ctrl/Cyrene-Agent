@@ -28,6 +28,7 @@ function makeService() {
   let snapshot: NetworkSnapshot = emptyNetworkSnapshot();
   let listener: ((update: NetworkUpdate) => void) | null = null;
   let unsubscribe = vi.fn(() => { listener = null; });
+  let logListener: ((entry: unknown) => void) | null = null;
   const service = {
     getSnapshot: vi.fn(() => snapshot),
     refresh: vi.fn(async () => {
@@ -42,6 +43,21 @@ function makeService() {
     selectNode: vi.fn(async () => snapshot),
     testGroup: vi.fn(async () => ({ node1: 12 })),
     autoSelect: vi.fn(async () => ({ group: "G", previous: "a", best: "b", switched: true })),
+    fetchRules: vi.fn(async () => []),
+    fetchConnections: vi.fn(async () => []),
+    fetchProviders: vi.fn(async () => []),
+    fetchConfig: vi.fn(async () => ({ mixedPort: 7896 })),
+    saveConfig: vi.fn(async () => ({ mixedPort: 7890 })),
+    closeConnection: vi.fn(async () => {}),
+    closeAllConnections: vi.fn(async () => {}),
+    providerCheck: vi.fn(async () => [{ name: "机场" }]),
+    startLogs: vi.fn(async () => {}),
+    stopLogs: vi.fn(),
+    getLogs: vi.fn(() => ({ entries: [], streaming: false, error: null })),
+    subscribeLogs: vi.fn((next: (entry: unknown) => void) => {
+      logListener = next;
+      return () => { logListener = null; };
+    }),
     start: vi.fn(),
     stop: vi.fn(),
     subscribe: vi.fn((next: (update: NetworkUpdate) => void) => {
@@ -49,21 +65,25 @@ function makeService() {
       return unsubscribe;
     }),
   };
-  return { service: service as unknown as NetworkService & typeof service, emit: (update: NetworkUpdate) => listener?.(update) };
+  return {
+    service: service as unknown as NetworkService & typeof service,
+    emit: (update: NetworkUpdate) => listener?.(update),
+    emitLog: (entry: unknown) => logListener?.(entry),
+  };
 }
 
 function setup() {
   const scope = makeScope();
-  const { service, emit } = makeService();
+  const { service, emit, emitLog } = makeService();
   const broadcast = vi.fn();
   const dispose = registerNetworkIpc(scope, { service, broadcast });
-  return { scope, service, broadcast, emit, dispose };
+  return { scope, service, broadcast, emit, emitLog, dispose };
 }
 
 describe("registerNetworkIpc", () => {
   it("注册六个 handle，GET 在从未成功拉过时顺手触发一次刷新", async () => {
     const { scope, service } = setup();
-    expect(scope.registered).toEqual([
+    expect(scope.registered.slice(0, 6)).toEqual([
       IPC.VERGE_NETWORK_GET,
       IPC.VERGE_NETWORK_REFRESH,
       IPC.VERGE_NETWORK_SET_MODE,
@@ -132,5 +152,78 @@ describe("registerNetworkIpc", () => {
       ok: true, result: { best: "b", switched: true },
     });
     expect(service.autoSelect).toHaveBeenCalledWith("Selector");
+  });
+});
+
+describe("网络页明细通道", () => {
+  it("十一条通道全注册；日志上行以 VERGE_NETWORK_LOG 广播", () => {
+    const { scope, emitLog, broadcast } = setup();
+    expect(scope.registered.slice(6)).toEqual([
+      IPC.VERGE_NETWORK_RULES,
+      IPC.VERGE_NETWORK_CONNECTIONS,
+      IPC.VERGE_NETWORK_CLOSE_CONNECTION,
+      IPC.VERGE_NETWORK_CLOSE_ALL_CONNECTIONS,
+      IPC.VERGE_NETWORK_PROVIDERS,
+      IPC.VERGE_NETWORK_PROVIDER_CHECK,
+      IPC.VERGE_NETWORK_CONFIG_GET,
+      IPC.VERGE_NETWORK_CONFIG_SET,
+      IPC.VERGE_NETWORK_LOGS_START,
+      IPC.VERGE_NETWORK_LOGS_STOP,
+      IPC.VERGE_NETWORK_LOGS_GET,
+    ]);
+    emitLog({ type: "info", payload: "x", at: 1 });
+    expect(broadcast).toHaveBeenCalledWith(IPC.VERGE_NETWORK_LOG, { type: "info", payload: "x", at: 1 });
+  });
+
+  it("RULES 只有 === true 才穿透缓存", async () => {
+    const { scope, service } = setup();
+    const rules = scope.handlers.get(IPC.VERGE_NETWORK_RULES)!;
+    expect(await rules({}, true)).toEqual({ ok: true, data: [] });
+    expect(service.fetchRules).toHaveBeenLastCalledWith(true);
+    await rules({}, "yes");
+    expect(service.fetchRules).toHaveBeenLastCalledWith(false);
+    service.fetchRules.mockRejectedValueOnce(new MihomoRequestError("timeout", "slow"));
+    expect(await rules({})).toMatchObject({ ok: false, reason: "timeout" });
+  });
+
+  it("写操作先校验：坏 id/空名/非白名单配置不碰服务", async () => {
+    const { scope, service } = setup();
+    const close = scope.handlers.get(IPC.VERGE_NETWORK_CLOSE_CONNECTION)!;
+    const check = scope.handlers.get(IPC.VERGE_NETWORK_PROVIDER_CHECK)!;
+    const setConfig = scope.handlers.get(IPC.VERGE_NETWORK_CONFIG_SET)!;
+    expect(await close({}, "")).toMatchObject({ ok: false, reason: "bad-response" });
+    expect(await close({}, "x".repeat(300))).toMatchObject({ ok: false, reason: "bad-response" });
+    expect(await check({}, "  ")).toMatchObject({ ok: false, reason: "bad-response" });
+    expect(await setConfig({}, { secret: "x" })).toMatchObject({ ok: false, reason: "bad-response" });
+    expect(service.closeConnection).not.toHaveBeenCalled();
+    expect(service.providerCheck).not.toHaveBeenCalled();
+    expect(service.saveConfig).not.toHaveBeenCalled();
+
+    expect(await close({}, "c1")).toEqual({ ok: true });
+    expect(service.closeConnection).toHaveBeenCalledWith("c1");
+    expect(await scope.handlers.get(IPC.VERGE_NETWORK_CLOSE_ALL_CONNECTIONS)!({})).toEqual({ ok: true });
+    expect(service.closeAllConnections).toHaveBeenCalledOnce();
+    expect(await check({}, "机场")).toMatchObject({ ok: true, data: [{ name: "机场" }] });
+    expect(await setConfig({}, { "mixed-port": 7890 })).toMatchObject({ ok: true, data: { mixedPort: 7890 } });
+    expect(service.saveConfig).toHaveBeenCalledWith({ "mixed-port": 7890 });
+  });
+
+  it("日志三条：start 校验档位、get 原样回状态、stop 转发", async () => {
+    const { scope, service } = setup();
+    const start = scope.handlers.get(IPC.VERGE_NETWORK_LOGS_START)!;
+    const get = scope.handlers.get(IPC.VERGE_NETWORK_LOGS_GET)!;
+    const stop = scope.handlers.get(IPC.VERGE_NETWORK_LOGS_STOP)!;
+    expect(await start({}, "trace")).toEqual({ ok: false, reason: "bad-response" });
+    expect(service.startLogs).not.toHaveBeenCalled();
+
+    expect(await start({})).toEqual({ ok: true });
+    expect(service.startLogs).toHaveBeenLastCalledWith("info");
+    expect(await start({}, "warning")).toEqual({ ok: true });
+    expect(service.startLogs).toHaveBeenLastCalledWith("warning");
+
+    service.getLogs.mockReturnValueOnce({ entries: [], streaming: true, error: null });
+    expect(await get({})).toEqual({ ok: true, data: { entries: [], streaming: true, error: null } });
+    expect(await stop({})).toEqual({ ok: true });
+    expect(service.stopLogs).toHaveBeenCalledOnce();
   });
 });

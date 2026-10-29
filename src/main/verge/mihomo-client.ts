@@ -1,9 +1,27 @@
 /**
  * mihomo 外部控制器客户端（本机 loopback）。
  *
- * 只做网络页需要的最小面：读版本/模式/节点/连接/流量，写模式/选中节点/测速。
- * `/traffic` 是流式 NDJSON——只取第一帧就取消 reader，不许让连接常驻。
+ * 读版本/模式/节点/连接/流量/规则/日志/入站/配置，写模式/选中节点/配置/重载/关连接。
+ * `/traffic` 与 `/logs` 都是流式 NDJSON：前者只取第一帧就取消，后者的连接超时
+ * 只在建连阶段有效——日志流要活多久由调用方的 AbortSignal 说了算。
  */
+import {
+  LOG_LEVELS,
+  parseConnectionsDetail,
+  parseLogLine,
+  parseProviders,
+  parseRules,
+  pickConfigView,
+} from "../../shared/network-detail-types";
+import type {
+  CoreConfigPatch,
+  CoreConfigView,
+  ConnectionDetail,
+  LogEntry,
+  LogLevel,
+  ProviderInfo,
+  RuleEntry,
+} from "../../shared/network-detail-types";
 import type {
   ConnectionSummary,
   NetworkReason,
@@ -12,6 +30,11 @@ import type {
   ProxyNode,
   TrafficFrame,
 } from "../../shared/network-types";
+
+const DELAY_URL = "https://www.gstatic.com/generate_204";
+const TUN_STACKS = new Set(["system", "gvisor", "mixed"]);
+const PORT_KEYS = new Set(["mixed-port", "port", "socks-port"]);
+const BOOL_KEYS = new Set(["allow-lan", "ipv6"]);
 
 export class MihomoRequestError extends Error {
   constructor(
@@ -24,6 +47,11 @@ export class MihomoRequestError extends Error {
   }
 }
 
+export interface LogStreamOptions {
+  level?: LogLevel;
+  signal?: AbortSignal;
+}
+
 export interface MihomoClient {
   version(): Promise<string | null>;
   mode(): Promise<ProxyMode | null>;
@@ -33,6 +61,18 @@ export interface MihomoClient {
   setMode(mode: ProxyMode): Promise<void>;
   selectNode(group: string, node: string): Promise<void>;
   groupDelay(group: string, timeoutMs?: number): Promise<Record<string, number>>;
+  rules(): Promise<RuleEntry[]>;
+  connectionsDetail(): Promise<ConnectionDetail[]>;
+  closeConnection(id: string): Promise<void>;
+  closeAllConnections(): Promise<void>;
+  providers(): Promise<ProviderInfo[]>;
+  providerHealthCheck(name: string): Promise<void>;
+  configs(): Promise<CoreConfigView>;
+  patchConfigs(patch: CoreConfigPatch): Promise<void>;
+  reloadConfig(path: string): Promise<void>;
+  nodeDelay(name: string, timeoutMs?: number): Promise<number | null>;
+  /** 订阅日志流，直到 `signal` 中止或流被内核关闭；返回即代表已停流。 */
+  logs(onEntry: (entry: LogEntry) => void, options?: LogStreamOptions): Promise<void>;
 }
 
 export interface MihomoClientOptions {
@@ -155,6 +195,54 @@ function mapError(error: unknown): MihomoRequestError {
   return new MihomoRequestError("unreachable", message);
 }
 
+/**
+ * PATCH /configs 的入参过滤：只认白名单键，值类型也要对。
+ *
+ * 这层校验放在发请求之前——`secret`、`external-controller` 这类键落进内核
+ * 会直接把网络页自己的控制通道改掉，坏值则会 204 成功但内核行为异常。
+ */
+export function buildConfigPatch(patch: unknown): Record<string, unknown> {
+  if (typeof patch !== "object" || patch === null || Array.isArray(patch)) {
+    throw new MihomoRequestError("bad-response", "config patch must be an object");
+  }
+  const entries = Object.entries(patch as Record<string, unknown>);
+  if (entries.length === 0) {
+    throw new MihomoRequestError("bad-response", "config patch is empty");
+  }
+  const body: Record<string, unknown> = {};
+  for (const [key, value] of entries) {
+    if (PORT_KEYS.has(key)) {
+      if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 65535) {
+        throw new MihomoRequestError("bad-response", `config patch ${key} must be a port`);
+      }
+      body[key] = value;
+    } else if (BOOL_KEYS.has(key)) {
+      if (typeof value !== "boolean") {
+        throw new MihomoRequestError("bad-response", `config patch ${key} must be a boolean`);
+      }
+      body[key] = value;
+    } else if (key === "log-level") {
+      if (typeof value !== "string" || !(LOG_LEVELS as readonly string[]).includes(value)) {
+        throw new MihomoRequestError("bad-response", "config patch log-level is not a level");
+      }
+      body[key] = value;
+    } else if (key === "tun.enable" || key === "tun.stack") {
+      const valid = key === "tun.enable"
+        ? typeof value === "boolean"
+        : typeof value === "string" && TUN_STACKS.has(value);
+      if (!valid) {
+        throw new MihomoRequestError("bad-response", `config patch ${key} is not valid`);
+      }
+      const tun = typeof body.tun === "object" ? (body.tun as Record<string, unknown>) : {};
+      tun[key.slice(4)] = value;
+      body.tun = tun;
+    } else {
+      throw new MihomoRequestError("bad-response", `config patch key ${key} is not allowed`);
+    }
+  }
+  return body;
+}
+
 export function createMihomoClient(options: MihomoClientOptions): MihomoClient {
   const timeoutMs = options.timeoutMs ?? 2500;
   const doFetch = options.fetchImpl ?? fetch;
@@ -191,6 +279,16 @@ export function createMihomoClient(options: MihomoClientOptions): MihomoClient {
       return await response.json();
     } catch {
       throw new MihomoRequestError("bad-response", "controller returned invalid json");
+    }
+  }
+
+  /** 内核的写操作与健康检查回 204：不能按 JSON 读，否则成功也被当成坏回执。 */
+  async function send(pathname: string, init?: RequestInit): Promise<void> {
+    const response = await request(pathname, init);
+    try {
+      await response.body?.cancel();
+    } catch {
+      /* 已经被读完 */
     }
   }
 
@@ -265,7 +363,7 @@ export function createMihomoClient(options: MihomoClientOptions): MihomoClient {
     },
 
     async setMode(mode) {
-      await json("/configs", {
+      await send("/configs", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode }),
@@ -273,7 +371,7 @@ export function createMihomoClient(options: MihomoClientOptions): MihomoClient {
     },
 
     async selectNode(group, node) {
-      await json(`/proxies/${encodeURIComponent(group)}`, {
+      await send(`/proxies/${encodeURIComponent(group)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: node }),
@@ -282,7 +380,7 @@ export function createMihomoClient(options: MihomoClientOptions): MihomoClient {
 
     async groupDelay(group, timeout = 5000) {
       const data = await json(
-        `/group/${encodeURIComponent(group)}/delay?timeout=${timeout}&url=${encodeURIComponent("https://www.gstatic.com/generate_204")}`,
+        `/group/${encodeURIComponent(group)}/delay?timeout=${timeout}&url=${encodeURIComponent(DELAY_URL)}`,
       );
       if (typeof data !== "object" || data === null) return {};
       const result: Record<string, number> = {};
@@ -292,6 +390,139 @@ export function createMihomoClient(options: MihomoClientOptions): MihomoClient {
         }
       }
       return result;
+    },
+
+    async rules() {
+      return parseRules(await json("/rules"));
+    },
+
+    async connectionsDetail() {
+      return parseConnectionsDetail(await json("/connections"));
+    },
+
+    async closeConnection(id) {
+      await send(`/connections/${encodeURIComponent(id)}`, { method: "DELETE" });
+    },
+
+    async closeAllConnections() {
+      await send("/connections", { method: "DELETE" });
+    },
+
+    async providers() {
+      return parseProviders(await json("/providers/proxies"));
+    },
+
+    async providerHealthCheck(name) {
+      await send(`/providers/proxies/${encodeURIComponent(name)}/healthcheck`);
+    },
+
+    async configs() {
+      return pickConfigView(await json("/configs"));
+    },
+
+    async patchConfigs(patch) {
+      const body = buildConfigPatch(patch);
+      await send("/configs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    },
+
+    async reloadConfig(path) {
+      await send("/configs", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+    },
+
+    async nodeDelay(name, timeout = 5000) {
+      try {
+        const data = await json(
+          `/proxies/${encodeURIComponent(name)}/delay?timeout=${timeout}&url=${encodeURIComponent(DELAY_URL)}`,
+        );
+        if (typeof data !== "object" || data === null) return null;
+        const delay = (data as Record<string, unknown>).delay;
+        return typeof delay === "number" && Number.isFinite(delay) && delay > 0
+          ? Math.round(delay)
+          : null;
+      } catch (error) {
+        // 内核超时探测会回 408/504：那是「这个节点不通」，不是「控制器坏了」。
+        if (error instanceof MihomoRequestError && (error.status === 408 || error.status === 504)) {
+          return null;
+        }
+        throw error;
+      }
+    },
+
+    async logs(onEntry, options = {}) {
+      const level = options.level ?? "info";
+      const signal = options.signal;
+      if (signal?.aborted) return;
+      const controller = new AbortController();
+      const onOuterAbort = () => controller.abort();
+      signal?.addEventListener("abort", onOuterAbort, { once: true });
+      const stopped = new Promise<null>((resolve) => {
+        controller.signal.addEventListener("abort", () => resolve(null), { once: true });
+      });
+      try {
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        let response: Response;
+        try {
+          response = await doFetch(`${base}/logs?level=${encodeURIComponent(level)}`, {
+            headers,
+            signal: controller.signal,
+          });
+        } catch (error) {
+          if (signal?.aborted) return;
+          throw mapError(error);
+        } finally {
+          // 连上就把连接超时撤掉：日志流要活多久是调用方的事。
+          clearTimeout(timer);
+        }
+        if (response.status === 401 || response.status === 403) {
+          throw new MihomoRequestError("unauthorized", `controller rejected ${response.status}`, response.status);
+        }
+        if (!response.ok || !response.body) {
+          throw new MihomoRequestError("bad-response", `logs returned ${response.status}`, response.status);
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        const consume = (final: boolean) => {
+          while (true) {
+            const newline = buffer.indexOf("\n");
+            if (newline < 0) break;
+            const line = buffer.slice(0, newline).trim();
+            buffer = buffer.slice(newline + 1);
+            if (!line) continue;
+            // 日志流里的坏行只丢这一行：一条脏数据不该让整页日志停摆。
+            const entry = parseLogLine(line);
+            if (entry) onEntry(entry);
+          }
+          if (!final) return;
+          const trailing = buffer.trim();
+          buffer = "";
+          const entry = trailing ? parseLogLine(trailing) : null;
+          if (entry) onEntry(entry);
+        };
+        try {
+          while (true) {
+            const read = reader.read().catch(() => null);
+            const result = await Promise.race([read, stopped]);
+            if (!result || result.done) break;
+            buffer += decoder.decode(result.value, { stream: true });
+            consume(false);
+          }
+          buffer += decoder.decode();
+          consume(true);
+        } finally {
+          await reader.cancel().catch(() => { /* 已断开 */ });
+        }
+      } finally {
+        signal?.removeEventListener("abort", onOuterAbort);
+      }
     },
   };
 }

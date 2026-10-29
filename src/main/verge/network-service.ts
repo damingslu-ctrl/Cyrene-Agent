@@ -3,18 +3,36 @@
  *
  * 流量 1.5s 一帧（只推 traffic，避免每帧搬整棵节点树），完整快照 10s 一次；
  * 所有写操作完成后立刻回读一次，UI 不靠乐观值撑场面。
+ * 明细（规则/日志/连接/入站/配置）按页签按需拉：规则与入站 5s 缓存，
+ * 配置与连接明细不缓存——设置页的读回必须是真实当下值。
  */
 import {
   EMPTY_TRAFFIC,
   emptyNetworkSnapshot,
+  reasonOf,
   type NetworkSnapshot,
   type NetworkUpdate,
   type ProxyMode,
 } from "../../shared/network-types";
+import type {
+  CoreConfigPatch,
+  CoreConfigView,
+  ConnectionDetail,
+  LogEntry,
+  LogLevel,
+  NetworkLogsState,
+  ProviderInfo,
+  RuleEntry,
+} from "../../shared/network-detail-types";
 import { readControllerConfig, readSubscription, type ControllerConfig } from "./controller-config";
 import { createMihomoClient, MihomoRequestError, type MihomoClient } from "./mihomo-client";
 
 export type { NetworkUpdate };
+
+/** 日志环形缓冲上限：翻得完一屏，也不至于把主进程内存吃穿。 */
+export const LOG_BUFFER_LIMIT = 500;
+const LOG_RETRY_MS = 3000;
+const DETAIL_TTL_MS = 5000;
 
 export interface AutoSelectResult {
   group: string;
@@ -30,6 +48,18 @@ export interface NetworkService {
   selectNode(group: string, node: string): Promise<NetworkSnapshot>;
   testGroup(group: string): Promise<Record<string, number>>;
   autoSelect(group: string): Promise<AutoSelectResult>;
+  fetchRules(force?: boolean): Promise<RuleEntry[]>;
+  fetchConnections(): Promise<ConnectionDetail[]>;
+  fetchProviders(force?: boolean): Promise<ProviderInfo[]>;
+  fetchConfig(): Promise<CoreConfigView>;
+  saveConfig(patch: CoreConfigPatch): Promise<CoreConfigView>;
+  closeConnection(id: string): Promise<void>;
+  closeAllConnections(): Promise<void>;
+  providerCheck(name: string): Promise<ProviderInfo[]>;
+  startLogs(level?: LogLevel): Promise<void>;
+  stopLogs(): void;
+  getLogs(): NetworkLogsState;
+  subscribeLogs(listener: (entry: LogEntry) => void): () => void;
   start(): void;
   stop(): void;
   subscribe(listener: (update: NetworkUpdate) => void): () => void;
@@ -41,6 +71,8 @@ export interface NetworkServiceOptions {
   now?: () => number;
   fullIntervalMs?: number;
   trafficIntervalMs?: number;
+  detailTtlMs?: number;
+  logRetryMs?: number;
 }
 
 export function createNetworkService(options: NetworkServiceOptions): NetworkService {
@@ -51,6 +83,8 @@ export function createNetworkService(options: NetworkServiceOptions): NetworkSer
   }));
   const fullIntervalMs = options.fullIntervalMs ?? 10_000;
   const trafficIntervalMs = options.trafficIntervalMs ?? 1500;
+  const detailTtlMs = options.detailTtlMs ?? DETAIL_TTL_MS;
+  const logRetryMs = options.logRetryMs ?? LOG_RETRY_MS;
 
   let snapshot = emptyNetworkSnapshot();
   let client: MihomoClient | null = null;
@@ -61,6 +95,18 @@ export function createNetworkService(options: NetworkServiceOptions): NetworkSer
   let running = false;
   let refreshing = false;
   let trafficBusy = false;
+
+  let rulesCache: { at: number; entries: RuleEntry[] } | null = null;
+  let providersCache: { at: number; entries: ProviderInfo[] } | null = null;
+
+  let logEntries: LogEntry[] = [];
+  const logListeners = new Set<(entry: LogEntry) => void>();
+  let logsWanted = false;
+  let logsLevel: LogLevel = "info";
+  let logsAbort: AbortController | null = null;
+  let logsStreaming = false;
+  let logsError: ReturnType<typeof reasonOf> | null = null;
+  let logsRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   function emit(update: NetworkUpdate): void {
     for (const listener of listeners) {
@@ -90,6 +136,8 @@ export function createNetworkService(options: NetworkServiceOptions): NetworkSer
     if (!client || clientKey !== key) {
       client = makeClient(config);
       clientKey = key;
+      rulesCache = null;
+      providersCache = null;
     }
     return client;
   }
@@ -222,6 +270,124 @@ export function createNetworkService(options: NetworkServiceOptions): NetworkSer
     return { group, previous, best, switched };
   }
 
+  async function fetchRules(force = false): Promise<RuleEntry[]> {
+    if (!force && rulesCache && now() - rulesCache.at < detailTtlMs) return rulesCache.entries;
+    const active = await requireClient();
+    const entries = await active.rules();
+    rulesCache = { at: now(), entries };
+    return entries;
+  }
+
+  async function fetchConnections(): Promise<ConnectionDetail[]> {
+    const active = await requireClient();
+    return active.connectionsDetail();
+  }
+
+  async function fetchProviders(force = false): Promise<ProviderInfo[]> {
+    if (!force && providersCache && now() - providersCache.at < detailTtlMs) return providersCache.entries;
+    const active = await requireClient();
+    const entries = await active.providers();
+    providersCache = { at: now(), entries };
+    return entries;
+  }
+
+  async function fetchConfig(): Promise<CoreConfigView> {
+    const active = await requireClient();
+    return active.configs();
+  }
+
+  async function saveConfig(patch: CoreConfigPatch): Promise<CoreConfigView> {
+    const active = await requireClient();
+    await active.patchConfigs(patch);
+    // 写后回读：页面只认内核真的落下去了什么，不认自己刚发出去的那份。
+    return fetchConfig();
+  }
+
+  async function closeConnection(id: string): Promise<void> {
+    const active = await requireClient();
+    await active.closeConnection(id);
+  }
+
+  async function closeAllConnections(): Promise<void> {
+    const active = await requireClient();
+    await active.closeAllConnections();
+  }
+
+  async function providerCheck(name: string): Promise<ProviderInfo[]> {
+    const active = await requireClient();
+    await active.providerHealthCheck(name);
+    return fetchProviders(true);
+  }
+
+  function clearLogRetry(): void {
+    if (logsRetryTimer) clearTimeout(logsRetryTimer);
+    logsRetryTimer = null;
+  }
+
+  function scheduleLogRetry(): void {
+    if (!logsWanted || logsRetryTimer) return;
+    logsRetryTimer = setTimeout(() => {
+      logsRetryTimer = null;
+      if (!logsWanted) return;
+      void runLogs().catch(() => { /* runLogs 自己记错 */ });
+    }, logRetryMs);
+  }
+
+  async function runLogs(): Promise<void> {
+    const controller = new AbortController();
+    logsAbort = controller;
+    logsStreaming = true;
+    try {
+      const active = await requireClient();
+      await active.logs((entry) => {
+        if (!logsWanted) return;
+        logEntries.push(entry);
+        if (logEntries.length > LOG_BUFFER_LIMIT) {
+          logEntries = logEntries.slice(-LOG_BUFFER_LIMIT);
+        }
+        for (const listener of logListeners) {
+          try {
+            listener(entry);
+          } catch {
+            // 订阅方的异常不许打断日志流
+          }
+        }
+      }, { level: logsLevel, signal: controller.signal });
+      if (logsWanted && logsAbort === controller) scheduleLogRetry();
+    } catch (error) {
+      if (logsAbort === controller) {
+        logsError = reasonOf(error);
+        scheduleLogRetry();
+      }
+    } finally {
+      if (logsAbort === controller) {
+        logsAbort = null;
+        logsStreaming = false;
+      }
+    }
+  }
+
+  async function startLogs(level: LogLevel = "info"): Promise<void> {
+    await requireClient();
+    if (logsWanted && logsLevel === level && (logsStreaming || logsRetryTimer)) return;
+    stopLogs();
+    logsWanted = true;
+    logsLevel = level;
+    logsError = null;
+    void runLogs();
+    // 让「连上就失败」在 start 的回执里就能看见，页面不必等一拍。
+    await Promise.resolve();
+  }
+
+  function stopLogs(): void {
+    logsWanted = false;
+    clearLogRetry();
+    logsStreaming = false;
+    const controller = logsAbort;
+    logsAbort = null;
+    controller?.abort();
+  }
+
   function start(): void {
     if (running) return;
     running = true;
@@ -236,6 +402,7 @@ export function createNetworkService(options: NetworkServiceOptions): NetworkSer
     if (trafficTimer) clearInterval(trafficTimer);
     fullTimer = null;
     trafficTimer = null;
+    stopLogs();
   }
 
   return {
@@ -245,6 +412,21 @@ export function createNetworkService(options: NetworkServiceOptions): NetworkSer
     selectNode,
     testGroup,
     autoSelect,
+    fetchRules,
+    fetchConnections,
+    fetchProviders,
+    fetchConfig,
+    saveConfig,
+    closeConnection,
+    closeAllConnections,
+    providerCheck,
+    startLogs,
+    stopLogs,
+    getLogs: () => ({ entries: [...logEntries], streaming: logsStreaming, error: logsError }),
+    subscribeLogs: (listener) => {
+      logListeners.add(listener);
+      return () => logListeners.delete(listener);
+    },
     start,
     stop,
     subscribe: (listener) => {

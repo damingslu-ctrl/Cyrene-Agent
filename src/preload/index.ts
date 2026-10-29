@@ -34,6 +34,18 @@ import type {
   NetworkUpdate,
   ProxyMode,
 } from "../shared/network-types";
+import type {
+  CoreConfigPatch,
+  CoreConfigView,
+  ConnectionDetail,
+  LogEntry,
+  LogLevel,
+  NetworkDetailResult,
+  NetworkLogsState,
+  NetworkVoidResult,
+  ProviderInfo,
+  RuleEntry,
+} from "../shared/network-detail-types";
 import type { PetCommand } from "../shared/pet-commands";
 
 // 渲染目标标识：preload 每次加载（即每次页面初始化/重新加载）生成一次，
@@ -1141,6 +1153,34 @@ const vergeApi = {
       ipcRenderer.invoke(IPC.VERGE_NETWORK_TEST_GROUP, group) as Promise<NetworkTestResult>,
     autoSelect: (group: string) =>
       ipcRenderer.invoke(IPC.VERGE_NETWORK_AUTO_SELECT, group) as Promise<NetworkAutoSelectResult>,
+    rules: (force = false) =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_RULES, force) as Promise<NetworkDetailResult<RuleEntry[]>>,
+    connections: () =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_CONNECTIONS) as Promise<NetworkDetailResult<ConnectionDetail[]>>,
+    closeConnection: (id: string) =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_CLOSE_CONNECTION, id) as Promise<NetworkVoidResult>,
+    closeAllConnections: () =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_CLOSE_ALL_CONNECTIONS) as Promise<NetworkVoidResult>,
+    providers: (force = false) =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_PROVIDERS, force) as Promise<NetworkDetailResult<ProviderInfo[]>>,
+    providerCheck: (name: string) =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_PROVIDER_CHECK, name) as Promise<NetworkDetailResult<ProviderInfo[]>>,
+    getConfig: () =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_CONFIG_GET) as Promise<NetworkDetailResult<CoreConfigView>>,
+    setConfig: (patch: CoreConfigPatch) =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_CONFIG_SET, patch) as Promise<NetworkDetailResult<CoreConfigView>>,
+    startLogs: (level?: LogLevel) =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_LOGS_START, level) as Promise<NetworkVoidResult>,
+    stopLogs: () =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_LOGS_STOP) as Promise<NetworkVoidResult>,
+    getLogs: () =>
+      ipcRenderer.invoke(IPC.VERGE_NETWORK_LOGS_GET) as Promise<NetworkDetailResult<NetworkLogsState>>,
+    /** main → 渲染端：一条新日志（日志页开着时才有人听）。 */
+    onLog: (callback: (entry: LogEntry) => void) => {
+      const listener = (_e: unknown, entry: LogEntry) => callback(entry);
+      ipcRenderer.on(IPC.VERGE_NETWORK_LOG, listener);
+      return () => ipcRenderer.off(IPC.VERGE_NETWORK_LOG, listener);
+    },
     /** main → 渲染端：完整快照（10s）或单帧流量（1.5s）。 */
     onUpdate: (callback: (update: NetworkUpdate) => void) => {
       const listener = (_e: unknown, update: NetworkUpdate) => callback(update);

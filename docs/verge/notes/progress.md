@@ -1119,3 +1119,67 @@ fish-feast/mirror-friend/solo-player`，总数 32→**38**）与第 28 项统计
   `e5f197a1…`（`mutate.py check` 全 OK），重建产物 md5 与变异前逐文件一致。
 - 只做本地提交（`7da0a0d5` 纯模块、`46eb6bcc` 美术、`7459ca8a` 接线、`039da387` 探针，
   外加本段文档），**未改版本号、未发布、未推送**；`package.json` 仍是 1.15.0。
+
+### Wave 1：Clash Verge 数据面与网络页七个页签（2026-10-29）
+
+- 数据面：新增 17 条渲染端可调通道（规则/连接明细/关闭单条/关闭全部/入站/入站测速/
+  配置读/配置写/日志起停读）+ 2 条 main→渲染端推送（`verge:network:update` 快照、
+  `verge:network:log` 单行日志）。`src/shared/network-detail-types.ts` 把 mihomo 的
+  `/rules`、`/connections`、`/providers/proxies`、log 行、`/configs` 收成纯函数；
+  `mihomo-client` 扩出 rules/connectionsDetail/closeConnection/closeAllConnections/
+  providers/providerHealthCheck/configs/patchConfigs/reloadConfig/nodeDelay/logs(流)；
+  `network-service` 做 5s 缓存与「页面关掉即停流」，日志环形缓冲 500 行；
+  `network-ipc` 11 条 handler 全参数校验，发送方白名单只放 chat。
+- 页面：`NetworkPanel` 拆出 `NetworkTabs`（6 个正文页签 + 1 个齿轮），新增
+  `OverviewView` / `NodesView` / `RulesView` / `LogsView` / `ConnectionsView` /
+  `ProvidersView` / `SettingsView`；i18n 三语各 +71 键（network 段现共 130 键）；
+  `NetworkPanel.css` +455 行。交互口径：规则搜索防抖 200ms、日志暂停就不再追加、
+  关闭全部连接二次确认、设置只写白名单键并回读比对。
+
+真窗探针 `scripts/verify/network-tabs-cdp.mjs`（新增，Wave 1 唯一真窗尺）：
+
+- 只用 `D:\cyrene-net-accept\profile` 一次性档，绝不碰 `%APPDATA%`；只点页签——
+  模式药丸、节点行、保存、关闭连接、入站测速一律不点，也不动真实光标。
+- 页签「开没开」用视图根节点断言；这轮再收紧成「读完了没」：`.net-loading` 必须消失，
+  任何页签落在 `.net-view__error` 即整体 FAIL。转圈和错误态都不能冒充「打开了」。
+- 每个页签留一张截图（`D:\cyrene-net-accept\shots\01…07`），报告里带
+  `window.verge.network.get()` 的 controller 快照与 app 日志尾部，便于区分
+  「内核连不上」与「IPC 被挡」。
+
+真窗红两条，都是产品缺陷：
+
+1) **聊天窗从来没登记成 `chat` 类别**，于是 17 条网络通道全被 IPC 网关拒。
+   探针日志原文：`IPC sender denied: channel=verge:network:get kind=unknown`。
+   policy 里这些通道都是 chat-only，而 `create-aux-windows.ts` 只建窗不登记；
+   渲染端 `useDetail` 把任何异常统一咽成 `unreachable`，于是一开始七个页签
+   全显示「无法连接内核」。单测全绿是因为它们直接 stub 了 `window.verge` 桥，
+   闸门根本没参与——与 2026-10-24 宠物窗事故同型（`create-pet-window.ts`
+   已有同款注释）。先红后绿：`ipc-sender-gate.test.ts` 加源文件锁（必须出现
+   `markWebContents(…, "chat")` 与关窗时的 `forgetWebContents`），红
+   **1 failed | 7 passed**；修好 `create-aux-windows.ts` 后 **8/8** 绿。
+2) **入站页把 Go 零值时间印成「更新于 1/1/1 08:05:43」**（坏字符串则印 1970）。
+   `parseProviders` 改成把 ≤0 的更新时间读成 null，界面走「从未更新」。
+   先红：新增零值/坏值断言 **1 failed | 15 passed**；修后 16/16。
+
+真窗读数（修复后，controller `alpha-e4dd968` @ `127.0.0.1:9097`，mixed 7896）：
+概览实时流量在走（4.1 KB/s）、订阅 defond 到 2026/10/29 还剩 11 天；节点 3 个策略组；
+规则 18 条；连接 48 → 55 条（代理 3 → 8、直连 45 → 47）；入站 7 个且全部显示
+「从未更新」；设置页端口/局域网/IPv6/日志级别/TUN 键齐全。七个页签 `errorText` 全 null。
+
+变异自检五条（Wave 1 预登记，逐个 `cp` 备份、改、跑、还原）：
+
+1) `parseLogLine` 去掉 `type` 字符串校验 → 类型锁红；
+2) `buildConfigPatch` 白名单多放一个键 → 配置锁红；
+3) 日志流 `finally` 不撤连接超时 → 流锁红；
+4) 日志环形缓冲 cap 边界改错 → 500 行锁红；
+5) `network-ipc` 去掉进服务前的预校验 → 坏键锁红。
+
+五处落在四个文件，四个备份逐字节比对 SAME，还原后定向 193 条复绿。
+
+门：三道 `tsc --noEmit`（main/preload/renderer）全 0；定向 145 条
+（`src/main/application` + `src/renderer/react/features/network`，17 文件）绿；
+`npx vite build` 12.34s exit 0；main 重建 781 文件；真窗探针 exit 0；
+全量套件（`CI=true npx vitest run`）**755 文件 / 7801 通过 / 1 跳过**，exit 0（275.98s）。
+
+只做本地提交，`package.json` 仍是 mochi@1.15.0，未发布、未推送。
+

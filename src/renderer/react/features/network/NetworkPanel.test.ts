@@ -127,6 +127,10 @@ function buttonWithText(host: HTMLElement, selector: string, text: string): HTML
   return button;
 }
 
+async function openNodes(host: HTMLElement): Promise<void> {
+  await act(async () => { buttonWithText(host, ".net-tab", "节点").click(); });
+}
+
 afterEach(async () => {
   await act(async () => { for (const root of roots) root.unmount(); });
   roots.length = 0;
@@ -151,6 +155,8 @@ describe("NetworkPanel", () => {
     expect(host.textContent).toContain("代理 30");
     expect(host.textContent).toContain("直连 12");
     expect(host.textContent).toContain("拦截 2");
+
+    await openNodes(host);
     expect(host.textContent).toContain("香港 01");
     expect(nodeNames(host)).toEqual(["香港 01", "日本 02", "美国 03"]);
     expect(host.querySelector(".net-node.is-current .net-node__name")?.textContent).toBe("香港 01");
@@ -161,6 +167,7 @@ describe("NetworkPanel", () => {
   it("切组与排序只改视图，点节点才发 selectNode 并采纳回执", async () => {
     const { api } = createApi(makeSnapshot());
     const host = await renderPanel(api);
+    await openNodes(host);
 
     await act(async () => { buttonWithText(host, ".net-group", "节点选择").click(); });
     expect(nodeNames(host)).toEqual(["备用 01"]);
@@ -178,6 +185,7 @@ describe("NetworkPanel", () => {
   it("自动选择最快给出明确回执；测速失败按原因说人话", async () => {
     const { api } = createApi(makeSnapshot());
     const host = await renderPanel(api);
+    await openNodes(host);
 
     await act(async () => { buttonWithText(host, ".net-primary-button", "自动选择最快").click(); });
     expect(api.autoSelect).toHaveBeenCalledWith("GLOBAL");
@@ -222,6 +230,7 @@ describe("NetworkPanel", () => {
     expect(host.textContent).toContain("10 条");
     expect(host.textContent).toContain("代理 6");
     expect(host.textContent).toContain("直连 4");
+    await openNodes(host);
     expect(nodeNames(host)).toContain("日本 02");
   });
 
@@ -242,15 +251,18 @@ describe("NetworkPanel", () => {
 
     expect(host.querySelector(".net-offline")?.textContent).toContain("控制器密钥不正确");
     expect(host.querySelector(".net-offline code")?.textContent).toBe("http://127.0.0.1:9097");
-    expect(host.textContent).toContain("没有可切换的策略组");
     const modes = [...host.querySelectorAll<HTMLButtonElement>(".net-mode")];
     expect(modes).toHaveLength(3);
     expect(modes.every((mode) => mode.disabled)).toBe(true);
+
+    await openNodes(host);
+    expect(host.textContent).toContain("没有可切换的策略组");
   });
 
   it("卸载时退订内核更新", async () => {
     const { api, unsubscribe } = createApi(makeSnapshot());
     const host = await renderPanel(api);
+    await openNodes(host);
     expect(host.querySelector(".net-node")).not.toBeNull();
     const root = roots.pop()!;
     await act(async () => { root.unmount(); });

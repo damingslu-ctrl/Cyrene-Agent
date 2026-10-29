@@ -8,6 +8,7 @@ import { loadGeneralSettings } from "../settings/settings-facade";
 import { getEffectiveUiTheme } from "../system-ui-theme";
 import { WINDOW_BACKGROUNDS, WINDOW_BACKGROUND_NO_THEME_CONTEXT } from "../../shared/palette-from-cat";
 import { stopCall, setCallWindow } from "../call/call-manager";
+import { forgetWebContents, markWebContents } from "../application/window-kind";
 import { attachContextMenu } from "./context-menu";
 import { getWorkspaceInitialBounds } from "./workspace-window-bounds";
 import {
@@ -85,6 +86,11 @@ export function createReactChatWindowShell(): BrowserWindow {
   setReactChatWindow(window);
   attachContextMenu(window);
 
+  // 不登记就一律 unknown：policy 里 17 条 verge:network:* 和 verge:get-app-info 都是 chat-only，
+  // 网关当场抛 IPC sender denied，渲染端把异常咽成网络错误，网络页永远显示「无法连接内核」。
+  const chatWebContentsId = window.webContents.id;
+  markWebContents(chatWebContentsId, "chat");
+
   if (rememberWindowState) {
     window.once("ready-to-show", () => {
       if (window.isMaximized()) return;
@@ -103,6 +109,7 @@ export function createReactChatWindowShell(): BrowserWindow {
   });
 
   window.on("closed", () => {
+    forgetWebContents(chatWebContentsId);
     // 闭包引用 + 仅当当前全局仍指向自己时才清理，避免旧窗口 closed 误清新窗口
     if (reactChatWindow === window) {
       setReactChatWindow(null);

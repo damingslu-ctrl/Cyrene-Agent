@@ -610,6 +610,22 @@ export const IPC = {
   VERGE_NETWORK_SELECT_NODE: "verge:network:select-node",
   VERGE_NETWORK_TEST_GROUP: "verge:network:test-group",
   VERGE_NETWORK_AUTO_SELECT: "verge:network:auto-select",
+  // —— v1.22 网络页明细页签 ——
+  /** 规则列表（force=true 穿透 5s 缓存）。 */
+  VERGE_NETWORK_RULES: "verge:network:rules",
+  VERGE_NETWORK_CONNECTIONS: "verge:network:connections",
+  VERGE_NETWORK_CLOSE_CONNECTION: "verge:network:close-connection",
+  VERGE_NETWORK_CLOSE_ALL_CONNECTIONS: "verge:network:close-all-connections",
+  VERGE_NETWORK_PROVIDERS: "verge:network:providers",
+  VERGE_NETWORK_PROVIDER_CHECK: "verge:network:provider-check",
+  VERGE_NETWORK_CONFIG_GET: "verge:network:config:get",
+  /** 只接受白名单键（端口/allow-lan/ipv6/log-level/tun.*），写后由 main 回读。 */
+  VERGE_NETWORK_CONFIG_SET: "verge:network:config:set",
+  VERGE_NETWORK_LOGS_START: "verge:network:logs:start",
+  VERGE_NETWORK_LOGS_STOP: "verge:network:logs:stop",
+  VERGE_NETWORK_LOGS_GET: "verge:network:logs:get",
+  /** main → 渲染端：一条新日志（日志页开着时才有人听）。 */
+  VERGE_NETWORK_LOG: "verge:network:log",
   /** main → 所有窗口：完整快照或单帧流量（NetworkUpdate）。 */
   VERGE_NETWORK_UPDATE: "verge:network:update",
   // —— v1.4.0 桌宠互动 ——
