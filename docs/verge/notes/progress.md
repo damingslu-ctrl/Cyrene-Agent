@@ -1005,3 +1005,117 @@ fish-feast/mirror-friend/solo-player`，总数 32→**38**）与第 28 项统计
   （跨 2 文件）。六处均逐字节还原（`md5sum -c` 全对），定向 5 文件 / 50 条复跑绿。
 - 只做本地提交（`7702a54d` 纯模块、`b47389da` 美术、`b372b594` 接线、`1b0439dd` 探针，
   外加本段文档），**未改版本号、未发布、未推送**；当前 `package.json` 仍是 1.15.0。
+
+### 野性觉醒（v1.20.0）
+
+- **四阶只做两件事**：`WILD_LEVELS` = 家猫 0 / 醒爪 3 / 猎手 8 / 小野猫 15。
+  阶位决定她会哪几式（冲刺一开始就会；醒爪才准潜行；猎手才准扑击），
+  也决定冷却与冲动频率——小野猫冷却减半、冲动更密，不是「练满就封顶」。
+- **点数只认完整演完的一轮**：`recordWild` 在动作收尾时才记账；安静、被叫去漫游、
+  被别的动作接管、赶路超时都经 `abortWild` 撤标记，没跑完的那一轮不记。
+  夜间 22:00–05:00 双倍（`wildGain` 返回 2）。
+  点数与三式计数一律 `WILD_CAP = 1_000_000` 封顶，坏档经 `sanitizeWild` 收成合法账。
+- **三行汇报与台账同源**：`家猫 · 野性 0` / `再 3 点成醒爪` / `冲0 潜0 扑0`；
+  升满后第二行变「野性全开了」。气泡内宽 78px，三行都不许折。
+- **自主冲动**：每拍掷骰概率 0.12 / 0.16 / 0.20 / 0.30；冷却 120s，小野猫 60s。
+  冲刺 150px/s、潜行 22px/s；扑击在原点演 `WILD_HUNT_MS = 900ms`；
+  赶路上限 `WILD_MOVE_MS = 12_000ms`——贴边卡住也要收场，不许挂着野性标记。
+- **三枚成就挂在既有计数上**：`wild-run`（冲刺 ≥1）、`prowler`（潜行 ≥3）、
+  `little-wildcat`（阶位 ≥ 小野猫）。仍是每次互动最多弹一枚。
+- **野性记号全在身外且双色**：冲刺拖三道速度线、潜行在脸前亮两条专注线、
+  扑击只在落点那 450ms 放一圈放射冲击线；每条线都是奶油光边（宽 2.4）
+  垫强调色芯（宽 1.1）——桌布颜色不可控，单色软墨等于没画。
+- **菜单 68 → 70 项**：加「让她野一下 / 野性到哪了」，两条命令 `wild` / `wild-report`；
+  `pet-menu-attach` 的整表锁按设计同步扩到 70。
+
+### 野性三式各有自己的动画（v1.21.0）
+
+- **不再借姿势**：v1.20 的三式借的是姿态图（冲刺＝奔跑图、潜行＝趴姿图、
+  扑击＝跃起图），v1.21 起每式播**自己那一行动作帧**。图集 III
+  `src/renderer/public/pet/girl-actions.webp`（982,934 B，md5
+  `91053fbb966f100b65a1f03317aba25e`）由 `scripts/assets/build-girl-actions.py`
+  从 `scripts/assets/source/actions/{zoom,stalk,hunt}-sheet.png` 构建：
+  300×400 格、6 列 × 3 行、18 格；`count` 口径与世界图集一致＝**格子数 18**
+  （生成器原先把 `CELL_W*COLS*rows` 当 count，已改正）。
+- **每行各带自己的尺**：`anchorY = 0.93`、`inkVb = 91` 三行共用；
+  `inkRefPx` 与 `anchorX` 逐行不同——冲刺 261.1 / 0.306142、潜行 326.9 / 0.322956、
+  扑击 275.8 / 0.439672。`k = s × inkVb / 本行 inkRefPx`，换行画出来不换身高；
+  格子坐标换算也用本行 `anchorX`，拿别行的值整格会横移、脚心对不上。
+- **节奏各走各的**：冲刺 6 帧 @12fps 循环、潜行 6 帧 @6fps 循环、
+  扑击 6 帧 @7fps 一次性（末帧站起即 `done`）。帧号由绝对时钟 × 本行 fps 算，
+  不随重绘帧率走；重绘下限同一条公式 `min(30, max(24, ceil(fps×2)))` 三式都落到 24。
+- **接缝量过才敢循环**：尾帧接回首帧的位移冲刺 65.4、潜行 52.1，都小于段内最大步进
+  105 / 96，看不出跳；扑击 98.5 ≈ 段内最大步进（最后一帧是站起收势），本来一次性。
+- **三级兜底各管各的**：动作图集就绪 → 播本行动作；缺 → 退回 v1.20 姿态图
+  （run / prone / joy）；姿态也缺 → 退回帧动画（run→walk、prone→sit、joy→happy）。
+  坏一套不许把别的拖下水。
+- **框也跟着帧走**：每帧的脸框 / 墨框按本行格子坐标经同一套刚体变换投影，
+  脸宽三行 39.73 / 39.81 / 39.59（极差 1.0056，同头围锁 < 1.02）；
+  三行最低墨线都正好落在 200.00（脚心贴地，不许悬空或插进桌面）。
+- **诊断同源**：`action` / `actionFrame` / `atlases.actions` 三个读数来自渲染器自己；
+  脸红对扑击与 joy 同为 0.5、音符也对扑击开闸——动作层与姿态层的表情口径对齐。
+- **兼容不改形状**：`GirlActionBody` 与 `GirlAnimBody` / `GirlPoseBody` 结构同形，
+  记号层、饰品层、投影层一律原样接收，没有为动作再开一条旁路。
+
+### 本轮门禁红与探针尺子（v1.20.0 + v1.21.0）
+
+- **首跑 5 红，全是产品缺陷不是探针放水**（`D:/cyrene-p5-accept/shots-v121/` 第 4 轮）：
+  `v120.zoom.credit` / `v120.zoom.line` / `v120.zoom.achievement` /
+  `v120.abort.running` / `v120.stalk.credit`。现象一句话：「让她野一下」在她贴边时
+  起跑即结束——账本 0→0、气泡没换、成就没弹；随后叫停那一段从藏身位起跑，
+  2.1ms 后自己消失，`cooldownLeft = 119997.9`（冷却已经记上了）。
+- **根因三层，少修一层都会复现**：
+  ① `renderer.ts` 的 `canRoam` 里有一条「贴边 60px 内且开着藏身就冻结」的静态闸门：
+  它把「此刻藏没藏」与「离边多近」混为一谈，于是贴边但没藏时每一步都在 `stepWalk`
+  里被无声取消；② 两条命令（`wild` / `wander`）都不退藏身，已藏起来
+  （`peekDx ≠ 0`）时起跑仍留在藏身位，`idleSecs` 也没归零，命令刚结束就会被
+  闲置计时器收起；③ 强制野性没递工作区边界，`wildAim` 只管 ±420，贴右边下令
+  会瞄到界外、被夹成零距离——「起跑即到达」，没有位移还照样记账。
+- **修法各就各位**：`canRoam` 只看 `|peekDx| > 0.5`（真藏起来了才不让走）；
+  新增 `clearTuckForCommand()` 先退藏身（`peekDx = 0` 并重发 GEOM）再把 `idleSecs`
+  归零，`wild` 与 `wander` 共用；`startWildNow` 把工作区边界递进
+  `wildNow(now, undefined, bounds)`；`companion.wildNow` 的第三参就是这条边界。
+- **尺子也要改口径**：三条接缝测试原来断言窗口 x，但窗口 x 会被 workArea 夹住、
+  `peekDx` 折进 `pinInWin`，根本测不出「藏没藏」。改为量 GEOM 载荷里的 `peekDx`
+  （`renderer-girl-v120.test.ts` 的 `peekOf`）：贴边未藏时命令后第一笔 `peekDx = 0`
+  且 `pos.x < edge.x - 50`；已藏时第一笔 `peekDx = 0`、这一趟照样记 1 点；
+  散步令同样先把她叫出来。三条都是先红后绿（红是「命令后第一笔仍大于 0」）。
+
+### 门与验收（v1.20.0 + v1.21.0）
+
+- 单测全绿 **750 文件 / 7725 passed + 1 skipped（7726，278.62s）**，比 v1.19 的
+  745/7665+1 多 5 文件、60 条。5 个新文件共 48 条：`girl-wild` 14 / `girl-action` 14 /
+  `companion-girl-v120` 10 / `renderer-girl-v120` 8 / `renderer-girl-v121` 2；
+  既有文件净增 12 条：`girl-fx` +4、`girl-scene` +7、`girl-achievements` +2
+  （「整表 41 枚」那条改写成 44 枚，算一次替换）；`pet-menu` / `pet-menu-attach`
+  只改整表字面量（68 → 70 项），条数不变。
+- 三道 `tsc --noEmit`（main / preload / renderer）全 0。`pnpm run check:*` 本身被
+  `engines.pnpm >= 10.33.0` 挡住（本机 9.15.9），改用 `npx tsc -p …` 直跑三遍——
+  门禁是环境不是代码。`npx vite build` exit 0；重建后对 **565 个 `dist/renderer`
+  文件**跑 `md5sum -c` 全对（旧基线只有 333 个 JS，这轮扩到全量渲染产物）。
+- 真窗 **399/399 `all clear`、0 红**（29 条 `v120.*`，其余 370 条是 v1.19 及以前，
+  `D:/cyrene-p5-accept/shots-v121/`）：zoom 当场记 1 点、盘里同账、气泡
+  「跑起来…风都是甜的」并解锁 `wild-run`；stalk 与 hunt 分别记自己的账；
+  半路叫停那一轮 0 记账；猎手阶强制扑击在原点演完再记。
+  逐行动作帧也在这轮验了：`zoom/stalk/hunt` 各带 `action` 与 `frames` 两条读数
+  （冲刺实测走过 0/1/2/3 四格），诊断里 `atlases.actions = true`。
+- 变异自检六条，**预登记的「必红」一条不缺**（`shots-mut-v121`，397 条 / 15 红）：
+  ① `restAfterMs → 999_999_999` → `rest.starts` / `rest.pose` / `night.line`
+  （`cushion.*` 整段跳过，与预登记的连带一致）；
+  ② `AUTO_SLEEP_IDLE_MS → 999_999_999` → `v119.autosleep`；
+  ③ 薄荷盆 empty 分支 `return []` → `v117.garden-pot-pixels`；
+  ④ `festivalReport` 提前 `return false` → `v119.festival.today`；
+  ⑤ 藏身 cover 分支删掉三颗点 → `v117.hide-marks`；
+  ⑥ `canIdle = false && …` → `idle.start` / `idle.wake` 加 `idle.sit/curl/prone` 连带。
+- 三条与预登记不符的，逐条判过、写在这里：
+  ① `zone.feet.clip`（应绿）红——变异 6 下点击时序抖了一下；绿跑与第 4 轮同项都绿，
+  判为尺子对时序敏感，不是耦合；② `v119.festival.plain`（应绿）红——变异 4 比预登记
+  宽：同一个 `festivalReport` 同时服务「今天」与「平常」两条路，砍掉它必然两条都红，
+  判为预登记写窄了；③ `v119.autosleep.mark-off`（应绿）红——这条断言的是
+  「因为睡了，所以月亮记号收掉」；不去睡就永远看不到「收掉」，蓝记号停在 17，
+  判为场景内耦合（不是产品缺陷），记档不改尺。
+- 六处变异逐字节还原：`companion.ts` `3f75b78e…`、`girl-clock.ts` `51a2c4be…`、
+  `girl-garden.ts` `2be19cef…`、`girl-hide.ts` `25bcef48…`、`renderer.ts`
+  `e5f197a1…`（`mutate.py check` 全 OK），重建产物 md5 与变异前逐文件一致。
+- 只做本地提交（`7da0a0d5` 纯模块、`46eb6bcc` 美术、`7459ca8a` 接线、`039da387` 探针，
+  外加本段文档），**未改版本号、未发布、未推送**；`package.json` 仍是 1.15.0。
