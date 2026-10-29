@@ -1183,3 +1183,52 @@ fish-feast/mirror-friend/solo-player`，总数 32→**38**）与第 28 项统计
 
 只做本地提交，`package.json` 仍是 mochi@1.15.0，未发布、未推送。
 
+
+### 吃/拍/跳/打字各播自己的行（v1.22.0，2026-10-29）
+
+- **接的是硬套清单，不是新玩具**：v1.21 只把野性三式拆成独立行，日常互动仍在拿跳舞帧
+  顶班——喂食借 `happy`、玩耍借 `wave`、蹦跳借 `stretch`、打字借 `wink`
+  （`girl-anim.ts` 的 `ACTIVITY_CLIP` / `GESTURE_CLIP` 原表）。这一轮四件事各出 6 帧，
+  图集 III 从 3 行 × 6 格扩到 **7 行 × 6 格 = 42 格**（图集 PNG 1800×2800 / 4,108,776 B；
+  运行时 webp 2,909,364 B / md5 `c275945e6659ddf832d0d86bf627eb9a`）。
+- **四条新行各带自己的尺与节拍**：
+  | 行 | 触发 | fps | 循环 | 一圈/一次 | inkRefPx | anchorX |
+  | eat | 活动 `eat`（feed） | 9 | 循环 | 667ms | 338.3 | 0.381026 |
+  | bat | 活动 `play` | 11 | 循环 | 545ms | 323.0 | 0.427608 |
+  | hop | 手势 `hop` | 10 | 一次性 | 600ms | 309.4 | 0.390274 |
+  | type | 手势 `typeCode` | 8 | 循环 | 750ms | 343.4 | 0.403451 |
+  眼睛定尺取每张表里 ≥2 帧的中位：eat 66.0 / bat 63.5 / hop 56.5 / type 73.0；
+  闭眼（咀嚼闭眼、眯眼）与手挡脸的单帧被 ±25% 过滤器剔掉，不参与定尺。
+- **映射只收这四件**：`GIRL_ACTIVITY_ACTION`（eat/play）与 `GIRL_GESTURE_ACTION`
+  （hop/typeCode）两张表落在 `girl-scene.ts`；打底优先级仍是「真姿态 > 专属动作 > 帧段」——
+  eat/play 本身没有姿态才轮到动作行，idle/rest/sleep 照旧姿态优先、walk/groom/drag 照旧帧段，
+  不许一行通用动作把所有互动都盖掉。`actionsReady` 从渲染器 tick 一路传进
+  `girlBaseVisualFor`，图集坏掉只让这四件退回原帧段。
+- **收口两路**：一次性行（hop）由帧表自己报 `done`——600ms 一到就谢幕，手势时长 1800ms 只当兜底；
+  循环行（eat/bat/type）永远不报 `done`，手势行靠 `until = at + gestureClip(id).ms`
+  （typeCode 900ms），活动行靠活动结束换段。打字这条最容易卡死，专门锁了「900ms 后必须回站姿」。
+- **尺与框一起扩到 42 格**：每格脸框都落在墨框内（slack 1.5px）、墨底不越过脚心线、
+  每行至少一格踩在 y=200（±0.5）；七行共用一个头围，脸宽实测 39.59–39.81（极差 1.0056 < 1.02）。
+  重绘下限 `min(30, max(24, ceil(fps×2)))` 四行全落 24fps。
+- **变异自检三条证明新锁有牙**：① 把动作分支短路（`false && input.actionsReady`）→
+  3 条红（吃、拍两条 renderer 接缝 + 一条 girl-scene 映射）；② 把 `until` 改成 `at`
+  （丢掉手势时长）→ hop/type 两条接缝红（跳完不谢幕、打字卡行）；③ 删掉 tick 调用点的
+  `actionsReady: this.girlActionsReady` → 吃、拍两条红。三处逐字节还原后定向复绿。
+
+### 门与验收（v1.22.0）
+
+- 先红后绿：实现前 7 条红（映射导出缺失 + `action` 读数恒为 null），这就是本轮的验收尺。
+- 全量 `CI=true npx vitest run`：**756 文件 / 7811 passed + 1 skipped（7812）/ 273.88s**，
+  exit 0；比 Wave 1 的 755 / 7801+1 多 1 文件、10 条。
+- 三道 `tsc --noEmit`（main / preload / renderer）全 0；`npx vite build` 9.01s exit 0；
+  `node scripts/build/desktop-typescript.mjs main` 781 文件。
+- 真窗 **413/413 `all clear`、0 红**（`D:/cyrene-p5-accept/shots-v122/`，91 张截图），
+  其中 14 条 `v122.*`：吃三拍帧号 0/1/2、`action=eat` 且 pose/clip 全 null、1600ms 后回站姿；
+  拍帧号 0/1/3、2000ms 后回站姿；跳帧号 0/1/2 且 `gestureId=hop`、600ms 演完回站姿；
+  打字帧号 0/1/2 且 `gestureId=typeCode`、900ms 到点回站姿（循环行没被卡住）。
+  截图 `girl-eat-action.png`（叼鱼）/ `girl-bat-action.png`（伸爪拍球）/
+  `girl-hop-action.png` / `girl-type-action.png`。
+- 探针纪律不变：全程只用 `handleCommand` / `playGesture`，不发任何鼠标事件；
+  `girlOf` / `afterBeat` 从 v1.20 的块里提到函数作用域，两段共用一份读数口径。
+- 只做本地提交（`a2aeb16c` 美术、`5bee4684` 接线、`f53fbb3e` 测试、`886ca16a` 探针，
+  外加本段文档），**未改版本号、未发布、未推送**；`package.json` 仍是 mochi@1.15.0。
