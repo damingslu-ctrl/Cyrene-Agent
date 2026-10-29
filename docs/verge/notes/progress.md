@@ -985,7 +985,8 @@ fish-feast/mirror-friend/solo-player`，总数 32→**38**）与第 28 项统计
 
 - 单测全绿 **745 文件 / 7665 passed + 1 skipped（7666，211.58s）**，比 v1.18 多 5 文件、
   51 条（5 个新文件 50 条：clock 12 / festival 6 / day-art 6 / companion-girl-v119 18 /
-  renderer-girl-v119 8；另 1 条是 `girl-achievements` 既有用例扩到 41 枚整表）。
+  renderer-girl-v119 8；另 1 条是 `girl-achievements` 新增的 v1.19 三枚成就用例，
+  既有「整表」那条顺手从 38 枚扩到 41 枚）。
   首跑 1 红（菜单 66 项，257.67s）→ 修断言后复跑全绿。
 - 三道 `tsc --noEmit`（main/preload/renderer）全 0；`desktop-typescript.mjs` 构建
   main 779 / preload 147 文件；`vite build` 5.24s、exit 0。`dist/renderer` 全部 JS
