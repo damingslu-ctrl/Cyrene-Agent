@@ -4647,6 +4647,28 @@ async function main() {
     }
   }
 
+  /** 猫娘诊断 + 活动/气泡一整拍：v1.20 野性与 v1.22 互动行两段共用，读的都是屏幕上那一拍。 */
+  const girlOf = async () => (await diag()).girl;
+  const afterBeat = () => evaluate(s, `(() => {
+    const cy = window.__cyrene;
+    const snap = cy.renderer.getCompanionSnapshot();
+    const g = cy.getPetDiagnostics().girl;
+    return {
+      bubble: snap.bubble?.text ?? null,
+      activity: snap.activity,
+      wild: g && g.wild,
+      pose: g && g.pose,
+      action: g && g.action,
+      actionFrame: g && g.actionFrame,
+      gestureId: g && g.gestureId,
+      clip: g && g.clip,
+      atlases: g && g.atlases,
+      fx: g && g.fx,
+      achievement: g && g.achievement,
+      achievements: g ? g.achievements : [],
+    };
+  })()`);
+
   // —— U. v1.20「野性觉醒」：阶位账 / 两张嘴 / 三式各演一遍 / 中途叫停 / 跨重启 ——
   // 每个阶段都先把**盘上的账**写成种子再整页重载：家猫 0 点（冲刺）、醒爪 3 点（潜行）、
   // 猎手 8 点（扑击）。判据只看渲染器自己报的读数与屏幕上真在画的那张姿态：
@@ -4654,7 +4676,6 @@ async function main() {
   // 每笔当场落盘。冷却只在引擎里（不落盘），所以重载后的「冷却满格」也是开局契约的一部分。
   {
     results.v120 = {};
-    const girlOf = async () => (await diag()).girl;
     const wildOf = async () => (await girlOf()).wild;
     const bondNow = () => evaluate(s, `(() => {
       try { return JSON.parse(localStorage.getItem("cyrene.pet.bond.v1") ?? "null"); } catch { return null; }
@@ -4663,24 +4684,6 @@ async function main() {
     /** 撒野回执可能被一枚新成就顶掉（wild-run 就是这一轮解锁的）：两句都认，别把设计当 bug。 */
     const wildLineOk = (impulse, text, ach) => (WILD_ACT_LINES[impulse] ?? []).includes(text)
       || (ach?.id === "wild-run" && text === WILD_RUN_ACH_LINE);
-    /** 一整拍：气泡/活动/账本/成就同一拍读，避免「读句子时那枚徽章已经过期」的假红。 */
-    const afterBeat = () => evaluate(s, `(() => {
-      const cy = window.__cyrene;
-      const snap = cy.renderer.getCompanionSnapshot();
-      const g = cy.getPetDiagnostics().girl;
-      return {
-        bubble: snap.bubble?.text ?? null,
-        activity: snap.activity,
-        wild: g && g.wild,
-        pose: g && g.pose,
-        action: g && g.action,
-        actionFrame: g && g.actionFrame,
-        atlases: g && g.atlases,
-        fx: g && g.fx,
-        achievement: g && g.achievement,
-        achievements: g ? g.achievements : [],
-      };
-    })()`);
     /**
      * 改本应用自己的 bond 后立刻重载：野性账只从盘里回来，不许拿内存快照蒙混。
      *
@@ -4968,6 +4971,106 @@ async function main() {
       `before=${JSON.stringify(wildLedger(u5.before))} after=${JSON.stringify(wildLedger(u5Done))} gain=${u5Gain} hour=${u5Hour}`);
     check("v120.hunt.disk", JSON.stringify(u5Disk) === JSON.stringify(wildLedger(u5Done)),
       `disk=${JSON.stringify(u5Disk)} memory=${JSON.stringify(wildLedger(u5Done))}`);
+  }
+
+  // —— V. v1.22「吃/拍/跳/打字」：四条日常互动也各播自己那一行 ——
+  // 喂食/玩耍挂在引擎活动上（打底就是那一行），蹦跳/打字挂在显式手势上；
+  // 每条同时验三件事：诊断读的是专属 action、帧号真的在走、谢幕之后回站姿不赖在动作行上。
+  // 全程只用 handleCommand / playGesture，不发任何鼠标事件（不碰用户真实光标）。
+  {
+    results.v122 = {};
+    /** 等一个「没有野性、不在走/睡/被拖」的底子；不喂食（喂食本身就是被测的吃）。 */
+    const settleScreen = async (why) => {
+      const deadline = Date.now() + 20_000;
+      for (;;) {
+        await forceFrame();
+        const n = await snap();
+        const g = await girlOf();
+        const calm = !["walk", "drag", "thrown", "sleep"].includes(n.activity)
+          && (g?.wild?.act ?? null) === null;
+        if (calm) return n;
+        if (Date.now() > deadline) {
+          throw new Error(`[ENV] 20s 内没回到可量互动行的待机态（activity=${n.activity} wild=${g?.wild?.act}；${why}）`);
+        }
+        await dismissBubble().catch(() => {});
+        await wait(240);
+      }
+    };
+    /** 连拍三拍：动作行也在交叉淡化里，单拍可能正好撞上上一幕；取三拍合并看帧号有没有走。 */
+    const beatsOf = async (count = 3, gap = 120) => {
+      const beats = [];
+      for (let i = 0; i < count; i += 1) {
+        await forceFrame();
+        beats.push(await afterBeat());
+        if (i < count - 1) await wait(gap);
+      }
+      return beats;
+    };
+    const waitActionGone = async (ms) => {
+      const deadline = Date.now() + ms;
+      for (;;) {
+        await forceFrame();
+        const beat = await afterBeat();
+        if (beat.action === null || Date.now() > deadline) return beat;
+        await wait(100);
+      }
+    };
+    const expectRow = (name, beats, id) => {
+      const hit = beats.find((b) => b.action === id) ?? null;
+      const frames = beats.filter((b) => b.action === id).map((b) => b.actionFrame);
+      check(`v122.${name}.action`, hit !== null && hit.pose === null && hit.clip === null,
+        `beats=${JSON.stringify(beats.map((b) => ({ action: b.action, pose: b.pose, clip: b.clip })))}`);
+      check(`v122.${name}.frames`, new Set(frames.filter((f) => f !== null)).size >= 2,
+        `frames=${JSON.stringify(frames)}`);
+    };
+    const expectHome = (name, beat, why) => {
+      check(`v122.${name}.home`, beat.action === null && beat.pose === "stand" && beat.gestureId === null,
+        `${why} action=${beat.action} pose=${beat.pose} gestureId=${beat.gestureId} activity=${beat.activity}`);
+    };
+
+    // V1 喂食：打底换成吃饭那一行（9fps 循环），1600ms 吃完回站姿。
+    await settleScreen("v122-eat");
+    await dismissBubble();
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("feed")`);
+    const eatBeats = await beatsOf(3, 120);
+    results.v122.eat = eatBeats.map((b) => ({ action: b.action, frame: b.actionFrame, pose: b.pose }));
+    expectRow("eat", eatBeats, "eat");
+    await shot("girl-eat-action.png");
+    expectHome("eat", await waitActionGone(4_000), "吃完");
+
+    // V2 玩耍：打底换成拍打那一行（11fps 循环），2000ms 玩完回站姿。
+    await settleScreen("v122-bat");
+    await dismissBubble();
+    await evaluate(s, `window.__cyrene.renderer.handleCommand("play")`);
+    const batBeats = await beatsOf(3, 120);
+    results.v122.bat = batBeats.map((b) => ({ action: b.action, frame: b.actionFrame, pose: b.pose }));
+    expectRow("bat", batBeats, "bat");
+    await shot("girl-bat-action.png");
+    expectHome("bat", await waitActionGone(4_500), "玩完");
+
+    // V3 蹦跳手势：600ms 一次性演完（10fps × 6 帧），不借 stretch、演完立刻让位。
+    await settleScreen("v122-hop");
+    await dismissBubble();
+    await evaluate(s, `window.__cyrene.renderer.playGesture("hop")`);
+    const hopBeats = await beatsOf(3, 120);
+    results.v122.hop = hopBeats.map((b) => ({ action: b.action, frame: b.actionFrame, gesture: b.gestureId }));
+    expectRow("hop", hopBeats, "hop");
+    check("v122.hop.gesture", hopBeats.some((b) => b.gestureId === "hop"),
+      `gestures=${JSON.stringify(hopBeats.map((b) => b.gestureId))}`);
+    await shot("girl-hop-action.png");
+    expectHome("hop", await waitActionGone(3_000), "跳完");
+
+    // V4 打字手势：循环行靠 typeCode 的 900ms 收口——到点必须谢幕，不许卡在打字行上。
+    await settleScreen("v122-type");
+    await dismissBubble();
+    await evaluate(s, `window.__cyrene.renderer.playGesture("typeCode")`);
+    const typeBeats = await beatsOf(3, 150);
+    results.v122.type = typeBeats.map((b) => ({ action: b.action, frame: b.actionFrame, gesture: b.gestureId }));
+    expectRow("type", typeBeats, "type");
+    check("v122.type.gesture", typeBeats.some((b) => b.gestureId === "typeCode"),
+      `gestures=${JSON.stringify(typeBeats.map((b) => b.gestureId))}`);
+    await shot("girl-type-action.png");
+    expectHome("type", await waitActionGone(3_000), "打完");
   }
 
   const failed = checks.filter((c) => !c.ok);
