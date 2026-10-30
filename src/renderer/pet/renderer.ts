@@ -4493,6 +4493,8 @@ export class PixelPetRenderer {
     }
     this.engine?.touch(zone === "head" ? "head" : zone === "feet" ? "feet" : "poke", now);
     this.engine?.save();
+    // 摸头/挠脚的回馈也得当场起播：4fps 档下一帧最坏 250ms 后才演，手指已经抬起来了。
+    if (!this.paused) this.draw(now);
   }
 
   /**

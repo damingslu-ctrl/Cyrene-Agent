@@ -90,10 +90,14 @@ export const GIRL_ACTIVITY_ACTION: Partial<Record<GirlActivity, GirlActionId>> =
   play: "bat",
 };
 
-/** 手势 → 专属动作行（跳=hop、打字=type）；其余手势仍走姿态/帧段优先级。 */
+/** 手势 → 专属动作行（跳=hop、打字=type、v1.23 点头/摇头/拍手/捂脸）；其余手势仍走姿态/帧段优先级。 */
 export const GIRL_GESTURE_ACTION: Record<string, GirlActionId | undefined> = {
   hop: "hop",
   typeCode: "type",
+  nod: "nod",
+  shake: "shake",
+  clap: "clap",
+  coverFace: "coverFace",
 };
 
 export interface GirlBaseVisualInput {
