@@ -1284,7 +1284,8 @@ fish-feast/mirror-friend/solo-player`，总数 32→**38**）与第 28 项统计
   四条都验 `gestureId` 与 `pose/clip=null`（专属动作行不吃姿态打底、也不落回帧段）。
   截图 `girl-nod-action.png` / `girl-shake-action.png` / `girl-clap-action.png` /
   `girl-coverFace-action.png`。
-- **谢幕尺（`expectHome`）本轮放宽了两处，逐条记在案**（`scripts/verify/pet-girl-cdp.mjs:5204-5209`）：
+- **谢幕尺（`expectHome`）本轮放宽了两处，逐条记在案**（`scripts/verify/pet-girl-cdp.mjs:5229-5233`，
+  v1.25 又在同一处补了第三条，见下一段）：
   ① 不再硬要求回到**站姿**——等待那几百毫秒里作息编排可能已经让她坐下，2026-10-29 首轮
   三条 home 全量到 `pose=sit`，那是编排不是卡行；② `pose` 允许为 null，但人必须在某个地方：
   要么有静帧，要么正在走/被拖/被投（`src/renderer/pet/girl-scene.ts:69` 写明这三段本就没有静帧）。
@@ -1415,3 +1416,148 @@ fish-feast/mirror-friend/solo-player`，总数 32→**38**）与第 28 项统计
 （真账本里 `Script 内置` 那行就在那儿），但执行它属任意代码执行面，本期不做。
 - 只做本地提交（`624b2650` 数据面、`5bbdba7d` 通道层、`40fa97d1` 界面与 i18n、`1e041eb9` 两个探针，外加本段文档），**未改版本号、未发布、未推送**；`package.json` 仍是 mochi@1.15.0。
 
+### 摸头/梳毛/发抖/扭头/喝一口各播自己的行（v1.25.0，2026-10-30）
+
+「我要每个动作都有独立的动画，而不是在某个形象基础上硬套一段动画」这条令，收尾的是清单上
+最后五件——它们原先演的都是别人的帧：**pet 借 `happy`（开心舞）、groom 停在一张 `wash` 静帧、
+shiver 借 `wink`、sip 借 `yawn`、turnAway 借 `peek`**。
+
+- **五张新行进图集**：动作图集从 11 行 × 6 格扩到 **16 行 × 6 格 = 96 格**
+  （`scripts/assets/generated/girl-actions.png` 1800×6400 / 9,777,282 B / md5
+  `997cf7efc55c94b5e55f1ce9f6a8d87b`；运行时 webp 6,991,236 B / md5 `d7d5788aa432c40d346b943eede11bde`）。
+  五张源帧表在 `scripts/assets/source/actions/{pet,groom,shiver,turnAway,sip}-sheet.png`。
+  逐行尺（`src/renderer/pet/girl-actions-meta.ts:29-33`）：
+  | 行 | 触发 | fps | 循环 | 一格 | inkRefPx | anchorX |
+  | pet | 活动 `pet`（长按 500ms） | 8 | 循环 | 125ms | 299.0 | 0.445298 |
+  | groom | 活动 `groom` / 手势 `groom` | 7 | 循环 | 143ms | 361.0 | 0.445700 |
+  | shiver | 手势 `shiver`（点脚） | 12 | 循环 | 83ms | 300.0 | 0.351386 |
+  | turnAway | 手势 `turnAway` | 6 | **一次性** | 167ms | 325.3 | 0.420802 |
+  | sip | 手势 `sip` | 8 | 循环 | 125ms | 331.6 | 0.441153 |
+- **接线两张表**（`src/renderer/pet/girl-scene.ts:89-94` 活动表补 pet/groom、`:103-114` 手势表补
+  shiver/turnAway/sip/groom）。优先级仍是「动作行 > 真姿态 > 帧段」，其余七件有真姿态的手势
+  （招手/鞠躬/屈膝/指点/歪头/哈欠/伸懒腰）一律不进表。groom 是这一批里唯一**动了既有裁决**的：
+  v1.23 立过「有真姿态的手势不许被顺走」，它当时被那条护着——那条要防的是拿一行通用动画盖掉
+  别的动作，而这一行画的就是梳毛本身；升格之后 `wash` 静帧退居兜底（动作图集缺席时照旧上台，
+  那一路由 `renderer-girl-v125.test.ts` 最后一个用例守着，真窗不验）。
+- **清单清零：18 个手势里再没有「借别人的动作行」这一类**。逐 id 对着三张表数过
+  （`src/renderer/pet/motion.ts` 的 gesture 共 18 件）：**10 件有自己那一行**
+  （hop/typeCode/nod/shake/clap/coverFace + 本轮 shiver/turnAway/sip/groom，
+  `girl-scene.ts:103-114`），**7 件举的是图集 II 里专为自己画的那张静帧**
+  （`girl-gesture.ts:17-26` 的 wave→wave、bow→bow、curtsy→bow、point→peace、tilt→tilt、
+  yawn→yawn、stretch→stretch），**1 件（peek）播的是与自己同名的那段剪辑**
+  （`girl-anim.ts:207-226` 的 `peek: "peek"`）。剩下那些「名字不对」的条目（如 `tilt: "peek"`）
+  只在姿态图缺席时才轮到上台——优先级是「动作行 > 真姿态 > 帧段」，本轮没有把它们顺走。
+- **长按当场重画（真窗口径逼出来的两行）**：`src/renderer/pet/renderer.ts:4176-4177`。分区回馈在
+  v1.23 已经改成点下即重画，长按摩挲那条分支却在它前面 `return`——后台窗 rAF 只有 ~4fps，
+  最坏 250ms 后才演，手早抬起来了。这条是本轮唯一「单测能过、真窗读不到」的接缝，所以探针
+  按同一次 JS 回合读数（见下）。
+- **脸框不许探出这一格画出来的墨**（`scripts/assets/build-girl-actions.py:406-415`）：96 格里五格
+  的红框骑在蓝框外面（turnAway f2 悬出 27px、f3 悬出 13px，eat f2 / bat f0 各探出 2px 与 4px）。
+  根因不是画坏了，是尺子口径：头围是整行统一的一把正面宽度（`FACE_W_PER_EYE × 本行眼圈距`），
+  而扭头那两帧她是侧身抱臂的，白脸团只占剪影一侧。脸框是钉子——爱心、徽章、Zzz 和「点脸」
+  命中区全钉在这个框上，悬出去的那半边等于钉在用户桌布上。墨比头还窄的正背面帧走另一支：
+  夹不住就退回墨心。打包像素一个没动，改的只有元数据里五个 cx。
+
+### 门与验收（v1.25.0）
+
+- 先红后绿：接线前 **10 条红**（映射 2 条 + 五条接缝各 action/帧号/收口口径），接线后
+  4 文件 / 59 条绿（`.tmp/v125/green1.txt`）；补回下面那条行号锁之后是
+  **4 文件 / 60 条绿**（`.tmp/v125/green2.txt`）。
+- **红阶段是 60 条、提交时只剩 59 条——那条锁在合并时被并没了，本轮把它换了一副更强的牙放回去**：
+  红阶段 `renderer-girl-v125.test.ts` 的第 7 条「五行五行地排：这一批不许把已有那 11 行的行号挤掉」
+  在提交前并进了两张已有的表（`girl-scene.test.ts:261` 五行行号互不相同 + 五张墨表互不相同），
+  但 `girl-action.test.ts:48` 只验「行号成集合」、`IDS` 全序（`:53`）只验名字顺序——**两者都放过一次
+  「行号整体重排」**：`row` 就是 `girl-actions.webp` 上的物理行，重排后已有动作会画成别人那一张，
+  而逐 id 的墨框、脸框、尺照样自洽，全部单测一起绿。新增
+  `girl-action.test.ts:79-82`「行号就是图集上的物理行：16 行必须逐格排在 0..15」，
+  变异自检按此口径做：把 nod 与 shake 的 `row` 互换（7↔8，一个合法置换，旧的两条尺全部放行）→
+  `girl-action.test.ts` **19 条里恰好 1 红**（`expected [ …6, 8, 7, 9… ] to equal [ …6, 7, 8, 9… ]`），
+  逐字节还原 meta（sha256 `70d69875…` 一致）（`.tmp/v125/roworder-mut.txt`）。
+- 全量 `CI=true npx vitest run`：**767 文件 / 7978 passed + 1 skipped（共 7979）**，291.96s，exit 0
+  （`.tmp/v125/gates-vitest.txt`；比 Wave 2 收口时的 766 / 7966+1 多 1 文件 12 条——
+  新增的那一个文件是 `renderer-girl-v125.test.ts`，12 条里含本轮补回的行号锁那一条）。
+- 三道 `tsc --noEmit`（main / preload / renderer）全 0；`node node_modules/vite/bin/vite.js build` exit 0
+  （末次 7.62s，热档；变异与还原各还跑过一次，都 0），并从**产物里**把还原的那句抠回来核了一遍：
+  `dist/renderer/assets/renderer-B5ZRXu84.js` 里长按那一支是
+  ``>=500){this.engine?.touch(`pet`,r),this.engine?.save(),this.paused||this.draw(r);return}``
+  ——`this.paused||this.draw(r)` 在盘上，说明交出去的 dist 与源码是同一个戒律，不是改完源码忘了复建；
+  `node scripts/build/desktop-typescript.mjs main` 790 文件、`preload` 150 文件，各 exit 0。
+- 四条**单测级**变异各自红了又逐字节还原（元数据 5/5、girl-scene 15/2、renderer 2/0）：
+  手势表删 `shiver` → 3 红；`turnAway.loop` 改 true → 3 红；turnAway f2 脸心从 161 挪回 188
+  （＝撤销夹框）→ 1 红；长按分支去掉当场重画 → 1 红。
+- 真窗探针新增第 VII 段（`scripts/verify/pet-girl-cdp.mjs:5288-5469`，25 条 `v125.*`）：
+  五行各验「专属 action 且 pose/clip 全 null」「帧号按本行 fps 真的在走」「手势 id 同源」，
+  外加 `v125.atlas.actions`（图集没上台时五行都会退回帧段/静帧，红在门口）、
+  `v125.fiveRows`（五件事不许共用一行）与每行的 hold/home。**摸头那条尺是这一版特有的**：
+  `tapAt`、读数和挡道判据在**同一次 `evaluate`** 里跑完，不催帧——长按若还停在「等下一帧」，
+  后台窗最坏 250ms 后才演，这条尺要吃的就是那 250ms。
+- 真窗 **454 条 / 4 红 → 复跑 454 条 / 0 红 → 交出去那一版再跑 454 条 / 0 红**
+  （`.tmp/verify-v125/` 100 张 → `.tmp/verify-v125b/` 101 张 → `.tmp/verify-v125c/` 101 张 +
+  各自的 `pet-girl-report.json`；三趟都是 454 条、`v125.*` 都是 25 条，改名与新增没让尺子少一根）。
+  **第三趟是必须的**：第二段绿了之后我又改了探针（把 v1.22 那段 `expectHome` 对齐同一条契约，
+  见下面「谢幕尺的第三条放宽」那条），尺子换了口径就得重新在真窗上证明一次交出去的这把还是同一把。
+  首跑四条红的账：
+  ① `v125.pet.sameTurn` **绿**，而且一次到位——`before={action:null,pose:"sit"}` →
+  同一拍 `after={action:"pet",frame:0,pose:null,clip:null}`、`activity=pet`，这是那句即时重绘
+  在真窗上唯一的直接读数；复跑读数一样。五行帧号全在走（复跑 pet `[0,1,2,3]`、shiver `[0,1,2,4]`、
+  groom/sip/turnAway 各 `[0,0,1,2]`——12fps 的抖在 110ms 采样里跨了两格，7/8fps 的行跨一格，
+  正是本行 fps 该有的样子）；到点让位实测（`clearedAt` 的 `waited`）复跑
+  pet 930 / groom 2436 / shiver 1849 / turnAway 1013 / sip 2436ms，对名义
+  900（`pet` 是活动不是手势，没有 `hold` 那条尺，930ms 只记在 `v125.petCleared` 上）
+  /2400/1800/2000（一次性行 1013ms 就自己谢幕）/2400。
+  ② 两条**过期尺**（是本轮设计变更改掉的旧契约，不是产品坏）：`zone.feet.clip` 还按 v1.15 口径
+  要求点脚演的是借来的 `wink` 帧，`gesture.groom` 还按 v1.15 口径要求梳毛停在 `wash` 静帧——
+  今天这两件事都有自己那一行了。尺子按 v1.23 对 `coverFace`/`nod` 用过的同一套升格写法改写：
+  `zone.feet.action`（`:1095`）与 `gesture.groom-action`（`:3523`）。「还停在一张静帧上」从今天起
+  是缺陷而不是达标。复跑两条都绿，读数 `action=shiver clip=null pose=null` 与
+  `action=groom gestureId=groom pose=null clip=null`。
+  ③ 两条**探针腿脚**（不是编排顶掉，也不是产品）：`v125.groom.home`、`v125.sip.home` 量到
+  换场那一拍挂着邻座手势（`gestureId=peek/clip=peek`、`gestureId=curtsy/pose=bow`——
+  `src/renderer/pet/motion.ts:324/370` 两个都是在册的 gesture）。旧 `expectHome` 要求
+  `gestureId` 整体为 null，等于要求「本行让位那一拍全桌静音」：那是跟编排对赌。
+  复跑这两条 home 读到的是干净的 `action=null pose=stand gestureId=null`——同一条判据在三趟里
+  都不再挑刺，说明放宽对准的是「邻座补位」而不是「本行没谢幕」。
+- **第三趟（交出去的那一版探针）454 条 / 0 红、`all clear`、exit 0**（`.tmp/v125/probe3.txt`，
+  101 张截图）。三趟里最要紧的一处对照：**13 条 home 逐条读数与第二趟一模一样**
+  （`v122.eat/bat/hop/type` 四条 `pose=stand`、`v123.nod` stand、`v123.shake/clap/coverFace` 三条
+  `pose=sit`、`v125.pet/groom/sip` stand、`v125.shiver/turnAway` `pose=joy`），到点让位
+  pet 904 / groom 2487 / shiver 1882 / turnAway 1029 / sip 2428ms。这一趟里没有缺陷形态可抓
+  （屏幕上一切都对），所以它**不能**当「放宽之后尺子还咬得住」的证据——那条证据在下面两检里；
+  这一趟能给的是「读数与第二趟逐条相同」：改判据没有把任何一次真读数读成别的形状。
+  `v125.pet.sameTurn` 从第一趟到第三趟也是同一个读数
+  （`before={action:null,pose:"sit"}` → `after={action:"pet",frame:0,pose:null,clip:null}`）。
+  另外三趟里只有这一趟的 13 条 home 消息**都带上了 `clip=`**——那是三段对齐同一条契约之后
+  才有的形状：以前 v1.22 那段根本不打印这个字段，读到的东西比另外两段少一根手指。
+- **谢幕尺的第三条放宽，三段同改**（`scripts/verify/pet-girl-cdp.mjs:5121-5131` v1.22、
+  `:5239-5245` v1.23、`:5368-5375` v1.25）：判据收到本行身上——这一行/这一手势不许还挂在台上，
+  台上有没有别的事不管，但必须有东西（`pose`/`clip`/三段位移至少一样）。三段原本不是一样严：
+  v1.22 那段还硬钉 `pose === "stand"`（v1.23 在 2026-10-29 就因为三条 home 全量到 `pose=sit`
+  把这条摘了，见 `:5229-5233` 的原注释），且三段都要求 `action`/`gestureId` 整体为 null——
+  等于要求「换场那一拍全桌静音」，那是跟编排对赌。v1.23 那段的雷这次没炸，只是它管的四行短、
+  自主抽签没赶上；v1.22 那段管着 eat/bat/hop/type 四条 home，同一颗雷装了四发。
+  **同一条根因还埋着一条假绿**，所以 `clearedAt` 的出口也从「`action===null`」改成
+  「`action!==本行 id`」：邻座补位时旧写法会继续等全桌静音，把别人的那段算进本行寿命，
+  `hold >= 名义-300` 就这样被撑绿——「本行被半路顶掉」这件真事会被盖掉。（`waitActionGone`
+  在 v1.22/v1.23 只喂 home 判定、不喂时长判据，那两段没有这颗假绿，这次不动它的出口。）
+- **放宽之后尺子仍有牙**，两条独立证据：
+  ① 判据逻辑直接对真窗读数回放（`.tmp/teeth-home-predicate.mjs`，把文件里**真的**那三段
+  `expectHome` 按 `check(\`v1NN.` 前缀各自抠出来跑，不复制判据）：三种缺陷形态（本行卡台 /
+  手势还举着 / 空台）全红，四种合法形态（今天两条真读数 + v1.23 记过的「她起身走了」+
+  「等待那几百毫秒里她坐下了」）全绿，**三段 × 七项 = 21 项 0 FAIL**。
+  这条回放本身也修了一处：早先版本用同一个非全局正则抠「两段」，两趟跑的其实是同一段源码——
+  现在按前缀分派，`defs.length !== 3` 直接算 FAIL。
+  ② **产品级变异**（不动尺）：删掉 `src/renderer/pet/renderer.ts:4177` 那句 `this.draw(now)` →
+  `vite build` exit 0 → 真窗 **454 条 / 恰好 1 红，红的就是 `v125.pet.sameTurn`**
+  （`.tmp/verify-v125mut/`，101 张截图）。读数把这条尺吃的那 250ms 直接摊开：
+  `before={action:null,pose:"sit"}` → 同一拍 `after={action:null,frame:null,pose:"sit"}` 而
+  `activity=pet`——引擎那边长按确实记上了，台上的行却没换，正是「等下一帧」在 4fps 后台窗上的样子。
+  其余 453 条一条没红：这一版只有这条尺在赌「同一次 JS 回合」，别的尺都在催过帧之后才读，
+  所以它们不配当这条的证据。脚本跑完按 sha256 逐字节还原并复建（sha256
+  `2a15f210…ba2e8f` → 「逐字节一致」+ `vite build` exit 0，`.tmp/mutate-v125-probe.py`）。
+- 截图：首跑 100 张、复跑 101 张、交出去那一版再跑 101 张（`.tmp/verify-v125/` →
+  `.tmp/verify-v125b/` → `.tmp/verify-v125c/`），逐名比对只多一张
+  `girl-gesture-groom.png`——那是升格后的 `gesture.groom-action` 自己带的；`girl-pet-action.png` /
+  `girl-groom-action.png` / `girl-shiver-action.png` / `girl-turnAway-action.png` /
+  `girl-sip-action.png` 三趟都在。
+- 只做本地提交（`3e03e2a1` 美术、`3e26c3ed` 夹框、`bc9e3062` 接线、`4ec05269` 测试，外加本段与探针），
+  **未改版本号、未发布、未推送**；`package.json` 仍是 mochi@1.15.0。
