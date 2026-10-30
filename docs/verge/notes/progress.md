@@ -1232,3 +1232,74 @@ fish-feast/mirror-friend/solo-player`，总数 32→**38**）与第 28 项统计
   `girlOf` / `afterBeat` 从 v1.20 的块里提到函数作用域，两段共用一份读数口径。
 - 只做本地提交（`a2aeb16c` 美术、`5bee4684` 接线、`f53fbb3e` 测试、`886ca16a` 探针，
   外加本段文档），**未改版本号、未发布、未推送**；`package.json` 仍是 mochi@1.15.0。
+
+
+### 点头/摇头/拍手/捂脸各播自己的行（v1.23.0，2026-10-29）
+
+- **仍是同一份硬套清单**：`GESTURE_CLIP` 里点头/摇头借 `peek`、拍手借 `happy`、
+  捂脸借 `shy`。这一轮四件事各出 6 帧，图集 III 从 7 行 × 6 格扩到
+  **11 行 × 6 格 = 66 格**（图集 PNG 1800×4400 / 6,769,356 B；运行时 webp 4,787,694 B /
+  md5 `02565c0b0950ba189a6f56f5d8b36ce8`）。四张源帧表放在
+  `scripts/assets/source/actions/{nod,shake,clap,coverFace}-sheet.png`。
+- **四条新行各带自己的尺与节拍**：
+  | 行 | 触发 | fps | 循环 | 一圈/一次 | inkRefPx | anchorX |
+  | nod | 手势 `nod` | 7 | 一次性 | 857ms | 365.9 | 0.429487 |
+  | shake | 手势 `shake` | 9 | 循环 | 667ms | 352.5 | 0.476141 |
+  | clap | 手势 `clap` | 10 | 循环 | 600ms | 333.2 | 0.423333 |
+  | coverFace | 手势 `coverFace` | 8 | 循环 | 750ms | 326.9 | 0.405794 |
+  眼睛定尺：nod 69.0 / shake 85.0 / clap 70.0（各取 ≥2 帧的中位，闭眼/眯眼/肉垫混检的帧
+  被 ±25% 过滤器剔掉）；coverFace 整行爪子贴脸、52 帧检测到的全是肉垫对，改按同批同尺
+  借 clap 的 70.0（墨高 395–428 与 clap 407–419 齐平）。
+- **站桩手势行改按鞋底对地线（`SHOE_GROUND`）**：AI 出帧表按每帧自己的剪影居中，
+  低头帧整只被抬高——nod 的 f1/f2 鞋底比 f0 高 50px、coverFace 的 f4 低 36px；按墨底对齐
+  会读成「点头时猫往上飘」。构建器给这四行加了第二条对齐口径：取每帧粉色鞋底（脚）的
+  最低行，用 `dip = max(墨底 − 鞋底)` 把地线整体抬高，使最深的墨迹（尾巴尖/影子）不越脚心线。
+  跑/跳/扑这些真腾空的行**不能**这么对齐，所以按行显式点开，不设全局开关。
+  已验证第 0–6 行与上一版逐像素一致（`git show HEAD:` 对比，最大像素差 0）。
+- **映射只加这四件**：`GIRL_GESTURE_ACTION` 补 nod/shake/clap/coverFace；
+  有真姿态的手势（wave/bow/curtsy/point/tilt/groom/yawn/stretch）一律不进表——
+  优先级仍是「动作行 > 姿态 > 帧段」，手势表只在没有姿态时接。
+- **收口两路沿用 v1.22 的口径**：nod 是一次性行，末格停住即由 `scene.isDone` 谢幕
+  （857ms），手势时长 1800ms 只当兜底；shake/clap（1800ms）与 coverFace（2000ms）
+  是循环行，靠 `until = at + gestureClip(id).ms` 收口，到点必须回站姿。
+- **尺与框一起扩到 66 格**：每格脸框落在墨框内（slack 1.5px）、墨底不越脚心线；
+  站桩四行锁「每格墨底落在 366–372 窄带、行内跨度 ≤4px」，飞跳两行（zoom/hop）作对照组
+  （跨度 >20px 才许离地）；十一行共用一个头围，脸宽实测仍在 1.02 极差以内。
+- **变异自检三条证明新锁有牙**：① 从手势表删掉 `nod` → 映射 1 条 + 点头接缝 1 条红；
+  ② 把 nod 的 `loop` 改回 true → 循环表 1 条 + 节拍 1 条红；③ 把 nod f1 的墨底压到 380
+  （旧口径的落点）→ 鞋底窄带 1 条 + 「脚不穿地线」1 条红。三处逐字节还原后定向复绿。
+
+### 门与验收（v1.23.0）
+
+- 先红后绿：接线前 5 条红（映射表 + 四条 renderer 接缝），`girl-action.test.ts` 同步扩到
+  11 行后先绿（数据面先落地）。
+- 全量 `CI=true npx vitest run`：**757 文件 / 7819 passed + 1 skipped（7820）/ 229.51s**，
+  exit 0；比 v1.22 的 756 / 7811+1 多 1 文件、8 条。
+- 三道 `tsc --noEmit`（main / preload / renderer）全 0；`npx vite build` exit 0；
+  `node scripts/build/desktop-typescript.mjs main` 781 文件。
+- 真窗 **429/429 通过、0 红**（`.tmp/verify-v123f/`，95 张截图 + `pet-girl-report.json`），
+  其中 16 条 `v123.*`：点头帧号 `[0,0,1,2]` 在走、857ms 自己谢幕（回到 `pose=stand`）；
+  摇头 `[0,1,2,3]`、拍手 `[0,1,2,3]`、捂脸 `[0,0,1,2]` 各按本行 fps 走帧，
+  到 1800/1800/2000ms 的手势时长回待机（这三条量到的是 `pose=sit`）；
+  四条都验 `gestureId` 与 `pose/clip=null`（专属动作行不吃姿态打底、也不落回帧段）。
+  截图 `girl-nod-action.png` / `girl-shake-action.png` / `girl-clap-action.png` /
+  `girl-coverFace-action.png`。
+- **谢幕尺（`expectHome`）本轮放宽了两处，逐条记在案**（`scripts/verify/pet-girl-cdp.mjs:5204-5209`）：
+  ① 不再硬要求回到**站姿**——等待那几百毫秒里作息编排可能已经让她坐下，2026-10-29 首轮
+  三条 home 全量到 `pose=sit`，那是编排不是卡行；② `pose` 允许为 null，但人必须在某个地方：
+  要么有静帧，要么正在走/被拖/被投（`src/renderer/pet/girl-scene.ts:69` 写明这三段本就没有静帧）。
+- **放宽之后尺子仍有牙**（产品级变异，不动尺）：把 `src/renderer/pet/renderer.ts:3752` 的
+  `until = at + gestureClip(id).ms` 改成 `at + 600_000`（手势永不谢幕）→ `npx vite build` exit 0、
+  真窗探针 **exit 1、429 条里 6 红**，其中 4 条正是谢幕尺：
+  `v122.type.home`（`action=type gestureId=typeCode` 卡住）、
+  `v123.shake.home` / `v123.clap.home` / `v123.coverFace.home` 同型；
+  另外两条 `v118.fishing.ledger`、`v118.end-lines` 是连坐——她一直举着手势，别的播报抢不到话筒。
+  **`v123.nod.home` 没红是设计如此**：点头是一次性行，末格报 `done` 自己谢幕，本就不靠手势时长
+  （v1.22 的 eat/bat/hop 同理没红）。还原后 `renderer.ts` sha256 `3ae8a58f4d9d7544…` 逐字节一致，
+  复建 `vite build` exit 0。脚本 `.tmp/mutate-home-ruler.py`（日志 `.tmp/mutate-home-ruler.log`）。
+- **已知容差**：coverFace 第 4→5 帧脸团约 7% 缩放跳动（AIGC 出帧不一致），
+  在 91vb 运行时上约 2–3px，肉眼近不可辨，未为此重出整行。
+- 里程碑标签撞号记一笔：代码注释里的 `v1.24` 已被「订阅页（Wave 2）」占用
+  （`src/shared/ipc-channels.ts:654`、`src/main/application/ipc-sender-policy.ts:35` 等 4 处），
+  所以下一轮猫娘动作行从 **v1.25** 起编，不许一个号两个意思。
+- 只做本地提交（`623e23dc` 美术、`8e8132aa` 接线、`61211b8c` 测试、`3e978d2c` 探针，外加本段文档），**未改版本号、未发布、未推送**；`package.json` 仍是 mochi@1.15.0。
