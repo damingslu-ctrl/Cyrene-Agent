@@ -19,6 +19,7 @@ import { ProvidersView } from "./ProvidersView";
 import { RulesView } from "./RulesView";
 import { SettingsView } from "./SettingsView";
 import { SubscriptionsView } from "./SubscriptionsView";
+import { VergeSettingsSection } from "./VergeSettingsSection";
 import { MODE_KEY, type NetworkTab } from "./network-tabs";
 import type { NodeSort } from "./network-view";
 import "./NetworkPanel.css";
@@ -32,6 +33,7 @@ export function NetworkPanel() {
   const { t } = useTranslation();
   const api = window.verge?.network;
   const subscriptionApi = window.verge?.subscriptions;
+  const settingsApi = window.verge?.settings;
   const [snapshot, setSnapshot] = useState<NetworkSnapshot>(emptyNetworkSnapshot);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<string | null>(null);
@@ -289,7 +291,12 @@ export function NetworkPanel() {
           {tab === "connections" && <ConnectionsView api={api} />}
           {tab === "providers" && <ProvidersView api={api} />}
           {tab === "subscriptions" && <SubscriptionsView api={subscriptionApi} />}
-          {tab === "settings" && <SettingsView api={api} />}
+          {tab === "settings" && (
+            <>
+              <SettingsView api={api} />
+              <VergeSettingsSection api={settingsApi} />
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -15,6 +15,21 @@ import type {
 } from "../../../../shared/network-detail-types";
 import type { NetworkSnapshot } from "../../../../shared/network-types";
 import type { ProfileResult, ProfileRow } from "../../../../shared/subscription-types";
+import type {
+  SystemProxyRead,
+  SystemProxySetResult,
+  SystemProxyStatus,
+} from "../../../../shared/system-proxy-types";
+import { EMPTY_SYSTEM_PROXY_STATUS } from "../../../../shared/system-proxy-types";
+import {
+  EMPTY_VERGE_SETTINGS_VIEW,
+  VERGE_SETTING_KEYS,
+  type VergeSettingKey,
+  type VergeSettingsPatch,
+  type VergeSettingsRead,
+  type VergeSettingsResult,
+  type VergeSettingsView,
+} from "../../../../shared/verge-settings-types";
 import { ConnectionsView } from "./ConnectionsView";
 import { LogsView } from "./LogsView";
 import { NetworkPanel } from "./NetworkPanel";
@@ -22,6 +37,8 @@ import { ProvidersView } from "./ProvidersView";
 import { RulesView } from "./RulesView";
 import { SettingsView } from "./SettingsView";
 import { SubscriptionsView } from "./SubscriptionsView";
+import { VergeSettingsSection } from "./VergeSettingsSection";
+import type { VergeSettingsApi } from "./verge-settings-view";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -495,6 +512,297 @@ describe("设置页", () => {
   });
 });
 
+describe("设置页的 Verge 两张卡", () => {
+  const YAML_PATH = "C:\\Users\\me\\AppData\\Roaming\\cyrene\\verge.yaml";
+
+  const PROXY_ON: SystemProxyStatus = { enabled: true, server: "127.0.0.1:7896", bypass: "localhost;127.*" };
+  const PROXY_OFF: SystemProxyStatus = { enabled: false, server: null, bypass: null };
+  const PROXY_UNSET: SystemProxyStatus = { enabled: null, server: null, bypass: null };
+
+  const VIEW: VergeSettingsView = {
+    enableSystemProxy: false,
+    systemProxyBypass: null,
+    useDefaultBypass: true,
+    enableTunMode: null,
+    mixedPort: 7896,
+    socksPort: 0,
+    httpPort: null,
+  };
+
+  const FIELD_OF: Record<VergeSettingKey, keyof VergeSettingsView> = {
+    enable_system_proxy: "enableSystemProxy",
+    system_proxy_bypass: "systemProxyBypass",
+    use_default_bypass: "useDefaultBypass",
+    enable_tun_mode: "enableTunMode",
+    verge_mixed_port: "mixedPort",
+    verge_socks_port: "socksPort",
+    verge_port: "httpPort",
+  };
+
+  interface VergeState {
+    view: VergeSettingsView;
+    proxy: SystemProxyStatus;
+  }
+
+  function makeVergeApi(options: {
+    view?: VergeSettingsView;
+    readReason?: VergeSettingsRead["reason"];
+    proxy?: SystemProxyStatus;
+    proxyReason?: SystemProxyRead["reason"];
+    proxyDetail?: string;
+    align?: SystemProxySetResult["align"];
+    write?: (patch: VergeSettingsPatch, state: VergeState) => VergeSettingsResult;
+    toggle?: (toggle: { enabled: boolean }, state: VergeState) => SystemProxySetResult;
+  } = {}) {
+    const state: VergeState = {
+      // 读不出盘时 main 回的是 EMPTY_VERGE_SETTINGS_VIEW：拿一份真值配着失败原因返回，等于让用户照着猜。
+      view: options.readReason ? { ...EMPTY_VERGE_SETTINGS_VIEW } : { ...VIEW, ...options.view },
+      proxy: options.proxy ?? PROXY_OFF,
+    };
+    const api: VergeSettingsApi = {
+      get: vi.fn(async (): Promise<VergeSettingsRead> => ({
+        view: state.view,
+        reason: options.readReason ?? null,
+        // 「没发现 Verge」时编一个路径出来，等于告诉用户盘上有这么个文件。
+        filePath: options.readReason === "not-found" ? null : YAML_PATH,
+      })),
+      set: vi.fn(async (patch: VergeSettingsPatch): Promise<VergeSettingsResult> => {
+        if (options.write) return options.write(patch, state);
+        const changed: VergeSettingKey[] = [];
+        for (const key of VERGE_SETTING_KEYS) {
+          if (patch[key] === undefined) continue;
+          changed.push(key);
+          // 替身不做形状校验：那由 main 那侧的写面负责，这里只保证「发什么就读回什么」。
+          state.view[FIELD_OF[key]] = patch[key] as never;
+        }
+        return { ok: true, view: state.view, changed };
+      }),
+      proxyGet: vi.fn(async (): Promise<SystemProxyRead> => ({
+        status: state.proxy,
+        reason: options.proxyReason ?? null,
+        ...(options.proxyDetail ? { detail: options.proxyDetail } : {}),
+      })),
+      proxySet: vi.fn(async (toggle: { enabled: boolean }): Promise<SystemProxySetResult> => {
+        if (options.toggle) return options.toggle(toggle, state);
+        state.proxy = toggle.enabled ? { ...PROXY_ON } : { ...PROXY_OFF };
+        return { ok: true, status: state.proxy, align: options.align ?? { state: "aligned" } };
+      }),
+    };
+    return { state, api };
+  }
+
+  async function mountVerge(api: VergeSettingsApi): Promise<HTMLElement> {
+    const host = await mount(createElement(VergeSettingsSection, { api }));
+    // 初值要走完 get()+proxyGet() 的 Promise.all，比单页多一拍。
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    return host;
+  }
+
+  const proxySwitch = (host: HTMLElement) => host.querySelector<HTMLInputElement>('input[name="enable_system_proxy"]')!;
+  const saveButton = (host: HTMLElement) => buttonWithText(host, ".net-primary-button", "保存");
+
+  function setArea(area: HTMLTextAreaElement, value: string): void {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(area, value);
+    area.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  it("开关只递一个布尔：代理地址从来不由页面递", async () => {
+    const { api } = makeVergeApi();
+    const host = await mountVerge(api);
+    await act(async () => { proxySwitch(host).click(); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(api.proxySet).toHaveBeenCalledOnce();
+    const [toggle] = api.proxySet.mock.calls[0];
+    // toStrictEqual：多一个 server 键（哪怕值是 undefined）都要红——那是把全机流量指到别处的口子。
+    expect(toggle).toStrictEqual({ enabled: true });
+
+    expect(host.textContent).toContain("已开启");
+    expect(host.textContent).toContain("指向 127.0.0.1:7896");
+    expect(host.textContent).toContain("系统里的例外：localhost;127.*");
+    expect(host.textContent).toContain("Verge 那本账记的是：关着");
+    expect(host.textContent).toContain("两处已对齐");
+  });
+
+  it("注册表里没这把键时不许冒充「已关闭」", async () => {
+    const host = await mountVerge(makeVergeApi({ proxy: PROXY_UNSET }).api);
+    expect(host.textContent).toContain("没配过");
+    expect(host.textContent).not.toContain("已关闭");
+    expect(host.textContent).not.toContain("已开启");
+    expect(proxySwitch(host).checked).toBe(false);
+    // 这一次注册表是读成功的：「读回来没有值」是可以如实列出来的事实，跟「读不到」是两回事。
+    expect(host.querySelector(".net-verge__facts")).not.toBeNull();
+    expect(host.textContent).toContain("没有可读的地址");
+    expect(host.textContent).toContain("系统里没有例外列表");
+  });
+
+  it("保存只发真改过的键，回执按白名单标签点名", async () => {
+    const { api } = makeVergeApi();
+    const host = await mountVerge(api);
+    expect(saveButton(host).disabled).toBe(true);
+
+    await act(async () => { setInput(host.querySelector<HTMLInputElement>('input[name="verge_mixed_port"]')!, "7899"); });
+    await act(async () => { chooseSelect(host.querySelector<HTMLSelectElement>('select[name="enable_tun_mode"]')!, "on"); });
+    expect(saveButton(host).disabled).toBe(false);
+
+    await act(async () => { saveButton(host).click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(api.set).toHaveBeenCalledOnce();
+    expect(api.set.mock.calls[0][0]).toStrictEqual({ enable_tun_mode: true, verge_mixed_port: 7899 });
+    expect(host.textContent).toContain("已写入 2 项：");
+    expect(host.textContent).toContain("混合端口");
+    expect(host.textContent).toContain("TUN 模式");
+    // 写完之后基线跟着盘走：同一份值不该还能再点一次保存。
+    expect(saveButton(host).disabled).toBe(true);
+  });
+
+  it("TUN 选「跟随内核」写的是 null，不是 false", async () => {
+    const { api } = makeVergeApi({ view: { enableTunMode: true } });
+    const host = await mountVerge(api);
+    expect(host.querySelector<HTMLSelectElement>('select[name="enable_tun_mode"]')!.value).toBe("on");
+    await act(async () => { chooseSelect(host.querySelector<HTMLSelectElement>('select[name="enable_tun_mode"]')!, "follow"); });
+    await act(async () => { saveButton(host).click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(api.set.mock.calls[0][0]).toStrictEqual({ enable_tun_mode: null });
+  });
+
+  it("例外清空是删掉那把键，不是写一条都不豁免的空串", async () => {
+    const { api } = makeVergeApi();
+    const host = await mountVerge(api);
+    const area = host.querySelector<HTMLTextAreaElement>('textarea[name="system_proxy_bypass"]')!;
+    expect(area.disabled).toBe(true); // 默认例外在生效时，自定义那一栏不该能点
+
+    await act(async () => { host.querySelector<HTMLInputElement>('input[name="use_default_bypass"]')!.click(); });
+    expect(area.disabled).toBe(false);
+    await act(async () => { setArea(area, "baidu.com;192.168.*"); });
+    await act(async () => { saveButton(host).click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(api.set.mock.calls[0][0]).toStrictEqual({
+      system_proxy_bypass: "baidu.com;192.168.*",
+      use_default_bypass: false,
+    });
+
+    await act(async () => { setArea(host.querySelector<HTMLTextAreaElement>('textarea[name="system_proxy_bypass"]')!, ""); });
+    await act(async () => { saveButton(host).click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(api.set.mock.calls[1][0]).toStrictEqual({ system_proxy_bypass: null });
+  });
+
+  it("写被拒时把原话说出来，用户的输入与草稿都不许被吃掉", async () => {
+    const { api, state } = makeVergeApi({
+      write: (_patch, current) => ({ ok: false, reason: "verge-running", view: current.view }),
+    });
+    const host = await mountVerge(api);
+    await act(async () => { setInput(host.querySelector<HTMLInputElement>('input[name="verge_mixed_port"]')!, "7899"); });
+    await act(async () => { saveButton(host).click(); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(host.textContent).toContain("Clash Verge 正在运行，先退出它我才改得动 verge.yaml");
+    expect(host.querySelector<HTMLInputElement>('input[name="verge_mixed_port"]')!.value).toBe("7899");
+    expect(saveButton(host).disabled).toBe(false);
+    expect(state.view.mixedPort).toBe(7896);
+    // 拒了也要重读盘：闸门可能在两次点击之间就换了。
+    expect(api.get.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("说不出端口时（no-port）注册表一个键都不该被写，页面上要敢点名", async () => {
+    const { api } = makeVergeApi({
+      proxy: PROXY_UNSET,
+      toggle: () => ({
+        ok: false,
+        reason: "no-port",
+        status: PROXY_UNSET,
+        align: { state: "skipped", reason: "not-applied" },
+        detail: "mixed-port unset",
+      }),
+    });
+    const host = await mountVerge(api);
+    await act(async () => { proxySwitch(host).click(); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(host.textContent).toContain("说不出该指向哪个端口：内核没在跑，verge.yaml 里也没有混合端口");
+    expect(host.textContent).toContain("详情：mixed-port unset");
+    expect(host.textContent).toContain("系统代理没写成，还没到对齐这一步");
+    expect(proxySwitch(host).checked).toBe(false);
+    expect(host.textContent).toContain("没配过");
+  });
+
+  it("Verge 在跑时对齐会被跳过：回执要说「它下次启动可能把你拨回去」", async () => {
+    const { api } = makeVergeApi({ align: { state: "skipped", reason: "verge-running" } });
+    const host = await mountVerge(api);
+    await act(async () => { proxySwitch(host).click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(host.querySelector(".net-verge__align")!.className).toContain("is-skipped");
+    expect(host.textContent).toContain("它自己那把键没跟着改——它下次启动可能把你刚改的拨回去");
+  });
+
+  it("没装 Verge 的机器：verge.yaml 那栏禁写，系统代理照拨", async () => {
+    const { api } = makeVergeApi({ readReason: "not-found" });
+    const host = await mountVerge(api);
+    expect(host.textContent).toContain("没有找到 verge.yaml（这台机器可能没装过 Clash Verge）");
+    // 不给编一个不存在的文件路径。
+    expect(host.textContent).not.toContain(YAML_PATH);
+    expect(host.querySelector<HTMLInputElement>('input[name="verge_mixed_port"]')!.value).toBe("");
+    await act(async () => { setInput(host.querySelector<HTMLInputElement>('input[name="verge_mixed_port"]')!, "7899"); });
+    expect(saveButton(host).disabled).toBe(true);
+    expect(host.querySelector<HTMLSelectElement>('select[name="enable_tun_mode"]')!.disabled).toBe(true);
+
+    expect(proxySwitch(host).disabled).toBe(false);
+    await act(async () => { proxySwitch(host).click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(api.proxySet).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain("已开启");
+  });
+
+  it("坏端口就地报错并挡住保存", async () => {
+    const { api } = makeVergeApi();
+    const host = await mountVerge(api);
+    await act(async () => { setInput(host.querySelector<HTMLInputElement>('input[name="verge_socks_port"]')!, "70000"); });
+    expect(host.textContent).toContain("端口必须是 0–65535 的整数");
+    expect(saveButton(host).disabled).toBe(true);
+    expect(api.set).not.toHaveBeenCalled();
+  });
+
+  it("拨开关不许冲掉没保存的草稿，但状态必须按注册表读回来", async () => {
+    const { api } = makeVergeApi();
+    const host = await mountVerge(api);
+    await act(async () => { setInput(host.querySelector<HTMLInputElement>('input[name="verge_mixed_port"]')!, "7899"); });
+
+    await act(async () => { proxySwitch(host).click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(host.querySelector<HTMLInputElement>('input[name="verge_mixed_port"]')!.value).toBe("7899");
+    expect(saveButton(host).disabled).toBe(false);
+    // 草稿保住了，开关本身却必须跟着读回走——不许停在「按下去时以为的那一版」。
+    expect(host.textContent).toContain("已开启");
+    expect(host.textContent).toContain("指向 127.0.0.1:7896");
+  });
+
+  it("盘上没写过的端口画成空，不拿 0 冒充", async () => {
+    const host = await mountVerge(makeVergeApi({ view: { mixedPort: null, socksPort: null, httpPort: null } }).api);
+    for (const name of ["verge_mixed_port", "verge_socks_port", "verge_port"]) {
+      const field = host.querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
+      expect(field.value, name).toBe("");
+      // placeholder 是属性不是文字：空框必须自己说清「空」是什么意思。
+      expect(field.placeholder, name).toBe("留空 = 不改");
+    }
+  });
+
+  it("读回注册表失败时不端读回清单，徽标也不许冒充「没配过」", async () => {
+    const host = await mountVerge(makeVergeApi({ proxyReason: "read-failed" }).api);
+    expect(host.textContent).toContain("读系统代理失败");
+    // 「没配过」是对注册表的判断，读失败时我们没资格下这个结论。
+    expect(host.textContent).not.toContain("没配过");
+    expect(host.querySelector(".net-verge__facts")).toBeNull();
+    // 没有正文时不给用户留一个空的「详情：」。
+    expect(host.textContent).not.toContain("详情：");
+
+    const withDetail = await mountVerge(makeVergeApi({ proxyReason: "read-failed", proxyDetail: "reg.exe 拒绝访问" }).api);
+    expect(withDetail.querySelector(".net-verge__read-failed")!.textContent).toBe("详情：reg.exe 拒绝访问");
+  });
+});
+
 describe("页签外壳", () => {
   function makePanelApi() {
     const snapshot: NetworkSnapshot = {
@@ -573,6 +881,38 @@ describe("页签外壳", () => {
     await act(async () => { buttonWithText(host, ".net-tab", "概览").click(); });
     expect(host.querySelector(".net-hero")).not.toBeNull();
     expect(host.textContent).toContain("内核已连接");
+    delete (window as Window & { verge?: unknown }).verge;
+  });
+
+  it("齿轮页在内核卡下面接上 Verge 两张卡；preload 没带 settings 通道时也不空转", async () => {
+    const api = makePanelApi();
+    const settings: VergeSettingsApi = {
+      get: vi.fn(async () => ({ view: EMPTY_VERGE_SETTINGS_VIEW, reason: null, filePath: null })),
+      set: vi.fn(async () => ({ ok: true as const, view: EMPTY_VERGE_SETTINGS_VIEW, changed: [] })),
+      proxyGet: vi.fn(async () => ({ status: { ...EMPTY_SYSTEM_PROXY_STATUS }, reason: null })),
+      proxySet: vi.fn(async () => ({
+        ok: true as const,
+        status: { ...EMPTY_SYSTEM_PROXY_STATUS },
+        align: { state: "aligned" as const },
+      })),
+    };
+    Object.assign(window, { verge: { network: api, subscriptions: makeSubApi([]), settings } });
+    const host = await mount(createElement(NetworkPanel));
+    await act(async () => { host.querySelector<HTMLButtonElement>(".net-tab--icon")!.click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(host.querySelector(".net-settings")).not.toBeNull();
+    // 顺序也是契约：内核那一组在前，Verge 那两张在后。
+    const cards = [...host.querySelectorAll<HTMLElement>(".net-panel__inner > .net-card")].map((c) => c.className);
+    expect(cards).toEqual(["net-card net-section net-settings", "net-card net-section net-verge", "net-card net-section net-verge"]);
+
+    // 反例：老 preload / 别的窗口没挂上 settings 时，页面要说出「接口不可用」，不许抛错留一块白。
+    delete (window as Window & { verge?: unknown }).verge;
+    Object.assign(window, { verge: { network: api, subscriptions: makeSubApi([]) } });
+    const bare = await mount(createElement(NetworkPanel));
+    await act(async () => { bare.querySelector<HTMLButtonElement>(".net-tab--icon")!.click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(bare.querySelectorAll(".net-verge")).toHaveLength(2);
+    expect(bare.textContent).toContain("设置接口不可用");
     delete (window as Window & { verge?: unknown }).verge;
   });
 });

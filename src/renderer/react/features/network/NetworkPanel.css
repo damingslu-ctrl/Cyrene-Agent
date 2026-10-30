@@ -1443,6 +1443,74 @@
 
 .net-field.is-invalid .net-input { border-color: var(--rb-danger); }
 
+/* Verge 的两张卡：系统代理（注册表）与 verge.yaml。
+   灰下来必须是真的灰——被 Verge 进程闸门挡住时，控件看着能点就是骗人。 */
+
+.net-input:disabled,
+.net-select:disabled,
+.net-field--row input[type="checkbox"]:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.net-verge__facts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border: 1px solid var(--rb-border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--rb-surface-elevated) 62%, transparent);
+  color: var(--rb-text-secondary);
+  font: 400 11px/1.55 var(--rb-font-sans, sans-serif);
+  list-style: none;
+}
+
+.net-verge__facts li { overflow-wrap: anywhere; }
+
+.net-verge__read-failed {
+  margin: 8px 0 0;
+  color: var(--rb-danger);
+  font: 500 11px/1.5 var(--rb-font-sans, sans-serif);
+  overflow-wrap: anywhere;
+}
+
+.net-verge__align {
+  margin: 8px 0 0;
+  padding: 8px 11px;
+  border: 1px solid var(--rb-border-subtle);
+  border-radius: 9px;
+  font: 500 11px/1.5 var(--rb-font-sans, sans-serif);
+  overflow-wrap: anywhere;
+}
+
+.net-verge__align.is-aligned {
+  color: var(--rb-success);
+  border-color: color-mix(in srgb, var(--rb-success) 26%, var(--rb-border-default));
+  background: color-mix(in srgb, var(--rb-success) 8%, var(--rb-surface-elevated));
+}
+
+.net-verge__align.is-skipped {
+  color: var(--rb-warning);
+  border-color: color-mix(in srgb, var(--rb-warning) 26%, var(--rb-border-default));
+  background: color-mix(in srgb, var(--rb-warning) 8%, var(--rb-surface-elevated));
+}
+
+.net-verge__align.is-failed {
+  color: var(--rb-danger);
+  border-color: color-mix(in srgb, var(--rb-danger) 26%, var(--rb-border-default));
+  background: color-mix(in srgb, var(--rb-danger) 7%, var(--rb-surface-elevated));
+}
+
+.net-verge__bypass {
+  height: auto;
+  min-height: 62px;
+  padding: 7px 9px;
+  font: 400 11px/1.5 var(--rb-font-mono, monospace);
+  resize: vertical;
+}
+
 @media (max-width: 860px) {
   .net-search { width: 140px; }
   .net-rule { grid-template-columns: 104px minmax(0, 1fr) 40px; }

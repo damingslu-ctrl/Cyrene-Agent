@@ -1562,3 +1562,111 @@ shiver 借 `wink`、sip 借 `yawn`、turnAway 借 `peek`**。
 - 只做本地提交（`3e03e2a1` 美术、`3e26c3ed` 夹框、`bc9e3062` 接线、`4ec05269` 测试、
   `10fbe230` 补回行号锁、`8f7b67b4` 探针、`8820be1d` 本段），
   **未改版本号、未发布、未推送**；`package.json` 仍是 mochi@1.15.0。
+
+### Wave 3 T9：设置页——系统代理与 verge.yaml（2026-10-30）
+
+**主进程面**（T9-a/b/c/d1 各自一个提交，`e054187a` / `cf886183` / `3b09b072` / `6785bc2b`）：
+
+- `verge-settings.ts`(354)：`verge.yaml` 白名单七键（`VERGE_SETTING_KEYS`，`src/shared/verge-settings-types.ts`
+  86 行纯类型）的读、写与判据。写是**行级补丁**而不是整档重排——`TOP_LEVEL_KEY`(`:158`) 只认 0 列的
+  `键名:`，缩进行是别人的孩子、块标量正文在合法 YAML 里必定缩进，所以都进不来；命中顶层重名时
+  **全部改写**（`:181-186`），因为 YAML 取最后一个，只改第一处会让页面显示一个盘上不存在的状态。
+- 行级补丁不知道「那一行的值跨了几行」，所以落盘前补一道整档比对 `assertPatchLandsClean`(`:205-226`)：
+  把补好的文本再解析一次，目标键读回来必须是要写的值、**其余每个键读回来必须还是原来那样**——
+  顶掉 `>-` 折叠、流序列或键底下的嵌套 map 会把正文变成孤儿、把别人的键挤出地图，
+  那种补丁宁可拒着不写。写盘走 `writeTextAtomicWithBackup`(`:346`)（先备份再 tmp→rename，与 Wave 2 同一把尺）；
+  成功回执里的 `view` 是**从盘上重读**的（`:351`），不是把发出去的值原样画回去。
+- `system-proxy.ts`(339)：WinINET 的 HKCU 那三份值（`INTERNET_SETTINGS_KEY` `:27`）。走 PowerShell 而不是
+  `reg.exe` 的理由写在文件头（`:4`）：注册表里的字符串是 UTF-16，`reg.exe` 按控制台代码页吐出来是 mojibake。
+  四条命令构造器都可注入（读 `:74` / 写 `:84` / 删 `:93` / 广播 `:104`），广播是
+  `SendMessageTimeout(HWND_BROADCAST, 0x1A, …, 'Internet Settings', …)`（`:112`）——写完不广播，
+  正在跑的浏览器不会知道代理换了。**键缺席读成 `null` 而不是 `false`**（`parseProxyJson` `:149`），
+  `enabled: null` 是「这台机器没配过系统代理」，画成「已关闭」就是说谎。
+  `applySystemProxy`(`:283`) 整批原子：一次点击要么全落、要么一个字节没动；例外列表清空走**删键**
+  （`:271-272` 用 `buildRemoveCommand`），写空串是「一条都不豁免」，两件不同的事。
+- `verge-settings-ipc.ts`(142)：四条通道 `verge:settings:get|set`、`verge:sys-proxy:get|set`。
+  **代理地址由主进程定，不由页面递**（`:109-127`）：入参只取一个 `enabled` 布尔，端口先问内核
+  （`corePort()`），问不到再退 `verge.yaml` 的 `mixedPort`，两个都给不出就 `no-port` 拒写并把「不知道该指向哪个端口」
+  原话说出去——渲染端能递 `server` 的那扇门一旦开了，一次页面 bug 就能把整台机器的流量指到别处。
+  拨完开关顺手把 `enable_system_proxy` 对齐进 `verge.yaml`，对齐的三种下场（写成 / 跳过并说明为什么 / 没写成）
+  落成 `align.state` 回执（`:131-133`），不并到开关的成功与否里。
+- 四条通道都只认主窗（`src/main/application/ipc-sender-policy.ts:45-48`）。这里吃过两次生产事故的教训：
+  `verge:profile:get` 这类同名通道一旦被别的窗口握着，sender 闸门会按通道而不是按语义放行；
+  本轮的四条是 `chat` 独占，且 `registerVergeSettingsIpc` 返回 disposer、挂进 shutdown 做
+  `removeHandler`（`:137-140`），热重启装配不留重复 handler。
+- T9-c（`3b09b072`）把内核失败正文随回执走到页面：`mihomo-client.ts` 抓 `detail`、
+  `network-detail-types.ts` 定形状、`SettingsView.tsx` 原样说出来——TUN 只走 `PATCH /configs`，
+  内核报错时页面不许演成「已经拨好了」。
+
+**界面与纯派生**（本轮 T9-d2，`verge-settings-view.ts`(158) + `VergeSettingsSection.tsx`(333)）：
+
+- 判定全在纯函数里，组件只接线，这样三条口径能被单测钉住而不是藏在 JSX 里靠肉眼：
+  `draftFromSettings`（盘上的 `null` → 空框，TUN 的 `null` 是 Verge 的「跟随内核」那一档、压不成复选框，
+  所以三档 select）、`invalidVergeFields`（空串=不改、`0` 是合法端口（Verge 拿它表示「这次启动随机挑一个」）、
+  `70000`/非数字/控制字符/超 `MAX_BYPASS_LENGTH` 报错）、`vergePatchFromDraft`（只发跟基线比真的改过的键；
+  首尾空白不算改动，否则「点进框里再点出去」会往盘上加一把键；坏值不进补丁，所以 `NaN` 落不了盘；
+  端口清空**不算**改动——那是「跟着默认」，而删键不是这一页的权限）、
+  `proxyStateOf` / `effectiveBypass` / `alignKeyOf` / `sysProxyReasonKey` / `yamlProxySwitchKey`。
+- 本轮改掉两处**页面上的谎**，两处都是测试先抓出来的：
+  ① 读回注册表失败时（`reason !== null`，此时手上根本没有读回来的值）以前照样端出「读回清单」，
+  徽标还拿 `proxyUnset`——「没配过」是对注册表的判断，没读到就不能说。现在 `readFailed`(`:91`) 一起
+  掐掉清单（`:196`）并把徽标换成失败原因那句话（`badgeKey` `:93-95`、`:212` 只在有 detail 时补一行详情）。
+  ② 拨完开关的重读以前写成 `refreshDraft(dirty ? null : await pull())`——草稿一脏就**整条重读都不跑**，
+  开关的勾与徽标停在「按下去时以为的那一版」。现在是无条件 `await pull()`（`:129`），
+  草稿不受影响（`pull()` 不碰基线），因为「用户没保存的输入」与「注册表现在是什么」是两件事。
+  这条改动的正对照就是「拨开关不许冲掉没保存的草稿，但状态必须按注册表读回来」。
+- 保存失败那条分支原来写 `if (next && !dirty) refreshDraft(next)`，是**死码**（save 能跑就必然 `dirty`），
+  注释还写着「重读会把草稿冲掉」——跟行为对不上。改成 `await pull()`(`:155`)：写面整批原子，
+  拒了就是盘上一个字节没动，重读只为把盘上真值画准（闸门可能在两次点击之间换了），草稿留着让用户改完再试。
+- 两张卡**互不锁死**：`yamlGated`（`:87`）只禁 verge.yaml 那侧的写与保存（`:234`/`:287`/`:305`/`:317`），
+  系统代理照拨——没装 Verge 的机器不是「设置页整块不能用」。灰下来是真灰：新增 `:disabled` 样式，
+  被进程闸门挡住时控件不许看着还能点。
+- 对齐回执是一条常驻的三态行（`:217`，`is-aligned`/`is-skipped`/`is-failed` + `role="status"`），
+  不是一次性的 toast：「Verge 在跑，所以它下次启动可能把你拨回去」这句话得留在屏幕上给用户读完。
+
+**i18n**：三语各 **+80 行、0 删除**（`git diff --numstat` 三份都是 `80 0`），`network.verge` 现 42 键。
+本轮新增 `proxyTurnedOn`/`proxyTurnedOff`。措辞是「系统代理已打开（注册表读回来确实是开）」——
+回执只说拨成了，指向哪儿由下面的读回清单说。第一版把 `server` 插值写进了这句话，地址缺席时
+就得长成「指向 没有可读的地址」那种疯话，所以砍掉：同一个事实只由一个出口说。
+
+**尺子**（新 66 条：`verge-settings-view.test.ts` 52 + `NetworkViews.test.tsx` 14）：
+
+- **枚举锁补不上那个洞，所以加了一条静态引用锁**（本轮最重要的一条）：
+  `src/renderer/react/i18n/resources.test.ts` 是**三语键对齐**锁，三边同时缺一个键它照样绿；
+  而 i18next 的 `parseMissingKeyHandler` 缺 key 时回吐 key 本身——本轮组件引用过
+  `network.verge.proxyTurnedOn/Off`（三边都没写过），用户看到的是路径而不是话。新增
+  「VergeSettingsSection 里写死的每个 key 三种语言都有值」：读组件源码正则扫 `"network.*"` 字面量、
+  逐段下钻三份资源，并配**正对照** `keys.length > 25`——路径写错或正则塌了会扫出 0 个，
+  那不该读成全绿（按本轮记过的假绿纪律，空转的尺子必须自己报警）。
+- `NetworkViews.test.tsx` 的 14 条由一个**有状态假接口**驱动（读/写/开关/对齐共用一份内存里的盘），
+  含一条页签外壳集成锁：齿轮页的卡片顺序必须是 `[net-settings, net-verge, net-verge]`，
+  且 preload 没带 `settings` 通道时页面要说「设置接口不可用」，不许抛错留一块白。
+- 开关那一递用 `toStrictEqual({ enabled: true })`（`:620`）而不是 `toEqual`：
+  多一个 `server` 键**哪怕值是 undefined** 都要红——那是全机流量的口子，不靠约定靠断言。
+- 四条单测级变异，各自恰好红一条、跑完逐字节还原（`diff` 对备份 → `RESTORED-CLEAN`，
+  三份 locale 重新 `JSON.parse` + 42 键计数核对）：
+  A `{status && !readFailed && (` → `{status && (` → 红在「读回注册表失败时不端读回清单…」；
+  B `api.proxySet({ enabled })` → 多加 `server: "10.0.0.1:9"` → 红在「开关只递一个布尔」；
+  C 三语 `"proxyTurnedOn":` → `"proxyTurnedOnX":` → **新静态锁红、`resources.test.ts` 按设计全绿**
+    （这一对同时是「洞是真的」和「新锁咬得住」两份证据）；
+  D 拨开关的 `await pull()` → `refreshDraft(await pull())` → 红在「拨开关不许冲掉没保存的草稿…」。
+
+**门**（全部 exit 0）：
+
+- 全量 `CI=true node node_modules/vitest/vitest.mjs run`：**771 文件 / 8144 passed | 2 skipped**，304.91s
+  （`.tmp/t9d2-full.log`）。T9-d1 收口时是 770 / 8078|2，多的 1 文件 66 条＝`verge-settings-view.test.ts`(52)
+  + `NetworkViews.test.tsx`(14)，逐文件对过。
+- 三道 `tsc --noEmit`（main / preload / renderer）各 0；`node scripts/build/desktop-typescript.mjs main`
+  **795 文件**、`preload` **152 文件**；`node node_modules/vite/bin/vite.js build` 8.16s exit 0。
+- 从**产物里**回读，确认交出去的 dist 与源码是同一戒律：`dist/renderer/assets/chat-react-D7W4zfNS.js`
+  与 `chat-react-DOdYNEDx.css` 两边都扫到 `.net-verge__` 四个类名（`facts`/`read-failed`/`align`/`bypass`）——
+  新 CSS 进了包、组件没被摇掉。
+- 颜色治理：新 CSS 一个 hex / `rgb()` / `hsl()` 字面量都没写，只用 `var(--rb-*)` 与 `color-mix(...)`，
+  `hardcoded-color-ratchet.test.ts` 的 `CEILING_CSS` 仍是 711、没抬天花板。
+
+**未做，记账**：
+① 真窗探针没跑——这条页往注册表里写系统代理、还要 Verge 退出才能验闸门，两件都是机器级动作，
+  按 #260 同一口径等用户点头；本轮的证据链是单测 + 有状态假接口 + 产物回读，不是屏幕读数。
+② `enable_system_proxy` 之外的 Verge 设置（`enable_auto_group` 等）没进白名单，仍是「只换这几行」的七键；
+③ TUN 的三档里「跟随内核」写的是 `null`（键在、值为 null），这与「删掉那把键」在 verge.yaml 里不是同一件事，
+  页面按 Verge 的语义选了前者。
