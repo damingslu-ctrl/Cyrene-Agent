@@ -151,6 +151,8 @@ import { attachPetContextMenu } from "../verge/pet-menu";
 import { discoverConfigRoot } from "../verge/controller-config";
 import { createNetworkService } from "../verge/network-service";
 import { registerNetworkIpc } from "../verge/network-ipc";
+import { createProfileAssembly } from "../verge/profile-bootstrap";
+import { registerProfileIpc } from "../verge/profile-ipc";
 import { attachQuietClock, quietChangedPayload } from "../verge/quiet-clock-wiring";
 import { armQuiet, isQuietNow } from "../verge/quiet-clock";
 import { TUCK_IDLE_SECS, TUCK_PROBE_IDLE_SECS } from "../verge/tuck-clock";
@@ -535,17 +537,25 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         const verge = createVergeService(app.getPath("userData"));
 
         // v1.4.0 网络页：本机 mihomo 控制器聚合。轮询在 core 阶段起，退出时停。
-        const network = createNetworkService({
-          getConfigRoot: () => discoverConfigRoot({
-            appData: process.env.APPDATA,
-            localAppData: process.env.LOCALAPPDATA,
-          }),
+        // Verge 的数据目录两边共用一份查法：网络页与订阅页查的是同一个地方，
+        // 两处各写各的，迟早变成一边找得到、一边找不到。
+        const vergeConfigRoot = () => discoverConfigRoot({
+          appData: process.env.APPDATA,
+          localAppData: process.env.LOCALAPPDATA,
         });
+        const network = createNetworkService({ getConfigRoot: vergeConfigRoot });
         network.start();
         shutdown.register({
           id: "verge-network-service",
           phase: "stopLocalResources",
           dispose: async () => { network.stop(); },
+        });
+
+        // v1.24 订阅页（Wave 2）：profiles.yaml 账本 + runtime 注入 + 单写者闸门。
+        // 目录每次都现查（Verge 可能在用户手上搬家），所以这里给的是闭包而不是路径。
+        const profiles = createProfileAssembly({
+          getConfigRoot: vergeConfigRoot,
+          userData: app.getPath("userData"),
         });
 
         // 宠物窗右键菜单（Task 11）：菜单动作写盘走 service，窗口动作就地取 win。
@@ -642,6 +652,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           music,
           verge,
           network,
+          profiles,
         };
       },
 
@@ -863,6 +874,26 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           },
         });
 
+        // v1.24 订阅页（Wave 2）：八条入站 + 一条广播。写面全部经过单写者闸门与原子落盘，
+        // 判据在 profile-service/profile-store-port 那两层；这里只管接线与「谁有权弹窗」。
+        // pickFile 只能在 main：渲染端没有文件系统权限，路径必须由原生对话框给出后再交给导入。
+        const removeProfileIpc = registerProfileIpc(ipc, {
+          service: services.profiles,
+          broadcast: (channel, payload) => {
+            for (const win of BrowserWindow.getAllWindows()) {
+              if (!win.isDestroyed()) win.webContents.send(channel, payload);
+            }
+          },
+          pickFile: async () => {
+            const picked = await dialog.showOpenDialog({
+              title: "导入订阅文件",
+              properties: ["openFile"],
+              filters: [{ name: "订阅配置", extensions: ["yaml", "yml", "json", "txt"] }],
+            });
+            return picked.canceled ? null : picked.filePaths[0] ?? null;
+          },
+        });
+
         // 漫游/投掷停稳后的一次性落盘：渲染端只在停稳时发，不逐帧写盘。
         ipc.on(IPC.VERGE_PET_POSITION_SETTLED, (_event, position: unknown) => {
           if (typeof position !== "object" || position === null) return;
@@ -874,6 +905,12 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           id: "verge-network-ipc",
           phase: "flushPersistence",
           dispose: async () => { removeNetworkIpc(); },
+        });
+        // 订阅写面每笔都是就地原子落盘，退出没有待刷的账；这里只收通道。
+        shutdown.register({
+          id: "verge-profile-ipc",
+          phase: "flushPersistence",
+          dispose: async () => { removeProfileIpc(); },
         });
 
         // 本机版本信息：设置页与 --brand-probe 共用。原来这里是 app-update:* 五条通道。

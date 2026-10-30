@@ -32,4 +32,13 @@ export const IPC_SENDER_POLICY: Readonly<Record<string, readonly WindowKind[]>> 
   [IPC.VERGE_NETWORK_LOGS_STOP]: ["chat"],
   [IPC.VERGE_NETWORK_LOGS_GET]: ["chat"],
   [IPC.VERGE_GET_APP_INFO]: ["chat"],
+  // —— v1.24 订阅页：八条入站全部只认主窗（宠物窗没有订阅 UI，也不该能删订阅）——
+  [IPC.VERGE_SUB_LIST]: ["chat"],
+  [IPC.VERGE_SUB_IMPORT_URL]: ["chat"],
+  [IPC.VERGE_SUB_PICK_FILE]: ["chat"],
+  [IPC.VERGE_SUB_IMPORT_FILE]: ["chat"],
+  [IPC.VERGE_SUB_UPDATE]: ["chat"],
+  [IPC.VERGE_SUB_SELECT]: ["chat"],
+  [IPC.VERGE_SUB_REMOVE]: ["chat"],
+  [IPC.VERGE_SUB_SET_OPTION]: ["chat"],
 };

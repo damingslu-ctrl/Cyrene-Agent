@@ -651,5 +651,22 @@ export const IPC = {
    * 面板要加开关时再补入站通道，「无调用方不进表」同样管着通道表。
    */
   VERGE_SFX_CHANGED: "verge:sfx-changed",
+  // —— v1.24 订阅页（Wave 2）——
+  /**
+   * 前缀刻意用 `sub` 不用 `profile`：`verge:profile:get` 已经被宠物窗的形态/档位占了，
+   * 同名会让 sender 闸门把订阅请求当宠物窗放行（那张表按通道分类，不按调用方）。
+   */
+  VERGE_SUB_LIST: "verge:sub:list",
+  VERGE_SUB_IMPORT_URL: "verge:sub:import-url",
+  /** 本地导入的路径由主进程弹原生对话框给——渲染端没有文件系统权限，也不该有。 */
+  VERGE_SUB_PICK_FILE: "verge:sub:pick-file",
+  VERGE_SUB_IMPORT_FILE: "verge:sub:import-file",
+  VERGE_SUB_UPDATE: "verge:sub:update",
+  VERGE_SUB_SELECT: "verge:sub:select",
+  VERGE_SUB_REMOVE: "verge:sub:remove",
+  /** 只接受 `with_proxy` / `update_interval`（白名单在 main 侧，见 subscription-types）。 */
+  VERGE_SUB_SET_OPTION: "verge:sub:set-option",
+  /** main → 所有窗口：任一次写成功后的新列表（Verge 在跑时不会有任何一条出来）。 */
+  VERGE_SUB_CHANGED: "verge:sub:changed",
 
 } as const;

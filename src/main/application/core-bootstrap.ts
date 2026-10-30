@@ -27,6 +27,7 @@ import type { ScreenshotService } from "../screenshot/screenshot-lifecycle";
 import type { MusicBootstrap } from "../music/bootstrap";
 import type { VergeService } from "../verge/verge-service";
 import type { NetworkService } from "../verge/network-service";
+import type { ProfileService } from "../verge/profile-service";
 import type { LlmClient } from "../services/llm/llm-client";
 import type { CitaService } from "../cita";
 import type { SocialContextService } from "../services/social-context/social-context-service";
@@ -54,6 +55,7 @@ export interface CoreServices {
   music: MusicBootstrap;
   verge: VergeService;
   network: NetworkService;
+  profiles: ProfileService;
 }
 
 export interface CoreResult {

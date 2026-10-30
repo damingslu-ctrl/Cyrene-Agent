@@ -46,6 +46,7 @@ import type {
   ProviderInfo,
   RuleEntry,
 } from "../shared/network-detail-types";
+import type { ProfileResult, ProfileRow } from "../shared/subscription-types";
 import type { PetCommand } from "../shared/pet-commands";
 
 // 渲染目标标识：preload 每次加载（即每次页面初始化/重新加载）生成一次，
@@ -1186,6 +1187,34 @@ const vergeApi = {
       const listener = (_e: unknown, update: NetworkUpdate) => callback(update);
       ipcRenderer.on(IPC.VERGE_NETWORK_UPDATE, listener);
       return () => ipcRenderer.off(IPC.VERGE_NETWORK_UPDATE, listener);
+    },
+  },
+  /**
+   * 订阅页（Wave 2）。八条通道一一对应 main 侧 `profile-ipc.ts`，返回形状统一是
+   * `ProfileResult`（含 `rows`）——写失败也带得上旧列表，页面不会因一次报错变空白。
+   */
+  subscriptions: {
+    list: () => ipcRenderer.invoke(IPC.VERGE_SUB_LIST) as Promise<ProfileResult>,
+    importUrl: (url: string, desc?: string) =>
+      ipcRenderer.invoke(IPC.VERGE_SUB_IMPORT_URL, url, desc) as Promise<ProfileResult>,
+    /** 让主进程弹原生对话框；取消与对话框不可用都是 `{ path: null }`。 */
+    pickFile: () => ipcRenderer.invoke(IPC.VERGE_SUB_PICK_FILE) as Promise<{ path: string | null }>,
+    importFile: (path: string, desc?: string) =>
+      ipcRenderer.invoke(IPC.VERGE_SUB_IMPORT_FILE, path, desc) as Promise<ProfileResult>,
+    update: (uid: string) =>
+      ipcRenderer.invoke(IPC.VERGE_SUB_UPDATE, uid) as Promise<ProfileResult>,
+    select: (uid: string) =>
+      ipcRenderer.invoke(IPC.VERGE_SUB_SELECT, uid) as Promise<ProfileResult>,
+    remove: (uid: string) =>
+      ipcRenderer.invoke(IPC.VERGE_SUB_REMOVE, uid) as Promise<ProfileResult>,
+    /** 只有 `with_proxy` / `update_interval` 会被 main 放行，其余键在通道层就拒。 */
+    setOption: (uid: string, patch: Record<string, unknown>) =>
+      ipcRenderer.invoke(IPC.VERGE_SUB_SET_OPTION, uid, patch) as Promise<ProfileResult>,
+    /** main → 渲染端：任一次写成功后的新列表。 */
+    onChanged: (callback: (rows: ProfileRow[]) => void) => {
+      const listener = (_e: unknown, rows: ProfileRow[]) => callback(rows);
+      ipcRenderer.on(IPC.VERGE_SUB_CHANGED, listener);
+      return () => ipcRenderer.off(IPC.VERGE_SUB_CHANGED, listener);
     },
   },
   /** main → 宠物窗：右键菜单选的互动动作。 */

@@ -104,6 +104,18 @@ declare global {
         onLog(callback: (entry: import("../../shared/network-detail-types").LogEntry) => void): () => void;
         onUpdate(callback: (update: import("../../shared/network-types").NetworkUpdate) => void): () => void;
       };
+      /** 订阅页（Wave 2）：写操作统一回 ProfileResult，失败也带得上旧列表。 */
+      subscriptions: {
+        list(): Promise<import("../../shared/subscription-types").ProfileResult>;
+        importUrl(url: string, desc?: string): Promise<import("../../shared/subscription-types").ProfileResult>;
+        pickFile(): Promise<{ path: string | null }>;
+        importFile(path: string, desc?: string): Promise<import("../../shared/subscription-types").ProfileResult>;
+        update(uid: string): Promise<import("../../shared/subscription-types").ProfileResult>;
+        select(uid: string): Promise<import("../../shared/subscription-types").ProfileResult>;
+        remove(uid: string): Promise<import("../../shared/subscription-types").ProfileResult>;
+        setOption(uid: string, patch: Record<string, unknown>): Promise<import("../../shared/subscription-types").ProfileResult>;
+        onChanged(callback: (rows: import("../../shared/subscription-types").ProfileRow[]) => void): () => void;
+      };
       /** main → 宠物窗：右键菜单选的互动动作。 */
       onPetCommand(callback: (command: import("../../shared/pet-commands").PetCommand) => void): () => void;
       /** 渲染端 → main：漫游/投掷落定后记一次位置。 */
