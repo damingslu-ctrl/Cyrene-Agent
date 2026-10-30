@@ -76,6 +76,11 @@ describe("动作图集：一式一条动画", () => {
     expect(GIRL_ACTION_FACE.clap[0]).not.toEqual(GIRL_ACTION_FACE.coverFace[0]);
   });
 
+  it("行号就是图集上的物理行：16 行必须逐格排在 0..15，新一批不许把已有那些行挤走", () => {
+    // 重排一次行号，已有动作会画成别人的那一张，而逐 id 的墨框与尺照样自洽——只有这条绝对序抓得住。
+    expect(IDS.map((id) => GIRL_ACTION_ROWS[id].row)).toEqual(IDS.map((_, i) => i));
+  });
+
   it("运行时图集真在盘上且是 WebP（行数×列数就是画得出来的格子数）", () => {
     expect(GIRL_ACTIONS.src).toBe("./pet/girl-actions.webp");
     expect(GIRL_ACTIONS.rows).toBe(IDS.length);
