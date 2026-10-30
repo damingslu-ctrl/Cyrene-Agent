@@ -57,12 +57,19 @@ ACTIONS = [
     ("shake", "shake-sheet.png", 9, True),
     ("clap", "clap-sheet.png", 10, True),
     ("coverFace", "coverFace-sheet.png", 8, True),
+    # v1.25：五件「被对待」的事各补一行。追加在尾部，前 11 行的行号与打包不受扰动。
+    ("pet", "pet-sheet.png", 8, True),
+    ("groom", "groom-sheet.png", 7, True),
+    ("shiver", "shiver-sheet.png", 12, True),
+    ("turnAway", "turnAway-sheet.png", 6, False),
+    ("sip", "sip-sheet.png", 8, True),
 ]
 
 # 站桩手势行按「鞋底」对地线。AI 出帧表会按每帧自己的剪影居中，低头帧整只被抬高
 # （nod 的 f1/f2 鞋底比 f0 高 50px、coverFace 的 f4 低 36px）；按墨底对齐会变成
 # 「点头时猫往上飘」。跑/跳/扑这些真腾空的行不能这么对齐，所以按行显式点开。
-SHOE_GROUND = {"nod", "shake", "clap", "coverFace"}
+SHOE_GROUND = {"nod", "shake", "clap", "coverFace",
+               "pet", "groom", "shiver", "turnAway", "sip"}
 
 # 每套动作的眼圈距（原始格像素）。自动检测只用来定「帧内脸心」：肉垫/耳朵/蝴蝶结
 # 也是粉的，全自动会对错对子；这里取人工复核过的可信帧中位数（.tmp/art-view/eye-contact.png
@@ -81,6 +88,15 @@ EYE_SPACING_ACTION = {
     "coverFace": 70.0,  # 整行爪子都贴脸，检测到的 53.7–60.5 是肉垫对（f3 90.5 是眼+肉垫）。
                         # 没有可信的眼圈距样本，改按同批同尺：墨高 395–428 与 clap 的 407–419 齐平，
                         # clap 可信尺 70.0 直接借用；白脸团宽 106–139 也被爪子撑宽，不能当尺。
+    "pet": 67.0,   # 68.1 / 67.3 / 69.2 / 66.6 / 66.4 / 67.1（六帧全在眼线上：f0/f4/f5 睁眼压在虹膜上，
+                   # f1–f3 闭眼落在眼窝的粉影上，间距与睁眼帧同带，六帧吻合）
+    "groom": 73.5, # 73.7 / 76.5 / 67.6 / 64.7（f0 89.0 是两只耳朵的粉内侧、f4 101.1 是腮红对，弃）
+    "shiver": 61.5, # 59.8 / 61.5 / 65.0（f1 57.0、f2 62.6 落在蝴蝶结两瓣上——它也是左右同高的粉块；
+                    # f0 70.4 是眯眼的眼窝影，偏大，弃）
+    "turnAway": 69.0, # 70.7 / 67.5 / 67.7 / 76.6（f2 46.8、f4 44.2 是侧脸帧：只有一只眼，
+                      # 另一颗点抓到耳根碎粉，弃）
+    "sip": 70.0,   # 69.3 / 73.2（f0 44.0 两点全落在右眼一侧、f2 57.7 是额前碎高光、
+                   # f3 126.0 是耳内侧对、f4 18.7 是耳根一对，整行只有两帧可信）
 }
 
 
