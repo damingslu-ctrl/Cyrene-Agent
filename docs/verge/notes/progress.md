@@ -2056,4 +2056,72 @@ T14 那一趟要补的是「点了、装上了、下次起内核吃的是新版�
 ④ `core.log` 的打码仍只覆盖口令集合，不含订阅 URL 里的 token（继承 T10b 的 ④）。
 ⑤ 自愈只重起、不换端口（继承 T10 的 ⑤）。
 
+### Wave 4 T12a/T12b：客户端更新的数据面——三本账分开记，字节先自证才允许上正名（2026-10-31）
+
+spec D3 那句「客户端从 fork 的 Release 拉安装包」到这里才第一次落到代码。计划写的是三份文件
+（types / 发布页 / service），实际拆成四份：安装包的字节量级让「顺手复用内核那份 `downloadBytes`」
+变成不能接受的方案，于是流式落盘单独立一份。
+
+**① 词表先行，生产者随后。** `src/shared/client-update-types.ts` 一次给全三本账的形状：检查
+（`available|latest|failed`）、下载（`ready|failed`）、装机（`launched|failed`），外加一根 `phase`
+（`idle|checking|downloading|installing`，`:20`）。`phase` 不是装饰：没有它，「正在下载」与「下载好了」
+在同一份回执里长得一模一样，页面只能靠猜。`currentVersion` 明确**不落盘**（`:109`）——盘上记的本机版本
+会在装完之后立刻说谎，而 `app.getVersion()` 永远是真的；同理 `launched` 不许渲染成「升级成功」
+（`:37`），装完的客户端是不是那新版本，只有下次启动才知道。14 档 reason（`:46`）每档都在 JSDoc 里点名
+生产者；反向尺（「每一档都得在源码里以字面量出现过」，T11 那把 U24 认证的形状）等 T12c 生产者齐了再立，
+现在就立是必红。
+
+**② 判定的顺序就是成本的顺序。** `decideClientCheck`（`github-release.ts:150`）依次是来源 → 预发布/草稿
+→ tag 能不能读 → 本机版本号能不能读 → 已经最新 → 资产 → 摘要；越靠前的判错了，后面那些字节就越不该下。
+两处比 spec 严一档：**摘要缺失在「检查」这一步就拒**——spec D3 写的是「与下载文件相符；缺失即拒绝安装」，
+照字面执行意味着先花 290 MB 下行再说不装；**同号出现第二颗安装包当认不出**（`:113` `matches.length === 1`），
+与内核通道 `selectExtractedExe` 同一档戒律：认不出就拒，不替用户挑。
+
+**③ 来源按路径段比，且这一层故意不管 host。** `releaseBelongsToRepo`（`:69`）同时看 `html_url` 与 `api url`，
+按 `owner/name` 逐段比。拦的是「假发布页给自己发一枚合法摘要」——摘要在伪造的 JSON 面前自证不了任何东西，
+只有来源钉住才有意义。前缀陷阱 `Cyrene-Agent-evil` 有尺（`github-release.test.ts:97`），host 那一头交给
+`isAllowedUpdateUrl`；`:100` 那条断言写得反直觉（`https://evil.tld/damingslu-ctrl/Cyrene-Agent/releases`
+在这一层算「仓库对」），是有意的：**两层各管一段、谁都别替谁兜**，把 host 也在这儿判掉，下次改判据时两边都会
+以为对方在管，于是两头都松。
+
+**④ 半包这件事，判据的名字必须说真话。** 第一版写的是 `if (opened) f.remove(partPath)`，`opened` 的含义是
+「句柄开着」。于是两条路不删盘：close 成功之后 rename 撞上、读到一半发现超预算。前者尤其坏——盘上留的是
+一份**字节完全正确、只是没换成正名**的 `.part`，跟文件头承诺的「任何一步败了都不留半包」不是同一件事，
+而下一次启动的清扫会把它当垃圾删掉，用户那趟下行白跑。改成 `partOnDisk`（含义＝「`.part` 此刻还在盘上」，
+`installer-download.ts:280`）＋ 唯一的 `discardPart()`（`:283`）：超预算（`:334`）、摘要不符（`:351`）、
+任何异常（`:376`）三个出口走同一个执行体。这是「两本账」那条教训在字节层的第三次复现：**句柄的寿命 ≠ 文件的在场**。
+
+**⑤ 三档失败不许并成一档。** `wrong-source`（跳转出白名单，`:206`）、`write-failed`（建目录 / 开文件 / 写块 /
+换名——`DiskWrite` `:107`）、`network-failed`（连不上、没字节流、卡住）。并错的代价是用户去做相反的事：
+把只读目录当成断网、把伪造的跳转当成路由器问题。等待用**静默**超时（`:42`，90 秒没收到字节才算断），
+不是总时长——276 MiB 在慢网上本来就要走几分钟，总时长一刀切会把正常下载判成失败。还有一条顺序要求：
+catch 里**先关句柄再删文件**（`:369` 那段注释），Windows 上不关就删不掉，
+于是「不留半包」这句话在自家盘上失效。
+
+**⑥ 文件名不许从 JSON 抄。** 正名 `Mochi-Setup-<version>.exe` 由我们自己的版本号推出来，`download()` 第一行
+按 `path.basename` + 形状尺死判一次（`:49` 与 `:264`）。`assets[].name` 是别人写的，直接拼进路径就是目录穿越；
+这一层与 `github-release.ts:108` 各判一次是有意的——边界上重复的检查不叫冗余。
+
+**尺子与变异**：33 条（`github-release.test.ts` 15 + `installer-download.test.ts` 18，`.tmp/t12b.txt` 全绿）。
+六条变异（`.tmp/verify-t12-mutations.py` → `.tmp/t12-mut.txt`，按内容锚点下手、跑完立刻还原并按 sha256 对齐）：
+M1 摘掉摘要比对、M2 摘掉逐跳闸门、M3 让 `discardPart` 空转、M4 把 semver 换成字符串比较、M5 放行任何来源、
+M6 把「正好一颗」换成「取第一颗」——**六条全部红回点名的那一条**。M3 第一次跑是 `anchor count = 0`，
+不红也不绿：锚点照着想当然写的（`if (partOnDisk) return;`，盘上那句其实是 `if (!partOnDisk) return;`）。
+这条要记是因为它正是变异脚本最坏的失效形状——**静默跳过看起来像通过**；同一趟还有一个次生坑：脚本先比对
+「还原后」的 sha 再还原，于是六条全报 RESTORE DRIFT，把真信号埋在一堆假红里。
+
+**门**：`tsc -p tsconfig.main.json --noEmit` 0；`src/main/update` + `src/main/egress` + `src/shared` 定向
+**47 文件 / 603 条全绿**（`.tmp/t12-egress.txt`，16.5s）。带 `src/main/egress/` 跑是这一轮的必做项而不是顺路：
+A1「全仓不出现上游标识」要整仓扫（实测 8.4s），更新器的词汇表离 `autoUpdater` 只差一次手滑，
+A3 那把 `APP_UPDATE_CHECK` 的判据还是**不区分大小写、不带锚点**的——所以新通道名一律绕开这串字面量。
+
+**未做，记账**：
+① 两份新模块**还没被任何装配代码 import**——`ipc-contract` 那道「注册必须从 `src/main/index.ts` 可达」的门
+现在根本看不见它们。这条留给 T12c/T12d 收口时一起过；在那之前「全量门绿」不等于这条新通路存在过。
+② 反向尺两把（每档 reason 必有生产者；语言里挂的 key 与枚举一一对上）还没立，等生产者补齐再立。
+③ 没真下过一颗安装包。302 → `release-assets.githubusercontent.com` 这对 host 是从内核通道那趟实测推的，
+本机没跑过真下载；T14 要用假 GitHub 服务器把「有更新 / 无更新 / 摘要不符 / 网络失败」四档在同一趟里连起来。
+④ 上限给的是 512 MiB（`installer-download.ts:40`）而不是「当前包 289,746,294 字节 + 一点余量」：换成 zip 分发时不该把更新判死，
+但这也意味着**上限本身不是内容校验**，能拦住它的是摘要。
+
 
