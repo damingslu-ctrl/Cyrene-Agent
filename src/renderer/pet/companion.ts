@@ -214,9 +214,25 @@ export const REST_AFTER_MS = 40_000;
 export const REST_MIN_MS = 18_000;
 const REST_SPAN_MS = 12_000;
 
-/** `idle_micro` 档里真的动一下：只挑两个最轻的短手势，不打断「她在陪你」的静。 */
-export const MICRO_GESTURES = ["peek", "wink"] as const;
+/**
+ * `idle_micro` 档里真的动一下：只挑两个最轻的短手势，不打断「她在陪你」的静。
+ *
+ * 名单里**只准写手势名**（`gestureIds()` 那一族），不准写帧图集的段名或表情名。
+ * `wink` 曾经在这里躺了很久：它是 `girl-anim` 的段名、也是 `face` 的表情名，
+ * 但不是手势名——引擎排时长要查 `gestureClip`，抽到它就在 `draw()` 里抛
+ * 「未知 clip：wink」，而注入随机数的那条单测永远抽不到第二档，于是全绿。
+ */
+export const MICRO_GESTURES = ["peek", "tilt"] as const;
 export const MICRO_CHANCE = 0.35;
+
+/** 那一档抽到哪一支：0 → 第一支，0.999999 → 最后一支。抽偏一档＝名单与算式漂了。 */
+export function microGestureAt(draw: number): string {
+  const idx = Math.min(
+    MICRO_GESTURES.length - 1,
+    Math.floor(clamp(draw, 0, 0.999999) * MICRO_GESTURES.length),
+  );
+  return MICRO_GESTURES[idx];
+}
 
 export type CompanionActivity =
   | "idle" | "walk" | "groom" | "yawn" | "stretch" | "tilt"
@@ -3386,14 +3402,10 @@ export class CompanionEngine {
       this.gestureUntil = now + gestureClip(roll.gesture).ms;
       return;
     }
-    // idle_micro 不再一定「什么都不做」：偶尔抬眼看你一下、或轻轻眨个眼，
+    // idle_micro 不再一定「什么都不做」：偶尔抬眼看你一下、或轻轻歪个头，
     // 两段都短到不打断静坐，却能让待机不像一张会呼吸的贴图。
     if (roll.bucket === "idle_micro" && this.random() < MICRO_CHANCE) {
-      const idx = Math.min(
-        MICRO_GESTURES.length - 1,
-        Math.floor(clamp(this.random(), 0, 0.999999) * MICRO_GESTURES.length),
-      );
-      const micro = MICRO_GESTURES[idx];
+      const micro = microGestureAt(this.random());
       this.previousGesture = micro;
       this.ambientGesture = micro;
       this.gestureUntil = now + gestureClip(micro).ms;

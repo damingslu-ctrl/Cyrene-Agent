@@ -8,6 +8,7 @@ import {
   GIRL_LINES,
   GREETING_LINES,
   MICRO_GESTURES,
+  microGestureAt,
   NOTICE_COOLDOWN_MS,
   REST_AFTER_MS,
   ROLL_WEIGHTS,
@@ -29,6 +30,9 @@ import {
   type CompanionContext,
 } from "./companion";
 import { gestureClip, gestureIds } from "./motion";
+import { gestureClipFor } from "./girl-anim";
+import { gesturePoseFor } from "./girl-gesture";
+import { GIRL_GESTURE_ACTION } from "./girl-scene";
 import { wrapBubbleText } from "./art";
 
 const T0 = 1_700_000_000_000;
@@ -455,6 +459,23 @@ describe("pickRoll 四档加权", () => {
     for (const id of gestureIds()) expect(() => gestureClip(id)).not.toThrow();
     expect(gestureIds().length).toBeGreaterThanOrEqual(9);
   });
+
+  it("idle_micro 那几个名字也是池里的名字（写错一档就是当场抛）", () => {
+    // `wink` 曾经在这里：它是帧图集的段名、也是表情名，但不是手势名——
+    // 引擎排时长走 `gestureClip`，抽到它就在 `draw()` 里抛「未知 clip：wink」，
+    // 而注入的随机数永远抽不到那一档，所以单测全绿、真窗偶尔少一帧。
+    expect(MICRO_GESTURES.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(MICRO_GESTURES).size).toBe(MICRO_GESTURES.length);
+    const registered = new Set(gestureIds());
+    for (const id of MICRO_GESTURES) {
+      expect(registered.has(id), `${id} 不在 gestureIds() 里`).toBe(true);
+      expect(() => gestureClip(id), `${id} 排不出时长`).not.toThrow();
+      // 查得到 clip 只是能排时长；播放还有三条路（动作行 / 姿态 / 原帧段），一条都不接就是空转。
+      const playable =
+        GIRL_GESTURE_ACTION[id] !== undefined || gesturePoseFor(id) !== null || gestureClipFor(id) !== null;
+      expect(playable, `${id} 渲染端不认，抽到就是空转`).toBe(true);
+    }
+  });
 });
 
 // ===========================================================================
@@ -816,17 +837,38 @@ describe("companion 猫娘静息周期与微动作", () => {
     expect(engine.update(t, ctx).activity).toBe("rest");
   });
 
-  it("idle_micro 偶尔真的动一下：抽到 peek/wink，而不是永远站桩", () => {
+  it("idle_micro 每一档都抽得到，且抽到的那一档演得出来", () => {
+    // 逐档验下标算式：以前这一段是假的——注入的随机数落进的是 gesture 桶，
+    // 从没走进 idle_micro，所以名单里那条不存在的 `wink` 谁也没撞上。
+    for (let arm = 0; arm < MICRO_GESTURES.length; arm += 1) {
+      expect(microGestureAt((arm + 0.5) / MICRO_GESTURES.length), `${arm} 档`).toBe(MICRO_GESTURES[arm]);
+    }
+    expect(microGestureAt(0)).toBe(MICRO_GESTURES[0]);
+    expect(microGestureAt(0.999999)).toBe(MICRO_GESTURES[MICRO_GESTURES.length - 1]);
+    for (const id of MICRO_GESTURES) expect(() => gestureClip(id)).not.toThrow();
+  });
+
+  it("待机一千拍：报出来的每一条手势都查得到 clip（抛一次＝屏幕少一帧）", () => {
+    // 种子固定，所以这一条既真随机又可复现。rAF 那一圈有 try/catch，引擎抛在
+    // `draw()` 里只会被记成「宠物绘制异常」——真窗里看不出破绽，只有这条尺能抓住。
+    let seed = 20261030;
+    const rnd = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return seed / 4294967296;
+    };
     let t = T0;
-    const engine = new CompanionEngine({
-      storage: makeStorage(), now: () => t,
-      random: seq([0.5, 0.5, 0.05, 0.1, 0.0]),
-    });
+    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: rnd });
     engine.setForm("girl");
-    t += 8_000;
-    const snap = engine.update(t, ctx);
-    expect(snap.activity).toBe("idle");
-    expect(MICRO_GESTURES).toContain(snap.gesture);
+    const seen = new Set<string>();
+    for (let i = 0; i < 1000; i += 1) {
+      t += 2_000;
+      const g = engine.update(t, ctx).gesture;
+      if (g === null) continue;
+      seen.add(g);
+      expect(() => gestureClip(g), `${g} 抽到了却没注册`).not.toThrow();
+    }
+    expect(seen.size).toBeGreaterThanOrEqual(5);
+    for (const id of MICRO_GESTURES) expect(seen.has(id), `${id} 一千拍里一次都没抽到`).toBe(true);
   });
 });
 
