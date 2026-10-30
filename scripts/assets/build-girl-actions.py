@@ -403,8 +403,18 @@ def main() -> int:
             mx, my = mid
             # 尺寸用整行的 E 中位数：逐帧 E 抖 10% 会让叠在脸上的表情层跟着忽大忽小。
             fx, fy, fw, fh = face_from_eyes(e_med, (mx - e_med / 2.0, my), (mx + e_med / 2.0, my))
+            # 脸框不许探出这一格画出来的墨。头围是整行统一的一把尺（正面宽度），
+            # 扭头行的侧脸帧里白脸团只占剪影一侧，照尺铺过去就有一半悬在空气里——
+            # 爱心/徽章/点脸区都钉在这个框上，悬出去的那半边等于钉在桌面上。
+            cx = fx * s + left
+            half = fw * s / 2.0
+            if n_ink[2] - n_ink[0] >= 2 * half:
+                cx = max(n_ink[0] + half, min(n_ink[2] - half, cx))
+            else:
+                # 墨比头还窄（正背面帧）：夹不住就退回墨心，至少记号落在身上。
+                cx = (n_ink[0] + n_ink[2]) / 2.0
             faces.append([
-                int(round(fx * s + left)), int(round(fy * s + top)),
+                int(round(cx)), int(round(fy * s + top)),
                 int(round(fw * s)), int(round(fh * s)),
             ])
         meta_rows.append((action, fps, loop, inks, faces, anchor_x))
