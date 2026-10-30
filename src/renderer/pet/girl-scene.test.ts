@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GIRL_ANIM_FADE_MS, clipDurationMs, type GirlActivity } from "./girl-anim";
 import { girlActionDurationMs, girlActionRedrawFloor } from "./girl-action";
+import { GIRL_ACTION_INK, GIRL_ACTION_ROWS } from "./girl-actions-meta";
 import type { GirlLifePhase } from "./girl-idle";
 import {
   GIRL_POSE_REDRAW_FPS,
@@ -224,9 +225,47 @@ describe("v1.22 吃/拍/跳/打字各播自己那一行", () => {
     expect(GIRL_GESTURE_ACTION.shake).toBe("shake");
     expect(GIRL_GESTURE_ACTION.clap).toBe("clap");
     expect(GIRL_GESTURE_ACTION.coverFace).toBe("coverFace");
-    // 招手/鞠躬/剪刀手/歪头/洗脸/哈欠/伸懒腰已经有姿态图，手势表不许把它们顺走。
-    for (const posed of ["wave", "bow", "curtsy", "point", "tilt", "groom", "yawn", "stretch"]) {
+    // 招手/鞠躬/剪刀手/歪头/哈欠/伸懒腰还没有各自的画，手势表不许拿别的行把它们顺走。
+    // groom 从 v1.25 起除外——它有了画的就是「梳毛」这件事本身的一行，静帧 wash 退居兜底。
+    for (const posed of ["wave", "bow", "curtsy", "point", "tilt", "yawn", "stretch"]) {
       expect(GIRL_GESTURE_ACTION[posed], posed).toBeUndefined();
+    }
+  });
+});
+
+describe("v1.25 五件「被对待」的事各播自己那一行", () => {
+  it("被摸=pet 行、自己梳毛=groom 行（不再是 happy/wink 换皮）", () => {
+    for (const [activity, row] of [["pet", "pet"], ["groom", "groom"]] as const) {
+      expect(girlBaseVisualFor({
+        activity, phase: "stand", quiet: false, posesReady: true, actionsReady: true,
+      }), activity).toEqual({ kind: "action", id: row });
+    }
+  });
+
+  it("动作图缺席时退回各自原来那段舞，不空窗", () => {
+    expect(girlBaseVisualFor({
+      activity: "pet", phase: "stand", quiet: false, posesReady: true, actionsReady: false,
+    })).toEqual({ kind: "clip", id: "happy", loop: true });
+    expect(girlBaseVisualFor({
+      activity: "groom", phase: "stand", quiet: false, posesReady: true, actionsReady: false,
+    })).toEqual({ kind: "clip", id: "wink", loop: true });
+  });
+
+  it("发抖/扭头/喝一口各走自己那一行；梳毛的手势也从静帧升格成动画", () => {
+    expect(GIRL_GESTURE_ACTION.shiver).toBe("shiver");
+    expect(GIRL_GESTURE_ACTION.turnAway).toBe("turnAway");
+    expect(GIRL_GESTURE_ACTION.sip).toBe("sip");
+    expect(GIRL_GESTURE_ACTION.groom).toBe("groom");
+  });
+
+  it("五件事不许撞进行号或彼此撞车：五行五张不同的画", () => {
+    const five = ["pet", "groom", "shiver", "turnAway", "sip"] as const;
+    const rows = five.map((id) => GIRL_ACTION_ROWS[id].row);
+    expect(new Set(rows).size).toBe(5);
+    expect(new Set(five.map((id) => JSON.stringify(GIRL_ACTION_INK[id]))).size).toBe(5);
+    // 尤其不许和「同一个人做的事」撞：被摸≠捂脸、梳毛≠吃饭、喝一口≠吃饭。
+    for (const [a, b] of [["pet", "coverFace"], ["groom", "eat"], ["sip", "eat"]] as const) {
+      expect(GIRL_ACTION_INK[a], `${a}/${b}`).not.toEqual(GIRL_ACTION_INK[b]);
     }
   });
 });

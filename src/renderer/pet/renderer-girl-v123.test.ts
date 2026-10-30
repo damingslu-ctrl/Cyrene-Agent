@@ -223,12 +223,12 @@ describe("v1.23.0 点头/摇头/拍手/捂脸各播自己那一行", () => {
     expect(head.action).toBe("coverFace");
     expect(head.gestureId).toBe("coverFace");
 
-    // 点脚回的 shiver 没有专属行，仍借 wink 帧段；同样必须当场起播。
+    // 点脚回的 shiver 在 v1.25 有了自己那一行（原先借 wink 帧段）；同样必须当场起播。
     r.tapAt(cx, rect.y + rect.height * 0.85, 20, clock.ms);
     const feet = r.getGirlDiagnostics(clock.ms);
     expect(feet.gestureId).toBe("shiver");
-    expect(feet.clip).toBe("wink");
-    expect(feet.action).toBeNull();
+    expect(feet.clip).toBeNull();
+    expect(feet.action).toBe("shiver");
     r.dispose();
   });
 

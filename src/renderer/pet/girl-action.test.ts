@@ -52,6 +52,7 @@ describe("动作图集：一式一条动画", () => {
     expect(new Set(IDS.map((id) => JSON.stringify(GIRL_ACTION_FACE[id]))).size).toBe(IDS.length);
     expect(IDS).toEqual([
       "zoom", "stalk", "hunt", "eat", "bat", "hop", "type", "nod", "shake", "clap", "coverFace",
+      "pet", "groom", "shiver", "turnAway", "sip",
     ]);
     for (const id of IDS) {
       const row = GIRL_ACTION_ROWS[id];
@@ -97,6 +98,13 @@ describe("动作图集：一式一条动画", () => {
     expect(GIRL_ACTION_ROWS.shake.loop).toBe(true);
     expect(GIRL_ACTION_ROWS.clap.loop).toBe(true);
     expect(GIRL_ACTION_ROWS.coverFace.loop).toBe(true);
+    // v1.25：被摸/被梳/发抖/喝一口都是「一件正在持续的事」，循环；
+    // 扭头不理人是扭过去就完，一次性——停在背对的那一格才像闹脾气。
+    expect(GIRL_ACTION_ROWS.pet.loop).toBe(true);
+    expect(GIRL_ACTION_ROWS.groom.loop).toBe(true);
+    expect(GIRL_ACTION_ROWS.shiver.loop).toBe(true);
+    expect(GIRL_ACTION_ROWS.turnAway.loop).toBe(false);
+    expect(GIRL_ACTION_ROWS.sip.loop).toBe(true);
   });
 });
 
@@ -160,10 +168,30 @@ describe("动作播放器（时间 → 帧号）", () => {
     }
   });
 
-  it("站桩四行按鞋底对地线：每一格的墨底都在地线附近，飞跳行才许离地", () => {
+  it("v1.25 五行各按自己的节拍：摸头 8 / 梳毛 7 / 发抖 12 / 扭头 6 / 喝一口 8", () => {
+    expect(girlActionDurationMs("pet")).toBeCloseTo(6_000 / 8, 6);
+    expect(girlActionDurationMs("groom")).toBeCloseTo(6_000 / 7, 6);
+    expect(girlActionDurationMs("shiver")).toBeCloseTo(6_000 / 12, 6);
+    expect(girlActionDurationMs("turnAway")).toBeCloseTo(6_000 / 6, 6);
+    expect(girlActionDurationMs("sip")).toBeCloseTo(6_000 / 8, 6);
+    // 发抖要抖得急：12fps 一格 83ms，160ms 就该跳到第二格；慢行的 250ms 才换格。
+    expect(girlActionFrameAt("shiver", 160).index).toBe(1);
+    expect(girlActionFrameAt("turnAway", 160).index).toBe(0);
+    // 扭头是一次性：1000ms 扭过去就停在背对那格并报 done，不许自己扭回来。
+    expect(girlActionFrameAt("turnAway", 0).index).toBe(0);
+    expect(girlActionFrameAt("turnAway", girlActionDurationMs("turnAway") + 1))
+      .toEqual({ index: 5, done: true });
+    // 被摸、被梳、发抖、喝一口是循环：走满一圈回第 0 帧、永不报 done。
+    for (const id of ["pet", "groom", "shiver", "sip"] as const) {
+      expect(girlActionFrameAt(id, girlActionDurationMs(id) + 1).index, id).toBe(0);
+      expect(girlActionFrameAt(id, 60_000).done, id).toBe(false);
+    }
+  });
+
+  it("站桩九行按鞋底对地线：每一格的墨底都在地线附近，飞跳行才许离地", () => {
     // SHOE_GROUND 的整件事就是「脚不动、身体动」。换个对齐口径，点头会整只抬高 50px，
     // 墨底也跟着飘；墨底一旦跑出这条窄带就说明有人退回按墨底对齐了。
-    for (const id of ["nod", "shake", "clap", "coverFace"] as const) {
+    for (const id of ["nod", "shake", "clap", "coverFace", "pet", "groom", "shiver", "turnAway", "sip"] as const) {
       const bottoms = GIRL_ACTION_INK[id].map((k) => k[3]);
       expect(Math.min(...bottoms), `${id} 最低一格`).toBeGreaterThanOrEqual(366);
       expect(Math.max(...bottoms) - Math.min(...bottoms), `${id} 墨底跨度`).toBeLessThanOrEqual(4);
@@ -254,7 +282,10 @@ describe("动作的脸框与墨框", () => {
     }
   });
 
-  it("十一行共用一个头围：脸宽 91vb 的尺差不到 2%（眼距定尺的全部意义）", () => {
+  it("十六行共用一个头围：脸宽 91vb 的尺差不到 2%（眼距定尺的全部意义）", () => {
+    // 这条锁的是元数据里 face.w 与 inkRefPx 的**比值**：两个数都由眼圈距派生，
+    // 正常重跑必然同比例动、比值钉死在 100×91/229；只有手改本文件才会破。
+    // （真要在屏幕上验头围，看的是上面那条「每格全在墨框里」——它比的是画出来的墨。）
     const widths = IDS.map((id) => {
       const face = girlActionFaceBox(girlActionBodyFor(mk(), id), id, 0);
       return face.w / S;
