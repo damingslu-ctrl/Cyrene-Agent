@@ -1830,3 +1830,138 @@ vitest 的 CJK 输出在 GBK 控制台上会抛解码噪声，所以判据只取
 **这一趟不能给什么**：没跑真窗探针——证据是单测层的（一千拍覆盖的是引擎报出来的名字，不是屏幕上的帧）。
 「异常被 try/catch 咽掉所以看不见」这一条只护住 rAF 那一圈：`this.draw(` 在 `renderer.ts` 里出现 99 行，
 其余直接调用点逐条有没有被护住，本轮没盘，留给下一刀（要盘的是「引擎抛在绘制路径上时屏幕上还有什么」）。
+
+### Wave 3 T10b：内核宿主装配层 + 四条通道 + 「内核」卡片——接线上四条线都能「接错而两边全绿」（2026-10-30）
+
+T10 文末「未做，记账」的 ①② 在这一刀合上：真 `spawn`、真占用表、`core.log` 的 writer、runtime 配置的 writer
+都接到真盘上了；`verge:core:status|start|stop|restart` 四通道从装配层走到 preload、走到设置页那张卡。
+落地的是 6 个主进程模块 + 6 份尺（`core-bootstrap` 24 / `core-ipc` 21 / `core-secret` 15 / `core-log` 13 /
+`core-runtime` 11 / `core-ports` 9 ＝ **93 条**）、渲染端一份纯判定 `core-view.ts`（46 条）＋ 一张卡（组件锁 8 条）
+＋ 端到端接线锁（5 条）。**判据一条都没有重写**：`core-manager` / `core-source` 那 45 条原地不动，
+这一层只证接线——而接线上有四条线，接错了在上面那两层看不出来。
+
+**① 口令跟着数据面走，不跟着我们高兴**（`resolveSecret` `core-bootstrap.ts:192-207`）。整条数据面（网络页、
+订阅页）的地址与口令都来自 Verge 那本 `clash-verge.yaml`；本机实测那本账上写的是 `secret: set-your-secret`
+——15 个字符、既不是十六进制也不是随机串，是 Verge 的出厂占位值。我们若嫌它「不成形状」而自己生成一枚，
+起来的这颗内核就会把数据面挡在 401 外面：进程在跑、端口在听、页面一句错误都没有，只是全瞎。所以**账上那枚原样用**，
+读不到（没有那本账、或那把键是空的）才用 `<userData>/core/secret` 里我们那枚。口令没落住只影响
+「下次重启会不会换一枚」，所以 `secretStore.warning()` 只进日志不拦住这一次起（`:203`）。来源这一档**跟着回执走**
+（`CoreView.secretSource`）：页面上「读的是 Verge 账上那把」与「我自己生成的一把」是两句话，
+出故障时这是唯一能分清「谁的口令不对」的线索。
+
+**② 端口也一样跟着那本账走**（`preferredPorts` `core-bootstrap.ts:258-267`，地址里的端口号靠新加的纯函数
+`controllerPortOf` `core-source.ts:62-72`）。声明 9097/7896 就是首选档；撞上才退到扫描段，真实端口经
+`controllerOverride()`（`:291-300`）交给数据面——否则「起了内核」与「页面看得见内核」是两件事，用户只看到前者成功。
+解析不出端口回 `null` 而不是猜一个（调用方拿默认档顶上）。
+
+**③ 覆写只在我们自己那颗活着时生效**（`ownPorts` `core-bootstrap.ts:282-286`）。判据是管理器内存里那份当下状态
+（`running` 且 mode 算我们自己的），**不是盘上的状态文件**：文件会留在原地骗人（进程早没了、或 Verge 自己又把内核
+起回了 9097），内存里那份账不会。消费这条的是正好会被骗瘸的两条路——`network-service.ts:174`（刷新前先问有没有覆写，
+有就信它、不读那本账）与 `profile-bootstrap.ts:58`（订阅切换时注入给正文的控制面地址也得跟着换，不然切出两份各说各话的
+配置：注入用一个没人听的控制面，`reloadConfig` 又去敲 Verge 那颗的门＝替用户重载了他的配置）。装配点
+`default-dependencies.ts:561-562,587`。这条与 spec D2 的字面口径有一处偏离，记在这里：**「这颗是不是我们的」用内存态判，
+不用状态文件判**——理由同上，盘上那份会骗人。
+
+**④ 「这颗是不是我们起的」全仓只一把尺**（`isOwnCoreMode` `core-types.ts:20`）。这一条是本轮收尾时自己撞出来的：
+装配层那份写的是白名单（`installed || bundled`），渲染端 `isOwnCore` 写的是黑名单（`!== external`），
+而 `core-bootstrap.ts` 那句注释还声称「装配层与页面共用」——渲染端根本 import 不动 main。三档 mode 时两边答案一样，
+**加第四档的那天就会漂**，而最坏的漂法是页面把「停止」递给别人的进程。并进 shared 后四个调用点跟着改过去
+（`core-manager.ts:177` 自愈、`:339` 停止、`core-bootstrap.ts:284` 覆写、`core-view.ts:52` 卡片闸门），
+`core-bootstrap.test.ts:367` 那条锁同时改成**从 `CORE_MODES` 反着数**（own 集合必须等于 `["installed","bundled"]`、
+non-own 必须只剩 `["external"]`），于是新档位漏分类会当场红而不是静默生效。变异 M-shared（把 shared 那把尺放宽成
+`mode !== null`）红 **8 条**、跨两侧：装配层枚举锁 1、`core-view` 6、卡片组件锁 1（「借用 Verge 那颗…」），
+跑完 sha256 逐字节还原（`.tmp/mutate-shared-own.py` → `.tmp/mutate-shared-own.txt`）。
+**诚实记一条**：`core-manager.test.ts` 那一趟没红——external 态下 `!child` 先挡住了 `stopCore`，
+那两处改动是 defense-in-depth，不是新增覆盖路径。
+
+**端口表选了 `netstat -ano`，没选「逐个 bind 试探」**（T10 记的要选的那条，`core-ports.ts:4-6`）：试探是异步的，
+而 `usedPorts()` 必须在 spawn 前同步一次问完；更要命的是它会真的占住那个端口几十毫秒，这期间内核自己来绑就会撞。
+解析只认 `TCP` + `LISTENING`（`:30-31`，UDP 那堆 5353/NetBIOS 与内核不冲突），地址取**最后一个**冒号后的数字
+（`portOfAddress` `:44-51`，IPv6 自己带冒号还被方括号包住），`0.0.0.0:0` 那种「任意端口」不算占用。**探测不了回空表，不是回全表**
+（`:8-12`）：两边都会错但代价不对称——空表最坏是一次起不来，页面看得见 `not-ready`、`core.log` 里留着内核自己那句
+`address already in use`；把全表当成被占会退到 17890 那一串去起，而数据面还在 9097 原地找内核，
+那一档「起来了但什么都看不见」，连错误都没有。`NETSTAT_TIMEOUT_MS = 5000`（`:17`）：它偶尔被 WMI 拖住，拖久了不如当作探测不了。
+
+**敲门那一句：401 也算「有人在家」**（`createControllerProbe` `core-bootstrap.ts:64-82`，`CONTROLLER_PROBE_TIMEOUT_MS = 1500` `:46`）。
+把 401 判成「没人」，`external` 态就永远立不起来，我们会在同一台机器上再 spawn 第二颗去抢同一个端口——
+所以**任何 HTTP 应答都算在听**，只有网络错误与超时算没人。
+
+**进程那两只手**：`toCoreChild`（`:90-115`）拿不到 `pid` 就当场 `kill` + 抛错（一颗既停不掉也报不出来的进程进账，
+等于留下一颗没人管的内核占端口），并把 `child.on("error")` 接进 `note()`——ENOENT 在 Node 里是**异步**事件，
+不会让 `spawn()` 当场抛；不接住它，`core.log` 里只剩「控制器不应答」那句废话，真正那句「找不到文件」永远看不见。
+`defaultSpawnCore`（`:326-338`）钉 `windowsHide: true`（`:335`）——内核是控制台程序，不盖这一层每次起都会在用户桌面闪出黑窗口。
+
+**`core.log` 的两条**（`core-log.ts` 93 行 + 13 条锁）：每行一个 ISO 前缀、内核 stdout/stderr 压平成一条；
+写之前对**已知口令集合**（`knownSecrets` `core-bootstrap.ts:163`，Verge 账上读回来的那枚与我们自己那枚都在里面）逐条打码。
+**边界记清楚**：打码只覆盖口令。订阅 URL 里那种 token 若被内核自己打进 stdout，会原样落进 `core.log`——本轮没为它加白名单。
+
+**四条通道薄到几乎没有判断**（`core-ipc.ts` 46 行 + 21 条锁）：四回同一份 `CoreView`；不吞异常也不演成成功
+（装配层真抛了就让它出去，折成 `state: "stopped"` 等于告诉用户「没起起来，一切正常」）。唯一一句判断在 `:27`——
+`reason === "self-heal-exhausted"` 时先 `resetHealBudget()` 再 `start()`。这轮写卡片文案前先把它验实了：
+卡片上那句「点『起内核』开始新一轮」如果不是这条，就是假话（预算烧光的账会跨班次继承）。退出收口 `:41-44` 摘掉那四条，
+通道归主窗独占（`IPC_SENDER_POLICY` 的 `["chat"]`，宠物窗没有理由能替全机起内核）。
+
+**「内核」卡片（`CoreSection.tsx` 192 行 + `core-view.ts` 174 行）**：这张卡最贵的错不是画歪，是**说假话**，
+所以判定全在纯模块里、JSX 只负责画。八条组件锁钉的就是这八句假话不许出现——
+桥不在不许画成在跑（`:1210`）；起被闸门挡下时绿字不许亮、红字要端出原因（`:1220`）；自己起的那颗端口/PID/口令来处/
+自愈次数全按账上画（`:1240`）；**借用 Verge 那颗时绿点敢亮，但端口／PID／已运行一个都不许凭空造，三颗按钮全灰**（`:1259`）；
+`starting` 不许画成运行中、可这一档的「停止」就得能按（`:1278`）；按下停止而账上还在跑不许报成停成功了（`:1288`）；
+一次点击还在路上时三颗一起按住（`:1297`）；每 10 秒重读一次账，内核在页面看不见的时候崩了又自愈也不用重开页面（`:1314`）。
+两条读数是「编不出来的就别画」：`external` 的 `startedAt` 是**我们发现它**的时刻而不是它起来的时刻，
+画成「已运行 34 秒」是凭空造数（`core-view.ts:109-114` 的 `isOwnCore` 闸门）；`ports === null` 时不许写 0。
+「已运行」那一行量的是 `now - startedAt`，跟着真实时钟永远对不上，所以锁里用 `vi.useFakeTimers()` +
+`vi.setSystemTime(CORE_NOW)` 把表针钉死（`NetworkViews.test.tsx:1164`），`1m 30s` 是算出来的不是碰出来的。
+
+**端到端接线锁 5 条**（`core-ipc.test.ts:275`，按源码扫，不按 import 扫）：2026-10-24 那次的事故形状是
+「模块写好了、单测全绿、真机上是死的」，所以这里钉的不是函数存在，而是那四条通道从装配层一路走到卡片的那只手——
+装配层真的注册也在退出时摘掉、preload 四条各自 `invoke` 对应常量**且一个参数都不递**（反向断言 `not.toMatch`）、
+桥接类型收下四条且回同一份 `CoreView`、设置页把桥递进卡片而卡片调用时不带参数、四条都只归主窗。
+**这条锁有牙**：M5（卡片调用时多递一个参数）与 M6（sender 政策多给 `pet` 一档）都是被它抓红的。
+
+**页签外壳那条从 3 张卡改成 4 张**（`NetworkViews.test.tsx` 里那条既有的锁）：内核卡进设置页是**顺序契约**的一部分
+（`NetworkPanel.tsx:299`，内核宿主排最前，下面几张卡读的都是它的控制面），所以改的是锁的期望值而不是产品；
+顺带把裸渲染（桥全不在）那档补成两句都在——「设置接口不可用」与「内核接口不可用」。
+
+**i18n 两把独立的尺**（`core-view.test.ts:246` 与 `:258`）：前者从 `CORE_STATES`/`CORE_MODES`/`CORE_REASONS`/
+`CORE_SECRET_SOURCES` 四把枚举派生 key，后者**按源码扫** `CoreSection.tsx` 与 `core-view.ts` 里写死的每一把
+`network.core.*`，并先断言扫到的数量 `> 10`（`:266`，「一把 key 都没扫到＝尺子本身坏了」）。
+只留前者会放过「新写了一句人话、枚举里没有它」；三份语言各 +64 行，`zh-CN` 是基准。
+
+**门禁红抓到的真洞：`CoreServices` 少了 `core` 这一格**（`application/core-bootstrap.ts`）。`default-dependencies.ts`
+早就把装配出来的那颗放进 services 对象、并在 `:956` 递给 `registerCoreHostIpc`，但 `CoreServices` 这个接口从来没声明它——
+`services.core` 是 `TS2339`。三道 tsc 里 main 那趟 EXIT=2 才把它挖出来（**单测不吃类型检查**，所以 93 条装配锁全绿的同时
+真装配是断的）。补的是 `core: CoreAssembly`（注释写明为什么必须是装配出来的那一颗而不是每次现造：进程与端口是这一班的状态，
+现造会把「我们已经起了那颗」丢掉）。
+
+**尺子与变异**：定向三趟——装配六份尺 + 渲染两份尺 **198/198**（3.12s，`.tmp/t10b-targeted.txt`）；
+统一 predicate 后重跑受影响的六份 **198/198**（`.tmp/t10b-unify.txt`）；数据面那三份 **59/59**（`.tmp/t10b-dataplane.txt`）。
+变异八条（`.tmp/mutate-t10b.py` → `.tmp/mutate-t10b-report.txt`，M-shared 单列）：M1 `isOwnCore` 恒真（红 **7** 条）、
+M2 `coreOnline` 放过 `starting`（红 **2**）、M3 「已运行」不看 own（红 **2**）、M4 停止的回执恒成功（红 **2**）、
+M5 卡片调用递参数（红 **1**）、M6 sender 政策给 `pet` 加档（红 **1**）、
+M7 把装配层那句 `registerCoreHostIpc(ipc, services.core)` 摘掉（红 **1**——这一条专门对着 2026-10-24 那种
+「模块写好了、单测全绿、真机上是死的」的形状）、M-shared 把 shared 的 `isOwnCoreMode` 放宽成「只要不是 null 就算我们的」
+（红 **8**：main 侧那条漂移锁 + 渲染侧 7 条，证明两处尺确实钉在同一处定义上）。
+**八条全部红回来，`SURVIVED=0`，且每条跑完 sha256 校验逐字节还原**（`restored=True`，M1–M7 七个文件、M-shared 一个）。
+驱动换成按**内容**下手而不是按行号：上一版 `.tmp/mutate2.sh` 把行号写死，predicate 统一之后 `core-view.ts` 整体位移，
+按行号下手的脚本会把「改了无关那一行」报成红、把「没改到目标」报成活——两头都是假信号，所以七条重跑过一遍才算数。
+GBK 控制台会把 vitest 的 CJK 输出打成解码噪声，所以判据取进程 rc ＋ 把清洗后的原文另存（`.tmp/mut-shared-clean.txt`）——
+这一轮就是这么发现「`caught=0` 是判据坏了，不是变异活了」：那趟实际红了 8 条，是我的 `^ *× ` 匹配器对不上
+vitest 非 verbose 报告器，改从 `FAIL <file> > <describe> > <test>` 行取名才捞回来说得清是哪 8 条。
+
+**门**（全部 exit 0）：三道 `tsc --noEmit`（main / preload / renderer）各 0（`.tmp/t10b-tsc-*.txt` 三份都是 0 字节）；
+`node scripts/build/desktop-typescript.mjs main|preload` 各 0；`vite build` 9.99s（`.tmp/t10b-vite.txt`）；
+全量 `CI=true node node_modules/vitest/vitest.mjs run` 两趟同数——**780 文件 / 8348 passed | 2 skipped（8350）**、
+207.16s / 246.54s（`.tmp/full.txt`、`.tmp/full2.txt`，两趟之间只动了那把 predicate）。
+对 T10 收口时的 773 / 8191|2：**+7 文件**＝装配那 6 份尺 + `core-view.test.ts`；**+157 条**＝新文件 139 条
+（93 + 46）＋ 既有四份尺补的 18 条（`core-manager` +3、`network-service` +3、`profile-bootstrap` +4、`NetworkViews` +8）。
+
+**未做，记账**：
+① `blocked + no-binary` 那一档卡片会说「得先下载一颗」，而**那颗按钮是 T11**——这一档现在是「说得清、点不动」，
+不是 bug，但真窗里用户会看见它；T11 落地当天要把它接成一个真出口。
+② **真窗验收还压着**：`external` 态（Verge 正在跑那颗）现在就能看，「我们自己的那颗」要用户先退出 Clash Verge
+（单写者闸门不让我起第二颗）。本轮没动用户的 App，所以卡片的全部证据是 jsdom 层的。
+③ 自愈只重起、不换端口（继承 T10 的 ⑤：端口被别的程序占死时 `not-ready` 连报三次是故意的）。
+④ `core.log` 的打码只覆盖口令集合，不含订阅 URL 里的 token（上面记过）。
+⑤ `CORE_REASONS` 里 `download-failed` / `digest-missing` / `digest-mismatch` / `extract-failed` 这四档仍然只有词表、
+没有生产者——等 T11。
+
