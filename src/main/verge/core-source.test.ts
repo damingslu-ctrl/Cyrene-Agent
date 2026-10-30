@@ -10,11 +10,13 @@ import {
   buildCoreArgs,
   bundledExePath,
   coreDirOf,
+  isAllowedUpdateUrl,
   parseSha256Digest,
   pickInstalledBinary,
   pickMihomoAsset,
   pickPortPair,
   resolveCoreSource,
+  selectExtractedExe,
 } from "./core-source";
 
 describe("借用哪一颗内核", () => {
@@ -141,6 +143,86 @@ describe("挑 release 资产", () => {
     expect(pickMihomoAsset({ assets: "nope" })).toBeNull();
     expect(pickMihomoAsset(null)).toBeNull();
     expect(pickMihomoAsset({})).toBeNull();
+  });
+});
+
+describe("真 release 列表认证（2026-10-30 实测）。挑资产不再靠猜", () => {
+  // 这一族的形状是从 `api.github.com/repos/MetaCubeX/mihomo/releases/latest` 的**真响应**里
+  // 抄下来的（tag `v1.19.33`、127 个资产、windows-amd64 那一族 23 个 zip，摘要串原样保留）。
+  // 上一版这段只能靠 spec D2 那句 `mihomo-windows-amd64-v*.zip` 推——推错的样子是
+  // 「下载成功、校验通过、装上去起不来」，而那一趟要烧 22MB 才看得见。
+  const REAL: Array<[string, string]> = [
+    ["mihomo-windows-amd64-compatible-v1.19.33.zip", "7aaf636a4f2172dcd8ec34ac4f52797b059195e5afd6409508c963e545f8864d"],
+    ["mihomo-windows-amd64-v1-v1.19.33.zip", "fb0b960eff568459502d4ebe53e9cca203053d86ec9024fe935f19615d74d9aa"],
+    ["mihomo-windows-amd64-v3-go125-v1.19.33.zip", "a7c34577d6ab539adfb33556c8fe33729fb7387d60ef00cd101d5488e77ee73e"],
+    ["mihomo-windows-amd64-v1.19.33.zip", "6ab2180875f9f6fff8b19386d760daec257f66b45f72b3afc650634272fa837a"],
+  ];
+  const release = {
+    tag_name: "v1.19.33",
+    prerelease: false,
+    assets: REAL.map(([name, digest]) => ({
+      name,
+      digest: `sha256:${digest}`,
+      browser_download_url: `https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/${name}`,
+    })),
+  };
+
+  it("plain 那一颗赢下全部变体，摘要与原 url 都跟着真值", () => {
+    const picked = pickMihomoAsset(release);
+    expect(picked?.name).toBe("mihomo-windows-amd64-v1.19.33.zip");
+    expect(picked?.digest).toBe("6ab2180875f9f6fff8b19386d760daec257f66b45f72b3afc650634272fa837a");
+    expect(picked?.downloadUrl).toBe(
+      "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/mihomo-windows-amd64-v1.19.33.zip",
+    );
+  });
+
+  it("那颗资产的下载入口在出口白名单里（实测它 302 到 release-assets.githubusercontent.com）", () => {
+    expect(isAllowedUpdateUrl(pickMihomoAsset(release)!.downloadUrl, "asset")).toBe(true);
+  });
+
+  it("真包里躺的是 mihomo-windows-amd64.exe，不是 mihomo.exe——所以换装前必须改名", () => {
+    // 实测 `tar -tf` 那份 zip：唯一条目 `mihomo-windows-amd64.exe`（61,247,488 字节）。
+    // 直接当 `bundledExePath` 用会「装好了、但发现逻辑看不见它」，于是下次还是 no-binary。
+    expect(selectExtractedExe(["mihomo-windows-amd64.exe"])).toBe("mihomo-windows-amd64.exe");
+  });
+});
+
+describe("解压产物与出口边界", () => {
+  it("零个 exe 与两个以上一律拒：不替用户猜哪一颗是内核", () => {
+    expect(selectExtractedExe([])).toBeNull();
+    expect(selectExtractedExe(["README.md"])).toBeNull();
+    expect(selectExtractedExe(["mihomo.exe", "mihomo-alpha.exe"])).toBeNull();
+  });
+
+  it("只认 .exe（大小写不敏感）；别的扩展名一个都不算内核", () => {
+    expect(selectExtractedExe(["MIHOMO.EXE"])).toBe("MIHOMO.EXE");
+    expect(selectExtractedExe(["lib.dll"])).toBeNull();
+    expect(selectExtractedExe(["mihomo.exe.bak"])).toBeNull();
+  });
+
+  it("包里有目录层也照样认出来：回的是相对解压根的那一段", () => {
+    expect(selectExtractedExe(["bin/mihomo.exe"])).toBe("bin/mihomo.exe");
+  });
+
+  it("发布页只认 api.github.com；资产只认 github.com 与 *.githubusercontent.com", () => {
+    expect(isAllowedUpdateUrl("https://api.github.com/repos/MetaCubeX/mihomo/releases/latest", "release")).toBe(true);
+    expect(isAllowedUpdateUrl("https://github.com/MetaCubeX/mihomo/releases/download/v1/x.zip", "asset")).toBe(true);
+    expect(isAllowedUpdateUrl("https://objects.githubusercontent.com/x", "asset")).toBe(true);
+    expect(isAllowedUpdateUrl("https://release-assets.githubusercontent.com/x", "asset")).toBe(true);
+    // 后缀吃掉一整段域名的写法：`api.github.com.evil.tld` 看着像我们那本发布页。
+    expect(isAllowedUpdateUrl("https://api.github.com.evil.tld/x", "release")).toBe(false);
+    expect(isAllowedUpdateUrl("https://githubusercontent.com.evil.tld/x", "asset")).toBe(false);
+    expect(isAllowedUpdateUrl("https://evil.tld/MetaCubeX/mihomo/x.zip", "asset")).toBe(false);
+    // 口令式 userinfo 混淆：URL 解析后 host 是 evil.tld，白名单必须按 host 判而不是按前缀。
+    expect(isAllowedUpdateUrl("https://api.github.com@evil.tld/x", "release")).toBe(false);
+    expect(isAllowedUpdateUrl("https://objects.githubusercontent.com@evil.tld/x", "asset")).toBe(false);
+  });
+
+  it("不是 https 就别说自己是发布页；解析不出来的字符串也不炸", () => {
+    expect(isAllowedUpdateUrl("http://api.github.com/x", "release")).toBe(false);
+    expect(isAllowedUpdateUrl("file:///C:/x/mihomo.zip", "asset")).toBe(false);
+    expect(isAllowedUpdateUrl("", "asset")).toBe(false);
+    expect(isAllowedUpdateUrl(undefined as unknown as string, "asset")).toBe(false);
   });
 });
 

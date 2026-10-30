@@ -4,8 +4,11 @@
  * 时钟与 sleep 都是注入的，所以「等控制器答话」「撑过 60s 补预算」这类判定
  * 在测试里是**推进假时钟**发生的，不吃真 wall clock，也不会因为 CI 慢就漂。
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  CORE_REASONS,
   DEFAULT_CONTROLLER_PORT,
   DEFAULT_MIXED_PORT,
   FALLBACK_PORT_START,
@@ -424,5 +427,23 @@ describe("core-manager：restart 与状态读出", () => {
     const read = h.manager.status();
     read.state = "blocked";
     expect(h.manager.status().state).toBe("running");
+  });
+});
+
+describe("core-manager：原因词表没有死词", () => {
+  /**
+   * i18n 那两把尺都只朝一个方向量（枚举里的每一档，三种语言都得有话），所以
+   * 「枚举与语言里挂着一档本模块永远不会说出的原因」两头都不红——`CORE_REASONS` 里
+   * 那四档下载/摘要/解压的词就是这么活到 T11 的：本模块从不下载，而 T11 给更新另起了
+   * `CORE_UPDATE_REASONS`，那四档从此不会有生产者。这条反过来按源码扫：每一档都得在这儿
+   * 以字面量出现过。留着死词不是无害——页面会替它编一句人话，读的人据此以为「内核会因为
+   * 下载失败而停着」，而那件事在这台机器上永远不会发生。
+   */
+  it("CORE_REASONS 每一档都在本模块被产出过", () => {
+    const src = readFileSync(resolve(__dirname, "core-manager.ts"), "utf8");
+    const dead = CORE_REASONS.filter((reason) => !src.includes(`"${reason}"`));
+    expect(dead, `这些原因没人生产：${dead.join(", ")}`).toEqual([]);
+    // 正对照：锚点本身得有效——扫不到任何字面量＝尺子坏了，不是词表干净。
+    expect(CORE_REASONS.filter((reason) => src.includes(`"${reason}"`)).length).toBe(CORE_REASONS.length);
   });
 });

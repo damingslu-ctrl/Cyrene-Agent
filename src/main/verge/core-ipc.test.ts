@@ -1,10 +1,14 @@
 /**
- * Wave 3 T10b 内核通道的薄层测试：假 IpcScope + 假 CoreAssembly。
+ * Wave 3 T10b/T11 内核通道的薄层测试：假 IpcScope + 假 CoreAssembly。
  *
  * 这里最值钱的一条判据是**顺序**：`manager.start()` 会回一份「动作之前」的账（故意的，
  * 真实现也真会回中途态），处理器必须等它回来之后再取一次 `status()`。
  * 拿 await 的值回执，页面就会对着已经起来的内核画「已停止」——这类错在真机上
  * 只是「刷新一下才对上」，单测里不钉住就一路绿灯。
+ *
+ * T11 在这把尺上多加一条同形的判据：`updateCore()` 回的那一份也不算回执，
+ * 回执还是动作之后那一次读账——而且那一次读账必须同时带上进程态与更新态，
+ * 页面才不需要问两次再自己猜哪一次更新对应哪一次起停。
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
@@ -13,6 +17,7 @@ import {
   MAX_SELF_HEAL,
   type CoreSecretSource,
   type CoreStatus,
+  type CoreUpdateState,
 } from "../../shared/core-types";
 import { IPC } from "../../shared/ipc-channels";
 import { IPC_SENDER_POLICY } from "../application/ipc-sender-policy";
@@ -49,6 +54,16 @@ const RUNNING: Partial<CoreStatus> = {
   startedAt: 1_732_000_000_000,
 };
 
+/** 假装配层里 `updateCore()` 落下的那一份账——测试里两处要比对的都指向它。 */
+const UPDATE_SETTLED: CoreUpdateState = {
+  outcome: "installed",
+  tag: "v1.19.33",
+  asset: "mihomo-windows-amd64-v1.19.33.zip",
+  reason: null,
+  detail: null,
+  at: 1_732_000_050_000,
+};
+
 interface AssemblyInput {
   /** 动作之前账上的态。 */
   before?: Partial<CoreStatus>;
@@ -58,10 +73,14 @@ interface AssemblyInput {
   stopThrows?: string;
   restartThrows?: string;
   secretSource?: CoreSecretSource;
+  /** 更新这一本账：null 表示这一班还没试过更新。 */
+  update?: CoreUpdateState | null;
+  updateThrows?: string;
 }
 
 function makeAssembly(input: AssemblyInput = {}) {
   let current: CoreStatus = { ...EMPTY_CORE_STATUS, ...input.before };
+  let updateState: CoreUpdateState | null = input.update ?? null;
   /** 谁动了账、按什么顺序——判据全靠它，不靠调用次数猜顺序。 */
   const seq: string[] = [];
   const run = (name: string, throws?: string) => async (): Promise<CoreStatus> => {
@@ -95,6 +114,14 @@ function makeAssembly(input: AssemblyInput = {}) {
     runtimeFile: vi.fn(() => null),
     logFile: vi.fn(() => String.raw`C:\Users\mochi\AppData\Roaming\Mochi\core.log`),
     coreDir: vi.fn(() => String.raw`C:\Users\mochi\AppData\Roaming\Mochi\core`),
+    updateCore: vi.fn(async (): Promise<CoreUpdateState> => {
+      seq.push("update");
+      if (input.updateThrows) throw new Error(input.updateThrows);
+      // 与 manager 那三个同一个口径：动作返回的不是回执，回执在之后那次读账里。
+      updateState = UPDATE_SETTLED;
+      return UPDATE_SETTLED;
+    }),
+    updateState: vi.fn(() => updateState),
   };
   return {
     assembly: assembly as unknown as CoreAssembly & typeof assembly,
@@ -113,15 +140,18 @@ function setup(input: AssemblyInput = {}) {
   return { scope, dispose, ...fake };
 }
 
+const CORE_CHANNELS = [
+  IPC.VERGE_CORE_STATUS,
+  IPC.VERGE_CORE_START,
+  IPC.VERGE_CORE_STOP,
+  IPC.VERGE_CORE_RESTART,
+  IPC.VERGE_CORE_UPDATE,
+] as const;
+
 describe("registerCoreIpc：注册与形状", () => {
-  it("四条通道按序注册，STATUS 那一档只读账、一次进程动作都不发起", async () => {
+  it("五条通道按序注册，STATUS 那一档只读账、一次进程动作都不发起", async () => {
     const { scope, manager, seq } = setup();
-    expect(scope.registered).toEqual([
-      IPC.VERGE_CORE_STATUS,
-      IPC.VERGE_CORE_START,
-      IPC.VERGE_CORE_STOP,
-      IPC.VERGE_CORE_RESTART,
-    ]);
+    expect(scope.registered).toEqual([...CORE_CHANNELS]);
     const read = scope.handlers.get(IPC.VERGE_CORE_STATUS)!;
     await read({});
     expect(seq).toEqual(["read"]);
@@ -130,15 +160,22 @@ describe("registerCoreIpc：注册与形状", () => {
     expect(manager.restart).not.toHaveBeenCalled();
   });
 
-  it("四条通道回同一份形状：status 与 secretSource 一起走，页面不必自己拼", async () => {
+  it("五条通道回同一份形状：status、secretSource 与 update 一起走，页面不必自己拼", async () => {
     const { scope } = setup({ before: RUNNING, secretSource: "verge" });
-    const shape = {
+    const base = {
       status: { ...EMPTY_CORE_STATUS, ...RUNNING },
       secretSource: "verge" as CoreSecretSource,
     };
     for (const channel of scope.registered) {
       const handler = scope.handlers.get(channel)!;
-      expect(await handler({})).toEqual(shape);
+      const view = await handler({});
+      // 形状一致才是「一把尺量五种动作」：缺一个键页面就得自己猜那次点击归哪本账。
+      expect(Object.keys(view as object).sort(), channel).toEqual(["secretSource", "status", "update"]);
+      // 只有「更新」那一条会落更新账；起停与读现状不许替更新编一份没发生过的记录。
+      expect(view, channel).toEqual({
+        ...base,
+        update: channel === IPC.VERGE_CORE_UPDATE ? UPDATE_SETTLED : null,
+      });
     }
   });
 
@@ -158,6 +195,14 @@ describe("registerCoreIpc：注册与形状", () => {
     await start({}, { state: "running", exePath: "..\\..\\x.exe" }, "installed");
     expect(manager.start).toHaveBeenCalledWith();
   });
+
+  /** 渲染端递进来的版本号／下载地址同样没有入口——不然更新通道就成了任意写文件的通道。 */
+  it("更新通道也不收渲染端递进来的参数", async () => {
+    const { scope, assembly } = setup();
+    const update = scope.handlers.get(IPC.VERGE_CORE_UPDATE)!;
+    await update({}, { tag: "v9.9.9", url: "http://例如.com/x.zip" });
+    expect(assembly.updateCore).toHaveBeenCalledWith();
+  });
 });
 
 describe("registerCoreIpc：回执取的是动作之后那份账", () => {
@@ -173,6 +218,27 @@ describe("registerCoreIpc：回执取的是动作之后那份账", () => {
     expect(seq).toEqual(expected);
     // manager 回的是动作之前的 exited＋not-ready；这里读到的是动作之后的态，才证明是重新取的。
     expect(view.status.state).toBe(after.state);
+  });
+
+  /** 内核在跑时点更新：进程态与更新态都得在同一份回执里，页面才不用问两次再自己对齐。 */
+  it("更新之后那份账同时带上新下的 update——两本账一次走清", async () => {
+    const { scope, seq } = setup({ before: RUNNING });
+    const handler = scope.handlers.get(IPC.VERGE_CORE_UPDATE)!;
+    const view = (await handler({})) as { status: CoreStatus; update: CoreUpdateState };
+    expect(seq).toEqual(["update", "read"]);
+    expect(view.status.state).toBe("running");
+    expect(view.update).toMatchObject({ outcome: "installed", tag: "v1.19.33" });
+  });
+
+  /** 换上文件不等于重起内核：这是设计里最容易被「顺手做点好事」破坏的一条。 */
+  it("更新通道一次进程动作都不发起：不 stop、不 restart、也不 start", async () => {
+    const { scope, manager } = setup({ before: RUNNING });
+    const handler = scope.handlers.get(IPC.VERGE_CORE_UPDATE)!;
+    await handler({});
+    expect(manager.stop).not.toHaveBeenCalled();
+    expect(manager.restart).not.toHaveBeenCalled();
+    expect(manager.start).not.toHaveBeenCalled();
+    expect(manager.resetHealBudget).not.toHaveBeenCalled();
   });
 
   it("内核没起来时如实回 exited＋原因，不演成 running", async () => {
@@ -230,7 +296,8 @@ describe("registerCoreIpc：不吞异常", () => {
     ["start", IPC.VERGE_CORE_START, "startThrows", ["read", "start"]],
     ["stop", IPC.VERGE_CORE_STOP, "stopThrows", ["stop"]],
     ["restart", IPC.VERGE_CORE_RESTART, "restartThrows", ["restart"]],
-  ] as const)("%s 抛了就让它出去，不折成一份 stopped 回执", async (name, channel, key, expected) => {
+    ["update", IPC.VERGE_CORE_UPDATE, "updateThrows", ["update"]],
+  ] as const)("%s 抛了就让它出去，不折成一份看起来完整的回执", async (name, channel, key, expected) => {
     const { scope, seq } = setup({ [key]: `EROFS: ${name}` } as AssemblyInput);
     const handler = scope.handlers.get(channel)!;
     await expect(handler({})).rejects.toThrow(new RegExp(`EROFS: ${name}`));
@@ -248,61 +315,58 @@ describe("registerCoreIpc：不吞异常", () => {
 });
 
 describe("registerCoreIpc：dispose", () => {
-  it("摘的正是那四条，摘完 STATUS 也不再答话", () => {
+  it("摘的正是那五条，摘完 STATUS 也不再答话", () => {
     const { scope, dispose } = setup();
     dispose();
-    for (const channel of [
-      IPC.VERGE_CORE_STATUS,
-      IPC.VERGE_CORE_START,
-      IPC.VERGE_CORE_STOP,
-      IPC.VERGE_CORE_RESTART,
-    ]) {
+    for (const channel of CORE_CHANNELS) {
       expect(scope.removeHandler).toHaveBeenCalledWith(channel);
     }
-    expect(scope.removeHandler).toHaveBeenCalledTimes(4);
+    expect(scope.removeHandler).toHaveBeenCalledTimes(CORE_CHANNELS.length);
     expect(scope.handlers.size).toBe(0);
   });
 });
 
 /**
- * Wave 3 T10b 的端到端接线锁。
+ * Wave 3 T10b/T11 的端到端接线锁。
  *
  * 2026-10-24 那次的事故形状是「模块写好了、单测全绿、真机上是死的」，所以这里钉的不是
- * 「函数存在」，而是「那四条通道从装配层一路走到卡片的那只手」。用源码扫描而不是真起一个
+ * 「函数存在」，而是「那五条通道从装配层一路走到卡片的那只手」。用源码扫描而不是真起一个
  * Electron：动态验要真窗，而真窗那一条正压在「用户退出 Clash Verge」上，不能当日常门禁。
  * 代价是改任何一边都要同时改这里；收益是漏接一次立刻红。
  */
-describe("内核宿主四条通道端到端接线（防只定义不接线）", () => {
+describe("内核宿主五条通道端到端接线（防只定义不接线）", () => {
   const read = (relative: string) => readFileSync(new URL(relative, import.meta.url), "utf8");
   const preload = read("../../preload/index.ts");
   const bridge = read("../../renderer/types/cyrene.d.ts");
   const mainApp = read("../application/default-dependencies.ts");
   const panel = read("../../renderer/react/features/network/NetworkPanel.tsx");
   const card = read("../../renderer/react/features/network/CoreSection.tsx");
+  const bootstrap = read("./core-bootstrap.ts");
 
-  it("装配层既真的注册、也真的在退出时摘掉那四条", () => {
+  it("装配层既真的注册、也真的在退出时摘掉那五条", () => {
     expect(mainApp).toMatch(/registerCoreHostIpc\(ipc, services\.core\)/);
     expect(mainApp).toMatch(/id: "verge-core-ipc"[\s\S]{0,220}removeCoreHostIpc\(\)/);
   });
 
-  it("preload 四条各自 invoke 对应常量，且一个参数都不递", () => {
+  it("preload 五条各自 invoke 对应常量，且一个参数都不递", () => {
     const pairs = [
       ["status", "STATUS"],
       ["start", "START"],
       ["stop", "STOP"],
       ["restart", "RESTART"],
+      ["update", "UPDATE"],
     ] as const;
     for (const [method, channel] of pairs) {
       expect(preload, `preload.core.${method} 没接上 VERGE_CORE_${channel}`).toMatch(
         new RegExp(`${method}: \\(\\) => ipcRenderer\\.invoke\\(IPC\\.VERGE_CORE_${channel}\\)`),
       );
     }
-    // 递一个参数就等于把「起哪颗内核、吃哪份配置」的决定权交回渲染端。
+    // 递一个参数就等于把「起哪颗内核、吃哪份配置、装哪个版本」的决定权交回渲染端。
     expect(preload).not.toMatch(/invoke\(IPC\.VERGE_CORE_\w+,\s*\S/);
   });
 
-  it("桥接类型收下四条，回的都是同一份 CoreView", () => {
-    for (const method of ["status", "start", "stop", "restart"]) {
+  it("桥接类型收下五条，回的都是同一份 CoreView", () => {
+    for (const method of ["status", "start", "stop", "restart", "update"]) {
       expect(bridge, `cyrene.d.ts 的 core.${method} 变了形状`).toMatch(
         new RegExp(`${method}\\(\\):\\s*Promise<[^>]*CoreView>`),
       );
@@ -319,13 +383,23 @@ describe("内核宿主四条通道端到端接线（防只定义不接线）", (
     expect(card).toMatch(/await api\[action\]\(\)/);
   });
 
-  it("四条都只归主窗：宠物窗拿到通道也没有替全机起内核的资格", () => {
-    for (const channel of [
-      IPC.VERGE_CORE_STATUS,
-      IPC.VERGE_CORE_START,
-      IPC.VERGE_CORE_STOP,
-      IPC.VERGE_CORE_RESTART,
-    ]) {
+  /**
+   * 更新这一路最容易断的一环是装配层：`mihomo-update` 的单测全绿、`core-ipc` 的单测全绿，
+   * 但 `core.updateCore()` 从来没被构造出来过一次——那条通道就会一直抛「handler not found」。
+   */
+  it("装配层真的把更新器接上，且换文件的闸门排在下载之前", () => {
+    expect(bootstrap).toMatch(/createCoreUpdater\(\{/);
+    expect(bootstrap).toMatch(/canSwap,\n\s*coreDir,/);
+    expect(bootstrap).toMatch(/updateCore: \(\) => updater\.update\(\)/);
+    expect(bootstrap).toMatch(/updateState: \(\) => updater\.state\(\)/);
+    // 写路径只有一条：`<userData>/core`。Verge 安装目录那一路只能问「在不在」，
+    // 把人家的目录交给更新器就等于拿一次「更新内核」去改 Clash Verge 自己的文件。
+    expect(bootstrap).toMatch(/const coreDir = \(\) => coreDirOf\(options\.userData\)/);
+    expect(bootstrap).toMatch(/installedCoreExists: \(\) => findInstalledExe\(\) !== null/);
+  });
+
+  it("五条都只归主窗：宠物窗拿到通道也没有替全机起内核或换内核文件的资格", () => {
+    for (const channel of CORE_CHANNELS) {
       expect(IPC_SENDER_POLICY[channel], channel).toEqual(["chat"]);
     }
   });

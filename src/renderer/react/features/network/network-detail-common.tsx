@@ -6,7 +6,11 @@ import type { NetworkReason } from "../../../../shared/network-types";
 import { useTranslation } from "../../i18n";
 import type { NetworkApi } from "./network-tabs";
 
-export type Notice = { tone: "ok" | "error"; text: string };
+/**
+ * 回执条。`neutral` 只给「按设计没做成、但也不是故障」那一档（内核更新撞上我们自己的进程在跑）：
+ * 那一档染绿会让人觉得已经换好了，染红会让他去找一个根本不存在的毛病。
+ */
+export type Notice = { tone: "ok" | "neutral" | "error"; text: string };
 
 export interface DetailState<T> {
   data: T | null;

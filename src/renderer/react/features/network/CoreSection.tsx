@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Cpu, Play, RefreshCw, RotateCw, Square } from "lucide-react";
+import { Cpu, Download, Play, RefreshCw, RotateCw, Square } from "lucide-react";
 import { EMPTY_CORE_STATUS, type CoreView } from "../../../../shared/core-types";
 import { useTranslation } from "../../i18n";
 import { NoticeBar, useNotice } from "./network-detail-common";
@@ -16,6 +16,8 @@ import {
   coreSecretKey,
   coreStateKey,
   coreUptimeMs,
+  coreUpdateLine,
+  coreUpdateReceipt,
   type CoreAction,
   type CoreApi,
 } from "./core-view";
@@ -24,21 +26,31 @@ import { formatDuration } from "./network-tabs";
 /** 账是活的：崩溃与自愈发生在页面看不见的时候，只读一次会一直停在点按钮那一瞬间的账上。 */
 const POLL_MS = 10_000;
 
-const ACTIONS: readonly CoreAction[] = ["start", "stop", "restart"];
+const ACTIONS: readonly CoreAction[] = ["start", "stop", "restart", "update"];
 
 const LABEL_KEY: Record<CoreAction, string> = {
   start: "network.core.start",
   stop: "network.core.stop",
   restart: "network.core.restart",
+  update: "network.core.update.button",
+};
+
+const ICON: Record<CoreAction, typeof Play> = {
+  start: Play,
+  stop: Square,
+  restart: RotateCw,
+  update: Download,
 };
 
 /**
- * Wave 3 T10b：内核宿主卡片。
+ * Wave 3 T10b/T11：内核宿主卡片。
  *
- * 这张卡只讲一件事——**此刻这台机器上吃配置的进程是哪一颗**，所以：
+ * 这张卡讲两件事——**此刻这台机器上吃配置的进程是哪一颗**，以及**那颗文件是哪一版**，所以：
  * - 徽标只在 `running` 时亮绿；`starting` 与 `blocked` 走中性色（那 8 秒里控制器还没答话）。
  * - 会 kill 进程的两颗按钮只对我们自己起的那颗开放；借用 Verge 的控制器时整排灰掉并说明原因。
  * - 每次动作之后画的是回执里那份账，不是点击之前手上的旧账。
+ * - 「更新内核」读的是另一本账（`view.update`）：换上文件不等于生效，
+ *   所以它的回执永远不从 `status.state` 里借一个绿点。
  */
 export function CoreSection({ api }: { api?: CoreApi }) {
   const { t } = useTranslation();
@@ -92,7 +104,10 @@ export function CoreSection({ api }: { api?: CoreApi }) {
       const next = await api[action]();
       if (!aliveRef.current) return;
       setView(next);
-      const receipt = coreReceipt(action, next);
+      // 更新读的是另一本账：`status.state` 那一颗绿点跟「文件换没换上」没有关系。
+      const receipt = action === "update" ? coreUpdateReceipt(next.update) : coreReceipt(action, next);
+      // 回执里连一次的账都没落下＝main 那侧被绕过；这时候不编一句话填上，让按钮自己安静回来。
+      if (!receipt) return;
       setNotice({
         tone: receipt.tone,
         text: receipt.detail
@@ -114,6 +129,8 @@ export function CoreSection({ api }: { api?: CoreApi }) {
   const uptimeMs = status ? coreUptimeMs(status, now) : null;
   // 那句红字只在「账上有原因、而且没在跑」时端出来；判据只写在 coreAttention 一处。
   const attentionReason = status !== null && coreAttention(status) ? status.reason : null;
+  // 「上次更新」那一行的脸色、词与时间差全在 core-view 里判好了，这里只负责排。
+  const updateLine = view ? coreUpdateLine(view.update, now) : null;
 
   return (
     <section className="net-card net-section net-verge" aria-label={t("network.core.title")}>
@@ -152,28 +169,41 @@ export function CoreSection({ api }: { api?: CoreApi }) {
             {status.pid !== null && <li>{t("network.core.pidLabel")}：{status.pid}</li>}
             {uptimeMs !== null && <li>{t("network.core.uptimeLabel")}：{formatDuration(uptimeMs)}</li>}
             {heal && <li>{t("network.core.healLabel")}：{heal}</li>}
+            {updateLine && (
+              <li>
+                {t("network.core.update.lastLabel")}：
+                <span className={`net-core-update net-core-update--${updateLine.tone}`}>
+                  {t(updateLine.outcomeKey)}
+                  {updateLine.reasonKey ? ` · ${t(updateLine.reasonKey)}` : ""}
+                </span>
+                {updateLine.tag && ` · ${updateLine.tag}`}
+                {updateLine.agoMs !== null && ` · ${t("network.core.update.ago", { dur: formatDuration(updateLine.agoMs) })}`}
+              </li>
+            )}
           </ul>
         </>
       )}
 
+      {/* 没试过更新时教一句「这一颗按下去会干什么」；有过账就让上面那一行说话，不必再念一遍。 */}
+      {view && view.update === null && <p className="net-hint">{t("network.core.update.firstHint")}</p>}
+
       <div className="net-view__tools">
-        {ACTIONS.map((action) => (
-          <button
-            key={action}
-            type="button"
-            name={`core_${action}`}
-            className={action === "start" ? "net-primary-button" : "net-ghost-button"}
-            disabled={!actions[action] || unreachable}
-            onClick={() => void run(action)}
-          >
-            {action === "start"
-              ? <Play size={13} />
-              : action === "stop"
-                ? <Square size={13} />
-                : <RotateCw size={13} />}
-            {busy === action ? t("network.core.working") : t(LABEL_KEY[action])}
-          </button>
-        ))}
+        {ACTIONS.map((action) => {
+          const Icon = ICON[action];
+          return (
+            <button
+              key={action}
+              type="button"
+              name={`core_${action}`}
+              className={action === "start" ? "net-primary-button" : "net-ghost-button"}
+              disabled={!actions[action] || unreachable}
+              onClick={() => void run(action)}
+            >
+              <Icon size={13} />
+              {busy === action ? t("network.core.working") : t(LABEL_KEY[action])}
+            </button>
+          );
+        })}
         <button
           type="button"
           name="core_refresh"

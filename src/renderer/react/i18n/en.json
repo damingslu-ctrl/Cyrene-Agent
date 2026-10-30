@@ -2432,11 +2432,27 @@
         "spawn-failed": "The process could not be started",
         "not-ready": "The core came up but its controller never answered, so I reaped it",
         "exited": "The core exited on its own",
-        "self-heal-exhausted": "Self-heal reached its limit, so I stopped restarting on my own — pick Start core to begin a new round",
-        "download-failed": "Core download failed",
-        "digest-missing": "The release published no digest, so I will not swap the core without verifying it",
-        "digest-mismatch": "The download did not match the digest; nothing was installed",
-        "extract-failed": "Extraction failed; the current core was not touched"
+        "self-heal-exhausted": "Self-heal reached its limit, so I stopped restarting on my own — pick Start core to begin a new round"
+      },
+      "update": {
+        "button": "Update core",
+        "lastLabel": "Last update",
+        "ago": "{{dur}} ago",
+        "firstHint": "Never tried yet. The button asks GitHub for the newest stable mihomo release: I download only when the release page publishes a sha256, check that digest first, and only then swap in my own core/mihomo.exe. Whatever is running stays running; the new file is picked up the next time the core starts.",
+        "outcome": {
+          "installed": "The new build is in the core folder (the next start uses it)",
+          "latest": "The file I already have is byte-for-byte the newest release; nothing was swapped",
+          "busy": "The core I started is still running, so no file was swapped — press Stop first, then update",
+          "failed": "Nothing was swapped this time; the current core is byte-for-byte untouched"
+        },
+        "reason": {
+          "no-asset": "The release page offers no installable stable build (pre-release only, or no windows-amd64 zip)",
+          "download-failed": "Could not fetch the release page or the archive — check the network and GitHub",
+          "digest-missing": "The release page published no sha256 for that asset, so I did not download it",
+          "digest-mismatch": "What came down does not match the sha256 on the release page; I did not install that archive",
+          "extract-failed": "Unzipping failed, or I could not tell which .exe to install",
+          "swap-failed": "The new file would not land in the core folder (it is not writable, or that .exe is in use)"
+        }
       }
     },
     "verge": {

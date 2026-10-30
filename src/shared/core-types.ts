@@ -28,6 +28,10 @@ export type CoreState = (typeof CORE_STATES)[number];
 /**
  * 失败原因。每档都必须有话说得出，尤其 `self-heal-exhausted`：
  * 自愈打满之后不许继续静默重起，用户看到的必须是一句「为什么不再试了」。
+ *
+ * 这里只收「进程这一本账」能产出的词。下载/摘要/解压那几档曾经挂在这儿，T11 把它们
+ * 归进 `CORE_UPDATE_REASONS`：`core-manager` 从不下载，留在这儿就是给页面准备一批
+ * 永远不会被说出的句子——两本账各说各的话，枚举锁才拦得住「用更新的话解释进程」。
  */
 export const CORE_REASONS = [
   "verge-running",
@@ -40,10 +44,6 @@ export const CORE_REASONS = [
   "not-ready",
   "exited",
   "self-heal-exhausted",
-  "download-failed",
-  "digest-missing",
-  "digest-mismatch",
-  "extract-failed",
 ] as const;
 export type CoreReason = (typeof CORE_REASONS)[number];
 
@@ -105,12 +105,58 @@ export const CORE_SECRET_SOURCES = ["verge", "mochi", "none"] as const;
 export type CoreSecretSource = (typeof CORE_SECRET_SOURCES)[number];
 
 /**
- * 四条内核通道共用的一份回执。
+ * 内核那几条通道共用的一份回执。
  *
- * 之所以不是裸 `CoreStatus`：口令来源这一档只有装配层知道，而它是页面唯一能解释
- * 「内核在跑、网络页却说控制器不通」的线索——把两处答案分两次问，页面就得自己猜哪一份更新。
+ * 之所以不是裸 `CoreStatus`：口令来源与「上次更新到底装没装上」这两档只有装配层知道，
+ * 而它们是页面唯一能解释「内核在跑、网络页却说控制器不通」与「按了更新却没动静」的线索
+ * ——把两处答案分两次问，页面就得自己猜哪一份更新。
  */
 export interface CoreView {
   status: CoreStatus;
   secretSource: CoreSecretSource;
+  /** 最近一次内核更新的下场；一次都没试过就是 null。 */
+  update: CoreUpdateState | null;
+}
+
+/**
+ * 一次内核更新的四种下场。
+ *
+ * 单列一档 `busy` 而不是折进 `failed`：「我们自己那颗还在跑，所以不换」是**设计**，
+ * 不是故障——把它报成失败会让用户去找根本不存在的毛病，也会让页面把这句话染红。
+ * 同样不给它配 `CoreReason`：那本词表说的是「内核为什么没在跑」，与换不换文件是两条轴。
+ */
+export const CORE_UPDATE_OUTCOMES = ["installed", "latest", "busy", "failed"] as const;
+export type CoreUpdateOutcome = (typeof CORE_UPDATE_OUTCOMES)[number];
+
+/**
+ * 更新记录里允许出现的失败原因——更新这一条轴自己的词。
+ *
+ * 独立于 `CORE_REASONS` 而不是取它的子集：那本词表说的是「内核为什么没在跑」，
+ * 这里的词说的是「这一次为什么没换上」。要是共用，页面就得替 `no-port` 编一句
+ * 「下载为什么败」，而 `swap-failed`（文件换不动）也塞不进那本表里——
+ * 两套话各自钉各自的枚举锁，才不会互相冒充。
+ *
+ * `no-asset` 与 `download-failed` 也分两档：「发布页里没有可装的正式包」与
+ * 「有包但没拿到」是两种要用户做不同事的下场（等上游发版 vs 查网络）。
+ */
+export const CORE_UPDATE_REASONS = [
+  "no-asset",
+  "download-failed",
+  "digest-missing",
+  "digest-mismatch",
+  "extract-failed",
+  "swap-failed",
+] as const;
+export type CoreUpdateReason = (typeof CORE_UPDATE_REASONS)[number];
+
+export interface CoreUpdateState {
+  outcome: CoreUpdateOutcome;
+  /** release 的 `tag_name`，如 `v1.19.33`；连发布页都没问到就是 null。 */
+  tag: string | null;
+  /** 挑中的资产原名。猜错资产时这一串就是案发现场，不许只报「下载失败」。 */
+  asset: string | null;
+  reason: CoreUpdateReason | null;
+  detail: string | null;
+  /** 这一次尝试的墙钟；页面用它说「刚才那次」而不是「一直这样」。 */
+  at: number;
 }

@@ -113,9 +113,11 @@ export interface CoreAssetPick {
 /**
  * 从 release 的 assets 里挑 Windows x64 那个 zip。
  *
- * 名字模式按 spec D2 写的 `mihomo-windows-amd64-v*.zip`；**本机实现时无出站可核对真 release 列表**，
- * 所以这里按「前缀对、后缀是 .zip、优先没有额外变体后缀」排，并把挑中的原名回出去——
- * 页面与 core.log 都看得见到底抓的是哪一个，猜错时不至于连案发现场都没有。
+ * 2026-10-30 拿真响应认证过（`v1.19.33`、127 个资产）：windows-amd64 那一族有 23 个 zip，
+ * 变体名是 `-compatible-`、`-v1|-v2|-v3`（GOAMD64 档）、`-go1NN`（Go 版本）及其组合，
+ * **plain 那一颗（`mihomo-windows-amd64-v1.19.33.zip`）连字符最少**，所以下面这个排法选中它。
+ * 实测那颗在本机正常（`Mihomo Meta v1.19.33 windows amd64 with go1.26.10`）；不选 `-v3`
+ * 是因为它要 AVX2，机器不保证有——挑错了的形状是「装上了但起不来」，比多下一颗慢的包贵得多。
  */
 export function pickMihomoAsset(release: unknown): CoreAssetPick | null {
   if (typeof release !== "object" || release === null) return null;
@@ -131,12 +133,50 @@ export function pickMihomoAsset(release: unknown): CoreAssetPick | null {
     candidates.push({ name, downloadUrl, digest: parseSha256Digest(asset.digest) });
   }
   if (candidates.length === 0) return null;
-  // 「plain」按连字符最少认：`mihomo-windows-amd64-v1.18.10.zip` 是 3 个，
-  // `-compatible-` / `-go19s-` 这些变体各多一个。名字里没有会变体名的 plain。
+  // 「plain」按连字符最少认：`mihomo-windows-amd64-v1.19.33.zip` 切出来是 4 段，
+  // `-compatible-` / `-v3-go125-` 这些变体各多一或两段。名字里没有会变体名的 plain。
   const weight = (name: string): number => name.split("-").length;
   return [...candidates].sort(
     (a, b) => weight(a.name) - weight(b.name) || a.name.localeCompare(b.name),
   )[0];
+}
+
+/**
+ * 解压产物里那颗可执行文件的名字（相对解压根）。
+ *
+ * **只有正好一个 `.exe` 才算数**，多一个都回 null。取第一个是替用户猜：mihomo 的包里
+ * 现在只有一个 exe，哪天上游多塞一个装机辅助程序，我们就会把运气当成判定装进内核目录——
+ * 而这一档错的形状是「装了个不相干的 exe，起内核时报 spawn-failed」，最难往回查。
+ *
+ * 实测真包那一条目叫 `mihomo-windows-amd64.exe`，**不叫 `mihomo.exe`**：
+ * 不换名就摆进 `bundledExePath` 的话，发现逻辑永远看不见它，下次还是 `no-binary`。
+ */
+export function selectExtractedExe(names: readonly string[]): string | null {
+  const exes = names.filter((name) => /\.exe$/i.test(name));
+  return exes.length === 1 ? exes[0] : null;
+}
+
+/**
+ * 更新通道的出口白名单（spec D3「只有更新器能碰 GitHub」的另一半：更新器自己认哪些 host）。
+ *
+ * 判 host 而不是判前缀：`https://api.github.com.evil.tld/…` 与
+ * `https://api.github.com@evil.tld/…` 都长得像我们那本发布页，真 host 却是别人的域。
+ * 这一层拦的是「假发布页给自己发一枚合法摘要」——摘要在伪造的 JSON 面前自证不了任何东西，
+ * 只有来源钉住才有意义。资产那一头必须放行 `*.githubusercontent.com`：
+ * 实测 `github.com` 的下载入口 302 到 `release-assets.githubusercontent.com`。
+ */
+export function isAllowedUpdateUrl(raw: string, kind: "release" | "asset"): boolean {
+  if (typeof raw !== "string" || !raw) return false;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  const host = url.hostname.toLowerCase();
+  if (kind === "release") return host === "api.github.com";
+  return host === "github.com" || host.endsWith(".githubusercontent.com");
 }
 
 export type CoreSource =

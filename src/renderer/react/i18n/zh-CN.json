@@ -2432,11 +2432,27 @@
         "spawn-failed": "进程没拉起来",
         "not-ready": "内核起了但控制器不应答，已经把它收掉了",
         "exited": "内核自己退出了",
-        "self-heal-exhausted": "自愈已打满，我不再自己重起——点「起内核」开始新一轮",
-        "download-failed": "内核下载失败",
-        "digest-missing": "发布页没给出摘要，验不了货我就不换内核",
-        "digest-mismatch": "下载内容与摘要不符，这份包我没往里装",
-        "extract-failed": "解压失败，现有内核一个字节没动"
+        "self-heal-exhausted": "自愈已打满，我不再自己重起——点「起内核」开始新一轮"
+      },
+      "update": {
+        "button": "更新内核",
+        "lastLabel": "上次更新",
+        "ago": "{{dur}}前",
+        "firstHint": "还没试过更新。点「更新内核」会去问 GitHub 上 mihomo 最新的正式发布：发布页给了 sha256 我才下载，下回来先对摘要，对得上才换成我自己那颗 core/mihomo.exe。正在跑的那颗不动，下一次起内核才吃新版。",
+        "outcome": {
+          "installed": "新版已经放进 core 目录（下一次起内核吃它）",
+          "latest": "core 里那颗与最新发布版逐字节相同，文件没动",
+          "busy": "我自己起的那颗内核还在跑，所以这次没换文件——先点「停止」再更新",
+          "failed": "这一次没换成，现有那颗一个字节都没动"
+        },
+        "reason": {
+          "no-asset": "发布页里没有能装的正式版包（只有预发布，或压根没有 windows-amd64 的 zip）",
+          "download-failed": "发布页或安装包没取回来，网络与 GitHub 那头都得看一眼",
+          "digest-missing": "发布页没给这个包的 sha256，验不了货我就不下载它",
+          "digest-mismatch": "下回来的内容与发布页说的 sha256 对不上，这份包我没往里装",
+          "extract-failed": "解压没成，或认不出该装哪一颗 .exe",
+          "swap-failed": "新文件没能落到 core 目录（那个目录不可写，或那颗正被占用）"
+        }
       }
     },
     "verge": {

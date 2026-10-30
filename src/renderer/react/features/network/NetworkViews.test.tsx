@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   EMPTY_CORE_STATUS,
   type CoreStatus,
+  type CoreUpdateState,
   type CoreView,
 } from "../../../../shared/core-types";
 import type {
@@ -1159,12 +1160,16 @@ describe("订阅页", () => {
   });
 });
 
-describe("内核卡片（Wave 3 T10b）", () => {
-  /** 钉死表针：「已运行」那一行量的是 `now - startedAt`，跟着真实时钟走就永远对不上。 */
+describe("内核卡片（Wave 3 T10b/T11）", () => {
+  /** 钉死表针：「已运行」与「上次更新」两行量的都是 `now - at`，跟着真实时钟走就永远对不上。 */
   const CORE_NOW = 1_700_000_100_000;
 
-  function coreView(patch: Partial<CoreStatus>, secretSource: CoreView["secretSource"] = "mochi"): CoreView {
-    return { status: { ...EMPTY_CORE_STATUS, ...patch }, secretSource };
+  function coreView(
+    patch: Partial<CoreStatus>,
+    secretSource: CoreView["secretSource"] = "mochi",
+    update: CoreView["update"] = null,
+  ): CoreView {
+    return { status: { ...EMPTY_CORE_STATUS, ...patch }, secretSource, update };
   }
 
   const STOPPED = coreView({});
@@ -1174,7 +1179,7 @@ describe("内核卡片（Wave 3 T10b）", () => {
     controller: "127.0.0.1:17891", healAttempts: 2,
     startedAt: CORE_NOW - 90_000,
   });
-  /** 借来的那颗也带 `startedAt`（那是「发现它」的时刻）——卡片必须拒绝把它画成运行时长。 */
+  /** 借用 Verge 那颗时更新仍归我们管：`core/mihomo.exe` 不在它手上。 */
   const EXTERNAL_RUNNING = coreView(
     {
       state: "running", mode: "external", controller: "127.0.0.1:9097",
@@ -1182,13 +1187,23 @@ describe("内核卡片（Wave 3 T10b）", () => {
     },
     "verge",
   );
+  const UPDATE_INSTALLED: CoreUpdateState = {
+    outcome: "installed", tag: "v1.19.33", asset: "mihomo-windows-amd64-v1.19.33.zip",
+    reason: null, detail: null, at: CORE_NOW - 40_000,
+  };
+  /** 内核照旧在跑、账上多了一条更新记录——这一份就是「装上了但还没生效」那个形状。 */
+  const OWN_RUNNING_UPDATED = { ...OWN_RUNNING, update: UPDATE_INSTALLED };
 
-  function makeCoreApi(initial: CoreView, after: Partial<Record<"start" | "stop" | "restart", CoreView>> = {}) {
+  function makeCoreApi(
+    initial: CoreView,
+    after: Partial<Record<"start" | "stop" | "restart" | "update", CoreView>> = {},
+  ) {
     return {
       status: vi.fn(async () => initial),
       start: vi.fn(async () => after.start ?? initial),
       stop: vi.fn(async () => after.stop ?? initial),
       restart: vi.fn(async () => after.restart ?? initial),
+      update: vi.fn(async () => after.update ?? initial),
     };
   }
 
@@ -1196,7 +1211,7 @@ describe("内核卡片（Wave 3 T10b）", () => {
     return mount(createElement(CoreSection, api ? { api: api as unknown as CoreApi } : {}));
   }
 
-  function buttonOf(host: HTMLElement, action: "start" | "stop" | "restart" | "refresh"): HTMLButtonElement {
+  function buttonOf(host: HTMLElement, action: "start" | "stop" | "restart" | "update" | "refresh"): HTMLButtonElement {
     const button = host.querySelector<HTMLButtonElement>(`button[name="core_${action}"]`);
     if (!button) throw new Error(`core button not found: ${action}`);
     return button;
@@ -1207,14 +1222,22 @@ describe("内核卡片（Wave 3 T10b）", () => {
     return [...host.querySelectorAll(".net-notice--error")].map((bar) => bar.textContent).join(" / ");
   }
 
+  /** 「上次更新」那一条常驻历史：按标签找到那一行，别拿整张卡的文本比。 */
+  function updateLine(host: HTMLElement): string | undefined {
+    return [...host.querySelectorAll(".net-verge__facts li")]
+      .find((row) => row.textContent?.includes("上次更新"))
+      ?.textContent;
+  }
+
   it("桥不在就说接口不可用，不画一张看起来还在跑的账", async () => {
     const host = await mountCore();
     expect(host.textContent).toContain("内核接口不可用");
     expect(host.textContent).toContain("还没读到");
     expect(host.querySelector(".net-status.is-online")).toBeNull();
     expect(host.querySelector(".net-verge__facts")).toBeNull();
-    expect(buttonOf(host, "start").disabled).toBe(true);
-    expect(buttonOf(host, "refresh").disabled).toBe(true);
+    for (const action of ["start", "stop", "restart", "update", "refresh"] as const) {
+      expect(buttonOf(host, action).disabled, action).toBe(true);
+    }
   });
 
   it("起被闸门挡下：绿字不许亮，红字端出原因，状态词不是「运行中」", async () => {
@@ -1294,7 +1317,7 @@ describe("内核卡片（Wave 3 T10b）", () => {
     expect(host.querySelector(".net-notice--ok")).toBeNull();
   });
 
-  it("一次点击还在路上时三颗一起按住：不许点出第二颗内核", async () => {
+  it("一次点击还在路上时四颗一起按住：不许点出第二颗内核，也不许并发开两趟下载", async () => {
     const gate = deferred<CoreView>();
     const api = { ...makeCoreApi(STOPPED), start: vi.fn(() => gate.promise) };
     const host = await mountCore(api);
@@ -1302,13 +1325,36 @@ describe("内核卡片（Wave 3 T10b）", () => {
     expect(buttonOf(host, "start").textContent).toContain("处理中…");
     expect(buttonOf(host, "stop").disabled).toBe(true);
     expect(buttonOf(host, "restart").disabled).toBe(true);
+    expect(buttonOf(host, "update").disabled).toBe(true);
     expect(host.textContent).toContain("上一次点击还在路上");
 
     gate.resolve(OWN_RUNNING);
     await act(async () => { await gate.promise; });
     expect(buttonOf(host, "start").textContent).toContain("起内核");
+    expect(buttonOf(host, "update").disabled).toBe(false);
     expect(host.querySelector(".net-notice--ok")).not.toBeNull();
     expect(host.textContent).not.toContain("上一次点击还在路上");
+  });
+
+  it("更新在路上时「处理中…」只写在自己那颗上：四颗一起按住，落定后各回各的词", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(CORE_NOW);
+    const gate = deferred<CoreView>();
+    const api = { ...makeCoreApi(OWN_RUNNING), update: vi.fn(() => gate.promise) };
+    const host = await mountCore(api);
+    await act(async () => { buttonOf(host, "update").click(); });
+    expect(buttonOf(host, "update").textContent).toContain("处理中…");
+    expect(buttonOf(host, "start").textContent).toContain("起内核");
+    expect(buttonOf(host, "stop").textContent).toContain("停止");
+    for (const action of ["start", "stop", "restart", "update", "refresh"] as const) {
+      expect(buttonOf(host, action).disabled, action).toBe(true);
+    }
+
+    gate.resolve({ ...OWN_RUNNING, update: UPDATE_INSTALLED });
+    await act(async () => { await gate.promise; });
+    expect(buttonOf(host, "update").textContent).toContain("更新内核");
+    expect(buttonOf(host, "stop").disabled).toBe(false);
+    expect(buttonOf(host, "refresh").disabled).toBe(false);
   });
 
   it("每 10 秒重读一次账：内核在页面看不见的时候崩了又自愈，也不用重开页面", async () => {
@@ -1345,5 +1391,122 @@ describe("内核卡片（Wave 3 T10b）", () => {
 
     await act(async () => { buttonOf(host, "refresh").click(); });
     expect(status).toHaveBeenCalledTimes(5);
+  });
+
+  it("更新装上了：绿字说的是文件，状态徽标不许跟着亮成「运行中」", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(CORE_NOW);
+    const api = makeCoreApi(STOPPED, { update: coreView({}, "mochi", UPDATE_INSTALLED) });
+    const host = await mountCore(api);
+    await act(async () => { buttonOf(host, "update").click(); });
+    expect(api.update).toHaveBeenCalledWith();
+    const ok = host.querySelector(".net-notice--ok");
+    expect(ok?.textContent).toContain("新版已经放进 core 目录（下一次起内核吃它）");
+    expect(errorText(host)).toBe("");
+    expect(host.querySelector(".net-status.is-online")).toBeNull();
+    expect(host.textContent).toContain("已停止");
+    expect(host.textContent).not.toContain("运行中");
+    // 回执之外还有一条常驻历史：这一行是「上次更新」的账，不随 5 秒回执一起消失。
+    const line = updateLine(host);
+    expect(line).toContain("上次更新");
+    expect(line).toContain("v1.19.33");
+    expect(line).toContain("40s前");
+    expect(host.querySelector(".net-core-update--ok")).not.toBeNull();
+    expect(host.textContent).not.toContain("还没试过更新");
+  });
+
+  it("更新被 busy 挡下：既不是绿也不是红，neutral 那一档只留给这一种败", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(CORE_NOW);
+    const busy = { ...UPDATE_INSTALLED, outcome: "busy" as const, tag: null, detail: null, at: CORE_NOW - 5_000 };
+    const api = makeCoreApi(OWN_RUNNING, { update: coreView(OWN_RUNNING.status, "mochi", busy) });
+    const host = await mountCore(api);
+    await act(async () => { buttonOf(host, "update").click(); });
+    const neutral = host.querySelector(".net-notice--neutral");
+    expect(neutral?.textContent).toContain("我自己起的那颗内核还在跑");
+    expect(host.querySelector(".net-notice--ok")).toBeNull();
+    expect(errorText(host)).toBe("");
+    expect(host.querySelector(".net-core-update--neutral")).not.toBeNull();
+    expect(buttonOf(host, "update").textContent).toContain("更新内核");
+    // busy 不是「更新失败」：内核那颗还在跑，绿点该照旧亮着。
+    expect(host.querySelector(".net-status.is-online")).not.toBeNull();
+  });
+
+  it("更新败在摘要上：红字端出的是 reason 那句，不是泛泛一句「失败」", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(CORE_NOW);
+    const failed: CoreUpdateState = {
+      outcome: "failed", tag: "v1.19.34", asset: "mihomo-windows-amd64-v1.19.34.zip",
+      reason: "digest-mismatch", detail: "期望 sha256 aaa，实际 bbb", at: CORE_NOW - 12_000,
+    };
+    const api = makeCoreApi(STOPPED, { update: coreView({}, "mochi", failed) });
+    const host = await mountCore(api);
+    await act(async () => { buttonOf(host, "update").click(); });
+    expect(errorText(host)).toContain("下回来的内容与发布页说的 sha256 对不上，这份包我没往里装");
+    expect(errorText(host)).toContain("详情：期望 sha256 aaa，实际 bbb");
+    expect(host.querySelector(".net-notice--ok")).toBeNull();
+    expect(host.querySelector(".net-core-update--error")).not.toBeNull();
+    expect(updateLine(host)).toContain("v1.19.34");
+    // 现有那颗没被动过——这一句是「更新失败」与「更新把内核弄没了」的分界。
+    expect(host.textContent).not.toContain("新版已经放进");
+  });
+
+  it("「已是最新」也走绿字：文件没动是一件要如实说的事，不是失败", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(CORE_NOW);
+    const latest = { ...UPDATE_INSTALLED, outcome: "latest" as const, detail: "core 里那颗与 v1.19.33 逐字节相同" };
+    const api = makeCoreApi(STOPPED, { update: coreView({}, "mochi", latest) });
+    const host = await mountCore(api);
+    await act(async () => { buttonOf(host, "update").click(); });
+    expect(host.querySelector(".net-notice--ok")?.textContent).toContain("逐字节相同，文件没动");
+    expect(errorText(host)).toBe("");
+    expect(host.querySelector(".net-core-update--ok")).not.toBeNull();
+  });
+
+  it("账上没有更新的记录：一个字的回执都不许编", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(CORE_NOW);
+    const api = makeCoreApi(STOPPED, { update: STOPPED });
+    const host = await mountCore(api);
+    await act(async () => { buttonOf(host, "update").click(); });
+    expect(host.querySelector(".net-notice--ok")).toBeNull();
+    expect(errorText(host)).toBe("");
+    expect(updateLine(host)).toBeUndefined();
+    expect(buttonOf(host, "update").textContent).toContain("更新内核");
+    expect(buttonOf(host, "update").disabled).toBe(false);
+  });
+
+  it("没试过更新才教一句「这一颗会干什么」，有账之后不再念", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(CORE_NOW);
+    const before = await mountCore(makeCoreApi(STOPPED));
+    expect(before.textContent).toContain("还没试过更新");
+    expect(before.textContent).toContain("发布页给了 sha256 我才下载");
+    expect(updateLine(before)).toBeUndefined();
+
+    const after = await mountCore(makeCoreApi(OWN_RUNNING_UPDATED));
+    expect(after.textContent).not.toContain("还没试过更新");
+    expect(updateLine(after)).toContain("上次更新");
+  });
+
+  it("借 Verge 那颗在跑也挡不住更新：文件不在它手上，只有起停三颗灰", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(CORE_NOW);
+    const host = await mountCore(makeCoreApi(EXTERNAL_RUNNING));
+    for (const action of ["start", "stop", "restart"] as const) {
+      expect(buttonOf(host, action).disabled, action).toBe(true);
+    }
+    expect(buttonOf(host, "update").disabled).toBe(false);
+  });
+
+  it("时钟倒着走的时候不报「多久之前」：宁可少一格，不报一个负数", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(CORE_NOW);
+    const skewed = { ...UPDATE_INSTALLED, at: CORE_NOW + 60_000 };
+    const host = await mountCore(makeCoreApi(coreView({}, "mochi", skewed)));
+    const line = updateLine(host);
+    expect(line).toContain("上次更新");
+    expect(line).toContain("v1.19.33");
+    expect(line).not.toMatch(/\d+s前/);
   });
 });

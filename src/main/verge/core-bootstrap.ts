@@ -18,7 +18,13 @@
  *    （进程早没了、或者 Verge 自己又把内核起回了 9097），内存里那份账不会。
  *
  * 另有一条纪律：这一层不写 Verge 的任何文件。读它的 `clash-verge.yaml` 与 `profiles.yaml`，
- * 写只写我们自己的 `runtime/core.yaml`、`core/secret`、`core.log`（spec D2 的边界）。
+ * 写只写我们自己的 `runtime/core.yaml`、`core/secret`、`core/`（内核文件与更新临时目录）、
+ * `core.log`（spec D2 的边界）。
+ *
+ * T11 在这层加的只有接线，没有判断：下载、摘要、换装的判定全在 `mihomo-update`。
+ * 接线里唯一需要现场回答的是「现在换得动吗」——答案只看管理器内存里那颗我们自己的进程，
+ * 不看盘上的状态文件；`external` 那一档占的是 Verge 的安装目录，我们的 `mihomo.exe`
+ * 从来不在它手上，因此不该因为它而拒绝换文件。
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
@@ -30,6 +36,7 @@ import {
   isOwnCoreMode,
   type CorePortPair,
   type CoreStatus,
+  type CoreUpdateState,
 } from "../../shared/core-types";
 import { readControllerConfig, type ControllerConfig } from "./controller-config";
 import { createCoreLogSink } from "./core-log";
@@ -40,6 +47,14 @@ import { buildCoreRuntime } from "./core-runtime";
 import { createCoreSecretStore } from "./core-secret";
 import { createProfileStore } from "./profile-store-port";
 import type { ProfileStorePort } from "./profile-service";
+import {
+  createArchiveExtractor,
+  createCoreUpdater,
+  createUpdateNetwork,
+  type CoreUpdater,
+  type UpdateFs,
+  type UpdateNetwork,
+} from "./mihomo-update";
 import { createVergeRunningProbe } from "./verge-process";
 
 /** 控制器敲门的等待：只问「有没有人在听」，等久了也不会变出答案。 */
@@ -128,6 +143,15 @@ export interface CoreAssemblyOptions {
   readdir?(dir: string): string[];
   exists?(file: string): boolean;
   now?(): number;
+  /**
+   * 更新器的两条出口。默认接真 fetch（唯一的白名单域名是 GitHub 那三颗，见 spec D3）；
+   * 注入是为了测试——**这一层不复制判定**，判定在 `createUpdateNetwork` 里逐跳守着。
+   */
+  updateNetwork?: UpdateNetwork;
+  /** 把 zip 解到指定目录、回相对文件名。默认用系统 `Expand-Archive`／`tar`，不引依赖。 */
+  extract?(archive: string, destDir: string): Promise<string[]>;
+  /** 换文件用的那点磁盘动作。默认落到真盘，注入给单测。 */
+  updateFs?: UpdateFs;
 }
 
 export interface CoreAssembly {
@@ -144,6 +168,13 @@ export interface CoreAssembly {
   runtimeFile(): string | null;
   logFile(): string;
   coreDir(): string;
+  /**
+   * 跑一趟内核更新并回那次的下场。**只换文件，不动进程**：
+   * 换上之后要不要用新版，是用户下一次点「起内核／重启」的事，不是这一次点击替他决定的事。
+   */
+  updateCore(): Promise<CoreUpdateState>;
+  /** 最近一次更新的下场；一次都没试过就是 null。 */
+  updateState(): CoreUpdateState | null;
 }
 
 export function createCoreAssembly(options: CoreAssemblyOptions): CoreAssembly {
@@ -285,6 +316,36 @@ export function createCoreAssembly(options: CoreAssemblyOptions): CoreAssembly {
     return status.ports;
   };
 
+  /* ------------------------------------------------------------ T11 内核更新 */
+
+  /**
+   * 换得动 `core/mihomo.exe` 吗——只看内存里那颗我们自己的进程。
+   *
+   * `starting` 也算挡：spawn 回来到控制器答话那几秒里，映像已经被人咬着。
+   * `external` 不挡：那一颗占的是 Verge 的安装目录，我们的文件从来不在它手上；
+   * 跟着它一起挡，用户退出不了 Verge 就永远更新不了内核，而那本来不是同一件事。
+   */
+  const canSwap = (): boolean => {
+    const status = manager.status();
+    if (!isOwnCoreMode(status.mode)) return true;
+    return status.state !== "running" && status.state !== "starting";
+  };
+
+  const network = options.updateNetwork ?? createUpdateNetwork();
+  const updater: CoreUpdater = createCoreUpdater({
+    getJson: (url) => network.getJson(url),
+    downloadBytes: (url, maxBytes) => network.downloadBytes(url, maxBytes),
+    extract: options.extract ?? createArchiveExtractor(),
+    fs: options.updateFs,
+    canSwap,
+    coreDir,
+    bundledExe: () => bundledExePath(options.userData),
+    // 三态发现优先借安装版：装了却不生效这件事只能在这里说出口，页面猜不出来。
+    installedCoreExists: () => findInstalledExe() !== null,
+    now,
+    log: (line) => appendLog(`${new Date(now()).toISOString()} 更新 ${line}`),
+  });
+
   return {
     manager,
     status: () => manager.status(),
@@ -303,6 +364,8 @@ export function createCoreAssembly(options: CoreAssemblyOptions): CoreAssembly {
     runtimeFile: () => runtimeConfigFile,
     logFile,
     coreDir,
+    updateCore: () => updater.update(),
+    updateState: () => updater.state(),
   };
 }
 

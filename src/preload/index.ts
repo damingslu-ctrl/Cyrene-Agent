@@ -1233,15 +1233,17 @@ const vergeApi = {
       ipcRenderer.invoke(IPC.VERGE_SYS_PROXY_SET, toggle) as Promise<SystemProxySetResult>,
   },
   /**
-   * 内核宿主（Wave 3 T10b）。三条动作都不回布尔：结论是「现在哪一态、为什么」，
-   * 被单写者闸门挡下与真的起来了得用同一把尺量，页面才不会在失败那次画一个勾。
-   * 这里也不递任何参数——起哪颗内核、吃哪份配置只由 main 那一侧决定。
+   * 内核宿主（Wave 3 T10b/T11）。四条动作都不回布尔：结论是「现在哪一态、为什么」，
+   * 被单写者闸门挡下与真的起来了、下载失败与「我们那颗还在跑所以没换」都得用同一把尺量，
+   * 页面才不会在失败那次画一个勾。这里也不递任何参数——起哪颗内核、吃哪份配置、
+   * 从哪个地址更新都由 main 那一侧钉死，渲染端递进来的地址一律没有入口。
    */
   core: {
     status: () => ipcRenderer.invoke(IPC.VERGE_CORE_STATUS) as Promise<CoreView>,
     start: () => ipcRenderer.invoke(IPC.VERGE_CORE_START) as Promise<CoreView>,
     stop: () => ipcRenderer.invoke(IPC.VERGE_CORE_STOP) as Promise<CoreView>,
     restart: () => ipcRenderer.invoke(IPC.VERGE_CORE_RESTART) as Promise<CoreView>,
+    update: () => ipcRenderer.invoke(IPC.VERGE_CORE_UPDATE) as Promise<CoreView>,
   },
   /** main → 宠物窗：右键菜单选的互动动作。 */
   onPetCommand: (callback: (command: PetCommand) => void) => {

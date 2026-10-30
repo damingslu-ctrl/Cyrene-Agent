@@ -648,6 +648,11 @@ export const IPC = {
   VERGE_CORE_START: "verge:core:start",
   VERGE_CORE_STOP: "verge:core:stop",
   VERGE_CORE_RESTART: "verge:core:restart",
+  /**
+   * 自托管内核更新。也汇回同一份 `CoreView`：换文件与「这颗现在在不在跑」是同一条线上的事，
+   * 分两次问就得让页面自己猜哪一份更新对应哪一次起停。
+   */
+  VERGE_CORE_UPDATE: "verge:core:update",
   // —— v1.4.0 桌宠互动 ——
   /** main → 宠物窗：右键菜单里的互动动作（petCommand）。 */
   VERGE_PET_COMMAND: "verge:pet-command",

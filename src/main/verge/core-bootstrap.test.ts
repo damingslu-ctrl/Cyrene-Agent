@@ -4,7 +4,12 @@
  * 判据在 `core-manager` / `core-source` 那儿用假端口钉死了；这里只证接线，
  * 而接线上最贵的三件事恰好都在这一层：口令跟谁走、端口跟谁走、我们起的这颗
  * 内核页面看不看得见。三条都可能「接错了但全绿」，所以每条都得有字节级的证据。
+ *
+ * T11 把这层加了一件事，也照同一个口径证：**更新只换 `<userData>/core` 里那个文件**。
+ * 是「换文件」还是「动进程」得能从字节与 spawn 计数上分开看出来，因为这两件事在真机上
+ * 的后果完全不同——前者最多是下次起内核吃新版，后者是用户正在用的代理当场断。
  */
+import { createHash } from "node:crypto";
 import { createServer, type AddressInfo } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,6 +31,7 @@ import {
   type CoreAssembly,
 } from "./core-bootstrap";
 import type { CoreChild } from "./core-manager";
+import { MIHOMO_RELEASE_API_URL, STAGING_DIR_NAME, sha256Hex, type UpdateNetwork } from "./mihomo-update";
 import { PROFILES_DIR } from "./profile-store-port";
 import { PROFILES_FILE } from "./profiles-store";
 import { RUNTIME_DIR } from "./runtime-config";
@@ -34,6 +40,33 @@ const VERGE_PLACEHOLDER = "set-your-secret";
 const OURS_HEX = "9f2c41a7be05d8136ce4a0f1d2b87e9c3a5f60718293a4b5c6d7e8f9012345ab";
 const BODY = "proxies:\n  - name: hk-1\n    type: ss\n    server: 1.2.3.4\n";
 const CLOCK = 1_732_000_000_000;
+
+/** 假包与假内核正文：更新那几条判据比的都是字节，这里得给出真的字节。 */
+const ZIP_BYTES = Buffer.from("fake-mihomo-zip-payload");
+const NEW_EXE_BYTES = Buffer.from("new-mihomo-exe\0\0\0");
+const OLD_EXE_BYTES = Buffer.from("old-mihomo-exe\0\0");
+
+/** 一份「能装」的发布页：windows-amd64 的 plain 包排第一，摘要按 zip 现算。 */
+function releaseJson(zip: Buffer, tag = "v1.19.33") {
+  const name = `mihomo-windows-amd64-${tag}.zip`;
+  return {
+    tag_name: tag,
+    prerelease: false,
+    draft: false,
+    assets: [
+      {
+        name: "mihomo-darwin-arm64.zip",
+        digest: null,
+        browser_download_url: "https://github.com/MetaCubeX/mihomo/releases/download/other",
+      },
+      {
+        name,
+        digest: `sha256:${sha256Hex(zip)}`,
+        browser_download_url: `https://github.com/MetaCubeX/mihomo/releases/download/${tag}/${name}`,
+      },
+    ],
+  };
+}
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -53,6 +86,22 @@ interface AssemblyInput {
   bundled?: boolean;
   /** 预置我们自己那枚存盘的口令。 */
   secretOnDisk?: string;
+  /** 发布页正文；不传＝那份「能装」的假发布页。传 null 就让它回原样（判定自己走）。 */
+  release?: unknown;
+  /** 假包正文（摘要按它现算，所以换它就等于换指纹）。 */
+  zip?: Buffer;
+  /** 假解压吐出来的那颗 exe 正文。 */
+  exe?: Buffer;
+  releaseThrows?: string;
+  downloadThrows?: string;
+  extractThrows?: string;
+  /** 预置 `<userData>/core/mihomo.exe` 的正文：给成 `exe` 同一个值就落进「已是最新」那一档。 */
+  currentExe?: Buffer;
+  /**
+   * 就绪敲门挂在这条 promise 上：用来把内核钉在 `starting` 那一档不动，
+   * 好让「正在起的那几秒里点更新」这条判据有一个确定的现场（不靠抢微任务时序）。
+   */
+  readyHold?: Promise<void>;
 }
 
 function fakeChild(pid: number) {
@@ -65,6 +114,26 @@ function fakeChild(pid: number) {
     kill: () => true,
   };
   return { child, emitStderr: (text: string) => { for (const listener of sink) listener(text); } };
+}
+
+/**
+ * 整棵目录树的字节指纹（相对名 + 内容一起进哈希）。
+ *
+ * 「 listings 没变」只证了文件名那一层：有人往 Verge 目录里改写一个已有文件，名字不变、
+ * 内容变了，列表尺读不出来。spec D2 那条「Verge 的目录一个字节都不碰」要的是这种证据。
+ */
+function fingerprint(root: string): string {
+  const hash = createHash("sha256");
+  const walk = (dir: string, prefix: string): void => {
+    for (const name of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const file = path.join(dir, name.name);
+      const relative = prefix ? `${prefix}/${name.name}` : name.name;
+      if (name.isDirectory()) walk(file, relative);
+      else hash.update(`${relative}\n${readFileSync(file).length}\n`).update(readFileSync(file));
+    }
+  };
+  if (existsSync(root)) walk(root, "");
+  return hash.digest("hex");
 }
 
 function assembly(input: AssemblyInput = {}) {
@@ -97,6 +166,10 @@ function assembly(input: AssemblyInput = {}) {
     mkdirSync(path.join(userData, "core"), { recursive: true });
     writeFileSync(path.join(userData, "core", "secret"), `${input.secretOnDisk}\n`, "utf8");
   }
+  if (input.currentExe !== undefined) {
+    mkdirSync(path.join(userData, "core"), { recursive: true });
+    writeFileSync(bundledExe, input.currentExe);
+  }
 
   const spawns: Array<{ exePath: string; args: string[]; cwd: string }> = [];
   const kids: ReturnType<typeof fakeChild>[] = [];
@@ -112,6 +185,28 @@ function assembly(input: AssemblyInput = {}) {
   let knocks = 0;
   const started = () => spawns.length > 0;
 
+  /** 两条出口各记一笔：busy 那一条的判据就是「一次请求都没发出去」。 */
+  const zip = input.zip ?? ZIP_BYTES;
+  const updateCalls = { json: [] as string[], bytes: [] as string[] };
+  const updateNetwork: UpdateNetwork = {
+    async getJson(url) {
+      updateCalls.json.push(url);
+      if (input.releaseThrows) throw new Error(input.releaseThrows);
+      return input.release === undefined ? releaseJson(zip) : input.release;
+    },
+    async downloadBytes(url) {
+      updateCalls.bytes.push(url);
+      if (input.downloadThrows) throw new Error(input.downloadThrows);
+      return zip;
+    },
+  };
+  /** 假的系统解压：把「包里的内容」直接落成一颗 exe，条目名与真包一致。 */
+  const extract = async (_archive: string, destDir: string): Promise<string[]> => {
+    if (input.extractThrows) throw new Error(input.extractThrows);
+    writeFileSync(path.join(destDir, "mihomo-windows-amd64.exe"), input.exe ?? NEW_EXE_BYTES);
+    return ["mihomo-windows-amd64.exe"];
+  };
+
   const core: CoreAssembly = createCoreAssembly({
     getConfigRoot: () => configRoot,
     userData,
@@ -124,6 +219,7 @@ function assembly(input: AssemblyInput = {}) {
     probeController: async (url) => {
       knocks += 1;
       if (!started()) return url === declared && input.externalReachable === true;
+      if (input.readyHold) await input.readyHold;
       return true;
     },
     spawnCore: (exePath, args, cwd) => {
@@ -132,6 +228,8 @@ function assembly(input: AssemblyInput = {}) {
       kids.push(kid);
       return kid.child;
     },
+    updateNetwork,
+    extract,
   });
 
   return {
@@ -141,6 +239,10 @@ function assembly(input: AssemblyInput = {}) {
     userData,
     spawns,
     kids,
+    updateCalls,
+    bundledExe,
+    zip,
+    exeBytes: () => (existsSync(bundledExe) ? readFileSync(bundledExe) : null),
     logText: () => {
       const file = path.join(userData, "core.log");
       return existsSync(file) ? readFileSync(file, "utf8") : "";
@@ -433,5 +535,164 @@ describe("core-bootstrap：写只写自己那一侧", () => {
     expect(status).toMatchObject({ state: "blocked", reason: "no-config" });
     expect(status.detail).toContain("数据目录");
     expect(core.controllerOverride()).toBeNull();
+  });
+});
+
+describe("core-bootstrap：内核更新只换一个文件，不动进程", () => {
+  /** 装成一次的全部证据：字节落了盘、临时层没留、Verge 那边一个字节没多。 */
+  it("更新把新字节放进 <userData>/core/mihomo.exe，别的什么都不碰", async () => {
+    // `installed: false` 是为了让这一条只证「换文件」这一件事：本机没有安装版时，
+    // 回执不该带那句「还没生效」的阴影（它有自己那一条测试）。
+    const h = assembly({ installed: false });
+    // 一次都没试过：这一档必须是 null，页面那句「上次更新」没有权利画出来。
+    expect(h.core.updateState()).toBeNull();
+    const vergeFiles = [h.listedIn(h.configRoot), h.listedIn(path.join(h.configRoot, PROFILES_DIR))];
+    const vergeBytes = fingerprint(h.configRoot);
+
+    const state = await h.core.updateCore();
+    expect(state).toEqual({
+      outcome: "installed",
+      tag: "v1.19.33",
+      asset: "mihomo-windows-amd64-v1.19.33.zip",
+      reason: null,
+      detail: null,
+      at: CLOCK,
+    });
+    expect(h.exeBytes()).toEqual(NEW_EXE_BYTES);
+    expect(h.core.updateState()).toEqual(state);
+    expect(path.dirname(h.bundledExe)).toBe(h.core.coreDir());
+    // 换装全程住的那一层是过路的地方：败了要能重跑，成了不该留下痕迹。
+    expect(existsSync(path.join(h.userData, "core", STAGING_DIR_NAME))).toBe(false);
+    expect(h.listedIn(path.join(h.userData, "core"))).toEqual(["mihomo.exe"]);
+    expect([h.listedIn(h.configRoot), h.listedIn(path.join(h.configRoot, PROFILES_DIR))]).toEqual(vergeFiles);
+    // 名字没变不等于没被碰过：整棵 Verge 树的字节指纹必须一模一样（spec D2）。
+    expect(fingerprint(h.configRoot)).toBe(vergeBytes);
+    // 这把尺自己得有用：往 Verge 目录里改写一个已有文件，指纹必须变——不然上面那条是恒真。
+    writeFileSync(path.join(h.configRoot, PROFILES_FILE), `${BODY}tampered\n`, "utf8");
+    expect(fingerprint(h.configRoot)).not.toBe(vergeBytes);
+    // 一颗进程都没动：更新那趟连 spawn 都不该有。
+    expect(h.spawns).toHaveLength(0);
+  });
+
+  /** 出口只有 spec D3 那本发布页；下载地址由发布页说了算，装配层不改写也不放宽。 */
+  it("发出去的地址就是 GitHub 发布页，资产地址取自发布页给的那一条", async () => {
+    const h = assembly();
+    await h.core.updateCore();
+    expect(h.updateCalls.json).toEqual([MIHOMO_RELEASE_API_URL]);
+    expect(h.updateCalls.bytes[0] ?? "").toMatch(/^https:\/\/github\.com\/MetaCubeX\/mihomo\/releases\/download\//);
+  });
+
+  it("发布页给的下载地址不在白名单域名上：一个字节都不下", async () => {
+    const h = assembly({
+      release: {
+        tag_name: "v1.19.33",
+        assets: [{
+          name: "mihomo-windows-amd64-v1.19.33.zip",
+          digest: `sha256:${sha256Hex(ZIP_BYTES)}`,
+          browser_download_url: "https://api.github.com.evil.tld/x.zip",
+        }],
+      },
+    });
+    expect(await h.core.updateCore()).toMatchObject({ outcome: "failed", reason: "download-failed" });
+    expect(h.updateCalls.bytes).toEqual([]);
+    expect(h.exeBytes()).toBeNull();
+  });
+
+  /**
+   * 「已是最新」不看版本号记账，看字节。
+   * 这一条在装配层也要证一次：装配层要是把 `releaseUrl`／`bundledExe` 接错，
+   * 更新器比的就是别的文件，那句「已经是最新」会一直真——而内核从来没换过。
+   */
+  it("core 里那颗与包里的逐字节相同时报 latest，且确实没有再写第二次", async () => {
+    const h = assembly({ currentExe: NEW_EXE_BYTES });
+    const state = await h.core.updateCore();
+    expect(state.outcome).toBe("latest");
+    expect(state.detail).toContain("逐字节相同");
+    expect(h.exeBytes()).toEqual(NEW_EXE_BYTES);
+  });
+
+  it("解压败了：旧那颗一个字节都不动，临时层也扫干净", async () => {
+    const h = assembly({ currentExe: OLD_EXE_BYTES, extractThrows: "Expand-Archive：退出码 1" });
+    const state = await h.core.updateCore();
+    expect(state).toMatchObject({ outcome: "failed", reason: "extract-failed", tag: "v1.19.33" });
+    expect(state.detail).toContain("退出码 1");
+    expect(h.exeBytes()).toEqual(OLD_EXE_BYTES);
+    expect(existsSync(path.join(h.userData, "core", STAGING_DIR_NAME))).toBe(false);
+  });
+
+  /** 我们那颗还在跑（或正在起）就换不动文件；闸门必须排在下载之前，不然这一次点击先烧 22 MB。 */
+  it("自己起的内核在跑时点更新：不发请求、不写文件，只说 busy", async () => {
+    const h = assembly({ installed: true });
+    await h.core.manager.start();
+    expect(h.core.status().state).toBe("running");
+    h.updateCalls.json.length = 0;
+    h.updateCalls.bytes.length = 0;
+
+    const state = await h.core.updateCore();
+    expect(state.outcome).toBe("busy");
+    expect(h.updateCalls).toEqual({ json: [], bytes: [] });
+    expect(h.exeBytes()).toBeNull();
+    expect(h.spawns).toHaveLength(1); // 只有刚才那次起，更新这趟一颗都没动
+  });
+
+  /**
+   * 「正在起」也算挡着：那一颗进程已经存在、吃的是我们刚写下去的那份 runtime 配置，
+   * 这时候换文件等于换掉正在被拉起的那一颗的映像——败得毫无道理且看不出原因。
+   */
+  it("内核还在 starting 时点更新：一样 busy，一样不发请求", async () => {
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => { release = resolve; });
+    const h = assembly({ installed: true, readyHold: hold });
+    const inflight = h.core.manager.start();
+    // 就绪敲门被 readyHold 挂住，所以这一档停在 starting；不必抢时序，让出微任务即可。
+    for (let i = 0; i < 200 && h.core.status().state !== "starting"; i += 1) await Promise.resolve();
+    expect(h.core.status().state).toBe("starting");
+    expect(h.spawns).toHaveLength(1);
+    h.updateCalls.json.length = 0;
+    h.updateCalls.bytes.length = 0;
+
+    expect(await h.core.updateCore()).toMatchObject({ outcome: "busy" });
+    expect(h.updateCalls).toEqual({ json: [], bytes: [] });
+    expect(h.exeBytes()).toBeNull();
+
+    release();
+    expect((await inflight).state).toBe("running");
+  });
+
+  /**
+   * 这条最容易接反：external 态那颗进程是 Verge 的，占的是安装目录里的文件，
+   * 我们的 `core/mihomo.exe` 从来不在它手上。跟着 busy 挡住，装了 Verge 且退不掉的人
+   * 就永远更新不了自托管内核——而那本来跟「谁在跑」不是同一件事。
+   */
+  it("吃 Verge 控制器时照样换得动：挡的是我们自己的进程，不是别人那颗", async () => {
+    const h = assembly({ externalReachable: true, installed: true });
+    const status = await h.core.manager.start();
+    expect(status.mode).toBe("external");
+    expect(status.state).toBe("running");
+
+    expect(await h.core.updateCore()).toMatchObject({ outcome: "installed" });
+    expect(h.exeBytes()).toEqual(NEW_EXE_BYTES);
+    expect(h.spawns).toHaveLength(0);
+    expect(h.kids).toHaveLength(0);
+    // 更新写的是我们那一侧的账：日志里那句读回来的口令仍旧不许落盘。
+    expect(h.logText()).not.toContain(VERGE_PLACEHOLDER);
+  });
+
+  /** 装了 Verge 时按三态发现会优先借安装版：换上不等于生效，这句只能在这里说出口。 */
+  it("本机还有安装版时，回执写着「还没生效」那句；没有安装版就不编这句", async () => {
+    const withVerge = assembly({ installed: true });
+    expect((await withVerge.core.updateCore()).detail).toContain("优先借");
+
+    const alone = assembly({ installed: false });
+    expect((await alone.core.updateCore()).detail).toBeNull();
+  });
+
+  /** 在途去重也是接线的一部分：装配层每班只造一个更新器，两次点击等同一趟结果。 */
+  it("连点两次更新只跑一趟，第二次拿的是同一份下场", async () => {
+    const h = assembly();
+    const [first, second] = await Promise.all([h.core.updateCore(), h.core.updateCore()]);
+    expect(second).toEqual(first);
+    expect(h.updateCalls.json).toHaveLength(1);
+    expect(h.updateCalls.bytes).toHaveLength(1);
   });
 });
