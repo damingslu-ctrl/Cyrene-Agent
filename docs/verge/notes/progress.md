@@ -1965,3 +1965,95 @@ vitest 非 verbose 报告器，改从 `FAIL <file> > <describe> > <test>` 行取
 ⑤ `CORE_REASONS` 里 `download-failed` / `digest-missing` / `digest-mismatch` / `extract-failed` 这四档仍然只有词表、
 没有生产者——等 T11。
 
+### Wave 3 T11：内核更新（发布页 → 摘要 → 临时目录 → 换文件）——「装上了」与「生效了」是两本账（2026-10-30）
+
+T10b 文末「未做，记账」的 ①⑤ 在这一刀合上：`blocked + no-binary` 那句「得先下载一颗」现在有出口了，
+而那四档没人生产的死词被摘干净（下面第 ⑥ 段）。落地的是 `mihomo-update.ts`（556 行，一个依赖都没引）
+＋ 一份 68 条的尺，其余全是接线与页面：装配层 `core-bootstrap` 24→**34**、第五条通道 `core-ipc` 21→**26**、
+渲染端判定 `core-view` 46→**67**、卡片 `NetworkViews` 59→**68**、纯函数 `core-source` 19→**27**、
+`core-manager` 29→**30**（新加的那条是词表的，不是内核的）。**上一刀那 45 条判定依然原地不动**——
+这一层最容易犯的错还是「把下面那层的判据重写一遍，于是两处各说半句」。
+
+**① 这一层独有的六个判断，错了在上面两层看不出来**（都在 `mihomo-update.ts`）：
+出口白名单在**发请求之前**问一次（`:192`）——假发布页可以给自己发一枚完全自洽的 sha256，来源不钉住，
+摘要这件事在这条路上就没有意义；`canSwap()` 也在发请求之前问（`:197`），明知换不了还先下 22 MB 是替用户烧带宽；
+`prerelease || draft` 不装（`:213`）；`digest` 缺失或不是 `sha256:` 就直接拒、一个字节都不下（`:220`，
+`digest-missing` 与 `digest-mismatch` 分两档是因为「上游没给凭据」与「货不对板」是两件要用户做不同事的事）；
+摘要比对用**整包字节**现算（`:239`，`sha256Hex` `:136`）；`rename` 之前**再问一次** `canSwap()`（`:287`）——
+下载那几十秒里内核可能被人起起来了，那时候换的是正在执行的映像，必败而且败得看不懂。
+中间还夹着两档只有字节能说的判断：与 `core/mihomo.exe` **逐字节相同**就是 `latest`、连文件都不碰（`:281-282`），
+解压产物里**必须正好一个 `.exe`** 才认（`selectExtractedExe` `core-source.ts:154`，取第一个＝替用户猜）。
+
+**② 「装上了」不许冒充「生效了」**。这条是本轮全部页面锁的中心：`update.outcome === "installed"` 只说文件换成了，
+下一次起内核才吃新版，所以绿字那句写的是「新版已经放进 core 目录（下一次起内核吃它）」（`zh-CN.json:2445`），
+而状态徽标**不许**跟着亮成「运行中」——卡片锁 `NetworkViews.test.tsx:1396`。反方向也钉：进程在跑不等于更新成功，
+更新回执只读 `view.update`（`core-view.ts:226-231`、`CoreSection.tsx:108`），两本账在判定层各说各的词表
+（`core-view.test.ts:296`）。`busy` 是这一层唯一一档「既不是绿也不是红」的下场，`neutral` 这个 tone 只为它存在
+（`core-view.ts:211`，卡片 `NetworkViews.test.tsx:1418` 顺带锁住「绿点该亮还亮」）；
+`latest` 走绿字（`:1454`）；账上没有那条记录时**一个字都不许编**（`:1466`，`coreUpdateReceipt(null)` 回 null
+`core-view.ts:227`）；失败先端出 reason 那句人话、没说原因才退到下场那一句（`core-view.ts:228-230`、
+卡片 `:1435` 连「详情：期望 sha256 aaa，实际 bbb」一起锁）。常驻那行「上次更新 … 38s 前」另有一把尺：
+时钟倒着走时**宁可少一格**，不报一个负数（`core-view.ts:261`、`core-view.test.ts:352`、卡片 `:1502`）。
+
+**③ 闸门只归装配层**（`canSwap` `core-bootstrap.ts:328-331`）。判据是内存里那颗的当下状态，`starting` 也算挡
+（映像已被咬着），`external` **不挡**（那一颗占的是 Verge 的安装目录，我们的文件从来不在它手上——跟着它一起挡，
+用户退不出 Verge 就永远更新不了内核，而这两件本来不是同一件事）。这句理由在真机上是听得见的：
+`NetworkViews.test.tsx:1492` 锁的就是「借 Verge 那颗在跑，起停三颗灰、更新那颗亮」。
+装配点 `:334-345` 把 `canSwap`、`bundledExe`、`installedCoreExists` 三样递给更新器——**更新器自己不查进程、
+不猜路径**，它只知道自己拿到的一只函数。
+
+**④ 第五条通道与「shadow」那句话**。`verge:core:update` 从 `ipc-channels.ts:655` 走到 `core-ipc.ts:49-50`
+（回执仍是同一份 `CoreView`，`:29` 把 `update: core.updateState()` 塞进去）、`preload/index.ts:1246`、
+sender 政策 `ipc-sender-policy.ts:55` 只归主窗（`["chat"]`），注册与摘除五条一起（`core-ipc.ts:32-59`）。
+换上成功时如果本机还装着 Verge 安装版那颗，回执里会带一句「按三态发现优先借它，我们这颗要等安装版不在才生效」
+（`core-bootstrap.ts:343` → `mihomo-update.ts:295-298`）——这一句只能在这儿说：页面看得见 `installed`、
+看得见 `bundled`，看不见的是发现逻辑的优先序。
+
+**⑤ 写盘边界换成了按字节量的尺**。T10b 那份「Verge 目录零写入」是按**文件名列表**判的，看不见「把已有文件重写一遍」
+这种形状；本轮换成整棵树递归算 sha256 指纹（`core-bootstrap.test.ts:125`），装完一颗再比一次
+（`:550` 取基线、`:569` 断言不动），并且**自带正对照**：`:571-572` 当场往 `profiles.yaml` 里写一个字节、
+要求指纹必须变——一把量不出变化的尺不叫通过。这条有牙：U20（把写入边界换成 Verge 的 profiles 目录）红 3 条。
+
+**⑥ 词表分流，顺手把两把反向尺立起来**。`CORE_UPDATE_OUTCOMES` / `CORE_UPDATE_REASONS` 是独立两本
+（`core-types.ts:128/142`），不取 `CORE_REASONS` 的子集：那本说的是「内核为什么没在跑」，这本说的是
+「这一次为什么没换上」；共用一张表，页面就得替 `no-port` 编一句「下载为什么败」。既然分了家，
+`CORE_REASONS` 里那四档下载/摘要/解压的词从此不会有生产者，本轮把它们与三份语言里对应的四行一起摘掉
+（`:36-42` 现在 9 档，全是 `core-manager` 自己会说出的话）。摘词之后补了两把反向尺，因为原来那两把都只朝一个方向量
+（枚举 → 语言里有话），「语言与枚举里挂着一档进程永远说不出来的原因」两头都不红——那四档就是这么活了两个 Wave 的：
+`core-manager.test.ts:433-446` 按源码扫「每一档都得在这儿以字面量出现过」（并带正对照：一个都没扫到＝尺子坏了），
+`core-view.test.ts:419` 扫「`network.core.reason` 底下挂的 key 必须与枚举一一对上，两本词表不许共用一档」。
+U24 专门验这两把不是旧尺的复读：把死词按历史形状**同时**请回枚举与三份语言（此时 parity 锁与派生 key 锁全绿），
+红的恰好只有这两把（`.tmp/mutate-t11d-report.txt`）。
+
+**尺子与变异**：定向八份尺 **324/324**（`mihomo-update` 68 + `core-view` 67 + `NetworkViews` 68 + `core-bootstrap` 34 +
+`core-source` 27 + `core-ipc` 26 + `core-manager` 30 + `resources` 4，`.tmp/t11c-targeted.txt`，3.39s）。
+变异二十一档（`.tmp/mutate-t11.py` → `.tmp/mutate-t11-report.txt`，U1–U21 按**内容**下手）覆盖六个判断、
+`canSwap` 两次、在途去重、逐跳白名单、`finally` 清临时目录、tone 分流、时钟倒挂、卡片首句提示与回执分支——
+**全部红回来，`SURVIVED=0`，每条 sha256 逐字节还原 `restored=True`**；红数最多的是 U1（`isOwnCore` 恒真，6 条）
+与 U18（页面 tone 恒 ok，5 条），最少的是 U12（`starting` 不挡换装，**1 条**）。
+**U12 那一档值得记**：第一次跑它活了——不是产品错，是当时没有任何一条尺走到「内核停在 `starting`」这一档。
+补尺不能靠抢时序（就绪敲门是 `await` 出来的），所以给假探针加了 `readyHold`（`core-bootstrap.test.ts:104/222`），
+让那一档停在哪都由测试说（新那条 `core-bootstrap.test.ts:642-660`）。按 memory 里那条纪律，尺子改过就得用**最终版重跑认证**，
+所以 U1–U21 这二十一条是在词表分流之后重跑的，跑的才是上面这些数。另有 U22/U23 两条小验（`.tmp/mutate-t11c.py`）
+证明新那把反向尺与旧的 parity 尺抓的不是同一件事，`.tmp/mutate-t11c-report.txt` `SURVIVED=0`。
+
+**门**（全部 exit 0）：三道 `tsc --noEmit`（main / preload / renderer）各 0（`.tmp/t11c-tsc-*.txt` 三份 0 字节）；
+`node scripts/build/desktop-typescript.mjs main|preload` 各 0（805 / 153 个文件）；`vite build` 6.05s（`.tmp/t11c-vite.txt`）；
+全量 `CI=true node node_modules/vitest/vitest.mjs run`——**781 文件 / 8470 passed | 2 skipped（8472）**、201.28s
+（`.tmp/t11c-full.txt`）。对 T10b 收口的 780 / 8348|2：**+1 文件**＝`mihomo-update.test.ts`；**+122 条**＝新文件 68
+＋ 既有六份尺补的 54（`core-bootstrap` +10、`core-source` +8、`core-view` +21、`NetworkViews` +9、
+`core-ipc` +5、`core-manager` +1）。`core-view` 那 +21＝24 把新 key 的尺 + 1 把反向尺 − 4 把死词的尺：
+摘词让派生那把 `it.each` 少掉 4 条（这一 −4 是**减出来的**，不是漏写），所以 +122 里含它。
+
+**未做，记账**：
+① **真窗验收仍压着**：本轮全部证据是假 HTTP + 真临时目录 + jsdom。真下载一颗 22 MB 的包要走代理通路
+（`objects.githubusercontent.com` 那一跳 302 实测过形状，但没在这台机器上真装一颗进 `<userData>/core`）——
+T14 那一趟要补的是「点了、装上了、下次起内核吃的是新版」这三件事在同一次真窗里连起来。
+② 只认 **windows-amd64 一档**资产（`pickMihomoAsset` `core-source.ts:122`，2026-10-30 拿真响应认证过：
+`v1.19.33`、127 个资产、plain 那颗连字符最少）。别的架构在这台机器上是 `no-asset` 那句话，不是「装错了」。
+③ 更新器**不碰进程**：换完文件不会替用户重起内核，这是设计（`installed` 那句人话写的就是这件事）。
+要不要给一个「换好了，现在重启」的二段动作，等真窗看过一次再定。
+④ `core.log` 的打码仍只覆盖口令集合，不含订阅 URL 里的 token（继承 T10b 的 ④）。
+⑤ 自愈只重起、不换端口（继承 T10 的 ⑤）。
+
+
