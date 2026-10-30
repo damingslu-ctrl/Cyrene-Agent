@@ -82,15 +82,24 @@ export function girlBasePoseFor(
 
 /**
  * v1.22 日常互动也各播自己那一行：喂食=吃饭、玩耍=拍打。
- * 没列进来的活动（走路/梳毛/被拖/休息…）照旧走姿态或帧段——这张表只收
+ * v1.25 补上两件「被对待」的事：被摸=pet、自己梳毛=groom。
+ * 没列进来的活动（走路/被拖/休息…）照旧走姿态或帧段——这张表只收
  * 有专属画的，不许拿一行通用动作把所有互动都盖掉。
  */
 export const GIRL_ACTIVITY_ACTION: Partial<Record<GirlActivity, GirlActionId>> = {
   eat: "eat",
   play: "bat",
+  pet: "pet",
+  groom: "groom",
 };
 
-/** 手势 → 专属动作行（跳=hop、打字=type、v1.23 点头/摇头/拍手/捂脸）；其余手势仍走姿态/帧段优先级。 */
+/**
+ * 手势 → 专属动作行（跳=hop、打字=type、v1.23 点头/摇头/拍手/捂脸、
+ * v1.25 发抖/扭头/喝一口/梳毛）。其余手势仍走姿态/帧段优先级：
+ * 招手/鞠躬/剪刀手/歪头/哈欠/伸懒腰只有姿态图集里那一张静帧，没有自己的行，
+ * 不许拿别的行动画顺走它们。groom 是这一批里唯一「静帧与动画画的是同一件事」的，
+ * 有了自己的一行之后静帧 wash 退居兜底。
+ */
 export const GIRL_GESTURE_ACTION: Record<string, GirlActionId | undefined> = {
   hop: "hop",
   typeCode: "type",
@@ -98,6 +107,10 @@ export const GIRL_GESTURE_ACTION: Record<string, GirlActionId | undefined> = {
   shake: "shake",
   clap: "clap",
   coverFace: "coverFace",
+  shiver: "shiver",
+  turnAway: "turnAway",
+  sip: "sip",
+  groom: "groom",
 };
 
 export interface GirlBaseVisualInput {

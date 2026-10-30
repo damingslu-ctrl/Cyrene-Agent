@@ -4173,6 +4173,8 @@ export class PixelPetRenderer {
     if (heldMs >= PET_HOLD_MS) {
       this.engine?.touch("pet", now);
       this.engine?.save();
+      // 长按摩挲也是伸手：与分区回馈同一条理由，4fps 档最坏 250ms 后才演，手早抬起来了。
+      if (!this.paused) this.draw(now);
       return;
     }
     // 躲猫猫：捂眼时点＝太早（这一下归数数，不摸头）；探头时点中＝逮到。
