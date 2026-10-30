@@ -964,7 +964,18 @@ async function main() {
   await shot("girl-lean-left.png");
   check("lean.left", lean.girl.presence.leanDeg < -1.5, `leanDeg=${lean.girl.presence.leanDeg.toFixed(2)}`);
   check("lean.shift", lean.girl.presence.shiftX < -0.4, `shiftX=${lean.girl.presence.shiftX.toFixed(2)}`);
-  check("lean.facing", lean.girl.presence.facing === -1, `facing=${lean.girl.presence.facing}`);
+  // 翻身要「另一侧停够 turnHoldMs(380ms)」，而后台窗的 rAF 被 Chromium 压到 ~4fps：
+  // 单点 1.1s 采样偶尔只够倾斜/侧移收敛、还没攒够那 380ms（2026-10-29 一轮 facing=1，
+  // 上一轮同一条是绿的——判据不动，改成催帧轮询到上限，别拿探针的腿脚当产品的红）。
+  let facingBeat = lean;
+  const facingT0 = Date.now();
+  for (let i = 0; i < 12 && facingBeat.girl.presence.facing !== -1; i += 1) {
+    await forceFrame();
+    await wait(150);
+    facingBeat = await diag();
+  }
+  check("lean.facing", facingBeat.girl.presence.facing === -1,
+    `facing=${facingBeat.girl.presence.facing} 等了=${Date.now() - facingT0}ms leanDeg=${facingBeat.girl.presence.leanDeg.toFixed(2)}`);
 
   await setGaze(null);
   await wait(800);
@@ -987,7 +998,7 @@ async function main() {
     `bubble=${noticedSnap.bubble?.text ?? "null"}`);
   await setGaze(null);
 
-  // —— C. 三区：点头（coverFace/shy）与点脚（shiver/wink）——
+  // —— C. 三区：点头（coverFace 动作行）与点脚（shiver/wink）——
   const tapAt = (x, y) => evaluate(s, `window.__cyrene.renderer.tapAt(${x}, ${y}, 40)`);
   const dismissBubble = () => evaluate(s, `window.__cyrene.renderer.dismissBubble()`);
   // 探针不动真光标，可桌面上那只真光标会自己进出宠物窗：pointerenter/pointerleave 走
@@ -1051,14 +1062,16 @@ async function main() {
   };
   g = await readGeo();
   await tapAt(g.headX * g.zoom, g.headY * g.zoom);
-  // shy / wink 都只有 9 帧（24fps ≈ 375ms）：450ms 时早已回到基础段（happy/idle）。
-  // 验收要量的是「点到头有没有演那一段」，取样窗必须落在段内。
+  // v1.23 起捂脸有自己那一行动作（8fps 循环）；v1.22 之前借的是 shy 那 9 帧
+  // （24fps ≈ 375ms）。取样窗 200ms 两种口径都落在演内，但读数渠道变了：现在必须是
+  // action=coverFace 且 clip/pose 全 null。
   await wait(200);
   const head = await diag();
   const headSnap = await snap();
   results.headTap = { girl: head.girl, gesture: headSnap.gesture };
   await shot("girl-head-tap.png");
-  check("zone.head.clip", head.girl.clip === "shy", `clip=${head.girl.clip}`);
+  check("zone.head.action", head.girl.action === "coverFace" && head.girl.clip === null
+    && head.girl.pose === null, `action=${head.girl.action} clip=${head.girl.clip} pose=${head.girl.pose}`);
   check("zone.head.gesture", headSnap.gesture === "coverFace", `gesture=${headSnap.gesture}`);
   check("zone.head.blush", head.girl.blush > 0.3, `blush=${head.girl.blush.toFixed(2)}`);
 
@@ -1070,6 +1083,8 @@ async function main() {
   const feetSnap = await snap();
   results.feetTap = { girl: feet.girl, gesture: feetSnap.gesture };
   await shot("girl-feet-tap.png");
+  // v1.23 起分区 tap 自己当场重画（4fps 档下一帧最坏 250ms）：200ms 窗读到的一定是
+  // 摸头后那一拍，不会被「还没画」漏成 clip=null。
   check("zone.feet.clip", feet.girl.clip === "wink", `clip=${feet.girl.clip}`);
   check("zone.feet.gesture", feetSnap.gesture === "shiver", `gesture=${feetSnap.gesture}`);
   // 点脚是新的一句：屏幕上不许还挂着摸头那句话（同级可顶，见 companion.say）。
@@ -3396,11 +3411,15 @@ async function main() {
     }
     results.idle.back = back?.idle ?? null;
     results.idle.backPose = back ? { pose: back.pose, clip: back.clip, face: back.face } : null;
+    // 不验 suspended：伴飞小虫/自娱玩具在场时待机编排按设计挂起（girlToyOnScreen），
+    // 2026-10-29 这一轮 back 时右上角正有一只蝶（girl-idle-back.png），是产品行为不是没醒。
+    // 要验的仍是「从趴/蜷回到站姿、头抬回原位、没手势」这三件。
     check("idle.wake",
-      !!back && !back.idle.suspended && back.pose === "stand" && back.clip === null
+      !!back && back.pose === "stand" && back.clip === null
         && (curl?.face ? back.face.cy < curl.face.cy : true)
         && (prone?.face ? back.face.cy < prone.face.cy : true),
-      `back=${JSON.stringify(back?.idle)} pose=${back?.pose} clip=${back?.clip} face=${back?.face?.cy ?? "null"}`);
+      `back=${JSON.stringify(back?.idle)} pose=${back?.pose} clip=${back?.clip} `
+        + `face=${back?.face?.cy ?? "null"} suspended=${back?.idle?.suspended} activity=${back?.activity}`);
     if (back) await shot("girl-idle-back.png");
 
     // 安静档：立刻站起来，且绝不用睡脸冒充安静（月牙是唯一记号）。
@@ -3444,6 +3463,7 @@ async function main() {
       return {
         pose: d.girl.pose ?? null,
         clip: d.girl.clip ?? null,
+        action: d.girl.action ?? null,
         gesture: d.girl.gesture ?? null,
         gestureId: d.girl.gestureId ?? null,
         atlases: d.girl.atlases ?? null,
@@ -3484,15 +3504,16 @@ async function main() {
     }
     results.gestures = seen;
 
-    // 没有对应画的：点头仍走帧段，不许硬套一张不像的姿态。
+    // 没有对应画的：点头仍不硬套姿态。v1.23 起它有自己那一行动作（7fps 一次性），
+    // 不再借 peek 的帧段——判据改成「pose 仍为 null、走的是 nod 动作行」。
     await evaluate(s, `window.__cyrene.renderer.playGesture("nod")`);
     await wait(300);
     await forceFrame();
     const nod = await readGesture();
     results.gestureNod = nod;
-    check("gesture.nod-clip",
-      nod.clip === "peek" && nod.pose === null && nod.gestureId === "nod",
-      `pose=${nod.pose} clip=${nod.clip} gestureId=${nod.gestureId}`);
+    check("gesture.nod-action",
+      nod.action === "nod" && nod.pose === null && nod.clip === null && nod.gestureId === "nod",
+      `pose=${nod.pose} clip=${nod.clip} action=${nod.action} gestureId=${nod.gestureId}`);
     await wait(1_500);
     await evaluate(s, `window.__cyrene.renderer.setUserActive(false)`);
   }
@@ -3600,11 +3621,32 @@ async function main() {
     };
 
     /**
+     * 这一趟量的是**额头那条带子上有没有三颗点**，而伴飞小虫（girl-critter）的玫瑰翅按设计
+     * 会自己飘过同一个方块——2026-10-29 这轮基线（她还没躲）就读到 9 颗玫瑰像素，把「+2」的
+     * 差量一口吃掉。小虫活 12s、下一只隔 30–75s，所以先等当前这只落定，再把自主排程推到这一
+     * 轮之后（探针只钉排程，不钉画法）；完事把 nextCritterAt 归 0，让她按自己的节律重新排。
+     */
+    const critterHold = async (why) => {
+      const deadline = Date.now() + 18_000;
+      for (;;) {
+        await forceFrame();
+        if (!(await diag()).girl.critter) break;
+        if (Date.now() > deadline) {
+          throw new Error(`[ENV] 伴飞小虫一直占着额头带子，躲猫猫的记号量不了（${why}）`);
+        }
+        await wait(200);
+      }
+      await evaluate(s, `window.__cyrene.renderer.nextCritterAt = performance.now() + 9_999_999`);
+    };
+    const critterRelease = () => evaluate(s, `window.__cyrene.renderer.nextCritterAt = 0`);
+
+    /**
      * 躲猫猫捂眼时头顶那三颗点（girl-hide.ts buildHideOps）：中间玫瑰芯、两侧墨芯，
      * 压在头发上。这一层走独演槽（collectGirlAboveOps），不在 fx.above 笔数里——
      * 旧判据拿「+3 笔」当记号，量到的其实是别处的转场（notice/startle），一直是假绿。
      * 气泡把窗口撑宽的瞬间，画布还是上一帧的放大残影（整块 HUD 墨底 26,29,38），
      * 所以连采三拍、只取 cover 相位的那几拍里玫瑰像素最多的一拍。
+     * 采样当场再挡一次小虫：钉不住的话宁可报「没有干净的一拍」，也不让它冒充记号。
      */
     const hideDotBand = async () => {
       let best = null;
@@ -3635,15 +3677,16 @@ async function main() {
           }
           return {
             phase: d.girl.hide?.phase ?? null, rose,
+            busy: !!d.girl.critter,
             box: [x0, y0, x1 - x0, y1 - y0],
           };
         })()`);
-        if (cur.phase === null || cur.phase === "cover") {
+        if ((cur.phase === null || cur.phase === "cover") && !cur.busy) {
           if (!best || cur.rose > best.rose) best = cur;
         }
         if (i < 2) await wait(140);
       }
-      return best ?? { why: "no cover sample", phase: null, rose: -1 };
+      return best ?? { why: "no clean cover sample", phase: null, rose: -1 };
     };
 
     await awakeForPlay("v117");
@@ -3836,6 +3879,7 @@ async function main() {
     // R5 躲猫猫第一轮：捂眼点＝太早（不记账、不摸头）→ 探头点中＝逮到（hides+1 落盘）→ 收走。
     await dismissBubble();
     await wait(200);
+    await critterHold("v117 躲猫猫");
     const dotBase = await hideDotBand();
     await evaluate(s, `window.__cyrene.renderer.handleCommand("hide-seek")`);
     await wait(240);
@@ -3881,21 +3925,33 @@ async function main() {
     results.v117.hide.peek = { hide: peek, bubble: peekSnap.bubble?.text ?? null };
     check("v117.hide-peek", peek?.phase === "peek" && peek?.left > 500, `hide=${JSON.stringify(peek)}`);
     await shot("girl-hide-peek.png");
-    const catchTap = await tapFaceNow();
-    await wait(180);
-    const hideFound = await diag();
+    // 「被找到」那一拍只活 HIDE_FOUND_MS=900ms，且是纯按墙上时钟算出来的相位。
+    // 旧写法点完再 wait(180) 然后回 Node 侧读一次 diag()：账真的记上了（hides=1、落盘、
+    // 台词也对），可 900ms 已被两次 CDP 往返 + 等帧吃掉，相位读到 null——2026-10-29 这轮
+    // 就红在这，红的是探针的腿脚。把「点 + 当场读」收进同一次页面内求值，延迟出局。
+    const catchRound = await evaluateInPage(s, `(() => {
+      const cy = window.__cyrene;
+      const before = cy.getPetDiagnostics();
+      const f = before.girl.face;
+      if (!f) return { ok: false, why: "no face" };
+      const z = before.layout.zoom;
+      cy.renderer.tapAt(f.cx * z, (f.top + f.h / 2) * z, 40);
+      const d = cy.getPetDiagnostics();
+      return { ok: true, x: f.cx, y: f.top + f.h / 2, hide: d.girl.hide, hides: d.girl.hides, girl: d.girl };
+    })()`, 20_000);
+    const hideFound = { girl: catchRound.girl };
     const hideFoundSnap = await snap();
     const bondCaught = await bondNow();
     results.v117.hide.found = {
-      tap: catchTap,
-      hide: hideFound.girl.hide,
-      hides: hideFound.girl.hides,
+      tap: { ok: catchRound.ok, x: catchRound.x, y: catchRound.y },
+      hide: catchRound.hide,
+      hides: catchRound.hides,
       bubble: hideFoundSnap.bubble?.text ?? null,
       bondHides: bondCaught?.hides ?? null,
     };
     await shot("girl-hide-found.png");
     check("v117.hide-found",
-      !!catchTap.ok && hideFound.girl.hides === 1 && hideFound.girl.hide?.phase === "found"
+      !!catchRound.ok && catchRound.hides === 1 && catchRound.hide?.phase === "found"
         && bondCaught?.hides === 1,
       JSON.stringify(results.v117.hide.found));
     check("v117.hide-found-line",
@@ -3937,6 +3993,9 @@ async function main() {
       !missGone && missAfter.girl.hides === 1
         && missAfterSnap.bubble?.text === "没找到我，我在这里呢",
       JSON.stringify(results.v117.hide.missGone));
+    // 额头带子量完了，把伴飞小虫的自主排程还给产品：归 0 后渲染器按自己的节律重排
+    // （tickCritter：nextCritterAt===0 → now + 45~85s），后面几轮的蝴蝶照常。
+    await critterRelease();
   }
 
   // —— S. v1.18.0 自娱五件 + 声音：整轮在页面里跑完 ——
@@ -4023,8 +4082,11 @@ async function main() {
     const ballStartOk = s1.startLine === SOLO.starts.ball;
     check("v118.ball.start-line", ballStartOk, `bubble=${s1.startLine ?? "null"} want=${SOLO.starts.ball}`);
     await shot("girl-solo-ball.png");
+    // 七拍：第 0 拍是「还没拍」的基线，成就 ball-rhythm 要连 5 下；只取 5 拍时
+    // 最多只能拍中 4 下（2026-10-29 这一轮就红在这，成就门槛是 girl-achievements.ts:249）。
+    // 多留两拍余量：旧口径里第一拍偶尔落成 off（drops+1、streak 清零），得给连击留出重来的拍数。
     s1.samples = await evaluateInPage(
-      s, `window.__soloProbe.ballRound(5, ${BALL.period}, ${BALL.ms}, ${BALL.window})`, 60_000);
+      s, `window.__soloProbe.ballRound(7, ${BALL.period}, ${BALL.ms}, ${BALL.window})`, 60_000);
     const ballLast = [...s1.samples].reverse().find((x) => typeof x.bounces === "number") ?? null;
     const ballGone = await waitPropGone("ball", 12_000);
     const g1 = await girlOf();
@@ -4159,9 +4221,19 @@ async function main() {
     const gEmpty = await girlOf();
     const emptyLine = await waitBubbleLine([SOLO.empty], 3_000);
     const spAfterEmpty = (await girlOf()).stats.selfPlay;
-    results.v118.emptyRound = { gone: emptyGone, line: emptyLine, solo: gEmpty.solo, selfPlay: spAfterEmpty };
+    // 徽章句压过动作回执是设计（v1.10 起同一口径；S5 的 end-lines 就只认 ≥3 命中）。
+    // 但「压过去」得真的是**这一趟新解锁**的徽章：账上多出来的那个 id、按源码表念的那句，
+    // 才算顶替成立。顶不掉就是她压根没说「没玩出名堂」——把任意一句别的台词放进来是假绿。
+    const gEmptyAfter = await girlOf();
+    const freshIds = gEmptyAfter.achievements.filter((id) => !gPre.achievements.includes(id));
+    const stolenBy = freshIds.find((id) => sourceAchievementLine(id) === emptyLine) ?? null;
+    results.v118.emptyRound = {
+      gone: emptyGone, line: emptyLine, solo: gEmpty.solo, selfPlay: spAfterEmpty,
+      freshIds, stolenBy,
+    };
     check("v118.empty.clears", !emptyGone, `lantern=${JSON.stringify(emptyGone)}`);
-    check("v118.empty-line", emptyLine === SOLO.empty, `bubble=${emptyLine ?? "null"} want=${SOLO.empty}`);
+    check("v118.empty-line", emptyLine === SOLO.empty || stolenBy !== null,
+      `bubble=${emptyLine ?? "null"} want=${SOLO.empty} fresh=${JSON.stringify(freshIds)}`);
     check("v118.empty-no-account", gEmpty.solo.flares === soloBeforePreempt.flares && spAfterEmpty === spBeforePreempt,
       `flares=${gEmpty.solo.flares} before=${soloBeforePreempt.flares} selfPlay=${spAfterEmpty}`);
 
@@ -5071,6 +5143,110 @@ async function main() {
       `gestures=${JSON.stringify(typeBeats.map((b) => b.gestureId))}`);
     await shot("girl-type-action.png");
     expectHome("type", await waitActionGone(3_000), "打完");
+  }
+
+  // —— VI. v1.23「点头/摇头/拍手/捂脸」：四个回应手势各播自己那一行 ——
+  // 四条全是显式手势（playGesture），没有活动打底；都验三件事：诊断读的是专属 action、
+  // 帧号真的在走、谢幕之后回站姿不赖在动作行上。点头是一次性（857ms 自己谢幕），
+  // 其余三条是循环行、靠手势时长（1800/1800/2000ms）收口。
+  // 全程只用 playGesture，不发任何鼠标事件（不碰用户真实光标）。
+  {
+    results.v123 = {};
+    const settleScreen = async (why) => {
+      const deadline = Date.now() + 20_000;
+      for (;;) {
+        await forceFrame();
+        const n = await snap();
+        const g = await girlOf();
+        const calm = !["walk", "drag", "thrown", "sleep"].includes(n.activity)
+          && (g?.wild?.act ?? null) === null;
+        if (calm) return n;
+        if (Date.now() > deadline) {
+          throw new Error(`[ENV] 20s 内没回到可量手势行的待机态（activity=${n.activity} wild=${g?.wild?.act}；${why}）`);
+        }
+        await dismissBubble().catch(() => {});
+        await wait(240);
+      }
+    };
+    const beatsOf = async (count = 4, gap = 110) => {
+      const beats = [];
+      for (let i = 0; i < count; i += 1) {
+        await forceFrame();
+        beats.push(await afterBeat());
+        if (i < count - 1) await wait(gap);
+      }
+      return beats;
+    };
+    const waitActionGone = async (ms) => {
+      const deadline = Date.now() + ms;
+      for (;;) {
+        await forceFrame();
+        const beat = await afterBeat();
+        if (beat.action === null || Date.now() > deadline) return beat;
+        await wait(100);
+      }
+    };
+    const expectRow = (name, beats, id, gesture) => {
+      const hit = beats.find((b) => b.action === id) ?? null;
+      const frames = beats.filter((b) => b.action === id).map((b) => b.actionFrame);
+      check(`v123.${name}.action`, hit !== null && hit.pose === null && hit.clip === null,
+        `beats=${JSON.stringify(beats.map((b) => ({ action: b.action, pose: b.pose, clip: b.clip })))}`);
+      check(`v123.${name}.frames`, new Set(frames.filter((f) => f !== null)).size >= 2,
+        `frames=${JSON.stringify(frames)}`);
+      check(`v123.${name}.gesture`, beats.some((b) => b.gestureId === gesture),
+        `gestures=${JSON.stringify(beats.map((b) => b.gestureId))}`);
+    };
+    // 谢幕只保证「不再占动作行、不再举着手势」；回到哪张待机姿态归作息编排管，
+    // 等待期间她可能已经坐下/蜷起（2026-10-29 首轮三条 home 都量到 pose=sit，是编排而不是卡行）。
+    // pose 也不许硬要求：girl-scene.ts:72-81 写明「null＝这件事只能靠帧动画演」——走路/被拖/投掷
+    // 本就没有静帧（2026-10-29 coverFace 那条红量到 pose=null activity=walk，是她起身走了，不是卡行）。
+    // 所以人还得在某个地方：要么有静帧，要么正播那三段位移动画之一。
+    const expectHome = (name, beat, why) => {
+      const standingSomewhere = beat.pose !== null || ["walk", "drag", "thrown"].includes(beat.activity);
+      check(`v123.${name}.home`,
+        beat.action === null && beat.gestureId === null && standingSomewhere,
+        `${why} action=${beat.action} pose=${beat.pose} gestureId=${beat.gestureId} activity=${beat.activity} clip=${beat.clip}`);
+    };
+
+    // W1 点头：7fps 一次性——末格停住即谢幕（857ms），不拿 1800ms 的手势时长硬撑。
+    await settleScreen("v123-nod");
+    await dismissBubble();
+    await evaluate(s, `window.__cyrene.renderer.playGesture("nod")`);
+    const nodBeats = await beatsOf(4, 110);
+    results.v123.nod = nodBeats.map((b) => ({ action: b.action, frame: b.actionFrame, gesture: b.gestureId }));
+    expectRow("nod", nodBeats, "nod", "nod");
+    await shot("girl-nod-action.png");
+    expectHome("nod", await waitActionGone(2_500), "点完");
+
+    // W2 摇头：9fps 循环行，靠 shake 的 1800ms 收口。
+    await settleScreen("v123-shake");
+    await dismissBubble();
+    await evaluate(s, `window.__cyrene.renderer.playGesture("shake")`);
+    const shakeBeats = await beatsOf(4, 110);
+    results.v123.shake = shakeBeats.map((b) => ({ action: b.action, frame: b.actionFrame, gesture: b.gestureId }));
+    expectRow("shake", shakeBeats, "shake", "shake");
+    await shot("girl-shake-action.png");
+    expectHome("shake", await waitActionGone(3_000), "摇完");
+
+    // W3 拍手：10fps 循环行，1800ms 到点谢幕。
+    await settleScreen("v123-clap");
+    await dismissBubble();
+    await evaluate(s, `window.__cyrene.renderer.playGesture("clap")`);
+    const clapBeats = await beatsOf(4, 110);
+    results.v123.clap = clapBeats.map((b) => ({ action: b.action, frame: b.actionFrame, gesture: b.gestureId }));
+    expectRow("clap", clapBeats, "clap", "clap");
+    await shot("girl-clap-action.png");
+    expectHome("clap", await waitActionGone(3_000), "拍完");
+
+    // W4 捂脸：8fps 循环行，时长 2000ms——比另外三条多活 200ms。
+    await settleScreen("v123-coverFace");
+    await dismissBubble();
+    await evaluate(s, `window.__cyrene.renderer.playGesture("coverFace")`);
+    const coverBeats = await beatsOf(4, 110);
+    results.v123.coverFace = coverBeats.map((b) => ({ action: b.action, frame: b.actionFrame, gesture: b.gestureId }));
+    expectRow("coverFace", coverBeats, "coverFace", "coverFace");
+    await shot("girl-coverFace-action.png");
+    expectHome("coverFace", await waitActionGone(3_500), "放完手");
   }
 
   const failed = checks.filter((c) => !c.ok);
