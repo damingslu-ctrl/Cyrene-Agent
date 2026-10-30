@@ -11,6 +11,7 @@ import {
 } from "../../../../shared/network-types";
 import { useTranslation } from "../../i18n";
 import { ConnectionsView } from "./ConnectionsView";
+import { CoreSection } from "./CoreSection";
 import { LogsView } from "./LogsView";
 import { NetworkTabs } from "./NetworkTabs";
 import { NodesView } from "./NodesView";
@@ -34,6 +35,7 @@ export function NetworkPanel() {
   const api = window.verge?.network;
   const subscriptionApi = window.verge?.subscriptions;
   const settingsApi = window.verge?.settings;
+  const coreApi = window.verge?.core;
   const [snapshot, setSnapshot] = useState<NetworkSnapshot>(emptyNetworkSnapshot);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<string | null>(null);
@@ -293,6 +295,8 @@ export function NetworkPanel() {
           {tab === "subscriptions" && <SubscriptionsView api={subscriptionApi} />}
           {tab === "settings" && (
             <>
+              {/* 内核排在最前：下面两张卡读的都是它的控制面，它没起来时那两张必然全瞎。 */}
+              <CoreSection api={coreApi} />
               <SettingsView api={api} />
               <VergeSettingsSection api={settingsApi} />
             </>

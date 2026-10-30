@@ -2375,6 +2375,70 @@
     "settingsMismatch": "保存后读回不一致：{{keys}}",
     "settingsMode": "代理模式",
     "settingsModeHint": "模式切换在「概览」页",
+    "core": {
+      "title": "内核",
+      "hint": {
+        "attention": "账上有一句要看的：现在这颗没在跑，原因写在下面。",
+        "starting": "在等控制器答话（最多 8 秒）。进程拉起来不等于有人在听。",
+        "ownRunning": "这一颗是我起的：进程、端口和日志都归这张卡管。",
+        "externalRunning": "现在吃的是 Verge 那颗内核的控制器——我没起进程，也没占端口。",
+        "idle": "现在没有内核归我管。点「起内核」，我会先看有没有现成的控制器在答话。",
+        "busy": "上一次点击还在路上，等它回话再点。",
+        "external": "「停止」与「重启」只对我自己起的内核有效——要停 Verge 那颗，请回 Clash Verge。"
+      },
+      "start": "起内核",
+      "stop": "停止",
+      "restart": "重启",
+      "working": "处理中…",
+      "started": "内核起来了（端口画的是回执里那一组，不是我猜的）",
+      "adopted": "用上了现成的控制器：Verge 那颗内核在答话，我没有起进程",
+      "restarted": "已重启：这一班听的端口以回执为准",
+      "stopped": "内核已停下（那次 kill 是我发的，pid 与端口都收回来了）",
+      "stopNotStopped": "点下去之后账上不是「已停止」，别把它当成停成功了",
+      "ipcFailed": "内核接口不可用",
+      "saidDetail": "详情：{{detail}}",
+      "modeLabel": "来源",
+      "secretLabel": "控制面口令",
+      "controllerLabel": "控制器",
+      "portsLabel": "混合 / 控制器端口",
+      "pidLabel": "PID",
+      "uptimeLabel": "已运行",
+      "healLabel": "本轮自愈",
+      "state": {
+        "unknown": "还没读到",
+        "stopped": "已停止",
+        "starting": "启动中",
+        "running": "运行中",
+        "exited": "已退出",
+        "blocked": "没让它起"
+      },
+      "mode": {
+        "none": "还没认领过内核",
+        "external": "Verge 正在跑的那颗",
+        "installed": "Verge 安装目录里那颗（我起的进程）",
+        "bundled": "我自己下载的那颗"
+      },
+      "secret": {
+        "verge": "读的是 Verge 账上那把",
+        "mochi": "我自己生成的一把",
+        "none": "这一班还没写过配置"
+      },
+      "reason": {
+        "verge-running": "Clash Verge 正在运行，单写者闸门不让我起第二颗内核",
+        "unsupported-platform": "内核宿主目前只在 Windows 上管用",
+        "no-binary": "这台机器上没有可用的内核，得先下载一颗",
+        "no-config": "合成不出那份配置：多半是没选订阅，或那份订阅的正文坏了",
+        "no-port": "默认档与备用段都没找到一组空闲端口",
+        "spawn-failed": "进程没拉起来",
+        "not-ready": "内核起了但控制器不应答，已经把它收掉了",
+        "exited": "内核自己退出了",
+        "self-heal-exhausted": "自愈已打满，我不再自己重起——点「起内核」开始新一轮",
+        "download-failed": "内核下载失败",
+        "digest-missing": "发布页没给出摘要，验不了货我就不换内核",
+        "digest-mismatch": "下载内容与摘要不符，这份包我没往里装",
+        "extract-failed": "解压失败，现有内核一个字节没动"
+      }
+    },
     "verge": {
       "title": "Verge 的设置（verge.yaml）",
       "yamlHint": "这些是 Verge 启动内核时自己要用的值，写完要下次启动才生效；我只换这几行，别的字节照原样。",

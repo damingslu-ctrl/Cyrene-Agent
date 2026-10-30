@@ -76,8 +76,11 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** 正文文件名：账本里的 `file` 优先，缺失才按 uid 推（Verge 自己两条都写）。 */
-function fileOf(item: ProfileItem): string {
+/**
+ * 正文文件名：账本里的 `file` 优先，缺失才按 uid 推（Verge 自己两条都写）。
+ * 导出是因为内核宿主也要按同一条规则找正文——两处各抄一份，迟早一边读到旧的。
+ */
+export function profileFileOf(item: ProfileItem): string {
   return typeof item.file === "string" && item.file ? item.file : `${item.uid}.yaml`;
 }
 
@@ -119,7 +122,7 @@ export function createProfileService(deps: ProfileServiceDeps): ProfileService {
     const merges: Array<Record<string, unknown>> = [];
     for (const mergeUid of mergeChainOf(doc, uid)) {
       const mergeItem = doc.items.find((entry) => entry.uid === mergeUid);
-      const text = mergeItem ? deps.store.readProfileFile(fileOf(mergeItem)) : null;
+      const text = mergeItem ? deps.store.readProfileFile(profileFileOf(mergeItem)) : null;
       if (text === null) {
         warnings.push(mergeUid);
         continue;
@@ -185,7 +188,7 @@ export function createProfileService(deps: ProfileServiceDeps): ProfileService {
       } catch (error) {
         return storeError(error);
       }
-      deps.store.writeProfileFile(fileOf(added.item), fetched.text);
+      deps.store.writeProfileFile(profileFileOf(added.item), fetched.text);
       return writeLedger(added.doc, [], { uid: added.item.uid, proxyCount: fetched.proxyCount });
     },
 
@@ -207,7 +210,7 @@ export function createProfileService(deps: ProfileServiceDeps): ProfileService {
       } catch (error) {
         return storeError(error);
       }
-      deps.store.writeProfileFile(fileOf(added.item), text);
+      deps.store.writeProfileFile(profileFileOf(added.item), text);
       return writeLedger(added.doc, [], { uid: added.item.uid, proxyCount: parsed.doc.proxies && Array.isArray(parsed.doc.proxies) ? parsed.doc.proxies.length : 0 });
     },
 
@@ -228,7 +231,7 @@ export function createProfileService(deps: ProfileServiceDeps): ProfileService {
       if (url === null) return fail("invalid", { detail: "本地订阅没有可下载的地址" });
       const fetched = await fetchSubscription(url, { fetch: deps.fetch });
       if (!fetched.ok) return fail(fetched.reason, { status: fetched.status });
-      deps.store.writeProfileFile(fileOf(item), fetched.text);
+      deps.store.writeProfileFile(profileFileOf(item), fetched.text);
       const isCurrent = doc.current === uid;
       if (isCurrent) {
         const applied = await applyRuntime(doc, uid, fetched.text);
@@ -257,8 +260,8 @@ export function createProfileService(deps: ProfileServiceDeps): ProfileService {
       if (!item) return fail("not-found");
       const row = listProfiles(doc).find((entry) => entry.uid === uid);
       if (!row || !row.selectable) return fail("invalid");
-      const text = deps.store.readProfileFile(fileOf(item));
-      if (text === null) return fail("profile-missing", { detail: `${fileOf(item)} 不在 profiles 目录里` });
+      const text = deps.store.readProfileFile(profileFileOf(item));
+      if (text === null) return fail("profile-missing", { detail: `${profileFileOf(item)} 不在 profiles 目录里` });
       const applied = await applyRuntime(doc, uid, text);
       if ("ok" in applied && applied.ok === false) return applied;
       let next: ProfilesDoc;

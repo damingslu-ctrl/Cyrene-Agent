@@ -11,6 +11,7 @@ import {
   FALLBACK_PORT_START,
   MAX_SELF_HEAL,
   PORT_SCAN_LIMIT,
+  type CorePortPair,
 } from "../../shared/core-types";
 import {
   CORE_HEAL_RESET_MS,
@@ -32,6 +33,10 @@ interface HarnessInput {
   installedExe?: string | null;
   bundledExe?: string | null;
   usedPorts?: number[];
+  /** 装配层声明的首选档；显式给 null 表示「那本账读不出来，没有首选」。 */
+  preferred?: CorePortPair | null;
+  /** 配置这一步抛错（没选订阅、正文坏了）：必须挡在 spawn 之前。 */
+  configThrows?: string;
   /** 自有内核第几次探测才答话（1 = 第一下就答）。 */
   readyAfter?: number;
   neverReady?: boolean;
@@ -95,8 +100,10 @@ function harness(input: HarnessInput = {}) {
     findInstalledExe: () => (input.installedExe === undefined ? String.raw`C:\Program Files\Clash Verge\verge-mihomo.exe` : input.installedExe),
     findBundledExe: () => (input.bundledExe === null ? null : String.raw`${CORE_DIR}\mihomo.exe`),
     usedPorts: () => input.usedPorts ?? [],
+    preferredPorts: () => (input.preferred === undefined ? null : input.preferred),
     coreDir: () => CORE_DIR,
     writeRuntimeConfig: (ports) => {
+      if (input.configThrows) throw new Error(input.configThrows);
       configs.push(ports);
       return String.raw`${CORE_DIR}\runtime.yaml#${SECRET_SENTINEL}`;
     },
@@ -179,6 +186,19 @@ describe("core-manager：spawn 之前的闸门", () => {
     expect(h.spawns).toHaveLength(0);
   });
 
+  it("runtime 配置写不出来＝no-config，一颗都不 spawn", async () => {
+    // 让内核去吃一份坏配置，它会自己退出；那串日志与真崩溃一模一样，
+    // 于是「用户没选订阅」被演成「我们的内核会崩」。这一档必须拦在 spawn 之前。
+    const h = harness({ configThrows: "no-profile：没有选中的订阅" });
+    const status = await h.manager.start();
+    expect(status).toMatchObject({ state: "blocked", reason: "no-config", pid: null, ports: null });
+    expect(status.detail).toContain("没有选中的订阅");
+    expect(h.spawns).toHaveLength(0);
+    // 抛在 push 之前：盘上一枚没人吃的孤儿配置都不该多出来。
+    expect(h.configs).toHaveLength(0);
+    expect(h.logs.join("\n")).toContain("runtime 配置写不出来，不起");
+  });
+
   it("已经在跑的那颗不许被第二个 start 顶掉", async () => {
     const h = harness();
     await h.manager.start();
@@ -233,6 +253,22 @@ describe("core-manager：端口是一起挑的一对", () => {
     expect(status).toMatchObject({ reason: "no-port" });
     expect(status.detail).toContain(String(FALLBACK_PORT_START));
     expect(h.spawns).toHaveLength(0);
+  });
+
+  it("装配声明的首选档（Verge 那本账上那一组）优先于硬默认", async () => {
+    // 数据面按 9097/7896 找内核；我们若按 DEFAULT_* 起，页面就永远看不见这颗，且不报错。
+    const h = harness({ preferred: { mixed: 7896, controller: 9097 } });
+    const status = await h.manager.start();
+    expect(status.ports).toEqual({ mixed: 7896, controller: 9097 });
+    expect(h.configs[0]).toEqual({ mixed: 7896, controller: 9097 });
+    expect(h.ownProbes[0]).toBe(9097);
+  });
+
+  it("首选档撞上也要整对退到扫描段，退完报的是真端口", async () => {
+    const h = harness({ preferred: { mixed: 7896, controller: 9097 }, usedPorts: [9097] });
+    const status = await h.manager.start();
+    expect(status.ports).toEqual({ mixed: FALLBACK_PORT_START, controller: FALLBACK_PORT_START + 1 });
+    expect(h.ownProbes[0]).toBe(FALLBACK_PORT_START + 1);
   });
 });
 

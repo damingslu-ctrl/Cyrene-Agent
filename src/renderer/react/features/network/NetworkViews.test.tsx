@@ -3,6 +3,11 @@
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  EMPTY_CORE_STATUS,
+  type CoreStatus,
+  type CoreView,
+} from "../../../../shared/core-types";
 import type {
   ConnectionDetail,
   CoreConfigPatch,
@@ -31,6 +36,8 @@ import {
   type VergeSettingsView,
 } from "../../../../shared/verge-settings-types";
 import { ConnectionsView } from "./ConnectionsView";
+import { CoreSection } from "./CoreSection";
+import type { CoreApi } from "./core-view";
 import { LogsView } from "./LogsView";
 import { NetworkPanel } from "./NetworkPanel";
 import { ProvidersView } from "./ProvidersView";
@@ -901,9 +908,14 @@ describe("页签外壳", () => {
     await act(async () => { host.querySelector<HTMLButtonElement>(".net-tab--icon")!.click(); });
     await act(async () => { await Promise.resolve(); });
     expect(host.querySelector(".net-settings")).not.toBeNull();
-    // 顺序也是契约：内核那一组在前，Verge 那两张在后。
+    // 顺序也是契约：内核宿主排最前（下面几张卡读的都是它的控制面），内核配置在后，Verge 那两张收尾。
     const cards = [...host.querySelectorAll<HTMLElement>(".net-panel__inner > .net-card")].map((c) => c.className);
-    expect(cards).toEqual(["net-card net-section net-settings", "net-card net-section net-verge", "net-card net-section net-verge"]);
+    expect(cards).toEqual([
+      "net-card net-section net-verge",
+      "net-card net-section net-settings",
+      "net-card net-section net-verge",
+      "net-card net-section net-verge",
+    ]);
 
     // 反例：老 preload / 别的窗口没挂上 settings 时，页面要说出「接口不可用」，不许抛错留一块白。
     delete (window as Window & { verge?: unknown }).verge;
@@ -911,8 +923,9 @@ describe("页签外壳", () => {
     const bare = await mount(createElement(NetworkPanel));
     await act(async () => { bare.querySelector<HTMLButtonElement>(".net-tab--icon")!.click(); });
     await act(async () => { await Promise.resolve(); });
-    expect(bare.querySelectorAll(".net-verge")).toHaveLength(2);
+    expect(bare.querySelectorAll(".net-verge")).toHaveLength(3);
     expect(bare.textContent).toContain("设置接口不可用");
+    expect(bare.textContent).toContain("内核接口不可用");
     delete (window as Window & { verge?: unknown }).verge;
   });
 });
@@ -1143,5 +1156,194 @@ describe("订阅页", () => {
     const orphan = await mount(createElement(SubscriptionsView, {}));
     expect(orphan.querySelector(".net-notice--error")?.textContent).toContain("订阅接口不可用");
     expect(profRows(orphan)).toHaveLength(0);
+  });
+});
+
+describe("内核卡片（Wave 3 T10b）", () => {
+  /** 钉死表针：「已运行」那一行量的是 `now - startedAt`，跟着真实时钟走就永远对不上。 */
+  const CORE_NOW = 1_700_000_100_000;
+
+  function coreView(patch: Partial<CoreStatus>, secretSource: CoreView["secretSource"] = "mochi"): CoreView {
+    return { status: { ...EMPTY_CORE_STATUS, ...patch }, secretSource };
+  }
+
+  const STOPPED = coreView({});
+  const OWN_RUNNING = coreView({
+    state: "running", mode: "installed", pid: 4321,
+    ports: { mixed: 17890, controller: 17891 },
+    controller: "127.0.0.1:17891", healAttempts: 2,
+    startedAt: CORE_NOW - 90_000,
+  });
+  /** 借来的那颗也带 `startedAt`（那是「发现它」的时刻）——卡片必须拒绝把它画成运行时长。 */
+  const EXTERNAL_RUNNING = coreView(
+    {
+      state: "running", mode: "external", controller: "127.0.0.1:9097",
+      startedAt: CORE_NOW - 90_000,
+    },
+    "verge",
+  );
+
+  function makeCoreApi(initial: CoreView, after: Partial<Record<"start" | "stop" | "restart", CoreView>> = {}) {
+    return {
+      status: vi.fn(async () => initial),
+      start: vi.fn(async () => after.start ?? initial),
+      stop: vi.fn(async () => after.stop ?? initial),
+      restart: vi.fn(async () => after.restart ?? initial),
+    };
+  }
+
+  function mountCore(api?: ReturnType<typeof makeCoreApi>) {
+    return mount(createElement(CoreSection, api ? { api: api as unknown as CoreApi } : {}));
+  }
+
+  function buttonOf(host: HTMLElement, action: "start" | "stop" | "restart" | "refresh"): HTMLButtonElement {
+    const button = host.querySelector<HTMLButtonElement>(`button[name="core_${action}"]`);
+    if (!button) throw new Error(`core button not found: ${action}`);
+    return button;
+  }
+
+  /** 这张卡允许两条红字并存（回执一条、账上原因一条），所以按集合读，不按第一条读。 */
+  function errorText(host: HTMLElement): string {
+    return [...host.querySelectorAll(".net-notice--error")].map((bar) => bar.textContent).join(" / ");
+  }
+
+  it("桥不在就说接口不可用，不画一张看起来还在跑的账", async () => {
+    const host = await mountCore();
+    expect(host.textContent).toContain("内核接口不可用");
+    expect(host.textContent).toContain("还没读到");
+    expect(host.querySelector(".net-status.is-online")).toBeNull();
+    expect(host.querySelector(".net-verge__facts")).toBeNull();
+    expect(buttonOf(host, "start").disabled).toBe(true);
+    expect(buttonOf(host, "refresh").disabled).toBe(true);
+  });
+
+  it("起被闸门挡下：绿字不许亮，红字端出原因，状态词不是「运行中」", async () => {
+    const blocked = coreView({
+      state: "blocked", mode: "bundled", reason: "verge-running", detail: "先退出 Clash Verge",
+    });
+    const api = makeCoreApi(STOPPED, { start: blocked });
+    const host = await mountCore(api);
+    expect(host.textContent).toContain("已停止");
+    expect(host.textContent).toContain("现在没有内核归我管");
+
+    await act(async () => { buttonOf(host, "start").click(); });
+    expect(api.start).toHaveBeenCalledWith();
+    expect(errorText(host)).toContain("单写者闸门不让我起第二颗内核");
+    expect(errorText(host)).toContain("详情：先退出 Clash Verge");
+    expect(host.querySelector(".net-notice--ok")).toBeNull();
+    expect(host.querySelector(".net-status.is-online")).toBeNull();
+    expect(host.textContent).toContain("没让它起");
+    expect(host.textContent).not.toContain("运行中");
+    expect(buttonOf(host, "start").disabled).toBe(false);
+  });
+
+  it("自己起的那颗：端口、PID、口令来处、自愈次数全按账上画", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(CORE_NOW);
+    const host = await mountCore(makeCoreApi(OWN_RUNNING));
+    expect(host.querySelector(".net-status.is-online")).not.toBeNull();
+    expect(host.textContent).toContain("运行中");
+    expect(host.textContent).toContain("这一颗是我起的");
+    expect(host.textContent).toContain("Verge 安装目录里那颗（我起的进程）");
+    expect(host.textContent).toContain("我自己生成的一把");
+    expect(host.textContent).toContain("127.0.0.1:17891");
+    expect(host.textContent).toContain("17890 / 17891");
+    expect(host.textContent).toContain("4321");
+    expect(host.textContent).toContain("1m 30s");
+    expect(host.textContent).toContain("2/3");
+    expect(buttonOf(host, "start").disabled).toBe(true);
+    expect(buttonOf(host, "stop").disabled).toBe(false);
+    expect(buttonOf(host, "restart").disabled).toBe(false);
+  });
+
+  it("借用 Verge 那颗：绿点敢亮，但端口／PID／已运行一个都不许凭空造，三颗按钮全灰", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(CORE_NOW);
+    const host = await mountCore(makeCoreApi(EXTERNAL_RUNNING));
+    expect(host.querySelector(".net-status.is-online")).not.toBeNull();
+    expect(host.textContent).toContain("Verge 正在跑的那颗");
+    expect(host.textContent).toContain("读的是 Verge 账上那把");
+    expect(host.textContent).toContain("127.0.0.1:9097");
+    expect(host.textContent).toContain("现在吃的是 Verge 那颗内核的控制器");
+    expect(host.textContent).toContain("要停 Verge 那颗，请回 Clash Verge");
+    for (const action of ["start", "stop", "restart"] as const) {
+      expect(buttonOf(host, action).disabled, action).toBe(true);
+    }
+    expect(host.textContent).not.toContain("混合 / 控制器端口");
+    expect(host.textContent).not.toContain("PID");
+    expect(host.textContent).not.toContain("已运行");
+    expect(host.textContent).not.toContain("本轮自愈");
+  });
+
+  it("启动中不许画成运行中，但这一档的「停止」就得能按", async () => {
+    const starting = coreView({ state: "starting", mode: "installed" });
+    const host = await mountCore(makeCoreApi(starting));
+    expect(host.querySelector(".net-status.is-online")).toBeNull();
+    expect(host.textContent).toContain("启动中");
+    expect(host.textContent).toContain("在等控制器答话");
+    expect(buttonOf(host, "start").disabled).toBe(true);
+    expect(buttonOf(host, "stop").disabled).toBe(false);
+  });
+
+  it("按下停止之后账上还在跑：不许报成停成功了", async () => {
+    const api = makeCoreApi(OWN_RUNNING, { stop: OWN_RUNNING });
+    const host = await mountCore(api);
+    await act(async () => { buttonOf(host, "stop").click(); });
+    expect(api.stop).toHaveBeenCalledWith();
+    expect(errorText(host)).toContain("别把它当成停成功了");
+    expect(host.querySelector(".net-notice--ok")).toBeNull();
+  });
+
+  it("一次点击还在路上时三颗一起按住：不许点出第二颗内核", async () => {
+    const gate = deferred<CoreView>();
+    const api = { ...makeCoreApi(STOPPED), start: vi.fn(() => gate.promise) };
+    const host = await mountCore(api);
+    await act(async () => { buttonOf(host, "start").click(); });
+    expect(buttonOf(host, "start").textContent).toContain("处理中…");
+    expect(buttonOf(host, "stop").disabled).toBe(true);
+    expect(buttonOf(host, "restart").disabled).toBe(true);
+    expect(host.textContent).toContain("上一次点击还在路上");
+
+    gate.resolve(OWN_RUNNING);
+    await act(async () => { await gate.promise; });
+    expect(buttonOf(host, "start").textContent).toContain("起内核");
+    expect(host.querySelector(".net-notice--ok")).not.toBeNull();
+    expect(host.textContent).not.toContain("上一次点击还在路上");
+  });
+
+  it("每 10 秒重读一次账：内核在页面看不见的时候崩了又自愈，也不用重开页面", async () => {
+    vi.useFakeTimers();
+    const healed = coreView({
+      state: "running", mode: "installed", pid: 9999,
+      ports: { mixed: 17890, controller: 17891 }, controller: "127.0.0.1:17891",
+      healAttempts: 1, startedAt: CORE_NOW,
+    });
+    const status = vi.fn(async () => OWN_RUNNING);
+    const api = { ...makeCoreApi(OWN_RUNNING), status };
+    const host = await mountCore(api);
+    expect(status).toHaveBeenCalledTimes(1);
+
+    status.mockResolvedValueOnce(healed);
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(status).toHaveBeenCalledTimes(2);
+    expect(status).toHaveBeenCalledWith();
+    expect(host.textContent).toContain("9999");
+    expect(host.textContent).toContain("1/3");
+    expect(host.textContent).not.toContain("加载中");
+    expect(host.textContent).not.toContain("内核接口不可用");
+
+    await act(async () => {
+      vi.advanceTimersByTime(20_000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(status).toHaveBeenCalledTimes(4);
+
+    await act(async () => { buttonOf(host, "refresh").click(); });
+    expect(status).toHaveBeenCalledTimes(5);
   });
 });

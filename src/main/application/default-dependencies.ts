@@ -149,6 +149,8 @@ import { createWorkStatusService } from "../pet/work-status";
 import { registerWorkStatusIpc } from "../pet/work-status-ipc";
 import { attachPetContextMenu } from "../verge/pet-menu";
 import { discoverConfigRoot } from "../verge/controller-config";
+import { createCoreAssembly } from "../verge/core-bootstrap";
+import { registerCoreIpc as registerCoreHostIpc } from "../verge/core-ipc";
 import { createNetworkService } from "../verge/network-service";
 import { registerNetworkIpc } from "../verge/network-ipc";
 import { createProfileAssembly } from "../verge/profile-bootstrap";
@@ -546,23 +548,43 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           appData: process.env.APPDATA,
           localAppData: process.env.LOCALAPPDATA,
         });
-        const network = createNetworkService({ getConfigRoot: vergeConfigRoot });
+        // 单写者闸门用同一把探针：它每档 TTL 起一次 tasklist，两处各探一次等于把同一个
+        // 问题问两遍——订阅写面与设置写面必须看到「同一个 Verge 在不在跑」。
+        // 内核宿主也吃这一把：它排在最前，因为下面两条数据面的覆写闭包要引用 `core`，
+        // 而 `network.start()` 就地就开始轮询——声明顺序反了会在第一次 refresh 里撞 TDZ。
+        const vergeRunningProbe = createVergeRunningProbe();
+        const core = createCoreAssembly({
+          getConfigRoot: vergeConfigRoot,
+          userData: app.getPath("userData"),
+          isVergeRunning: vergeRunningProbe,
+        });
+        const coreController = () => core.controllerOverride();
+        const network = createNetworkService({ getConfigRoot: vergeConfigRoot, coreController });
         network.start();
         shutdown.register({
           id: "verge-network-service",
           phase: "stopLocalResources",
           dispose: async () => { network.stop(); },
         });
+        // 退出时不许留下一颗我们起的内核在后台占端口：外部那颗（Verge 的）不在此列，
+        // 而 `stop()` 一旦调用就往 core.log 写一行——用户从没点过内核时也不该凭空多出这份日志，
+        // 所以只在「真起过或正在起」的时候收。
+        shutdown.register({
+          id: "verge-core-host",
+          phase: "stopLocalResources",
+          dispose: async () => {
+            const status = core.status();
+            if (status.state === "starting" || status.pid !== null) await core.manager.stop();
+          },
+        });
 
         // v1.24 订阅页（Wave 2）：profiles.yaml 账本 + runtime 注入 + 单写者闸门。
         // 目录每次都现查（Verge 可能在用户手上搬家），所以这里给的是闭包而不是路径。
-        // 单写者闸门用同一把探针：它每档 TTL 起一次 tasklist，两处各探一次等于把同一个
-        // 问题问两遍——订阅写面与设置写面必须看到「同一个 Verge 在不在跑」。
-        const vergeRunningProbe = createVergeRunningProbe();
         const profiles = createProfileAssembly({
           getConfigRoot: vergeConfigRoot,
           userData: app.getPath("userData"),
           isVergeRunning: vergeRunningProbe,
+          coreController,
         });
 
         // v1.26 设置页（Wave 3 T9）：verge.yaml 白名单读写。store 本身无状态（每次现读盘），
@@ -670,6 +692,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           network,
           profiles,
           vergeSettings,
+          core,
         };
       },
 
@@ -926,6 +949,12 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           },
         });
 
+        // v1.26 内核宿主（Wave 3 T10b）：读现状 / 起 / 停 / 重启四条通道。
+        // 这一层没有判断，只有接线：闸门、端口、自愈都在 core-manager 与 core-bootstrap 里，
+        // 所以这里连错一次（比如把装配抛出的错折成一份 stopped 回执）页面就会演一次「一切正常」。
+        // 通道归主窗独占——宠物窗没有理由能替全机起一颗内核（见 IPC_SENDER_POLICY）。
+        const removeCoreHostIpc = registerCoreHostIpc(ipc, services.core);
+
         // 漫游/投掷停稳后的一次性落盘：渲染端只在停稳时发，不逐帧写盘。
         ipc.on(IPC.VERGE_PET_POSITION_SETTLED, (_event, position: unknown) => {
           if (typeof position !== "object" || position === null) return;
@@ -949,6 +978,13 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           id: "verge-settings-ipc",
           phase: "flushPersistence",
           dispose: async () => { removeVergeSettingsIpc(); },
+        });
+        // 内核那四条同理，而且必须排在 verge-core-host（stopLocalResources）之前摘：
+        // 进程收掉之后还留着通道，页面就能在「已经没有我们那颗」的窗口里点起一次新的。
+        shutdown.register({
+          id: "verge-core-ipc",
+          phase: "flushPersistence",
+          dispose: async () => { removeCoreHostIpc(); },
         });
 
         // 本机版本信息：设置页与 --brand-probe 共用。原来这里是 app-update:* 五条通道。

@@ -49,6 +49,7 @@ import type {
 import type { ProfileResult, ProfileRow } from "../shared/subscription-types";
 import type { SystemProxyRead, SystemProxySetResult, SystemProxyToggle } from "../shared/system-proxy-types";
 import type { VergeSettingsPatch, VergeSettingsRead, VergeSettingsResult } from "../shared/verge-settings-types";
+import type { CoreView } from "../shared/core-types";
 import type { PetCommand } from "../shared/pet-commands";
 
 // 渲染目标标识：preload 每次加载（即每次页面初始化/重新加载）生成一次，
@@ -1230,6 +1231,17 @@ const vergeApi = {
     proxyGet: () => ipcRenderer.invoke(IPC.VERGE_SYS_PROXY_GET) as Promise<SystemProxyRead>,
     proxySet: (toggle: SystemProxyToggle) =>
       ipcRenderer.invoke(IPC.VERGE_SYS_PROXY_SET, toggle) as Promise<SystemProxySetResult>,
+  },
+  /**
+   * 内核宿主（Wave 3 T10b）。三条动作都不回布尔：结论是「现在哪一态、为什么」，
+   * 被单写者闸门挡下与真的起来了得用同一把尺量，页面才不会在失败那次画一个勾。
+   * 这里也不递任何参数——起哪颗内核、吃哪份配置只由 main 那一侧决定。
+   */
+  core: {
+    status: () => ipcRenderer.invoke(IPC.VERGE_CORE_STATUS) as Promise<CoreView>,
+    start: () => ipcRenderer.invoke(IPC.VERGE_CORE_START) as Promise<CoreView>,
+    stop: () => ipcRenderer.invoke(IPC.VERGE_CORE_STOP) as Promise<CoreView>,
+    restart: () => ipcRenderer.invoke(IPC.VERGE_CORE_RESTART) as Promise<CoreView>,
   },
   /** main → 宠物窗：右键菜单选的互动动作。 */
   onPetCommand: (callback: (command: PetCommand) => void) => {

@@ -2,7 +2,7 @@
  * 订阅写面的装配层：把 `profile-service` 那七个注入点接到真盘、真控制面、真下载上。
  *
  * `profile-service` 的单测用假端口证判据（零写入、顺序、闸门），这边证的是**接线**：
- * 每一根线都只能在这里接错，而且接错了在那边全都看不出来。三条只有装配层才有的判断：
+ * 每一根线都只能在这里接错，而且接错了在那边全都看不出来。四条只有装配层才有的判断：
  *
  * 1) **配置目录每次操作现查**。`createProfileStore` 要的是定死的 `configRoot`，
  *    而 Verge 的目录在用户手上会挪（安装版↔便携版）。这里按当前值重建端口，
@@ -13,6 +13,11 @@
  * 3) **`external-controller` 剥掉协议前缀**。mihomo 要的是 `host:port`，把
  *    `http://127.0.0.1:9097` 原样写进去内核直接起不来；而**给客户端的 baseUrl 必须留着协议**，
  *    两边看着像同一个值，其实是两种写法（所以单测里各钉了一遍）。
+ * 4) **我们自己那颗内核在跑时，信当下的进程，不信账**。`core-bootstrap` 的覆写一生效，
+ *    注入用的地址/口令与 `reloadConfig` 打的控制面就都得跟着换：盘上那本 `clash-verge.yaml`
+ *    写的还是 9097（Verge 那一侧），而活着的那颗在别的端口、用的是我们生成的口令。
+ *    这时候按账走会切出两份各说各话的配置——订阅正文注入了一个没人听的控制面，
+ *    reload 又去敲另一家的门（那一家还是 Verge 的内核，等于替用户重载了他的配置）。
  *
  * 控制面读不出来时这里是**抛错**，不是回一份空注入：宁可这次切换失败，
  * 也不能让 runtime 配置里少了我们的控制器地址——那等于把数据面主权交回订阅自己。
@@ -39,12 +44,19 @@ export interface ProfileBootstrapOptions {
   userData: string;
   fetch?: FetchLike;
   isVergeRunning?(): boolean;
+  /**
+   * `core-bootstrap` 的当下覆写：非 null 时**整条控制面以它为准**（盘上那本账说的是别人）。
+   * 装配层之间不互相持有，由组合根把同一个函数的引用递过来。
+   */
+  coreController?(): ControllerConfig | null;
   createClient?(config: ControllerConfig): Reloader;
   now?(): Date;
 }
 
 export function createProfileAssembly(options: ProfileBootstrapOptions): ProfileService {
   const controller = (): ControllerConfig => {
+    const ours = options.coreController?.() ?? null;
+    if (ours) return ours;
     const result = readControllerConfig(options.getConfigRoot());
     if (!result.ok) {
       throw new ProfilesStoreError(

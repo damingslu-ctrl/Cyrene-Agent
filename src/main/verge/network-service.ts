@@ -67,6 +67,12 @@ export interface NetworkService {
 
 export interface NetworkServiceOptions {
   getConfigRoot: () => string | null;
+  /**
+   * 内核宿主那一侧的地址（Wave 3 T10b）。非 null 的条件只有一个：**这颗内核是我们自己起的、
+   * 现在还活着**。没有它，「我们自己起内核」这件事会造出一个最难查的坏状态：进程在跑、
+   * 端口在听，而页面还按 Verge 那本账上的旧口令敲门——一句错误都不报，只是全瞎。
+   */
+  coreController?: () => ControllerConfig | null;
   createClient?: (config: ControllerConfig) => MihomoClient;
   now?: () => number;
   fullIntervalMs?: number;
@@ -164,7 +170,11 @@ export function createNetworkService(options: NetworkServiceOptions): NetworkSer
     refreshing = true;
     try {
       const root = options.getConfigRoot();
-      const result = readControllerConfig(root);
+      // 我们自己那颗在跑时，盘上那本账（Verge 的）说的地址与口令可能是别人的——信当下的进程，别信账。
+      const ours = options.coreController?.() ?? null;
+      const result = ours
+        ? ({ ok: true, config: ours } as const)
+        : readControllerConfig(root);
       if (!result.ok) {
         client = null;
         clientKey = "";

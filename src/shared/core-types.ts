@@ -9,6 +9,18 @@
 export const CORE_MODES = ["external", "installed", "bundled"] as const;
 export type CoreMode = (typeof CORE_MODES)[number];
 
+/**
+ * 这一档的内核是不是我们自己 spawn 起来的那颗。
+ *
+ * 定义放在 shared 是因为装配层与页面问的是同一件事，而两边答案一旦漂开，最坏的形状是
+ * 「停止」按钮递给了 `external`——那点下去是替用户关掉他正在用的 Verge 的服务。
+ * 用白名单而不是「不等于 external」：加一档 mode 时这里不会自动把它算成我们那颗，
+ * `CORE_MODES` 那条枚举锁会红，逼着回答「新这一档归谁」。
+ */
+export function isOwnCoreMode(mode: CoreMode | null): boolean {
+  return mode === "installed" || mode === "bundled";
+}
+
 /** 宿主自己的生命周期。`blocked` 是「够格起，但不该起」——单写者闸门挡下的那一档。 */
 export const CORE_STATES = ["stopped", "starting", "running", "exited", "blocked"] as const;
 export type CoreState = (typeof CORE_STATES)[number];
@@ -21,6 +33,8 @@ export const CORE_REASONS = [
   "verge-running",
   "unsupported-platform",
   "no-binary",
+  /** 订阅正文/merge 链合成不出那份配置（没选订阅、正文坏了）——配置写不出来就不 spawn。 */
+  "no-config",
   "no-port",
   "spawn-failed",
   "not-ready",
@@ -85,3 +99,18 @@ export const EMPTY_CORE_STATUS: CoreStatus = {
   healAttempts: 0,
   startedAt: null,
 };
+
+/** 控制面口令的来处。`none` 是「这一班还没写过配置」，不是「内核没有口令」。 */
+export const CORE_SECRET_SOURCES = ["verge", "mochi", "none"] as const;
+export type CoreSecretSource = (typeof CORE_SECRET_SOURCES)[number];
+
+/**
+ * 四条内核通道共用的一份回执。
+ *
+ * 之所以不是裸 `CoreStatus`：口令来源这一档只有装配层知道，而它是页面唯一能解释
+ * 「内核在跑、网络页却说控制器不通」的线索——把两处答案分两次问，页面就得自己猜哪一份更新。
+ */
+export interface CoreView {
+  status: CoreStatus;
+  secretSource: CoreSecretSource;
+}

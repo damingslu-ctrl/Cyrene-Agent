@@ -128,6 +128,17 @@ declare global {
         proxySet(toggle: { enabled: boolean }):
           Promise<import("../../shared/system-proxy-types").SystemProxySetResult>;
       };
+      /**
+       * 内核宿主（Wave 3 T10b）：读现状 / 起 / 停 / 重启。
+       * 四条都不递参数、也不回布尔——起哪颗内核、吃哪份配置只由 main 决定，
+       * 而「被单写者闸门挡下」和「真的起来了」必须用同一把尺读出来。
+       */
+      core: {
+        status(): Promise<import("../../shared/core-types").CoreView>;
+        start(): Promise<import("../../shared/core-types").CoreView>;
+        stop(): Promise<import("../../shared/core-types").CoreView>;
+        restart(): Promise<import("../../shared/core-types").CoreView>;
+      };
       /** main → 宠物窗：右键菜单选的互动动作。 */
       onPetCommand(callback: (command: import("../../shared/pet-commands").PetCommand) => void): () => void;
       /** 渲染端 → main：漫游/投掷落定后记一次位置。 */

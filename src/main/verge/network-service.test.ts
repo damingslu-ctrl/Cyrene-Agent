@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProxyGroup, ProxyMode, TrafficFrame } from "../../shared/network-types";
-import { clearConfigCache } from "./controller-config";
+import { clearConfigCache, type ControllerConfig } from "./controller-config";
 import { MihomoRequestError, type MihomoClient } from "./mihomo-client";
 import { createNetworkService } from "./network-service";
 
@@ -259,5 +259,68 @@ describe("轮询与订阅", () => {
     received.length = 0;
     await service.refresh();
     expect(received).toEqual(["ok"]);
+  });
+});
+
+describe("我们自己那颗内核在跑时（coreController 覆写）", () => {
+  const OURS: ControllerConfig = {
+    baseUrl: "http://127.0.0.1:17891",
+    secret: `${"0".repeat(63)}a`,
+    mixedPort: 17890,
+    sourcePath: String.raw`C:\Users\mochi\AppData\Roaming\Mochi\runtime\core.yaml`,
+  };
+
+  function serviceWith(
+    root: string | null,
+    coreController: () => ControllerConfig | null,
+    seen: ControllerConfig[],
+    client = fakeClient(),
+  ) {
+    return {
+      client,
+      service: createNetworkService({
+        getConfigRoot: () => root,
+        createClient: (config) => {
+          seen.push(config);
+          return client as MihomoClient;
+        },
+        coreController,
+        now: () => 1_700_000_000_000,
+      }),
+    };
+  }
+
+  it("快照认的是覆写那一家：盘上那本账的 9097 是 Verge 的门，不是我们的", async () => {
+    const seen: ControllerConfig[] = [];
+    const { service } = serviceWith(makeRoot("127.0.0.1:9097"), () => OURS, seen);
+    const snapshot = await service.refresh();
+    expect(snapshot.controller).toMatchObject({ available: true, baseUrl: OURS.baseUrl, reason: null });
+    // 客户端必须按覆写那一家建：地址对不上时所有读盘都会 401／拒连。
+    expect(seen[0]).toMatchObject({ baseUrl: OURS.baseUrl, secret: OURS.secret });
+  });
+
+  it("覆写给 null 才回落盘上那本账；两边来回切要换客户端，不许抱着旧地址", async () => {
+    const seen: ControllerConfig[] = [];
+    let ours: ControllerConfig | null = OURS;
+    const { service } = serviceWith(makeRoot("127.0.0.1:9097"), () => ours, seen);
+    expect((await service.refresh()).controller.baseUrl).toBe(OURS.baseUrl);
+    ours = null;
+    expect((await service.refresh()).controller.baseUrl).toBe("http://127.0.0.1:9097");
+    ours = OURS;
+    await service.refresh();
+    expect(seen.map((config) => config.baseUrl)).toEqual([
+      OURS.baseUrl,
+      "http://127.0.0.1:9097",
+      OURS.baseUrl,
+    ]);
+  });
+
+  it("那本账压根不在盘上（便携版没写过 clash-verge.yaml）时，覆写照样让页面看得见内核", async () => {
+    const seen: ControllerConfig[] = [];
+    // 平时 root=null 就是「找不到数据目录」→ 直接 unreachable；覆写非 null 时不该被它拦住，
+    // 否则我们起的内核在页面上等于没起——这正是这一条要钉住的失败类。
+    const { service } = serviceWith(null, () => OURS, seen);
+    const snapshot = await service.refresh();
+    expect(snapshot.controller).toMatchObject({ available: true, baseUrl: OURS.baseUrl, reason: null });
   });
 });

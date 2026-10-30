@@ -638,6 +638,16 @@ export const IPC = {
    */
   VERGE_SYS_PROXY_GET: "verge:sys-proxy:get",
   VERGE_SYS_PROXY_SET: "verge:sys-proxy:set",
+  // —— Wave 3 T10 内核宿主 ——
+  /** 只读的一档：页面进来看现状，不动进程、不敲门。 */
+  VERGE_CORE_STATUS: "verge:core:status",
+  /**
+   * 三条动作都汇回同一份 `CoreView`：起停的结论不是布尔值，而是「现在到底是哪一态」——
+   * 被单写者闸门挡下与真的起来了，页面要说的话完全不同。
+   */
+  VERGE_CORE_START: "verge:core:start",
+  VERGE_CORE_STOP: "verge:core:stop",
+  VERGE_CORE_RESTART: "verge:core:restart",
   // —— v1.4.0 桌宠互动 ——
   /** main → 宠物窗：右键菜单里的互动动作（petCommand）。 */
   VERGE_PET_COMMAND: "verge:pet-command",

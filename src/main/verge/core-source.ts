@@ -53,6 +53,25 @@ export function pickPortPair(
 }
 
 /**
+ * 控制器地址 → 端口号。装配层用它把「Verge 那本 `clash-verge.yaml` 里声明的端口」
+ * 变成起内核时的首选档：整条数据面（网络页、桌宠播报）都按那本账上的地址找内核，
+ * 我们起的这颗若落在别的端口上，就成了「进程在跑、页面当它不存在」。
+ *
+ * 解析不出端口回 null——调用方拿默认档顶上，而不是猜。
+ */
+export function controllerPortOf(baseUrl: string | null | undefined): number | null {
+  if (typeof baseUrl !== "string" || !baseUrl) return null;
+  let url: URL;
+  try {
+    url = new URL(/^[a-z]+:\/\//i.test(baseUrl) ? baseUrl : `http://${baseUrl}`);
+  } catch {
+    return null;
+  }
+  const port = Number(url.port);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+}
+
+/**
  * `-d` 是内核的工作目录（config、缓存、geo 都落这儿），`-f` 是我们要它吃的那份配置。
  *
  * 上游 Verge 还会补 `-ext-ctl-pipe`（非 Windows 是 `-ext-ctl-unix`）走命名管道控制面；

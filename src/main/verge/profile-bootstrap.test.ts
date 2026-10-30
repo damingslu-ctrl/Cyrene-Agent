@@ -122,15 +122,104 @@ async function startController(): Promise<{ port: number; hits: ControllerHit[];
   return {
     port: address.port,
     hits,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => { if (error) reject(error); else resolve(); });
-    }),
+    close: async () => {
+      // fetch 的连接池会留着 keep-alive 套接字：不先掐掉，close 的回调永远不回来。
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => { if (error) reject(error); else resolve(); });
+      });
+    },
   };
 }
 
 function ledgerDoc(file: string): ProfilesDoc {
   return parseYaml(readFileSync(file, "utf8")) as ProfilesDoc;
 }
+
+const OUR_SECRET = "0".repeat(63) + "a";
+
+/** `core-bootstrap.controllerOverride()` 的形状：端口与口令都是当下那颗内核的真值（controller＝mixed＋1）。 */
+function override(controllerPort: number, secret: string = OUR_SECRET, mixed: number | null = controllerPort - 1): ControllerConfig {
+  return { baseUrl: `http://127.0.0.1:${controllerPort}`, secret, mixedPort: mixed, sourcePath: String.raw`C:\mochi\runtime\core.yaml` };
+}
+
+describe("profile-bootstrap：我们自己那颗内核说了算", () => {
+  it("覆写非 null 时，注入用的是当下进程的地址与口令，盘上那本账一个字都不算", async () => {
+    const root = freshVerge();
+    const seen = recorder();
+    const service = createProfileAssembly({
+      getConfigRoot: () => root.configRoot,
+      userData: root.userData,
+      isVergeRunning: () => false,
+      coreController: () => override(17891),
+      createClient: seen.createClient,
+    });
+    expect((await service.select("Sub00000002")).ok).toBe(true);
+    const doc = runtimeDoc(root.userData, "Sub00000002");
+    // 盘上那本 clash-verge.yaml 写的是 7897/mochi-key：按它走就是注入一份没人听的控制面。
+    expect(doc["external-controller"]).toBe("127.0.0.1:17891");
+    expect(doc.secret).toBe(OUR_SECRET);
+    expect(doc["mixed-port"]).toBe(17890);
+    expect(seen.clients[0]).toMatchObject({ baseUrl: "http://127.0.0.1:17891", secret: OUR_SECRET });
+  });
+
+  it("reload 打的是我们那颗的门——盘上那本账指向的是一个没人听的端口", async () => {
+    const ours = await startController();
+    try {
+      // 盘上故意指到一个早就关掉的端口：接线要是漏了覆写，PUT 就发去那儿，切换直接失败。
+      const root = freshVerge("external-controller: http://127.0.0.1:1\nsecret: mochi-key\n");
+      const service = createProfileAssembly({
+        getConfigRoot: () => root.configRoot,
+        userData: root.userData,
+        isVergeRunning: () => false,
+        coreController: () => override(ours.port, OUR_SECRET),
+      });
+      const result = await service.select("Sub00000002");
+      expect(result.ok).toBe(true);
+      expect(ours.hits).toHaveLength(1);
+      expect(`${ours.hits[0].method} ${ours.hits[0].url}`).toBe("PUT /configs");
+      expect(ours.hits[0].auth).toBe(`Bearer ${OUR_SECRET}`);
+    } finally {
+      await ours.close();
+    }
+  });
+
+  it("覆写每次现问：内核停了之后下一条订阅回到盘上那本账", async () => {
+    const root = freshVerge();
+    const seen = recorder();
+    let active: ControllerConfig | null = override(17891);
+    const service = createProfileAssembly({
+      getConfigRoot: () => root.configRoot,
+      userData: root.userData,
+      isVergeRunning: () => false,
+      coreController: () => active,
+      createClient: seen.createClient,
+    });
+    await service.select("Sub00000002");
+    active = null;
+    await service.select("Sub00000001");
+    // 在装配那一刻就把覆写读成常量，这第二下还会敲 17891 的门——而那颗已经不在了。
+    expect(seen.clients.map((config) => config.baseUrl)).toEqual([
+      "http://127.0.0.1:17891",
+      "http://127.0.0.1:7897",
+    ]);
+    expect(runtimeDoc(root.userData, "Sub00000001").secret).toBe("mochi-key");
+  });
+
+  it("覆写给 null＝没有我们自己的内核，照旧按那本账走（不是「读不到控制面」）", async () => {
+    const root = freshVerge();
+    const seen = recorder();
+    const service = createProfileAssembly({
+      getConfigRoot: () => root.configRoot,
+      userData: root.userData,
+      isVergeRunning: () => false,
+      coreController: () => null,
+      createClient: seen.createClient,
+    });
+    expect((await service.select("Sub00000002")).ok).toBe(true);
+    expect(runtimeDoc(root.userData, "Sub00000002")["external-controller"]).toBe("127.0.0.1:7897");
+  });
+});
 
 describe("profile-bootstrap 装配", () => {
   it("切换订阅：runtime 的控制面是注入的那一份，merge 搬不走", async () => {

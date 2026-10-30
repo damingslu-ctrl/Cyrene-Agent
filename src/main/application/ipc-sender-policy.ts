@@ -46,4 +46,9 @@ export const IPC_SENDER_POLICY: Readonly<Record<string, readonly WindowKind[]>> 
   [IPC.VERGE_SETTINGS_SET]: ["chat"],
   [IPC.VERGE_SYS_PROXY_GET]: ["chat"],
   [IPC.VERGE_SYS_PROXY_SET]: ["chat"],
+  // —— Wave 3 T10b 内核卡片：起的是这台机器上的一个进程，宠物窗没有这个 UI，也不该有决定权 ——
+  [IPC.VERGE_CORE_STATUS]: ["chat"],
+  [IPC.VERGE_CORE_START]: ["chat"],
+  [IPC.VERGE_CORE_STOP]: ["chat"],
+  [IPC.VERGE_CORE_RESTART]: ["chat"],
 };

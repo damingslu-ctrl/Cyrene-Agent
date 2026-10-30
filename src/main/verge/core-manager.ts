@@ -19,7 +19,9 @@ import {
   EMPTY_CORE_STATUS,
   FALLBACK_PORT_START,
   MAX_SELF_HEAL,
+  isOwnCoreMode,
   type CoreMode,
+  type CorePortPair,
   type CoreStatus,
 } from "../../shared/core-types";
 import {
@@ -53,6 +55,13 @@ export interface CoreManagerDeps {
   /** 已经下载过的自托管内核路径；没下过回 null。 */
   findBundledExe(): string | null;
   usedPorts(): number[];
+  /**
+   * 首选那一组端口。不给就用默认档（7897/9097）。
+   *
+   * 装配层给的是 `clash-verge.yaml` 上声明的那一组：数据面按那本账找内核，
+   * 我们起的这颗得落在它找得到的地方——否则「起来了但页面全瞎」，而且没有任何报错。
+   */
+  preferredPorts?(): CorePortPair | null;
   /** `-d`：内核自己的工作目录（缓存、geo 落这里），必须是 Mochi 的 userData，不能是 Verge 的目录。 */
   coreDir(): string;
   /** 喂给 `-f` 的那份配置由装配层写（它才知道当前订阅与 merge 链）；这里只要路径。 */
@@ -164,7 +173,8 @@ export function createCoreManager(deps: CoreManagerDeps): CoreManager {
   }
 
   async function heal(mode: CoreMode, lastDetail: string, aliveMs: number | null): Promise<void> {
-    if (mode === "external") return;
+    // 白名单而不是「不等于 external」：借来的那颗崩了重起是 Verge 的服务的事，不是我们的。
+    if (!isOwnCoreMode(mode)) return;
     if (aliveMs !== null && aliveMs >= CORE_HEAL_RESET_MS) {
       // 撑过 CORE_HEAL_RESET_MS 才算「上一班是好的」，预算补满；否则连跑三天后那次崩溃就没钱可花。
       settle({ healAttempts: 0 });
@@ -189,7 +199,27 @@ export function createCoreManager(deps: CoreManagerDeps): CoreManager {
       log(`找不到 ${mode} 那颗内核`);
       return status();
     }
-    const configPath = deps.writeRuntimeConfig(ports);
+    // 配置这一步可能失败（没选订阅、正文坏了）。失败就不 spawn：一颗吃着一份坏配置的内核
+    // 会在 core.log 里留下一句「配置解析失败」然后退出，看上去跟崩溃自愈一模一样——
+    // 那是把用户的输入问题演成我们的进程问题。这里当场报 `no-config`，一个字节都不多写。
+    let configPath: string;
+    try {
+      configPath = deps.writeRuntimeConfig(ports);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      settle({
+        state: "blocked",
+        mode,
+        pid: null,
+        controller: null,
+        ports: null,
+        reason: "no-config",
+        detail,
+        startedAt: null,
+      });
+      log(`runtime 配置写不出来，不起：${detail}`);
+      return status();
+    }
     settle({ state: "starting", mode, reason: null, detail: null });
     try {
       const spawned = deps.spawn(exePath, buildCoreArgs(deps.coreDir(), configPath));
@@ -284,7 +314,9 @@ export function createCoreManager(deps: CoreManagerDeps): CoreManager {
       log("本机没有内核：等用户点下载，不自动联网拉包");
       return status();
     }
-    const ports = pickPortPair(deps.usedPorts());
+    // 首选档由装配层给（`clash-verge.yaml` 上声明的那一对）：挤不上去才退到扫描段，
+    // 退了这一次，网络页与桌宠就找不到这颗内核——端口照实在回执里报出去，不装作还在原位。
+    const ports = pickPortPair(deps.usedPorts(), deps.preferredPorts?.() ?? undefined);
     if (!ports) {
       settle({
         state: "exited",
@@ -304,7 +336,7 @@ export function createCoreManager(deps: CoreManagerDeps): CoreManager {
   }
 
   async function stopCore(): Promise<CoreStatus> {
-    if (current.mode === "external" || !child) {
+    if (!isOwnCoreMode(current.mode) || !child) {
       // 不是我们起的那颗：只把账清掉，绝不 kill。
       settle({ state: "stopped", mode: null, pid: null, controller: null, ports: null, reason: null, detail: null, startedAt: null });
       log("external／无自有进程：只清账，不发 kill");
