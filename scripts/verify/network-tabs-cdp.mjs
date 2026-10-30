@@ -1,7 +1,8 @@
-// Wave 1 的真窗取样档：从侧栏进「网络」，只把七个页签逐个点开看一眼。
+// Wave 1 的真窗取样档：从侧栏进「网络」，只把八个页签逐个点开看一眼。
 // 用法：node scripts/verify/network-tabs-cdp.mjs [shotsDir]
 // - 只允许写在 D:\cyrene-net-accept\ 下的一次性 profile，绝不碰 %APPDATA%。
-// - 只点页签：模式药丸、节点行、保存、关闭连接、入站测速这些会改内核状态的一律不点。
+// - 只点页签：模式药丸、节点行、保存、关闭连接、入站测速、订阅的切换/删除/导入
+//   这些会改内核状态或写账本的一律不点（写面另有一档，见 subscriptions-write-cdp.mjs）。
 // - 每个页签的「开没开」由视图自己的根节点断言（空态/错误态也算开），
 //   不拿「没报错」冒充「打开了」。
 import { spawn } from "node:child_process";
@@ -148,7 +149,10 @@ const BODY_TABS = [
   { label: "日志", root: "section.net-logs", file: "04-logs.png" },
   { label: "连接", root: "section.net-conns", file: "05-connections.png" },
   { label: "入站", root: "section.net-providers", file: "06-providers.png" },
-  { label: "设置", root: "section.net-settings", file: "07-settings.png", gear: true },
+  // 订阅页的失败不落在 .net-view__error 上，落在 .net-notice--error：桥没接上也是同一条。
+  // 所以这一页要单独认「有没有红条」，别拿「开出来了」冒充「读到了」。
+  { label: "订阅", root: "section.net-prof", file: "07-subscriptions.png", subscriptions: true },
+  { label: "设置", root: "section.net-settings", file: "08-settings.png", gear: true },
 ];
 
 function clickTab(label) {
@@ -279,13 +283,13 @@ async function main() {
     );
     report.sideActions = opened.titles;
 
-    step("等页签栏（7 个）与默认概览");
+    step("等页签栏（8 个）与默认概览");
     const shell = await evaluate(
       page,
       waitExpression(
         `() => () => {
           const tabs = [...document.querySelectorAll(".net-tabs [role='tab']")];
-          if (tabs.length !== 7) return null;
+          if (tabs.length !== 8) return null;
           if (!document.querySelector(".net-hero")) return null;
           return { labels: tabs.map((el) => (el.textContent || "").trim()), icon: document.querySelectorAll(".net-tab--icon").length };
         }`,
@@ -299,7 +303,7 @@ async function main() {
       `window.verge?.network ? window.verge.network.get().then((s) => ({ ok: true, controller: s.controller })).catch((error) => ({ ok: false, error: String(error) })) : { ok: false, error: "window.verge.network 不存在" }`,
       { awaitPromise: true },
     );
-    const expected = ["概览", "节点", "规则", "日志", "连接", "入站", ""];
+    const expected = ["概览", "节点", "规则", "日志", "连接", "入站", "订阅", ""];
     if (JSON.stringify(shell.labels) !== JSON.stringify(expected)) {
       throw new Error(`页签文案不对：${JSON.stringify(shell.labels)}`);
     }
@@ -328,6 +332,29 @@ async function main() {
       }
       const settled = await evaluate(page, waitSettled(tab.root), { awaitPromise: true });
       report.tabs.push({ label, root: tab.root, text: settled.text, errorText: settled.errorText });
+      if (tab.subscriptions) {
+        // 这一页的失败不落在 .net-view__error 上：桥没接上、账本读不出来都只画一条
+        // .net-notice--error。所以「开出来了」在这页不作数，得单独认这三样。
+        const health = await evaluate(page, `(() => {
+          const view = document.querySelector("section.net-prof");
+          const bridge = window.verge?.subscriptions;
+          return {
+            methods: ["list", "importUrl", "pickFile", "importFile", "update", "select", "remove", "setOption", "onChanged"]
+              .filter((name) => typeof bridge?.[name] === "function"),
+            rows: view ? view.querySelectorAll(".net-prof-row").length : -1,
+            empty: !!view?.querySelector(".net-empty"),
+            errors: [...(view?.querySelectorAll(".net-notice--error") ?? [])].map((el) => (el.innerText || "").trim()),
+          };
+        })()`);
+        report.subscriptions = health;
+        if (health.methods.length !== 9) {
+          throw new Error(`订阅桥缺一根线（只有 ${health.methods.join("/") || "没有"}）`);
+        }
+        if (health.rows < 0) throw new Error("订阅页根节点 section.net-prof 不在");
+        if (health.errors.length > 0) throw new Error(`订阅页落在失败条：${health.errors.join("；")}`);
+        if (health.rows === 0 && !health.empty) throw new Error("订阅页既没有行、也没有空态");
+        step(`「订阅」读完：账本 ${health.rows} 行，桥 9 根线，无失败条`);
+      }
       await shoot(page, shots, tab.file);
       report.shots[tab.file] = true;
       step(`「${label}」在且读完（${settled.text.replace(/\s+/g, " ").slice(0, 60)}）`);
