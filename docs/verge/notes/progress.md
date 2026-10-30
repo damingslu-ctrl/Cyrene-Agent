@@ -1670,3 +1670,163 @@ shiver 借 `wink`、sip 借 `yawn`、turnAway 借 `peek`**。
 ② `enable_system_proxy` 之外的 Verge 设置（`enable_auto_group` 等）没进白名单，仍是「只换这几行」的七键；
 ③ TUN 的三档里「跟随内核」写的是 `null`（键在、值为 null），这与「删掉那把键」在 verge.yaml 里不是同一件事，
   页面按 Verge 的语义选了前者。
+
+### Wave 3 T10：内核宿主——三态发现、端口成对、崩溃自愈有预算（2026-10-30）
+
+五个新文件，判定全在纯层与注入面里：`core-types.ts`(87) / `core-source.ts`(143) / `core-manager.ts`(357)
++ 两份尺（`core-source.test.ts` 19 条、`core-manager.test.ts` 26 条）。**没有一行碰真 fs、真进程、真端口**——
+装配（真 spawn、`netstat` 占用表、`core.log` 的 writer、runtime config 的 writer）是下一刀，记在文末。
+
+**三态与「可达即不动手」**（`core-source.ts:134-143`，spec D2）：`resolveCoreSource` 是个四臂判别式联合，
+不是三态加一个错误分支。控制器答话＝`external`（连二进制都不去看，`core-source.test.ts:148`）；
+不应答才借安装版那颗，安装版没有才用自托管那颗（`:154`）；**哪儿都没有＝`needsDownload: true`，
+它不是失败**（`:161`）——下载与否由用户点，我们不替他决定联网。第一版在这里写过一臂
+`{ok:false, reason:"no-binary"}`，那条永远走不到（三个 null 才叫没有，而那就是 `needsDownload`），
+判别式联合把它变成编译期不存在的路径。
+
+**四条戒律，每条都有判定行号和一条变异**（`core-manager.ts` 头部写的就是这四条）：
+
+- `start()` 第一步问的是「已经有一颗我们起的、正在答话的吗」（`:232`）——三次点击只 spawn 一次。
+  这颗守卫放在平台判断之前，因为菜单连点两下不该先吃到 `unsupported-platform` 那种驴唇答案。
+- **可达即不动手**（`:238-254`）：`external` 态 `pid` 是 `null`、不 spawn、不写配置、不动端口，
+  `core.log` 里明写「不启进程」。两颗内核抢同一套端口时，输的那颗只在 `core.log` 留一串
+  `address already in use`，而用户看到的是「代理时好时坏」——所以这一条不允许以任何「重试」的名义放行。
+- **闸门在 spawn 之前**（`:255-267`）：`isVergeRunning()` 挡下时报 `blocked` + `verge-running`，
+  **连 runtime config 都不写**（写了就是一枚没人吃的孤儿文件）。`blocked` 这一档是「够格起，但不该起」，
+  与 `exited`（起了但坏了）在页面上是两句话，所以状态与原因是两个维度，不合成一个枚举。
+- **没起过的不许停**（`:307-311`）：`external` 态或手上没 child 时，`stop()` 只把我们自己的账清掉、
+  绝不 `kill`。那颗进程是 Verge 的服务在跑，杀它是替用户关掉他正在用的东西。
+
+**起这件事要并成一次**（`startCoalesced` `:326-333`、`stopCoalesced` `:336-339`）：
+`state === "running"` 那道守卫只挡住「已经起来之后」的连点，**挡不住 `starting` 那 8 秒**——
+菜单快点两下、或页面重渲染自己再发一次，就会走进第二次 `launch`，两颗内核抢同一对端口。
+所以「在途的起」是一枚共享 promise（`pendingStart`），第二次点击拿同一份回执，不多 spawn 一颗（M10 钉）；
+`stop()` 先 `await` 那枚在途 promise 再决定要不要 kill（M11 钉）——否则「点了停止」会静默地
+留下一颗正在起的内核，页面上写着「已停止」而盘上的 `core.log` 里那句 `spawn pid=…` 还在往后长。
+两道都有对应的红：`起还没走完时再点一次＝同一个在途请求` 与 `起还没走完时点停止，等它回来再 kill`。
+
+**端口是一对，不是两个独立的数**（`core-source.ts:39-53`）：默认档 `7897/9097` 必须**两个都空着**才用（`:44`），
+否则从 `17890` 起扫第一组「两个都空」的号（`:45-51`）。只查 mixed 的话，controller 撞车时内核会起在
+半套端口上，页面显示的端口就不是真在监听的那一个——这条由变异 M7（把 `&& !used.has(controller)` 拆掉）
+钉住，它同时红 `core-source.test.ts:52` 与宿主侧那条。扫不到回 `null` 而不是 `0`（`:52`）：
+回 0 或回被占的那个号，页面就报一个没在听的端口。非端口形状（0 / 负数 / 超 65535 / 小数）不算「占用」（`:43`），
+脏数据不许把扫描带跑。
+
+**就绪只认控制器答话**（`:207` + `waitReady` `:124-132`）：`spawn` 回来不等于内核在听。到 `CORE_READY_TIMEOUT_MS`
+(8s, `:35`) 不应答就 `killOwn()` 自己那颗并报 `not-ready`——留一颗僵尸占着端口是最坏的一种「启动失败」。
+测试用注入的假 `sleep` 推进假时钟，所以「真的等过 8s」是断言出来的（`core-manager.test.ts` 里那条查
+`clock.now - before ≥ CORE_READY_TIMEOUT_MS`），不是靠真等。
+
+**自愈有预算，也有记账**（`:159`、`:168-183`）：上限 `MAX_SELF_HEAL = 3`（`core-types.ts:43`），打满之后
+`self-heal-exhausted` 只把原因说清楚、不再静默重起。**关键那条是「活了多久要在清账之前量」**（`:159`）：
+`startedAt` 一被 `settle` 抹成 `null`，「跑三天崩一次」和「崩了起、起了崩」就再也分不开。撑过
+`CORE_HEAL_RESET_MS`（60s，`:33`）才补满预算（`:168`），否则连跑三天之后的那次崩溃就没钱可花——
+这是 M4 那条变异（把补预算的分支恒假）红的那一条。人工出口两个：`resetHealBudget()` 与「起内核」按钮，
+两者都要能让状态重新回到 `running`。我们自己按下的停止不参与计数（`:147-154`）；
+已经被换掉的那颗进程再叫一次 exit 也不许动现在的账（`:155` 的 `child !== childRef` 守卫）。
+
+**`-d` 与 `-f` 各归各位**（`:195` 用 `deps.coreDir()`，`core-source.ts:62-64`）：`-d` 是内核自己的工作目录
+（缓存、geo 落这里），必须是 Mochi 的 `<userData>/core/`（`core-types.ts:47`、`core-source.ts:66-73`），
+**不能是 Verge 的目录**；`-f` 是装配层写好的那份 runtime config。这里原本有个从 `configPath` 反推目录的
+本地函数（按 `lastIndexOf("/")` 与 `("\\")` 取较后者），平台相关的字符串数学、且「配置写在哪」和
+「内核的家在哪」本来就是两件事——拆掉它，改由注入面直接给 `coreDir()`，M1–M11 里没有它，因为已经不存在。
+
+**`core.log` 的戒律**（`:93-101`）：每一行带 ISO 时间戳（测试逐行正则卡），内核 stdout/stderr 压平成一条
+（多行在追加式日志里会跟别家的行咬在一起）。日志里**不许出现密钥**：runtime config 里我们会给内核塞一个
+自己生成的 controller secret，所以 `configPath` 只当参数传、从不落进日志——测试用一个把哨兵
+`zh-SECRET-sentinel-8f2c41` 拼进配置路径的假 `writeRuntimeConfig` 来验这件事：只要有人把路径或参数原样
+写进日志，那条立刻红。`appendLog` 抛错不许拖垮起内核这件事，但静默要留痕（`:99` 那一句还在 console 上）。
+
+**借哪颗二进制：stable 赢 alpha**（`core-source.ts:25-33`）：`verge-mihomo-alpha.exe` 是别人在试的版本，
+拿它当默认＝替用户选一条更会崩的路；只有 alpha 时才用 alpha，两颗都不是 stable 时按名字定序
+（否则每次开机借到不同那颗）。测试里的目录清单（`core-source.test.ts:21-33`，注记在 `:22`）
+是 2026-10-30 从 `C:\Program Files\Clash Verge\` **真读回来**的，不是编的。
+
+**摘要与资产名（spec D3 的口径，实机没验过）**：`parseSha256Digest`(`core-source.ts:79-84`) 只认
+`sha256:` + 64 位十六进制，别的算法、缺前缀、长度不对、非字符串一律 `null`（M8 把它放宽到 `{6,}` 立刻红两条）。
+`null`（没有摘要）与「不符」在回执里是两档，不并成一档。`pickMihomoAsset`(`:101-121`) 只收
+`mihomo-windows-amd64-*.zip` **且必须有 `browser_download_url`**（`core-source.test.ts:133` 那条测试说了为什么：API 的 `url`
+吃匿名限额，真文件本来就在 `objects.githubusercontent.com`），plain 赢变体、变体之间按名字定序。
+**实现这一条时本机没有任何出站**（直连与走 7896 都没回音），所以资产名模式是按 spec 推的、代码与测试里都明写了
+这件事，并把挑中的原名回出去——猜错时页面和 `core.log` 至少能看到我们抓的是哪一个。
+
+**尺子与变异**：45 条全绿（19 + 26），时钟/sleep/fs/spawn/端口表全注入，所以定向一趟 1.01s 且不吃 CI 快慢。
+十一条变异 M1–M11（`.tmp/mutate-t10.py`，报告 `.tmp/mutate-t10-report.txt`）：M1 external 恒不命中、M2 拆单写者闸门、
+M3 无限自愈、M4 不补预算、M5 spawn 即算就绪、M6 允许多起、M7 端口只查一个、M8 放宽摘要形状、M9 alpha 赢 stable、
+M10 并发起效前也允许并发 spawn、M11 停止不等在途的起
+——**十一条全部红回来，且每条跑完 sha256 校验逐字节还原**（`restored=True ×11`，`SURVIVED=0`）。
+
+**门**（全部 exit 0）：
+
+- 三道 `tsc --noEmit`（main / preload / renderer）各 0；定向 `CI=true vitest run` 两个文件 **45/45**、1.01s
+  （`.tmp/t10-targeted4.log`）。
+- 全量 `CI=true node node_modules/vitest/vitest.mjs run`：**773 文件 / 8191 passed | 2 skipped（8193）**、
+  345.81s（`.tmp/t10-full-suite3.log`）。对 T9-d2 收口时的 771 / 8144|2：+2 文件＝这轮那两份尺（45 条），
+  +2 条＝下一节给 `idle_micro` 补的两条。**中间那一趟是红的**（`.tmp/t10-full-suite2.log`：8188 passed |
+  2 skipped | **1 failed**），红的那条不是内核宿主，而是桌宠待机里一条真会炸的旧 bug——见下一节。
+- `node scripts/build/desktop-typescript.mjs main` **798 文件**、`preload` **153 文件**；
+  `node node_modules/vite/bin/vite.js build` 11.61s exit 0。
+- 工作树上这一轮的产品文件只有那 5 个新的（`git diff --numstat` 只列 `companion.ts` / `companion.test.ts` /
+  本台账；`git status` 另有一条 `.snap` 的 EOL 幻影，按 #131 记过的纪律永不进暂存）。
+
+**未做，记账**：
+① **装配面还没接**：真 `spawn`（`child_process.spawn` 带 `windowsHide`）、真占用表（`netstat -ano` 还是
+  逐个 `connect` 试——这条要选）、`<userData>/core.log` 的 writer、runtime config 的 writer（含 controller
+  secret 的生成）都是 `CoreManagerDeps` 的注入项，现在是空的。宿主本身没法被屏幕验，所以 T10 的证据是单测；
+② **IPC / preload / 页面还没上**：`verge:core:status|start|stop|restart` 四通道、sender 闸门（照 T9 那四条的
+  `chat` 独占 + shutdown `removeHandler` 口径）与「内核」那一卡待做；
+③ `CORE_REASONS` 十二档里 `download-failed` / `digest-missing` / `digest-mismatch` / `extract-failed` 是给 T11
+  预留的词表，`core-manager.ts` 目前不产这四档——枚举锁（`core-types.ts:20-33`）会逼着 T11 用它们而不是新造词；
+④ mihomo release 的资产名与 `digest` 实值**未经真网络验证**（本机无出站），T11 落地当天必须拿真 API 回读一次；
+⑤ 崩溃自愈只重起，不做「重起三次就换一个端口再试」——端口被别的程序占死时 `not-ready` 会连报三次，
+  这是**故意的**：换端口是用户的决定（页面显示的端口会变），不是宿主的。
+
+### 门禁红抓到的真 bug：待机微动作名单里那条不存在的 `wink`（2026-10-30）
+
+上面那一趟全量红了一条：`renderer-girl-v119.test.ts` 的「深夜闲着三分钟自己睡」抛 `未知 clip：wink`，
+栈是 `motion.ts:95` ← `motion.ts:439` ← `motion.ts:444` ← `companion.ts:3411` 那一拍（修前是 `:3399`）
+← `stepIdleGirl` ← `draw()` 里那次 `tickCompanion`（`renderer.ts:3786`）。**单跑那一条是绿的**，所以看着像 flake——它不是。
+根因是 `MICRO_GESTURES` 里那条 `wink` 根本不是一个手势名。
+
+**`wink` 有三个身份，唯独没有第四个**。它是帧图集的段名（`girl-anim.ts:51`，`typeCode`/`shiver`/`groom`
+三个手势都借它演：`girl-anim.ts:214`、`:216`、`:219`；洗脸那个**活动**也借：`:184`），也是 `face` 的表情名（`face.ts:14`、`face.ts:73`），
+但 18 条手势名单（`motion.ts:431-434`）里没有它，`REGISTRY` 里也就没有这条 clip。引擎排手势时长查的是
+`gestureClip`（`companion.ts:9` 引入，`motion.ts:444` 判定），查不到就当场抛——名单里写一个「别的名词族」的词，
+等于在待机里埋一颗随机引爆的雷。
+
+**为什么单测一直绿**（这条本台账先前记错过一次，下面是拿探针当场数出来的）：旧那条测试**确实走进了
+`idle_micro`**（权重 10 的最前一档，`companion.ts:697`），红不起来的原因是它的随机源
+`seq([0.5, 0.5, 0.05, 0.1, 0.0])` 只备了 5 个数、用完就**重复最后那个 0**（`companion.test.ts:52-56`
+写明了这个口径），而那一拍实际要消耗 **7 次抽**（临时探针打出来的读数）——排到「微动作取第几档」时手里
+只剩 0，于是**永远抽第一档**。名单第二条 `wink` 一辈子没被抽到过，所以名单里写什么都绿。
+**按位置喂随机数补不了这条**：同一拍里引擎先消耗过别的 `random()`（排闲置时长的 `idleDelay` `companion.ts:3071-3073`、
+台词那一串 `companion.ts:3318-3327`），第几号数落在微动作档是会随分支漂的数——第一版补丁正是这么试的，
+红在 `expected null to be 'peek'`，随后放弃这条路。
+
+**真窗里为什么不炸**：rAF 那一圈有 try/catch（`renderer.ts:3499` 把异常记成「宠物绘制异常，本帧跳过」），
+屏幕上看不出破绽，只是那一帧没画。**这就是这条 bug 活到今天的原因**：只有直接调 `draw()` 的测试
+（不吃那圈 try/catch）才撞得上它。
+
+**改法**：名单换成 `["peek", "tilt"]`（`companion.ts:225`，两条都在 `GESTURE_IDS` 里，`motion.ts:432-433`），
+并把下标算式抽成纯函数 `microGestureAt`（`companion.ts:229-235`），`stepIdleGirl` 调它（`companion.ts:3407-3412`）。
+**没有给 `wink` 补一条 clip**：`motion-clips.test.ts:26-27` 与 `motion-clips.test.ts:65` 把「已注册 clip ==
+spec §5 那 18 条」钉死，`girl-anim.test.ts:143` 把「`GESTURE_CLIP` 的键 == `GESTURE_IDS`」钉死——让它进名单
+等于改手势词汇表，那是 spec 的事，不是补一轮 bug 的顺手账。
+
+**三把新尺**（按同族那三条锁的写法，`companion.test.ts:458`/`:496`/`:525`）：① 静态锁 `companion.test.ts:463`
+——`MICRO_GESTURES` 每条都得在 `gestureIds()` 里、`gestureClip` 查得到，**且渲染端三条播放路至少接一条**
+（动作行 `renderer.ts:3749` / 姿态 `renderer.ts:3757` / 原帧段 `renderer.ts:3765`）；只查 clip 会放过
+「查得到却没人播」的空转名。② 逐档锁 `companion.test.ts:840`——`microGestureAt((arm+0.5)/n)` 必须等于第
+`arm` 条，0 与 0.999999 落首末；名单与算式漂了会红。③ 一千拍 fuzz `companion.test.ts:851`——固定种子
+（20261030 的 LCG）跑 1000 拍，**报出来的每一条手势当场 `gestureClip` 不许抛**，并对每一档做正对照
+（「一千拍里一次都没抽到」要能红），所以这条尺既真随机又可复现。`companion.test.ts` 从 69 条到 71 条。
+
+**变异验牙**（`.tmp/mutate-micro.py` → `.tmp/mutate-micro-report.txt`）：M-a 把 `wink` 放回名单（当年的真伤）、
+M-b 把下标算式写死成第一档（第二档变死档）、M-c 把「要不要动」那一抽恒 `false`（整档不再动，尺子空转）
+——三条全部 `[RED-AS-EXPECTED]`，每条跑完 sha256 逐字节还原（`restored=True ×3`，`SURVIVED=0`）。
+脚本按**字节**读写：`companion.ts` 是 CRLF，文本模式还原会留下「看着一样、哈希不同」的假还原。
+vitest 的 CJK 输出在 GBK 控制台上会抛解码噪声，所以判据只取进程 rc，不读它的 stdout。
+
+**这一趟不能给什么**：没跑真窗探针——证据是单测层的（一千拍覆盖的是引擎报出来的名字，不是屏幕上的帧）。
+「异常被 try/catch 咽掉所以看不见」这一条只护住 rAF 那一圈：`this.draw(` 在 `renderer.ts` 里出现 99 行，
+其余直接调用点逐条有没有被护住，本轮没盘，留给下一刀（要盘的是「引擎抛在绘制路径上时屏幕上还有什么」）。
