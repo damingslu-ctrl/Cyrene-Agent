@@ -1559,5 +1559,6 @@ shiver 借 `wink`、sip 借 `yawn`、turnAway 借 `peek`**。
   `girl-gesture-groom.png`——那是升格后的 `gesture.groom-action` 自己带的；`girl-pet-action.png` /
   `girl-groom-action.png` / `girl-shiver-action.png` / `girl-turnAway-action.png` /
   `girl-sip-action.png` 三趟都在。
-- 只做本地提交（`3e03e2a1` 美术、`3e26c3ed` 夹框、`bc9e3062` 接线、`4ec05269` 测试，外加本段与探针），
+- 只做本地提交（`3e03e2a1` 美术、`3e26c3ed` 夹框、`bc9e3062` 接线、`4ec05269` 测试、
+  `10fbe230` 补回行号锁、`8f7b67b4` 探针、`8820be1d` 本段），
   **未改版本号、未发布、未推送**；`package.json` 仍是 mochi@1.15.0。
