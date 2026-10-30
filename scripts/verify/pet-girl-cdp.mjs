@@ -56,6 +56,11 @@
 //   当场撒野按阶位挑式子——家猫冲刺＝奔跑图、醒爪潜行＝趴姿图、猎手扑击＝跃起图，
 //   身上带双色记号；玩成才记账并当场落盘；半路「野性到哪了」叫停的那一轮不算，
 //   剩下的路走完也不记账；每个种子都改盘后整页重载，账本只从盘里回来。
+// - v1.25「摸头/梳毛/发抖/扭头/喝一口」：五件「被对待」的事也各播动作图集里自己那一行
+//   （第 11–15 行）。摸头挂在活动上、其余四条挂在显式手势上。摸头另钉一条这一版特有的：
+//   长按那一拍必须在**同一次 JS 回合**里就把 action 报出来——后台窗 rAF 只有 ~4fps，
+//   不催帧还能读到，靠的是长按分支自己重画。扭头是这一批唯一的一次性行：末格自己谢幕
+//   （6 帧 @6fps ≈ 1000ms），比手势名义 2000ms 早；其余四条循环行必须演到手势时长到点。
 // 任一条不成立就红；环境问题（没窗/没墨）报 ENV，不冒充产品红。
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -1085,7 +1090,10 @@ async function main() {
   await shot("girl-feet-tap.png");
   // v1.23 起分区 tap 自己当场重画（4fps 档下一帧最坏 250ms）：200ms 窗读到的一定是
   // 摸头后那一拍，不会被「还没画」漏成 clip=null。
-  check("zone.feet.clip", feet.girl.clip === "wink", `clip=${feet.girl.clip}`);
+  // v1.25 起「抖一下」不再借 wink 的帧段：feet 那一下走 shiver 手势 → 动作图集第 13 行。
+  // 判据与上面 zone.head.action 同口径（专属 action、pose/clip 全 null），名字也一并改成 .action。
+  check("zone.feet.action", feet.girl.action === "shiver" && feet.girl.clip === null
+    && feet.girl.pose === null, `action=${feet.girl.action} clip=${feet.girl.clip} pose=${feet.girl.pose}`);
   check("zone.feet.gesture", feetSnap.gesture === "shiver", `gesture=${feetSnap.gesture}`);
   // 点脚是新的一句：屏幕上不许还挂着摸头那句话（同级可顶，见 companion.say）。
   check("zone.feet.bubble", !!feetSnap.bubble && feetSnap.bubble.text !== headSnap.bubble?.text,
@@ -3482,7 +3490,6 @@ async function main() {
       ["bow", "bow"],
       ["point", "peace"],
       ["tilt", "tilt"],
-      ["groom", "wash"],
       ["yawn", "yawn"],
       ["wave", "wave"],
     ];
@@ -3503,6 +3510,22 @@ async function main() {
       await wait(1_700);
     }
     results.gestures = seen;
+
+    // 梳毛升格：v1.15 起这件事只有一张 wash 静帧可演（判据是 pose=wash），v1.25 起它有
+    // 自己那一行动作（7fps 循环，图集第 12 行）——判据换成「action=groom、pose/clip 全 null」。
+    // 「还停在一张静帧上」从今天起是缺陷，不是达标；静帧只在动作图集缺席时才是正确退路
+    // （那条降档由 renderer-girl-v125.test.ts 的最后一个用例守着，真窗不验）。
+    await evaluate(s, `window.__cyrene.renderer.playGesture("groom")`);
+    await wait(400);
+    await forceFrame();
+    const groomRow = await readGesture();
+    results.gestureGroom = groomRow;
+    check("gesture.groom-action",
+      groomRow.action === "groom" && groomRow.pose === null && groomRow.clip === null
+      && groomRow.gestureId === "groom",
+      `pose=${groomRow.pose} clip=${groomRow.clip} action=${groomRow.action} gestureId=${groomRow.gestureId}`);
+    await shot("girl-gesture-groom.png");
+    await wait(2_500);
 
     // 没有对应画的：点头仍不硬套姿态。v1.23 起它有自己那一行动作（7fps 一次性），
     // 不再借 peek 的帧段——判据改成「pose 仍为 null、走的是 nod 动作行」。
@@ -5095,9 +5118,16 @@ async function main() {
       check(`v122.${name}.frames`, new Set(frames.filter((f) => f !== null)).size >= 2,
         `frames=${JSON.stringify(frames)}`);
     };
-    const expectHome = (name, beat, why) => {
-      check(`v122.${name}.home`, beat.action === null && beat.pose === "stand" && beat.gestureId === null,
-        `${why} action=${beat.action} pose=${beat.pose} gestureId=${beat.gestureId} activity=${beat.activity}`);
+    // 与 v1.23/v1.25 那两段同一条契约（本轮 2026-10-30 对齐）：旧口径要求 action 整体为 null、
+    // pose 必须是 stand、gestureId 整体为 null——三条都是在跟作息编排对赌：让位那一拍邻座常来补位，
+    // 等待那几百毫秒里她可能已经坐下。判据收到本行身上：这一行/这一手势不许还挂在台上，
+    // 台上有没有别的事不管，但必须有东西（要么有静帧，要么正在走/被拖/被投）。
+    const expectHome = (name, beat, why, id = name) => {
+      const standingSomewhere = beat.pose !== null || beat.clip !== null
+        || ["walk", "drag", "thrown"].includes(beat.activity);
+      check(`v122.${name}.home`,
+        beat.action !== id && beat.gestureId !== id && standingSomewhere,
+        `${why} action=${beat.action} pose=${beat.pose} gestureId=${beat.gestureId} activity=${beat.activity} clip=${beat.clip}`);
     };
 
     // V1 喂食：打底换成吃饭那一行（9fps 循环），1600ms 吃完回站姿。
@@ -5201,10 +5231,16 @@ async function main() {
     // pose 也不许硬要求：girl-scene.ts:72-81 写明「null＝这件事只能靠帧动画演」——走路/被拖/投掷
     // 本就没有静帧（2026-10-29 coverFace 那条红量到 pose=null activity=walk，是她起身走了，不是卡行）。
     // 所以人还得在某个地方：要么有静帧，要么正播那三段位移动画之一。
-    const expectHome = (name, beat, why) => {
-      const standingSomewhere = beat.pose !== null || ["walk", "drag", "thrown"].includes(beat.activity);
+    // v1.25 补的第三条放宽（2026-10-30 真窗两条 home 红）：本行让位的**同一拍**，引擎的自主小动作
+    // 抽签往往正好补位——groom 落位那拍量到 gesture=peek/clip=peek，sip 那拍量到 gesture=curtsy/
+    // pose=bow（motion.ts:324/370 两个都是在册 gesture，不是产品卡住）。旧口径要求 gestureId 整体
+    // 为 null，等于要求「换场那一拍全桌静音」：那是跟编排对赌，不是产品的契约。判据收到本行身上——
+    // 这一行/这一手势不许还挂在台上；台上有没有别的事不管，但必须有东西（不许空台）。
+    const expectHome = (name, beat, why, id = name) => {
+      const standingSomewhere = beat.pose !== null || beat.clip !== null
+        || ["walk", "drag", "thrown"].includes(beat.activity);
       check(`v123.${name}.home`,
-        beat.action === null && beat.gestureId === null && standingSomewhere,
+        beat.action !== id && beat.gestureId !== id && standingSomewhere,
         `${why} action=${beat.action} pose=${beat.pose} gestureId=${beat.gestureId} activity=${beat.activity} clip=${beat.clip}`);
     };
 
@@ -5247,6 +5283,189 @@ async function main() {
     expectRow("coverFace", coverBeats, "coverFace", "coverFace");
     await shot("girl-coverFace-action.png");
     expectHome("coverFace", await waitActionGone(3_500), "放完手");
+  }
+
+  // —— VII. v1.25「摸头/梳毛/发抖/扭头/喝一口」：五件「被对待」的事各播自己那一行 ——
+  // 摸头挂在**活动**上（长按 = engine.touch("pet") → activity=pet → 图集第 11 行），
+  // 梳毛/发抖/扭头/喝一口挂在**显式手势**上（第 12–15 行）。五行各验：诊断读的是专属 action
+  // （pose/clip 全 null）、帧号按本行 fps 真的在走、名义时长到点前还在演、谢幕之后人还在。
+  // 摸头另加一条这一版特有的尺：长按那一拍必须在同一次 JS 回合里就把 action 报出来
+  // （src/renderer/pet/renderer.ts:4176-4177 的即时重绘；不催帧还能读到才算当场起播）。
+  // 全程只用 tapAt / playGesture，不发任何鼠标事件（不碰用户真实光标）。
+  {
+    results.v125 = {};
+    const settleScreen = async (why) => {
+      const deadline = Date.now() + 20_000;
+      for (;;) {
+        await forceFrame();
+        const n = await snap();
+        const g = await girlOf();
+        const calm = !["walk", "drag", "thrown", "sleep"].includes(n.activity)
+          && (g?.wild?.act ?? null) === null;
+        if (calm) return n;
+        if (Date.now() > deadline) {
+          throw new Error(`[ENV] 20s 内没回到可量互动行的待机态（activity=${n.activity} wild=${g?.wild?.act}；${why}）`);
+        }
+        await dismissBubble().catch(() => {});
+        await wait(240);
+      }
+    };
+    // 空台：身上既没有动作行也没有余兴手势。余兴正好举着时伸手，读到的会是别人的那一行——
+    // 被挡下的那一次不吃判据，重试点（探针自己的腿脚不算产品的红）。
+    const waitStandby = async (why) => {
+      const deadline = Date.now() + 12_000;
+      let last = null;
+      for (;;) {
+        await forceFrame();
+        last = await afterBeat();
+        if (last.action === null && last.clip === null && last.gestureId === null && last.pose !== null) return last;
+        if (Date.now() > deadline) {
+          throw new Error(`[ENV] 12s 内没等到空台（pose=${last.pose} action=${last.action} `
+            + `gesture=${last.gestureId} clip=${last.clip}；${why}）`);
+        }
+        await wait(150);
+      }
+    };
+    const beatsOf = async (count = 4, gap = 110) => {
+      const beats = [];
+      for (let i = 0; i < count; i += 1) {
+        await forceFrame();
+        beats.push(await afterBeat());
+        if (i < count - 1) await wait(gap);
+      }
+      return beats;
+    };
+    /**
+     * 从 t0 起每帧催一次，直到**本行**让位；把「本行让位离起播多久」带回来当 hold 尺用。
+     * 出口按本行而不是「action===null」：邻座手势补位时 action 会是别人的 id，若继续等全桌静音，
+     * waited 会把别人的那段也算进本行的寿命——循环行那条 `waited >= 名义-300` 会被这样撑绿，
+     * 把「本行被半路顶掉」这件真事盖掉。按本行收口才量的是这一行自己的时长。
+     */
+    const clearedAt = async (id, t0, cap) => {
+      const deadline = t0 + cap;
+      for (;;) {
+        await forceFrame();
+        const beat = await afterBeat();
+        if (beat.action !== id || Date.now() > deadline) return { beat, waited: Date.now() - t0 };
+        await wait(90);
+      }
+    };
+    const expectRow = (name, beats, id, gesture) => {
+      const hit = beats.find((b) => b.action === id) ?? null;
+      const frames = beats.filter((b) => b.action === id).map((b) => b.actionFrame);
+      check(`v125.${name}.action`, hit !== null && hit.pose === null && hit.clip === null,
+        `beats=${JSON.stringify(beats.map((b) => ({ action: b.action, pose: b.pose, clip: b.clip })))}`);
+      check(`v125.${name}.frames`, new Set(frames.filter((f) => f !== null)).size >= 2,
+        `frames=${JSON.stringify(frames)}`);
+      if (gesture !== null) {
+        check(`v125.${name}.gesture`, beats.some((b) => b.gestureId === gesture),
+          `gestures=${JSON.stringify(beats.map((b) => b.gestureId))}`);
+      }
+    };
+    // 谢幕尺沿用 v1.23 的口径，含这一版给它补的第三条放宽：只保证「本行让位、本手势放下、台上
+    // 还有东西」，不要求换场那一拍全桌静音——2026-10-30 首轮 groom/sip 两条 home 就是被自主抽签
+    // 补位的邻座手势顶红的（详见 v123 那段注释）。回到哪张待机姿态归作息编排管。
+    const expectHome = (name, beat, why, id = name) => {
+      const standingSomewhere = beat.pose !== null || beat.clip !== null
+        || ["walk", "drag", "thrown"].includes(beat.activity);
+      check(`v125.${name}.home`,
+        beat.action !== id && beat.gestureId !== id && standingSomewhere,
+        `${why} action=${beat.action} pose=${beat.pose} gestureId=${beat.gestureId} `
+        + `activity=${beat.activity} clip=${beat.clip}`);
+    };
+    /** 循环行必须演到手势时长到点（半路掉回帧段＝这行没跑完就被顶了）；一次性行反过来。 */
+    const expectHold = (name, waited, nominalMs, oneShot) => {
+      if (oneShot) {
+        check(`v125.${name}.hold`, waited < 1_800,
+          `一次性行末格报 done 自己谢幕（6 帧 @6fps=1000ms），比手势名义 ${nominalMs}ms 早；实测 ${waited}ms`);
+      } else {
+        check(`v125.${name}.hold`, waited >= nominalMs - 300,
+          `循环行靠手势时长收口，不许半路让位（名义 ${nominalMs}ms，实测 ${waited}ms）`);
+      }
+    };
+    const seenRows = [];
+
+    results.v125.atlases = (await girlOf()).atlases;
+    check("v125.atlas.actions", results.v125.atlases?.actions === true,
+      `动作图集不在屏上时五行都会退回帧段/静帧：atlases=${JSON.stringify(results.v125.atlases)}`);
+
+    // X1 长按摸头：图集第 11 行（8fps 循环），起播不许等下一帧。
+    await settleScreen("v125-pet");
+    await dismissBubble();
+    let held = null;
+    const heldT0 = Date.now();
+    for (;;) {
+      held = await evaluate(s, `(() => {
+        const cy = window.__cyrene;
+        const r = cy.renderer;
+        if (r.paused === true) return { env: "paused" };
+        const d = cy.getPetDiagnostics();
+        const g0 = d.girl;
+        if (g0.action !== null || g0.gestureId !== null) return { busy: g0.action ?? g0.gestureId };
+        const h = d.hitRect;
+        const z = d.layout.zoom;
+        r.tapAt((h.x + h.width / 2) * z, (h.y + h.height * 0.2) * z, 600);
+        const g1 = cy.getPetDiagnostics().girl;
+        return {
+          before: { action: g0.action, pose: g0.pose, gestureId: g0.gestureId },
+          after: { action: g1.action, frame: g1.actionFrame, pose: g1.pose, clip: g1.clip },
+          activity: r.getCompanionSnapshot().activity,
+        };
+      })()`);
+      if (held?.env === "paused") throw new Error("[ENV] 宠物窗 paused（窗被隐藏/最小化）：起播没法验");
+      if (held?.busy === undefined) break;
+      if (Date.now() > heldT0 + 12_000) throw new Error(`[ENV] 12s 内没等到空台（busy=${held.busy}；v125-pet）`);
+      await wait(150);
+    }
+    results.v125.petLaunch = held;
+    check("v125.pet.sameTurn",
+      held.after.action === "pet" && held.after.pose === null && held.after.clip === null
+        && held.activity === "pet",
+      `长按那一拍没催帧就要读出 pet 行：before=${JSON.stringify(held.before)} `
+      + `after=${JSON.stringify(held.after)} activity=${held.activity}`);
+    seenRows.push("pet");
+    const petBeats = await beatsOf(4, 110);
+    results.v125.pet = petBeats.map((b) => ({ action: b.action, frame: b.actionFrame, activity: b.activity }));
+    const petFrames = [held.after.frame, ...petBeats.filter((b) => b.action === "pet").map((b) => b.actionFrame)];
+    check("v125.pet.frames", new Set(petFrames.filter((f) => f !== null)).size >= 2,
+      `frames=${JSON.stringify(petFrames)}`);
+    await shot("girl-pet-action.png");
+    {
+      const { beat, waited } = await clearedAt("pet", heldT0, 4_000);
+      results.v125.petCleared = { waited, pose: beat.pose, activity: beat.activity };
+      expectHome("pet", beat, "摸完");
+    }
+
+    /** 一条手势行的完整一趟：空台 → playGesture → 逐拍读数 → 谢幕，并回报让位用了多久。 */
+    const runGesture = async (name, id, nominalMs, oneShot = false) => {
+      await settleScreen(`v125-${name}`);
+      await waitStandby(`v125-${name}`);
+      await dismissBubble();
+      const t0 = Date.now();
+      await evaluate(s, `window.__cyrene.renderer.playGesture(${JSON.stringify(id)})`);
+      const beats = await beatsOf(4, 110);
+      results.v125[name] = beats.map((b) => ({ action: b.action, frame: b.actionFrame, gesture: b.gestureId }));
+      expectRow(name, beats, id, id);
+      seenRows.push(id);
+      await shot(`girl-${name}-action.png`);
+      const { beat, waited } = await clearedAt(id, t0, nominalMs + 4_000);
+      results.v125[`${name}Cleared`] = { waited, pose: beat.pose, activity: beat.activity, gesture: beat.gestureId };
+      expectHome(name, beat, `${name} 演完`);
+      expectHold(name, waited, nominalMs, oneShot);
+    };
+
+    // X2 梳毛：7fps 循环行，从一张 wash 静帧升格成动画，手势时长 2400ms 到点让位。
+    await runGesture("groom", "groom", 2_400);
+    // X3 发抖：12fps 抖得急，1800ms 收口。
+    await runGesture("shiver", "shiver", 1_800);
+    // X4 扭头：6fps **一次性**行，末格（背对着的那一格）停住即由 scene.isDone 谢幕，
+    // 等不到手势名义的 2000ms——这一条就是「一次性行自己收口」在真窗上的读数。
+    await runGesture("turnAway", "turnAway", 2_000, true);
+    // X5 喝一口：8fps 循环行，杯子捧在两只爪里整段都在喝，2400ms 才放下。
+    await runGesture("sip", "sip", 2_400);
+
+    check("v125.fiveRows", seenRows.join(",") === "pet,groom,shiver,turnAway,sip",
+      `五件事必须各读各的行（不许两件事共用一行）：seen=${JSON.stringify(seenRows)}`);
   }
 
   const failed = checks.filter((c) => !c.ok);
