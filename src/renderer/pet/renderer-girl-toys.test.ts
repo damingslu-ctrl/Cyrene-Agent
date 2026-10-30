@@ -71,6 +71,9 @@ async function makeGirl(): Promise<Probe> {
     settlePetPosition: vi.fn(),
   };
   vi.spyOn(performance, "now").mockImplementation(() => clock.ms);
+  // 挂钟钉在下午：17:00 起天色记号（黄昏）会常驻头顶，成就徽章那条「过期后归零」
+  // 量的是整层 ops，会被这枚与徽章无关的记号污染（2026-10-29 17:35 实测红）。
+  vi.spyOn(Date, "now").mockImplementation(() => new Date(2026, 9, 29, 15, 0).getTime());
   vi.spyOn(console, "log").mockImplementation(() => {});
   window.localStorage.clear();
   const r = new PixelPetRenderer({

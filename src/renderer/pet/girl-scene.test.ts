@@ -218,6 +218,17 @@ describe("v1.22 吃/拍/跳/打字各播自己那一行", () => {
     expect(GIRL_GESTURE_ACTION.wave).toBeUndefined();
     expect(GIRL_GESTURE_ACTION.bow).toBeUndefined();
   });
+
+  it("v1.23 点头/摇头/拍手/捂脸也各走自己那一行，有真姿态的手势不许被抢", () => {
+    expect(GIRL_GESTURE_ACTION.nod).toBe("nod");
+    expect(GIRL_GESTURE_ACTION.shake).toBe("shake");
+    expect(GIRL_GESTURE_ACTION.clap).toBe("clap");
+    expect(GIRL_GESTURE_ACTION.coverFace).toBe("coverFace");
+    // 招手/鞠躬/剪刀手/歪头/洗脸/哈欠/伸懒腰已经有姿态图，手势表不许把它们顺走。
+    for (const posed of ["wave", "bow", "curtsy", "point", "tilt", "groom", "yawn", "stretch"]) {
+      expect(GIRL_GESTURE_ACTION[posed], posed).toBeUndefined();
+    }
+  });
 });
 
 describe("v1.20 野性三式的姿态", () => {

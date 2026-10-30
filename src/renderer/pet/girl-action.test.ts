@@ -46,8 +46,13 @@ describe("动作图集：一式一条动画", () => {
   it("每式各占一行、各有自己的帧表与节拍（不是同一段动画换皮）", () => {
     expect(GIRL_ACTIONS.cols * GIRL_ACTIONS.rows).toBe(GIRL_ACTIONS.count);
     expect(new Set(IDS.map((id) => GIRL_ACTION_ROWS[id].row)).size).toBe(IDS.length);
-    expect(new Set(IDS.map((id) => GIRL_ACTION_ROWS[id].fps)).size).toBe(IDS.length);
-    expect(IDS).toEqual(["zoom", "stalk", "hunt", "eat", "bat", "hop", "type"]);
+    // v1.23 起 11 行分 6–12fps，节拍不再逐行唯一；改钉「每行的画各不相同」——
+    // 帧率撞车无所谓，墨表撞车才是同一段动画换皮。
+    expect(new Set(IDS.map((id) => JSON.stringify(GIRL_ACTION_INK[id]))).size).toBe(IDS.length);
+    expect(new Set(IDS.map((id) => JSON.stringify(GIRL_ACTION_FACE[id]))).size).toBe(IDS.length);
+    expect(IDS).toEqual([
+      "zoom", "stalk", "hunt", "eat", "bat", "hop", "type", "nod", "shake", "clap", "coverFace",
+    ]);
     for (const id of IDS) {
       const row = GIRL_ACTION_ROWS[id];
       expect(row.frames, id).toBe(GIRL_ACTIONS.cols);
@@ -66,6 +71,8 @@ describe("动作图集：一式一条动画", () => {
     expect(GIRL_ACTION_INK.eat[0]).not.toEqual(GIRL_ACTION_INK.bat[0]);
     expect(GIRL_ACTION_INK.bat[0]).not.toEqual(GIRL_ACTION_INK.type[0]);
     expect(GIRL_ACTION_FACE.eat[0]).not.toEqual(GIRL_ACTION_FACE.type[0]);
+    expect(GIRL_ACTION_INK.nod[0]).not.toEqual(GIRL_ACTION_INK.shake[0]);
+    expect(GIRL_ACTION_FACE.clap[0]).not.toEqual(GIRL_ACTION_FACE.coverFace[0]);
   });
 
   it("运行时图集真在盘上且是 WebP（行数×列数就是画得出来的格子数）", () => {
@@ -77,7 +84,7 @@ describe("动作图集：一式一条动画", () => {
     expect(buf.byteLength).toBeGreaterThan(200_000);
   });
 
-  it("循环的往复播、一次性的停末格：扑击与蹦跳各按自己的帧数谢幕", () => {
+  it("循环的往复播、一次性的停末格：扑击与蹦跳、点头各按自己的帧数谢幕", () => {
     expect(GIRL_ACTION_ROWS.zoom.loop).toBe(true);
     expect(GIRL_ACTION_ROWS.stalk.loop).toBe(true);
     expect(GIRL_ACTION_ROWS.hunt.loop).toBe(false);
@@ -85,6 +92,11 @@ describe("动作图集：一式一条动画", () => {
     expect(GIRL_ACTION_ROWS.bat.loop).toBe(true);
     expect(GIRL_ACTION_ROWS.hop.loop).toBe(false);
     expect(GIRL_ACTION_ROWS.type.loop).toBe(true);
+    // 点头只点一次（末格≈首格，停住不出戏）；摇头/拍手/捂脸都是循环。
+    expect(GIRL_ACTION_ROWS.nod.loop).toBe(false);
+    expect(GIRL_ACTION_ROWS.shake.loop).toBe(true);
+    expect(GIRL_ACTION_ROWS.clap.loop).toBe(true);
+    expect(GIRL_ACTION_ROWS.coverFace.loop).toBe(true);
   });
 });
 
@@ -129,6 +141,39 @@ describe("动作播放器（时间 → 帧号）", () => {
       expect(girlActionFrameAt(id, girlActionDurationMs(id) + 1).index, id).toBe(0);
       expect(girlActionFrameAt(id, 60_000).done, id).toBe(false);
     }
+  });
+
+  it("v1.23 四行各按自己的节拍：点头 7 / 摇头 9 / 拍手 10 / 捂脸 8", () => {
+    expect(girlActionDurationMs("nod")).toBeCloseTo(6_000 / 7, 6);
+    expect(girlActionDurationMs("shake")).toBeCloseTo(6_000 / 9, 6);
+    expect(girlActionDurationMs("clap")).toBeCloseTo(6_000 / 10, 6);
+    expect(girlActionDurationMs("coverFace")).toBeCloseTo(6_000 / 8, 6);
+    // 点头是一次性：点完停在末格报 done，不许自己重播成「一直点头」。
+    expect(girlActionFrameAt("nod", 0).index).toBe(0);
+    expect(girlActionFrameAt("nod", 160).index).toBe(1);
+    expect(girlActionFrameAt("nod", girlActionDurationMs("nod") + 1))
+      .toEqual({ index: 5, done: true });
+    // 摇头、拍手、捂脸是循环：走满一圈回第 0 帧、永不报 done。
+    for (const id of ["shake", "clap", "coverFace"] as const) {
+      expect(girlActionFrameAt(id, girlActionDurationMs(id) + 1).index, id).toBe(0);
+      expect(girlActionFrameAt(id, 60_000).done, id).toBe(false);
+    }
+  });
+
+  it("站桩四行按鞋底对地线：每一格的墨底都在地线附近，飞跳行才许离地", () => {
+    // SHOE_GROUND 的整件事就是「脚不动、身体动」。换个对齐口径，点头会整只抬高 50px，
+    // 墨底也跟着飘；墨底一旦跑出这条窄带就说明有人退回按墨底对齐了。
+    for (const id of ["nod", "shake", "clap", "coverFace"] as const) {
+      const bottoms = GIRL_ACTION_INK[id].map((k) => k[3]);
+      expect(Math.min(...bottoms), `${id} 最低一格`).toBeGreaterThanOrEqual(366);
+      expect(Math.max(...bottoms) - Math.min(...bottoms), `${id} 墨底跨度`).toBeLessThanOrEqual(4);
+      for (const b of bottoms) expect(b, id).toBeLessThanOrEqual(372);
+    }
+    // 对照组：真腾空的行墨底差着一大截，窄带不是谁都能进的。
+    expect(Math.max(...GIRL_ACTION_INK.zoom.map((k) => k[3])))
+      .toBeGreaterThan(Math.min(...GIRL_ACTION_INK.zoom.map((k) => k[3])) + 20);
+    expect(Math.max(...GIRL_ACTION_INK.hop.map((k) => k[3])))
+      .toBeGreaterThan(Math.min(...GIRL_ACTION_INK.hop.map((k) => k[3])) + 20);
   });
 
   it("重绘下限跟着这一式的帧率走，且不低于 24fps（淡化期不许一格一格地淡）", () => {
@@ -209,7 +254,7 @@ describe("动作的脸框与墨框", () => {
     }
   });
 
-  it("七行共用一个头围：脸宽 91vb 的尺差不到 2%（眼距定尺的全部意义）", () => {
+  it("十一行共用一个头围：脸宽 91vb 的尺差不到 2%（眼距定尺的全部意义）", () => {
     const widths = IDS.map((id) => {
       const face = girlActionFaceBox(girlActionBodyFor(mk(), id), id, 0);
       return face.w / S;
