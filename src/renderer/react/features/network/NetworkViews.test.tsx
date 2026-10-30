@@ -456,6 +456,32 @@ describe("设置页", () => {
     expect(host.textContent).toContain("保存失败：控制器密钥不正确");
   });
 
+  it("内核给了正文就把原话一起说：TUN 起不来不许只剩「无法识别的数据」", async () => {
+    const api = makeApi();
+    api.setConfig.mockResolvedValueOnce({
+      ok: false as const,
+      reason: "bad-response",
+      detail: "error creating tun device: open wintun: The system cannot find the file specified.",
+    });
+    const host = await mount(createElement(SettingsView, { api }));
+    await act(async () => { host.querySelector<HTMLInputElement>('input[name="tun.enable"]')!.click(); });
+    await act(async () => { buttonWithText(host, ".net-primary-button", "保存").click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(host.textContent).toContain("保存失败：内核返回了无法识别的数据");
+    expect(host.textContent).toContain("内核说：error creating tun device: open wintun");
+  });
+
+  it("没有正文时不给用户留一个空的「内核说：」", async () => {
+    const api = makeApi();
+    api.setConfig.mockResolvedValueOnce({ ok: false as const, reason: "bad-response" });
+    const host = await mount(createElement(SettingsView, { api }));
+    await act(async () => { host.querySelector<HTMLInputElement>('input[name="ipv6"]')!.click(); });
+    await act(async () => { buttonWithText(host, ".net-primary-button", "保存").click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(host.textContent).toContain("保存失败：内核返回了无法识别的数据");
+    expect(host.textContent).not.toContain("内核说");
+  });
+
   it("读取失败给原因，重试能恢复", async () => {
     const api = makeApi();
     const getConfig = vi.fn()

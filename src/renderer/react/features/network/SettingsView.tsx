@@ -53,7 +53,14 @@ export function SettingsView({ api }: { api?: NetworkApi }) {
       for (const step of steps) {
         const result = await api.setConfig(step);
         if (!result.ok) {
-          setNotice({ tone: "error", text: t("network.settingsSaveFailed", { reason: t(`network.reason.${result.reason}`) }) });
+          // 状态码说不清「为什么没改成」；内核那句原话才是用户能照着动手的信息。
+          const failed = t("network.settingsSaveFailed", { reason: t(`network.reason.${result.reason}`) });
+          setNotice({
+            tone: "error",
+            text: result.detail
+              ? `${failed} · ${t("network.settingsSaveKernelSaid", { detail: result.detail })}`
+              : failed,
+          });
           return;
         }
         if (!viewMatchesPatch(result.data, step)) {

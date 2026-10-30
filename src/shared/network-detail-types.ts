@@ -72,15 +72,51 @@ export interface CoreConfigView {
 /** 明细读接口的统一回执：失败带回原因，页面不靠异常文案猜状态。 */
 export type NetworkDetailResult<T> =
   | { ok: true; data: T }
-  | { ok: false; reason: NetworkReason };
+  | { ok: false; reason: NetworkReason; detail?: string };
 
 /** 没有返回值的写操作回执。 */
 export type NetworkVoidResult =
   | { ok: true }
-  | { ok: false; reason: NetworkReason };
+  | { ok: false; reason: NetworkReason; detail?: string };
 
 export function isLogLevel(value: unknown): value is LogLevel {
   return typeof value === "string" && (LOG_LEVELS as readonly string[]).includes(value);
+}
+
+/**
+ * 内核正文的预算：400 字足够装下 `error creating tun device: open wintun: …`，再多就是刷屏。
+ * 计数按码点，不然中文错误正好卡在边界上会被切出半个字。
+ */
+export const KERNEL_DETAIL_MAX_CHARS = 400;
+
+/** 内核的失败正文：折成一行、按码点截到 {@link KERNEL_DETAIL_MAX_CHARS}；空或读不出就 undefined。 */
+export function truncateKernelDetail(raw: string): string | undefined {
+  const folded = raw.replace(/[\s\u00a0]+/gu, " ").trim();
+  if (!folded) return undefined;
+  const chars = Array.from(folded);
+  return chars.length > KERNEL_DETAIL_MAX_CHARS
+    ? `${chars.slice(0, KERNEL_DETAIL_MAX_CHARS).join("")}…`
+    : folded;
+}
+
+/**
+ * 主进程随错误带出的内核正文（`open wintun: …`）。
+ *
+ * reason 只能说「内核答错了」，这一句才说得出「错在哪」——但它是内核原话，
+ * 形状随 mihomo 版本漂，所以只认非空字符串：坏形状一律 undefined，
+ * 宁可不显示，也不让页面印出 `[object Object]` 或一个孤零零的冒号。
+ */
+export function errorDetailOf(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  let value: unknown;
+  try {
+    value = (error as { detail?: unknown }).detail;
+  } catch {
+    return undefined;
+  }
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
 }
 
 /** 日志页的整页读数：缓冲内容 + 流是否活着 + 上一次断流原因。 */

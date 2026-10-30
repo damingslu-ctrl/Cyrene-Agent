@@ -172,6 +172,47 @@ describe("patchConfigs 白名单", () => {
   });
 });
 
+describe("内核的失败正文", () => {
+  it("PATCH /configs 非 2xx 时把内核那句话原样带回来（TUN 打不开不许说成「未知错误」）", async () => {
+    const body = "error creating tun device: open wintun: The system cannot find the file specified.";
+    const { client } = makeClient(async () => new Response(body, { status: 400 }));
+    await expect(client.patchConfigs({ "tun.enable": true })).rejects.toMatchObject({
+      reason: "bad-response",
+      status: 400,
+      detail: body,
+      message: expect.stringContaining("open wintun"),
+    });
+  });
+
+  it("正文折成一行；超长截到 400 字；没有正文时不编造", async () => {
+    const folded = makeClient(async () => new Response("line one\n  line two\r\n", { status: 500 }));
+    const error = await folded.client.patchConfigs({ ipv6: true }).catch((e: unknown) => e);
+    expect((error as { detail: string }).detail).toBe("line one line two");
+
+    const long = makeClient(async () => new Response("啊".repeat(500), { status: 500 }));
+    const far = await long.client.patchConfigs({ ipv6: true }).catch((e: unknown) => e);
+    const text = (far as { detail: string }).detail;
+    expect([...text].length).toBe(401); // 400 字 + 一个省略号
+    expect(text.endsWith("…")).toBe(true);
+
+    const empty = makeClient(async () => new Response(null, { status: 502 }));
+    const none = await empty.client.patchConfigs({ ipv6: true }).catch((e: unknown) => e);
+    expect((none as { detail?: string }).detail).toBeUndefined();
+    expect((none as Error).message).toContain("502");
+  });
+
+  it("读正文这一步自己坏了也不能把回执弄丢（内核回 200 才算成功这条不许漂）", async () => {
+    const broken = new Response("boom", { status: 400 });
+    broken.text = () => Promise.reject(new Error("stream closed"));
+    const { client } = makeClient(async () => broken);
+    await expect(client.patchConfigs({ ipv6: true })).rejects.toMatchObject({
+      reason: "bad-response",
+      status: 400,
+      message: expect.stringContaining("400"),
+    });
+  });
+});
+
 describe("204 回执", () => {
   it("setMode / selectNode / reloadConfig 遇到 204 不算坏 JSON", async () => {
     const { client } = makeClient(async () => noContent());

@@ -2371,6 +2371,7 @@
     "settingsSaving": "保存中…",
     "settingsSaved": "已保存 {{n}} 项",
     "settingsSaveFailed": "保存失败：{{reason}}",
+    "settingsSaveKernelSaid": "内核说：{{detail}}",
     "settingsMismatch": "保存后读回不一致：{{keys}}",
     "settingsMode": "代理模式",
     "settingsModeHint": "模式切换在「概览」页",

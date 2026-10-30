@@ -2417,6 +2417,7 @@
     "settingsSaving": "保存中…",
     "settingsSaved": "{{n}} 件を保存しました",
     "settingsSaveFailed": "保存に失敗しました：{{reason}}",
+    "settingsSaveKernelSaid": "カーネルの報告：{{detail}}",
     "settingsMismatch": "保存後の読み戻しが一致しません：{{keys}}",
     "settingsMode": "プロキシモード",
     "settingsModeHint": "モードの切り替えは「概要」タブで行います",

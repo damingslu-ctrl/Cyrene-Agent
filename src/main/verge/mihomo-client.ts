@@ -12,6 +12,7 @@ import {
   parseProviders,
   parseRules,
   pickConfigView,
+  truncateKernelDetail,
 } from "../../shared/network-detail-types";
 import type {
   CoreConfigPatch,
@@ -41,6 +42,8 @@ export class MihomoRequestError extends Error {
     readonly reason: NetworkReason,
     message: string,
     readonly status?: number,
+    /** 内核自己写的那句话（`open wintun: …`）；读不到就是 undefined，绝不编。 */
+    readonly detail?: string,
   ) {
     super(message);
     this.name = "MihomoRequestError";
@@ -196,6 +199,23 @@ function mapError(error: unknown): MihomoRequestError {
 }
 
 /**
+ * 非 2xx 时把内核自己写的那句话读出来。
+ *
+ * 状态码对用户没有信息量——真正的原因在内核 body 里（TUN 起不来是 `open wintun`，
+ * 端口被占是 `bind: Only one usage…`）。这一层只负责原样带回，不翻译不美化，
+ * 也绝不让「读正文」这件附带的事把主错误吃掉：任何失败都回 undefined。
+ */
+export async function kernelErrorDetail(response: Response): Promise<string | undefined> {
+  let raw: string;
+  try {
+    raw = await response.text();
+  } catch {
+    return undefined;
+  }
+  return truncateKernelDetail(raw);
+}
+
+/**
  * PATCH /configs 的入参过滤：只认白名单键，值类型也要对。
  *
  * 这层校验放在发请求之前——`secret`、`external-controller` 这类键落进内核
@@ -263,7 +283,13 @@ export function createMihomoClient(options: MihomoClientOptions): MihomoClient {
         throw new MihomoRequestError("unauthorized", `controller rejected ${response.status}`, response.status);
       }
       if (!response.ok) {
-        throw new MihomoRequestError("bad-response", `controller returned ${response.status}`, response.status);
+        const detail = await kernelErrorDetail(response);
+        throw new MihomoRequestError(
+          "bad-response",
+          `controller returned ${response.status}${detail ? `: ${detail}` : ""}`,
+          response.status,
+          detail,
+        );
       }
       return response;
     } catch (error) {

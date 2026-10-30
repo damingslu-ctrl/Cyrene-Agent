@@ -227,3 +227,51 @@ describe("网络页明细通道", () => {
     expect(service.stopLogs).toHaveBeenCalledOnce();
   });
 });
+
+describe("内核的失败正文随回执走到页面", () => {
+  it("CONFIG_SET 失败把 detail 一起带回：TUN 起不来时用户看到的是内核那句话", async () => {
+    const { scope, service } = setup();
+    const setConfig = scope.handlers.get(IPC.VERGE_NETWORK_CONFIG_SET)!;
+    service.saveConfig.mockRejectedValueOnce(new MihomoRequestError(
+      "bad-response",
+      "controller returned 400: error creating tun device: open wintun: file not found",
+      400,
+      "error creating tun device: open wintun: file not found",
+    ));
+    expect(await setConfig({}, { "tun.enable": true })).toEqual({
+      ok: false,
+      reason: "bad-response",
+      detail: "error creating tun device: open wintun: file not found",
+    });
+  });
+
+  it("没有正文就是只有 reason：回执里不许凭空多出一个空 detail", async () => {
+    const { scope, service } = setup();
+    const setConfig = scope.handlers.get(IPC.VERGE_NETWORK_CONFIG_SET)!;
+    service.saveConfig.mockRejectedValueOnce(new MihomoRequestError("timeout", "slow", 408));
+    expect(await setConfig({}, { ipv6: true })).toEqual({ ok: false, reason: "timeout" });
+
+    service.saveConfig.mockRejectedValueOnce({ reason: "unauthorized", detail: "   " });
+    expect(await setConfig({}, { ipv6: true })).toEqual({ ok: false, reason: "unauthorized" });
+  });
+
+  it("读通道同样带 detail；坏形状（数字/对象）不透出，免得页面渲染成 [object Object]", async () => {
+    const { scope, service } = setup();
+    const rules = scope.handlers.get(IPC.VERGE_NETWORK_RULES)!;
+    service.fetchRules.mockRejectedValueOnce(new MihomoRequestError("bad-response", "controller returned 500: panic", 500, "panic"));
+    expect(await rules({})).toEqual({ ok: false, reason: "bad-response", detail: "panic" });
+
+    service.fetchRules.mockRejectedValueOnce({ reason: "bad-response", detail: { code: 500 } });
+    expect(await rules({})).toEqual({ ok: false, reason: "bad-response" });
+
+    service.fetchRules.mockRejectedValueOnce({ reason: "bad-response", detail: 500 });
+    expect(await rules({})).toEqual({ ok: false, reason: "bad-response" });
+  });
+
+  it("关连接（void 回执）也带 detail", async () => {
+    const { scope, service } = setup();
+    const close = scope.handlers.get(IPC.VERGE_NETWORK_CLOSE_CONNECTION)!;
+    service.closeConnection.mockRejectedValueOnce(new MihomoRequestError("bad-response", "controller returned 404: connection not found", 404, "connection not found"));
+    expect(await close({}, "c1")).toEqual({ ok: false, reason: "bad-response", detail: "connection not found" });
+  });
+});

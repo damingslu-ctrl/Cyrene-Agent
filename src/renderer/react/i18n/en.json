@@ -2371,6 +2371,7 @@
     "settingsSaving": "Saving…",
     "settingsSaved": "Saved {{n}} changes",
     "settingsSaveFailed": "Save failed: {{reason}}",
+    "settingsSaveKernelSaid": "The kernel said: {{detail}}",
     "settingsMismatch": "Read-back mismatch after save: {{keys}}",
     "settingsMode": "Proxy mode",
     "settingsModeHint": "Switch modes on the Overview tab",

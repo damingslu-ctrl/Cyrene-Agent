@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   CONFIG_KEYS,
+  errorDetailOf,
   LOG_LEVELS,
   parseConnectionsDetail,
   parseLogLine,
   parseProviders,
   parseRules,
   pickConfigView,
+  truncateKernelDetail,
 } from "./network-detail-types";
 
 describe("parseRules", () => {
@@ -202,5 +204,60 @@ describe("pickConfigView", () => {
     expect(pickConfigView({ mode: "weird", tun: {} })).toMatchObject({
       mixedPort: null, allowLan: null, mode: null, tunEnabled: null, tunStack: null,
     });
+  });
+});
+
+describe("errorDetailOf", () => {
+  it("把主进程随错误带来的内核正文原样带出来，只做首尾收敛", () => {
+    expect(errorDetailOf({ detail: "  open wintun: file not found  " })).toBe("open wintun: file not found");
+  });
+
+  it("没有 detail / 空串 / 非字符串一律 undefined——页面不许渲染出「：（空）」", () => {
+    expect(errorDetailOf(new Error("boom"))).toBeUndefined();
+    expect(errorDetailOf({})).toBeUndefined();
+    expect(errorDetailOf({ detail: "" })).toBeUndefined();
+    expect(errorDetailOf({ detail: "   " })).toBeUndefined();
+    expect(errorDetailOf({ detail: 400 })).toBeUndefined();
+    expect(errorDetailOf({ detail: null })).toBeUndefined();
+    expect(errorDetailOf(undefined)).toBeUndefined();
+  });
+
+  it("只截不编：超长在源头（mihomo-client）已经截过，这一层不再加工", () => {
+    const long = "x".repeat(500);
+    expect(errorDetailOf({ detail: long })).toBe(long);
+  });
+
+  it("坏数据不许把回执本身弄坏：抛过的对象、getter 会炸的对象都回 undefined", () => {
+    expect(errorDetailOf({ get detail() { throw new Error("nope"); } })).toBeUndefined();
+    expect(errorDetailOf(Object.create(null))).toBeUndefined();
+    expect(errorDetailOf([1, 2])).toBeUndefined();
+  });
+});
+
+describe("truncateKernelDetail", () => {
+  it("多行正文折成一行：页面的回执条只有一行高", () => {
+    expect(truncateKernelDetail("line one\n  line two\r\tline three\n")).toBe("line one line two line three");
+    expect(truncateKernelDetail(" 尾随空格")).toBe("尾随空格");
+  });
+
+  it("空白正文回 undefined，不占出一个空回执", () => {
+    expect(truncateKernelDetail("")).toBeUndefined();
+    expect(truncateKernelDetail("\n\r  \t")).toBeUndefined();
+  });
+
+  it("按码点截到 400 再加省略号：中文错误不会被切成半个字", () => {
+    const out = truncateKernelDetail("啊".repeat(401));
+    expect(out).toBeDefined();
+    expect([...out as string]).toHaveLength(401);
+    expect(out?.endsWith("啊…")).toBe(true);
+    expect([...(out ?? "")].filter((c) => c === "啊")).toHaveLength(400);
+
+    expect(truncateKernelDetail("啊".repeat(400))).toBe("啊".repeat(400));
+  });
+
+  it("代理表情（astral）也按码点算：一个表情不是一个「字符」", () => {
+    const out = truncateKernelDetail("🙂".repeat(401));
+    expect([...(out ?? "")]).toHaveLength(401);
+    expect(out?.endsWith("…")).toBe(true);
   });
 });

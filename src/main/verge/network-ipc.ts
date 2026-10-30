@@ -1,5 +1,10 @@
 import { IPC } from "../../shared/ipc-channels";
-import { isLogLevel, type CoreConfigPatch, type NetworkVoidResult } from "../../shared/network-detail-types";
+import {
+  errorDetailOf,
+  isLogLevel,
+  type CoreConfigPatch,
+  type NetworkVoidResult,
+} from "../../shared/network-detail-types";
 import {
   isProxyMode,
   reasonOf,
@@ -27,8 +32,12 @@ function isConnectionId(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0 && value.length <= MAX_ID_LENGTH;
 }
 
-function detailFailure(error: unknown): { ok: false; reason: ReturnType<typeof reasonOf> } {
-  return { ok: false, reason: reasonOf(error) };
+type DetailFailure = { ok: false; reason: ReturnType<typeof reasonOf>; detail?: string };
+
+/** 失败回执：reason 是给用户看的分类，detail 是内核原话——没有就别硬凑一个空字段。 */
+function detailFailure(error: unknown): DetailFailure {
+  const detail = errorDetailOf(error);
+  return detail ? { ok: false, reason: reasonOf(error), detail } : { ok: false, reason: reasonOf(error) };
 }
 
 export function registerNetworkIpc(ipc: IpcScope, deps: NetworkIpcDeps): () => void {
