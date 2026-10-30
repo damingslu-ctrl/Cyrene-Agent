@@ -1303,3 +1303,115 @@ fish-feast/mirror-friend/solo-player`，总数 32→**38**）与第 28 项统计
   （`src/shared/ipc-channels.ts:654`、`src/main/application/ipc-sender-policy.ts:35` 等 4 处），
   所以下一轮猫娘动作行从 **v1.25** 起编，不许一个号两个意思。
 - 只做本地提交（`623e23dc` 美术、`8e8132aa` 接线、`61211b8c` 测试、`3e978d2c` 探针，外加本段文档），**未改版本号、未发布、未推送**；`package.json` 仍是 mochi@1.15.0。
+
+
+### Wave 2：订阅页读得懂、改得动、不抢隔壁的笔（2026-10-30）
+
+**数据面**（`src/main/verge/` 八个新模块共 1403 行 + `src/shared/subscription-types.ts` 64 行纯类型 + 八份同名测试）：
+
+- `profiles-store.ts`(275)：`profiles.yaml` 账本的读、写与判据。写盘只有一条路——
+  **先备份再 tmp→rename**（`:258-263`），备份名 `${file}.bak-mochi-<本地时间到秒>`，
+  同一秒写第二次往后加序号、绝不覆盖前一份（`:244-246`）；先序列化再碰盘，
+  循环引用在这里炸掉时用户那份 yaml 连备份都不会多。
+- `profile-store-port.ts`(113)：真盘端口。runtime 配置走另一条口径——
+  **tmp→rename 但不留备份**（`:56-61`）：它是可再生产物，留备份只会把目录堆成历史垃圾场。
+- `profile-service.ts`(329)：七个注入点（store/fetch/readSourceFile/inject/reload/isVergeRunning/now）
+  与全部判据；零写入、顺序、闸门都在这层用假端口钉死。
+- `profile-bootstrap.ts`(112)：装配层。三条只有装配层才有的判断——配置目录**每次操作现查**
+  （安装版↔便携版会搬家，抱着开机那一刻的路径只会让人看见「订阅列表是空的」）；
+  只搬 `external-controller`/`secret`/`mixed-port` 三键进 runtime（其余归 Wave 3 的设置页，
+  现在跟着订阅正文走会把用户在 Verge 里调好的东西悄悄改掉）；
+  `external-controller` 给内核要**剥掉协议前缀**、给客户端的 baseUrl 要**留着**——
+  同一个值两种写法，单测里各钉了一遍。控制面读不出来时这里抛错而不是回空注入，
+  且抛在 `writeRuntime` 之前，失败的那一次盘上不会多一个字节。
+- `verge-process.ts`(69)：单写者闸门 `createVergeRunningProbe()`——读 `tasklist /FO CSV /NH`，
+  一次约 100–300ms 所以带 TTL 2000ms 缓存（`:16`）；**读不到＝当作 Verge 在跑**（fail closed），
+  非 Windows 没有这个映像名，结论同样是拒写。
+- `subscription-fetch.ts`(196) / `runtime-config.ts`(141) / `profile-ipc.ts`(168) /
+  `src/shared/subscription-types.ts`(64)：下载（大小上限、跳转上限、超时、YAML 可解析性）、
+  runtime 合成（`runtime/<uid>.yaml` 写在**我们自己的 userData**，不进 Verge 目录——spec D2 的边界）、
+  通道层参数校验、纯类型与 option 白名单。
+- **D5 顺序**：写 runtime → `PUT /configs{path}` → 最后才翻账本 `current`。
+  内核没吃进去就报 `reload-failed`，并把 `replaced` 标出来——正文已换、内核没换这件事
+  必须让用户看得见，重试还是回滚由人定，不许程序替他猜。
+
+**界面与通道**：
+
+- 9 条通道：八条入站（list/importUrl/pickFile/importFile/update/select/remove/setOption）
+  + 一条广播 `verge:sub:changed`。前缀刻意用 `sub` 不用 `profile`——
+  `verge:profile:get` 已经被宠物窗的形态/档位占了，同名会让 sender 闸门按通道把订阅请求放行。
+  八条入站全部只认主窗（`src/main/application/ipc-sender-policy.ts:35`）。
+- 本地导入的路径由主进程弹原生对话框：渲染端没有、也不该有文件系统权限。
+- 页签栏从 7 个长到 **8 个**（概览/节点/规则/日志/连接/入站/**订阅**/齿轮）。
+  Wave 1 那段里「七个页签、截图 01…07」是当时的事实，没有回头改；从本轮起截图编号到 `08-settings.png`。
+- 订阅页 `section.net-prof`：行 `.net-prof-row`、「当前」`.is-current`、计数「共 N 项」、
+  失败条落 `.net-notice--error`。删除必须先二次确认（`removeAsk` 那句「账本和它的本地文件一起清掉」）。
+  option 只有 `with_proxy` / `update_interval` 两个白名单键，**盘上没写过的一律读成 null**，
+  界面说「未设置／跟随默认」而不是 false/0——开关不许替用户说谎。
+- `urlHost` 只显示主机名：整条订阅链接带着机场 token，原样上屏等于把凭据印在桌面上。
+- i18n 三语各 +64 行；`network.sub` 现 42 键，其中 `reason` 18 条把机器码翻成人话
+  （`bad-yaml`→「profiles.yaml 解析失败」、`http-status`→「机场返回 {{status}}」…）。
+  界面上写出来的每个计数与状态词都逐条实测过：`共 N 项` 与行数同值（`NetworkViews.test.tsx:767`），
+  42 个键全部有引用点，没有一条是挂了却不上屏的死文案。
+
+**真窗探针·读侧**（`scripts/verify/network-tabs-cdp.mjs`，日志 `.tmp/wave2-nettabs.log`）：
+八个页签逐一打开、逐张截图，`01-overview.png … 08-settings.png` 全落盘（`:154` 是订阅那一格，
+`:155` 齿轮排最后）。本轮实跑 `ok: true`：
+
+- 订阅页这次读的是**用户真账本**——`共 14 项`、页头「当前：defond」与行首同源；
+  桥面上必须正好 9 根线（`list/importUrl/pickFile/importFile/update/select/remove/setOption/onChanged`），
+  多一根少一根都红。通道数这种界面上写不出来的东西，只能由探针去数。
+- 概览页把控制面读到了 `alpha-e4dd968`（`http://127.0.0.1:9097`），
+  节点/规则/连接/入站同场各拿一份数据：订阅页接进来没把 Wave 1 那六页挤下线。
+- 目录里那张 `07-settings.png`（10-29 15:23）是七页签时代的遗物，故意不删——
+  留着能让「页签从 7 长到 8」在磁盘上有个对照；本轮起的编号是 `07-subscriptions.png` / `08-settings.png`。
+
+**真窗探针·写侧（＝拒写路径）**（`scripts/verify/subscriptions-write-cdp.mjs`，
+日志 `.tmp/wave2-subwrite.log`，截图 `01-subscriptions-before.png` / `02-subscriptions-gated.png`）：
+
+- 沙盒 `D:\cyrene-sub-accept`（`:25`，CDP 端口 9336 `:31`）里现造一份一次性账本：3 行、
+  两条 `scratch.example.test` 主机、`current` 钉在第三行。进场先四道前闸（`:347` 起）——
+  行数、主机名、`currentIndex === 2`、「当前」那行的名字必须含 `Scratch B`；
+  任何一条不成立就中止，免得把「脚本自己的沙盒没搭好」读成「产品的闸门坏了」。
+- 只走 **DOM click**（不发鼠标事件、不动真光标）点 Scratch A 那一行的「切换」，
+  按钮认文案 `切换/Use/切り替え`——那一行有切换/更新/删除三颗，点错一颗就是另一种写。
+- 等闸门那句话上屏时**不当场抛**：先去看盘。四条断言按危害排序、且都排在文案断言前面——
+  `profiles.yaml` 逐字节没动（`:404`）、`profiles/` 目录快照没动、
+  `runtime/` 必须**根本没长出来**（`:406`：拒写之前不该碰 runtime）、
+  用户真 `profiles.yaml` 没被连带改掉（`:407`）。这一轮实际 sha：沙盒 `9a851b6b…`、真账本 `7a8665cc…`，
+  前后各一致。
+- 文案判据**逐字对齐三语原文**（`gatedCopies()` 从 `zh-CN`/`en`/`ja-JP` 现读 `network.sub.gated`，`:38`），
+  只认「屏上有 Clash Verge 这几个字」的话会把任何一条带这个名字的错判成闸门生效——所以比全文，不比子串。
+  这条单独排最后（`:408`）：盘上没动但屏幕上没说清为什么，同样是产品缺陷。
+- 最后一条尺：红条说了「不改」，页面上的「当前」也不许搬家（`:410`，实跑 2 → 2）。
+
+**八把尺子都有牙**（`.tmp/mutate-wave2.py` → `.tmp/mutate-wave2.log`，产品级变异、不动测试，
+每条各自改一个源文件、跑完当场比 sha256）：
+
+| 变异 | 打破的东西 | 结果 |
+| --- | --- | --- |
+| W2-M1 | 拆掉主进程的「Verge 在跑」单写者闸门 | 2 文件 2 红 |
+| W2-M2 | 失败不再带回了列表（页面塌成空白） | 1 红 |
+| W2-M3 | 删除跳过二次确认，一点击就落盘 | 1 红 |
+| W2-M4 | 盘上没写过的 option 被编成 false/0（开关说谎） | 2 红 |
+| W2-M5 | `urlHost` 原样返回整条链接（订阅 token 上屏） | 2 红 |
+| W2-M6 | 通道层放行未知 option 键 | 1 红 |
+| W2-M7 | 装配层不再把 runtime 路径 PUT 给内核（账上切了、内核没切） | 2 红 |
+| W2-M8 | 切换时把账本条目重写成只剩三个键（用户那条的私有字段被擦） | 1 红 |
+
+**八条全部「尺子会红=YES、已原样还原=YES」**，没有一条是挂在那里的假绿。
+
+**门**：`CI=true npx vitest run` **766 文件 / 7966 passed + 1 skipped（共 7967）**，276.70s
+（`.tmp/wave2-fullsuite.log`；Wave 1 收口时是 757 文件 / 7819 passed，本轮 +9 文件 +147 测试）；
+`tsc` main/preload/renderer 三份 `--noEmit` 各 0、`vite build` 0（8.20s）、
+`node scripts/build/desktop-typescript.mjs main|preload` 各 0。
+
+**没跑成的那一半，说清楚**：**真窗正向切换一次也没跑过。**这台机器上 Clash Verge 正在运行
+（`clash-verge.exe` PID 8536、`verge-mihomo-alpha.exe` 9468），按纪律我不动用户的其他应用，
+所以「`PUT /configs` 真被内核吃下 → 账本 `current` 随后翻过来」这条最要紧的通路，
+目前只有单测里假端口那层证据（D5 顺序、`replaced` 标记各有钉），屏幕上还是空白。
+要补这一条得两件事：你先退出 Clash Verge，以及把探针扩一个「Verge 已退出→真切一次→再切回去」的
+正向档——现在这个脚本只有拒写这一条路。另一条边界照旧：`type: script` 那种条目在页面上列得出来
+（真账本里 `Script 内置` 那行就在那儿），但执行它属任意代码执行面，本期不做。
+- 只做本地提交（`624b2650` 数据面、`5bbdba7d` 通道层、`40fa97d1` 界面与 i18n、`1e041eb9` 两个探针，外加本段文档），**未改版本号、未发布、未推送**；`package.json` 仍是 mochi@1.15.0。
+
