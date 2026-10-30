@@ -6,8 +6,8 @@ export const GIRL_ACTIONS = {
   cellW: 300,
   cellH: 400,
   cols: 6,
-  rows: 7,
-  count: 42,
+  rows: 11,
+  count: 66,
   /** 每行的横向打包各宽各的，躯干轴（anchorX）因此逐行不同，放在 GIRL_ACTION_ROWS 里。 */
   anchorY: 0.930000,
   inkVb: 91,
@@ -22,6 +22,10 @@ export const GIRL_ACTION_ROWS = {
   bat: { row: 4, frames: 6, fps: 11, loop: true, inkRefPx: 323.0, anchorX: 0.427608 },
   hop: { row: 5, frames: 6, fps: 10, loop: false, inkRefPx: 309.4, anchorX: 0.390274 },
   type: { row: 6, frames: 6, fps: 8, loop: true, inkRefPx: 343.4, anchorX: 0.403451 },
+  nod: { row: 7, frames: 6, fps: 7, loop: false, inkRefPx: 365.9, anchorX: 0.429487 },
+  shake: { row: 8, frames: 6, fps: 9, loop: true, inkRefPx: 352.5, anchorX: 0.476141 },
+  clap: { row: 9, frames: 6, fps: 10, loop: true, inkRefPx: 333.2, anchorX: 0.423333 },
+  coverFace: { row: 10, frames: 6, fps: 8, loop: true, inkRefPx: 326.9, anchorX: 0.405794 },
 } as const;
 
 export type GirlActionId = keyof typeof GIRL_ACTION_ROWS;
@@ -84,6 +88,38 @@ export const GIRL_ACTION_INK: Record<GirlActionId, readonly (readonly [number, n
     [39, 12, 264, 372],
     [38, 19, 262, 370],
   ],
+  nod: [
+    [30, 11, 266, 371],
+    [31, 59, 270, 371],
+    [31, 52, 280, 372],
+    [30, 19, 270, 372],
+    [31, 19, 269, 371],
+    [30, 18, 261, 371],
+  ],
+  shake: [
+    [49, 13, 256, 370],
+    [49, 12, 254, 369],
+    [49, 8, 258, 367],
+    [49, 7, 256, 367],
+    [49, 12, 247, 369],
+    [49, 11, 251, 369],
+  ],
+  clap: [
+    [38, 11, 259, 370],
+    [39, 20, 253, 369],
+    [39, 12, 255, 370],
+    [39, 15, 252, 368],
+    [38, 11, 271, 369],
+    [39, 18, 253, 370],
+  ],
+  coverFace: [
+    [38, 34, 256, 370],
+    [38, 38, 262, 370],
+    [37, 35, 260, 371],
+    [37, 33, 271, 370],
+    [37, 9, 269, 369],
+    [37, 21, 261, 369],
+  ],
 };
 
 /** 每帧脸框（格子像素 [cx, cy, w, h]，只含白脸与眼、不含耳朵）。 */
@@ -143,5 +179,37 @@ export const GIRL_ACTION_FACE: Record<GirlActionId, readonly (readonly [number, 
     [122, 160, 150, 117],
     [121, 151, 150, 117],
     [134, 156, 150, 117],
+  ],
+  nod: [
+    [135, 138, 160, 125],
+    [127, 182, 160, 125],
+    [135, 177, 160, 125],
+    [128, 150, 160, 125],
+    [122, 150, 160, 125],
+    [133, 145, 160, 125],
+  ],
+  shake: [
+    [146, 122, 154, 120],
+    [136, 127, 154, 120],
+    [141, 119, 154, 120],
+    [158, 120, 154, 120],
+    [140, 121, 154, 120],
+    [140, 122, 154, 120],
+  ],
+  clap: [
+    [139, 137, 145, 113],
+    [135, 141, 145, 113],
+    [129, 154, 145, 113],
+    [119, 156, 145, 113],
+    [134, 136, 145, 113],
+    [113, 156, 145, 113],
+  ],
+  coverFace: [
+    [118, 160, 143, 111],
+    [127, 144, 143, 111],
+    [123, 145, 143, 111],
+    [118, 157, 143, 111],
+    [127, 149, 143, 111],
+    [117, 157, 143, 111],
   ],
 };

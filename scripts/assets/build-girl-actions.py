@@ -14,6 +14,7 @@
 两条尺先定死：
   1) **地线共用**：一行的 6 帧按「墨底中位数」对齐到同一条基线，腾空帧（扑击第 3–5 帧）
      自然高过基线——逐帧归一化会把扑击压回地面，那正是「硬套」的味道。
+     站桩手势行（SHOE_GROUND）改按鞋底对齐：墨底含尾巴尖，脚在哪它说了不算。
   2) **眼圈距定尺**：眼睛不随姿态变形。每帧在墨框上半身找「粉红虹膜色块对」，取间距中位数，
      与姿态图集 `stand` 格同一检测器量出的 41.24px 相比，按 `229 × E/E₀` 换算 inkRefPx，
      再乘本行的打包缩放 s（图集坐标才和 renderer 的 inkRefPx 同一坐标系）。
@@ -52,7 +53,16 @@ ACTIONS = [
     ("bat", "bat-sheet.png", 11, True),
     ("hop", "hop-sheet.png", 10, False),
     ("type", "type-sheet.png", 8, True),
+    ("nod", "nod-sheet.png", 7, False),
+    ("shake", "shake-sheet.png", 9, True),
+    ("clap", "clap-sheet.png", 10, True),
+    ("coverFace", "coverFace-sheet.png", 8, True),
 ]
+
+# 站桩手势行按「鞋底」对地线。AI 出帧表会按每帧自己的剪影居中，低头帧整只被抬高
+# （nod 的 f1/f2 鞋底比 f0 高 50px、coverFace 的 f4 低 36px）；按墨底对齐会变成
+# 「点头时猫往上飘」。跑/跳/扑这些真腾空的行不能这么对齐，所以按行显式点开。
+SHOE_GROUND = {"nod", "shake", "clap", "coverFace"}
 
 # 每套动作的眼圈距（原始格像素）。自动检测只用来定「帧内脸心」：肉垫/耳朵/蝴蝶结
 # 也是粉的，全自动会对错对子；这里取人工复核过的可信帧中位数（.tmp/art-view/eye-contact.png
@@ -65,6 +75,12 @@ EYE_SPACING_ACTION = {
     "bat": 63.5,    # 61.6 / 61.3 / 64.7 / 65.3 / 62.6（f5 70.7 边帧偏大）
     "hop": 56.5,    # 56.2 / 56.9 / 56.0 / 55.2 / 54.4（f0 62.4 起跳帧偏大）
     "type": 73.0,   # 73.3 / 73.6 / 75.9（f3 34.5 眯眼、f4 58.1 手挡、f5 65.7 低头，弃）
+    "nod": 69.0,        # 67.1 / 58.8 / 70.6 / 70.5（f1 36.7 低头、f3 24.4 闭眼，弃）
+    "shake": 85.0,      # 83.8 / 85.6 / 88.7（f1 124.1 眼+肉垫、f2 30.8 眯眼、f0 74.3 偏小，弃）
+    "clap": 70.0,       # 75.7 / 69.6 / 69.3 / 70.9 / 68.0（f4 89.4 眼+肉垫，弃）
+    "coverFace": 70.0,  # 整行爪子都贴脸，检测到的 53.7–60.5 是肉垫对（f3 90.5 是眼+肉垫）。
+                        # 没有可信的眼圈距样本，改按同批同尺：墨高 395–428 与 clap 的 407–419 齐平，
+                        # clap 可信尺 70.0 直接借用；白脸团宽 106–139 也被爪子撑宽，不能当尺。
 }
 
 
@@ -256,6 +272,18 @@ def ink_of(alpha: np.ndarray) -> tuple[int, int, int, int]:
     return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
 
 
+def shoe_bottom(rgba: np.ndarray):
+    """粉鞋色块的最低一行（原始格像素）。站在地上的行拿它对地线：
+    墨底会把尾巴尖/影子一起算进去，脚在哪它说了不算。取最低的粉色——
+    脸、蝴蝶结、肉垫都在更上面，`max` 落到的一定是鞋。"""
+    r = rgba[:, :, 0].astype(np.int16)
+    g = rgba[:, :, 1].astype(np.int16)
+    b = rgba[:, :, 2].astype(np.int16)
+    m = (r - g > 30) & (r > 170) & (b > 120) & (b < 235) & (rgba[:, :, 3] > 100)
+    rows = np.nonzero(m.sum(axis=1) >= 10)[0]
+    return int(rows.max()) if len(rows) else None
+
+
 def main() -> int:
     rows = []
     for action, name, fps, loop in ACTIONS:
@@ -305,6 +333,18 @@ def main() -> int:
         base_y = int(CELL_H * 0.93)
         bottoms = [f[1][3] for f in frames]
         ground = float(np.median(bottoms))
+        anchors = None
+        shoe_line = base_y
+        if action in SHOE_GROUND:
+            anchors = [shoe_bottom(f[0]) for f in frames]
+            if any(a is None for a in anchors):
+                raise RuntimeError(f"{action} 有帧认不出鞋底：{anchors}")
+            # 尾巴尖会比鞋底再低几个像素：整行按「最低的墨」压回 base_y，
+            # 鞋底之间的相对关系不动，墨也不许穿到地线以下（renderer 的投影按墨底下沉）。
+            dip = max(f[1][3] - a for f, a in zip(frames, anchors))
+            shoe_line = base_y - dip
+            print(f"{action:5s} 鞋底对地线 {anchors}（跨度 {max(anchors) - min(anchors)}px，"
+                  f"尾尖再低 {dip}px）")
         # 帧内脸心：**白脸团外框的心**。眼圈对只在定尺时用——它是对的尺子，却不是可靠的位置
         # 锚（眯眼/被爪子挡住/抬手越过脸时检测会落在肉垫或碎块上）。白团是同一块皮肤色连通域，
         # 眼睛、鼻子、腮都在里面，它的外框心在 6 帧之间只跟着头走，不会飞到身子外。
@@ -331,9 +371,13 @@ def main() -> int:
                 Image.LANCZOS,
             )
             ix0, iy0, ix1, iy1 = [v * s for v in ink]
-            # 脚可以比中位地线高（腾空），但不许更低：踩得更低只会把帧顶出格子。
-            dy = base_y + min(0.0, ink[3] - ground) * s
-            top = int(round(dy - iy1))
+            if anchors is not None:
+                # 鞋底压在同一条基线上：低头帧被 AI 抬高/放低的那些像素在这里还回去。
+                top = int(round(shoe_line - anchors[c] * s))
+            else:
+                # 脚可以比中位地线高（腾空），但不许更低：踩得更低只会把帧顶出格子。
+                dy = base_y + min(0.0, ink[3] - ground) * s
+                top = int(round(dy - iy1))
             atlas.alpha_composite(im, (c * CELL_W + left, r * CELL_H + top))
             n_ink = [int(round(ix0 + left)), int(round(iy0 + top)), int(round(ix1 + left)), int(round(iy1 + top))]
             if n_ink[0] < 0 or n_ink[1] < 0 or n_ink[2] > CELL_W or n_ink[3] > CELL_H:
