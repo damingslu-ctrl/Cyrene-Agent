@@ -14,12 +14,14 @@ import type {
   RuleEntry,
 } from "../../../../shared/network-detail-types";
 import type { NetworkSnapshot } from "../../../../shared/network-types";
+import type { ProfileResult, ProfileRow } from "../../../../shared/subscription-types";
 import { ConnectionsView } from "./ConnectionsView";
 import { LogsView } from "./LogsView";
 import { NetworkPanel } from "./NetworkPanel";
 import { ProvidersView } from "./ProvidersView";
 import { RulesView } from "./RulesView";
 import { SettingsView } from "./SettingsView";
+import { SubscriptionsView } from "./SubscriptionsView";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -98,6 +100,41 @@ const CONFIG: CoreConfigView = {
 
 function entry(type: LogEntry["type"], payload: string): LogEntry {
   return { type, payload, at: 1_700_000_000_000 };
+}
+
+/** ProfileRow 的出厂形状：`null` 与 `false`/`0` 是两种盘上状态，测试里不许靠省略字段蒙过去。 */
+function profile(uid: string, patch: Partial<ProfileRow> = {}): ProfileRow {
+  return {
+    uid, type: "remote", label: uid, url: `https://example.test/${uid}`, desc: null,
+    updatedAt: 1_700_000_000_000, current: false, builtin: false, selectable: true,
+    withProxy: null, updateInterval: null, ...patch,
+  };
+}
+
+type SubResult = ProfileResult;
+
+function okRows(rows: ProfileRow[], extra: { warnings?: string[]; uid?: string; proxyCount?: number } = {}): SubResult {
+  return { ok: true, rows, warnings: extra.warnings ?? [], uid: extra.uid, proxyCount: extra.proxyCount };
+}
+
+function makeSubApi(rows: ProfileRow[], overrides: Record<string, unknown> = {}) {
+  const changed: Array<(rows: ProfileRow[]) => void> = [];
+  const api = {
+    list: vi.fn(async (): Promise<SubResult> => okRows(rows)),
+    importUrl: vi.fn(async (): Promise<SubResult> => okRows(rows)),
+    pickFile: vi.fn(async () => ({ path: null as string | null })),
+    importFile: vi.fn(async (): Promise<SubResult> => okRows(rows)),
+    update: vi.fn(async (): Promise<SubResult> => okRows(rows)),
+    select: vi.fn(async (): Promise<SubResult> => okRows(rows)),
+    remove: vi.fn(async (): Promise<SubResult> => okRows(rows)),
+    setOption: vi.fn(async (): Promise<SubResult> => okRows(rows)),
+    onChanged: vi.fn((callback: (next: ProfileRow[]) => void) => {
+      changed.push(callback);
+      return () => { changed.splice(changed.indexOf(callback), 1); };
+    }),
+    ...overrides,
+  };
+  return Object.assign(api, { __changed: changed });
 }
 
 afterEach(async () => {
@@ -466,14 +503,14 @@ describe("页签外壳", () => {
     };
   }
 
-  it("七个页签都能打开，默认概览；正文六页签 + 齿轮设置", async () => {
+  it("八个页签都能打开，默认概览；正文七页签 + 齿轮设置", async () => {
     const api = makePanelApi();
-    Object.assign(window, { verge: { network: api } });
+    Object.assign(window, { verge: { network: api, subscriptions: makeSubApi([profile("A", { current: true })]) } });
     const host = await mount(createElement(NetworkPanel));
 
     const tabs = [...host.querySelectorAll<HTMLButtonElement>(".net-tabs [role='tab']")];
-    expect(tabs).toHaveLength(7);
-    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(["概览", "节点", "规则", "日志", "连接", "入站", ""]);
+    expect(tabs).toHaveLength(8);
+    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(["概览", "节点", "规则", "日志", "连接", "入站", "订阅", ""]);
     expect(host.querySelector(".net-hero")).not.toBeNull();
 
     await act(async () => { buttonWithText(host, ".net-tab", "节点").click(); });
@@ -498,6 +535,11 @@ describe("页签外壳", () => {
     expect(api.providers).toHaveBeenCalledOnce();
     expect(host.querySelectorAll(".net-provider")).toHaveLength(2);
 
+    await act(async () => { buttonWithText(host, ".net-tab", "订阅").click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(host.querySelector(".net-prof")).not.toBeNull();
+    expect(host.querySelectorAll(".net-prof-row")).toHaveLength(1);
+
     await act(async () => { host.querySelector<HTMLButtonElement>(".net-tab--icon")!.click(); });
     await act(async () => { await Promise.resolve(); });
     expect(host.querySelector(".net-settings")).not.toBeNull();
@@ -506,5 +548,234 @@ describe("页签外壳", () => {
     expect(host.querySelector(".net-hero")).not.toBeNull();
     expect(host.textContent).toContain("内核已连接");
     delete (window as Window & { verge?: unknown }).verge;
+  });
+});
+
+describe("订阅页", () => {
+  function profRows(host: HTMLElement): HTMLElement[] {
+    return [...host.querySelectorAll<HTMLElement>(".net-prof-row")];
+  }
+
+  function buttonIn(row: HTMLElement, text: string): HTMLButtonElement {
+    const button = [...row.querySelectorAll<HTMLButtonElement>("button")]
+      .find((entry) => entry.textContent?.includes(text));
+    if (!button) throw new Error(`row button not found: ${text}`);
+    return button;
+  }
+
+  function hasButton(row: HTMLElement, text: string): boolean {
+    return [...row.querySelectorAll<HTMLButtonElement>("button")].some((entry) => entry.textContent?.includes(text));
+  }
+
+  function noticeText(host: HTMLElement): string {
+    return host.querySelector(".net-notice")?.textContent ?? "";
+  }
+
+  const LEDGER: ProfileRow[] = [
+    profile("Merge", { type: "merge", label: "Merge", url: null, builtin: true, selectable: false }),
+    profile("AttachRules", { type: "rules", label: "AttachRules", url: null, selectable: false }),
+    profile("OldUid1", { label: "机场 A", current: true }),
+    profile("NewUid2", { label: "机场 B" }),
+  ];
+
+  it("账本形状照画：内置项连删除键都不给，附件项不给切换，当前项写明是谁", async () => {
+    const host = await mount(createElement(SubscriptionsView, { api: makeSubApi(LEDGER) }));
+    const rows = profRows(host);
+    expect(rows).toHaveLength(4);
+
+    expect(rows[0].textContent).toContain("内置");
+    expect(rows[0].querySelectorAll("button")).toHaveLength(0);
+
+    expect(rows[1].textContent).toContain("附件");
+    expect(hasButton(rows[1], "切换")).toBe(false);
+    expect(hasButton(rows[1], "更新")).toBe(false);
+
+    expect(rows[2].className).toContain("is-current");
+    expect(rows[2].textContent).toContain("当前");
+    expect(hasButton(rows[2], "切换")).toBe(false);
+    expect(hasButton(rows[2], "更新")).toBe(true);
+    expect(hasButton(rows[3], "切换")).toBe(true);
+
+    // 地址只报主机名：token 在 query 里，一行都不许上屏。
+    expect(host.textContent).not.toContain("example.test/OldUid1");
+    expect(rows[2].textContent).toContain("example.test");
+    expect(host.querySelector(".net-hint")?.textContent).toContain("当前：机场 A");
+  });
+
+  it("主进程的单写者闸门说成「等 Clash Verge 退出」，不演成普通操作失败", async () => {
+    const api = makeSubApi([], {
+      list: vi.fn(async (): Promise<SubResult> => ({ ok: false, reason: "verge-running", rows: [] })),
+    });
+    const host = await mount(createElement(SubscriptionsView, { api }));
+    expect(host.querySelector(".net-notice--error")?.textContent).toContain("Clash Verge");
+    expect(host.querySelector(".net-notice--error")?.textContent).not.toContain("操作失败");
+    expect(host.querySelector(".net-empty")).not.toBeNull();
+  });
+
+  it("写失败也采纳带回来的列表：当前标记跟着账本走，话照样说失败", async () => {
+    const after = [profile("OldUid1", { label: "机场 A" }), profile("NewUid2", { label: "机场 B", current: true })];
+    const api = makeSubApi(LEDGER.slice(2), {
+      select: vi.fn(async (): Promise<SubResult> => ({ ok: false, reason: "write-failed", rows: after })),
+    });
+    const host = await mount(createElement(SubscriptionsView, { api }));
+
+    await act(async () => { buttonIn(profRows(host)[1], "切换").click(); });
+    expect(noticeText(host)).toContain("操作失败");
+    expect(noticeText(host)).toContain("写盘失败");
+    expect(profRows(host)[1].className).toContain("is-current");
+    expect(profRows(host)[0].className).not.toContain("is-current");
+  });
+
+  it("失败时列表读不出来就先用现有的顶着，页面不许塌成空白", async () => {
+    const api = makeSubApi(LEDGER.slice(2), {
+      select: vi.fn(async (): Promise<SubResult> => ({ ok: false, reason: "write-failed", rows: [] })),
+    });
+    const host = await mount(createElement(SubscriptionsView, { api }));
+    await act(async () => { buttonIn(profRows(host)[1], "切换").click(); });
+    expect(profRows(host)).toHaveLength(2);
+    expect(host.querySelector(".net-empty")).toBeNull();
+  });
+
+  it("删除两步走：垃圾桶只摊出确认条，取消不发请求", async () => {
+    const api = makeSubApi(LEDGER.slice(2), {
+      remove: vi.fn(async (): Promise<SubResult> => okRows([LEDGER[2]])),
+    });
+    const host = await mount(createElement(SubscriptionsView, { api }));
+    const row = () => profRows(host)[1];
+
+    await act(async () => { row().querySelector<HTMLButtonElement>(".net-icon-button")!.click(); });
+    expect(row().querySelector(".net-confirm")).not.toBeNull();
+    expect(row().querySelector(".net-confirm")?.textContent).toContain("机场 B");
+    expect(api.remove).not.toHaveBeenCalled();
+
+    await act(async () => { row().querySelector<HTMLButtonElement>(".net-confirm .net-ghost-button")!.click(); });
+    expect(row().querySelector(".net-confirm")).toBeNull();
+    expect(api.remove).not.toHaveBeenCalled();
+
+    await act(async () => { row().querySelector<HTMLButtonElement>(".net-icon-button")!.click(); });
+    await act(async () => { row().querySelector<HTMLButtonElement>(".net-danger-button")!.click(); });
+    expect(api.remove).toHaveBeenCalledWith("NewUid2");
+    expect(profRows(host)).toHaveLength(1);
+    expect(noticeText(host)).toContain("已删除「机场 B」");
+  });
+
+  it("一次只允许一笔写：前一笔没落定时其余按钮全按下去没反应", async () => {
+    const gate = deferred<SubResult>();
+    const api = makeSubApi(LEDGER.slice(2), {
+      select: vi.fn(() => gate.promise),
+      update: vi.fn(async (): Promise<SubResult> => okRows(LEDGER.slice(2))),
+    });
+    const host = await mount(createElement(SubscriptionsView, { api }));
+
+    const switched = profRows(host)[1];
+    const updated = profRows(host)[0];
+    await act(async () => { buttonIn(switched, "切换").click(); });
+    expect(buttonIn(updated, "更新").disabled).toBe(true);
+
+    await act(async () => { gate.resolve(okRows(LEDGER.slice(2))); });
+    expect(api.update).not.toHaveBeenCalled();
+    expect(buttonIn(updated, "更新").disabled).toBe(false);
+    expect(noticeText(host)).toContain("已切到「机场 B」");
+  });
+
+  it("链接不合法不给导入；导入成功清空表单并回账本上的名字", async () => {
+    const added = profile("Fresh9", { label: "备用机场" });
+    const api = makeSubApi([added], {
+      importUrl: vi.fn(async (): Promise<SubResult> => okRows([added], { uid: "Fresh9" })),
+    });
+    const host = await mount(createElement(SubscriptionsView, { api }));
+    const urlInput = host.querySelector<HTMLInputElement>(".net-prof__url")!;
+    const descInput = host.querySelector<HTMLInputElement>(".net-prof__desc")!;
+    const submit = host.querySelector<HTMLButtonElement>(".net-primary-button")!;
+
+    await act(async () => { setInput(urlInput, "订阅地址 不对"); });
+    expect(submit.disabled).toBe(true);
+    expect(api.importUrl).not.toHaveBeenCalled();
+
+    await act(async () => { setInput(urlInput, "  https://user:tok@example.test/sub?a=1  "); });
+    await act(async () => { setInput(descInput, "  "); });
+    expect(submit.disabled).toBe(false);
+    await act(async () => { submit.click(); });
+    expect(api.importUrl).toHaveBeenCalledWith("https://user:tok@example.test/sub?a=1", undefined);
+    expect(urlInput.value).toBe("");
+    expect(noticeText(host)).toContain("已导入「备用机场」");
+    expect(host.textContent).not.toContain("tok");
+  });
+
+  it("从本地文件导入：取消对话框什么都不说，选中的文件走 importFile", async () => {
+    const pick = makeSubApi([]);
+    const cancelHost = await mount(createElement(SubscriptionsView, { api: pick }));
+    await act(async () => { buttonWithText(cancelHost, ".net-ghost-button", "从本地文件").click(); });
+    expect(pick.importFile).not.toHaveBeenCalled();
+    expect(cancelHost.querySelector(".net-notice")).toBeNull();
+
+    const api = makeSubApi([], {
+      pickFile: vi.fn(async () => ({ path: "D:\\subs\\airport.yaml" })),
+      importFile: vi.fn(async (): Promise<SubResult> => okRows([profile("Local1", { type: "local", url: null })])),
+    });
+    const host = await mount(createElement(SubscriptionsView, { api }));
+    await act(async () => { buttonWithText(host, ".net-ghost-button", "从本地文件").click(); });
+    expect(api.importFile).toHaveBeenCalledWith("D:\\subs\\airport.yaml", undefined);
+    expect(noticeText(host)).toContain("已导入");
+  });
+
+  it("档位跟着盘走：写过的 720 秒自成一行，没写过时只能显示不能当选", async () => {
+    const rows = [profile("OldUid1", { label: "机场 A", updateInterval: 720 }), profile("NewUid2", { label: "机场 B" })];
+    const api = makeSubApi(rows);
+    const host = await mount(createElement(SubscriptionsView, { api }));
+    const selects = [...host.querySelectorAll<HTMLSelectElement>(".net-prof-row__options select")];
+    expect(selects).toHaveLength(2);
+
+    expect(selects[0].value).toBe("720");
+    expect([...selects[0].options].map((option) => option.textContent)).toEqual([
+      "未设置", "12 分钟", "30 分钟", "1 小时", "3 小时", "12 小时", "24 小时",
+    ]);
+    expect(selects[0].options[0].disabled).toBe(true);
+    expect(selects[1].value).toBe("");
+    expect(profRows(host)[1].querySelector(".net-prof-row__note")?.textContent).toContain("跟随默认");
+
+    await act(async () => { chooseSelect(selects[0], "3600"); });
+    expect(api.setOption).toHaveBeenCalledWith("OldUid1", { update_interval: 3600 });
+
+    const checkbox = profRows(host)[0].querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(checkbox.checked).toBe(false);
+    await act(async () => { checkbox.click(); });
+    expect(api.setOption).toHaveBeenCalledWith("OldUid1", { with_proxy: true });
+  });
+
+  it("增强没生效的警告与成功回执是两条：回执 5 秒会走，警告不许一起消失", async () => {
+    const api = makeSubApi(LEDGER.slice(2), {
+      select: vi.fn(async (): Promise<SubResult> => okRows(LEDGER.slice(2), { warnings: ["AttachRules", "AttachMerge"] })),
+    });
+    const host = await mount(createElement(SubscriptionsView, { api }));
+    await act(async () => { buttonIn(profRows(host)[1], "切换").click(); });
+
+    const bars = [...host.querySelectorAll(".net-notice")];
+    expect(bars).toHaveLength(2);
+    expect(bars[0].className).toContain("net-notice--ok");
+    expect(bars[1].className).toContain("net-notice--error");
+    expect(bars[1].textContent).toContain("有 2 项增强没能生效");
+    expect(bars[1].textContent).toContain("AttachRules / AttachMerge");
+  });
+
+  it("任一次写成功之后主进程推来的新列表直接上屏", async () => {
+    const api = makeSubApi([LEDGER[2]]);
+    const host = await mount(createElement(SubscriptionsView, { api }));
+    expect(profRows(host)).toHaveLength(1);
+    await act(async () => { api.__changed[0]([LEDGER[2], LEDGER[3], LEDGER[0]]); });
+    expect(profRows(host)).toHaveLength(3);
+    expect(host.querySelector(".net-card__count")?.textContent).toContain("共 3 项");
+  });
+
+  it("刷新按钮重读账本并回执；桥不在就说不通，不画一张假列表", async () => {
+    const api = makeSubApi(LEDGER.slice(2));
+    const host = await mount(createElement(SubscriptionsView, { api }));
+    await act(async () => { host.querySelector<HTMLButtonElement>(".net-view__tools .net-icon-button")!.click(); });
+    expect(api.list).toHaveBeenCalledTimes(2);
+    expect(noticeText(host)).toContain("已重新读取");
+
+    const orphan = await mount(createElement(SubscriptionsView, {}));
+    expect(orphan.querySelector(".net-notice--error")?.textContent).toContain("订阅接口不可用");
+    expect(profRows(orphan)).toHaveLength(0);
   });
 });

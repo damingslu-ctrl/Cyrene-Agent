@@ -1280,6 +1280,111 @@
 
 .net-provider__count.is-empty { color: var(--rb-danger); }
 
+/* ── 订阅 ─────────────────────────────────────────────── */
+
+.net-prof__import {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.net-prof__url { flex: 1 1 250px; min-width: 0; }
+
+.net-prof__desc { flex: 1 1 130px; min-width: 0; }
+
+.net-prof-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.net-prof-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 8px 9px;
+  border: 1px solid var(--rb-border-subtle);
+  border-radius: 11px;
+}
+
+.net-prof-row:hover { background: var(--rb-surface-hover); }
+
+.net-prof-row.is-current {
+  border-color: color-mix(in srgb, var(--rb-accent) 34%, var(--rb-border-default));
+  background: color-mix(in srgb, var(--rb-accent) 8%, var(--rb-surface-elevated));
+}
+
+.net-prof-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.net-prof-row__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--rb-text-primary);
+  font: 600 12px/1.4 var(--rb-font-sans, sans-serif);
+  white-space: nowrap;
+}
+
+.net-prof-row__tag {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--rb-border-subtle);
+  border-radius: 999px;
+  color: var(--rb-text-secondary);
+  font: 500 10px/1.5 var(--rb-font-sans, sans-serif);
+}
+
+.net-prof-row__tag.is-current {
+  border-color: color-mix(in srgb, var(--rb-accent) 40%, var(--rb-border-default));
+  color: var(--rb-accent);
+}
+
+.net-prof-row__meta {
+  display: flex;
+  gap: 8px;
+  overflow: hidden;
+  color: var(--rb-text-secondary);
+  font: 400 10px/1.4 var(--rb-font-mono, monospace);
+  white-space: nowrap;
+}
+
+.net-prof-row__meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.net-prof-row__ops {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.net-prof-row__options {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px 14px;
+  padding-top: 7px;
+  border-top: 1px solid var(--rb-border-subtle);
+}
+
+.net-prof-row__note {
+  color: var(--rb-text-secondary);
+  font: 400 10px/1.4 var(--rb-font-sans, sans-serif);
+}
+
 /* ── 设置 ─────────────────────────────────────────────── */
 
 .net-settings__grid {
@@ -1345,4 +1450,8 @@
   .net-conn__meta span:nth-child(3),
   .net-conn__traffic { display: none; }
   .net-settings__grid { grid-template-columns: 1fr; }
+  .net-prof__url,
+  .net-prof__desc { flex-basis: 100%; }
+  .net-prof-row { grid-template-columns: minmax(0, 1fr); }
+  .net-prof-row__ops { justify-content: flex-start; }
 }

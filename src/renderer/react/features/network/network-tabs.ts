@@ -21,9 +21,10 @@ export type NetworkTab =
   | "logs"
   | "connections"
   | "providers"
+  | "subscriptions"
   | "settings";
 
-/** 正文页签；设置是第七个，用页头齿轮打开。 */
+/** 正文页签；设置是第八个，用页头齿轮打开。 */
 export const NETWORK_TABS = [
   "overview",
   "nodes",
@@ -31,6 +32,7 @@ export const NETWORK_TABS = [
   "logs",
   "connections",
   "providers",
+  "subscriptions",
 ] as const;
 
 export const NETWORK_TAB_KEY: Record<NetworkTab, string> = {
@@ -40,6 +42,7 @@ export const NETWORK_TAB_KEY: Record<NetworkTab, string> = {
   logs: "network.tabLogs",
   connections: "network.tabConnections",
   providers: "network.tabProviders",
+  subscriptions: "network.tabSubscriptions",
   settings: "network.tabSettings",
 };
 

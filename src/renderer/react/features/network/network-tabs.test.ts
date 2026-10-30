@@ -40,10 +40,12 @@ function view(overrides: Partial<CoreConfigView> = {}): CoreConfigView {
 }
 
 describe("页签清单", () => {
-  it("六个正文页签按约定顺序，设置是第七个（齿轮入口）", () => {
-    expect(NETWORK_TABS).toEqual(["overview", "nodes", "rules", "logs", "connections", "providers"]);
+  it("七个正文页签按约定顺序，设置是第八个（齿轮入口）", () => {
+    expect(NETWORK_TABS).toEqual([
+      "overview", "nodes", "rules", "logs", "connections", "providers", "subscriptions",
+    ]);
     expect(Object.keys(NETWORK_TAB_KEY)).toEqual([...NETWORK_TABS, "settings"]);
-    expect(new Set(Object.values(NETWORK_TAB_KEY)).size).toBe(7);
+    expect(new Set(Object.values(NETWORK_TAB_KEY)).size).toBe(8);
   });
 
   it("每条日志最多 500 行、连接最多 200 条（与主进程同口径）", () => {

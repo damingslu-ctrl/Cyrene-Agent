@@ -7,7 +7,7 @@ interface NetworkTabsProps {
   onChange: (tab: NetworkTab) => void;
 }
 
-/** 六个正文页签 + 页头齿轮（第七个页签「设置」）。 */
+/** 七个正文页签 + 页头齿轮（第八个页签「设置」）。 */
 export function NetworkTabs({ active, onChange }: NetworkTabsProps) {
   const { t } = useTranslation();
   const settingsLabel = t(NETWORK_TAB_KEY.settings);

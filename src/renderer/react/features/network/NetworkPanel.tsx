@@ -18,6 +18,7 @@ import { OverviewView } from "./OverviewView";
 import { ProvidersView } from "./ProvidersView";
 import { RulesView } from "./RulesView";
 import { SettingsView } from "./SettingsView";
+import { SubscriptionsView } from "./SubscriptionsView";
 import { MODE_KEY, type NetworkTab } from "./network-tabs";
 import type { NodeSort } from "./network-view";
 import "./NetworkPanel.css";
@@ -26,10 +27,11 @@ const TRAFFIC_POINTS = 40;
 
 type Notice = { tone: "ok" | "error"; text: string };
 
-/** 主窗侧边栏的「网络」页：Clash Verge 的状态与全部操作，按页签分给六个视图。 */
+/** 主窗侧边栏的「网络」页：Clash Verge 的状态与全部操作，按页签分给七个视图。 */
 export function NetworkPanel() {
   const { t } = useTranslation();
   const api = window.verge?.network;
+  const subscriptionApi = window.verge?.subscriptions;
   const [snapshot, setSnapshot] = useState<NetworkSnapshot>(emptyNetworkSnapshot);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<string | null>(null);
@@ -286,6 +288,7 @@ export function NetworkPanel() {
           {tab === "logs" && <LogsView api={api} />}
           {tab === "connections" && <ConnectionsView api={api} />}
           {tab === "providers" && <ProvidersView api={api} />}
+          {tab === "subscriptions" && <SubscriptionsView api={subscriptionApi} />}
           {tab === "settings" && <SettingsView api={api} />}
         </div>
       </div>
