@@ -41,4 +41,9 @@ export const IPC_SENDER_POLICY: Readonly<Record<string, readonly WindowKind[]>> 
   [IPC.VERGE_SUB_SELECT]: ["chat"],
   [IPC.VERGE_SUB_REMOVE]: ["chat"],
   [IPC.VERGE_SUB_SET_OPTION]: ["chat"],
+  // —— Wave 3 T9 设置页：改的是这台机器的上网方式，宠物窗没有这个 UI，也不该有 ——
+  [IPC.VERGE_SETTINGS_GET]: ["chat"],
+  [IPC.VERGE_SETTINGS_SET]: ["chat"],
+  [IPC.VERGE_SYS_PROXY_GET]: ["chat"],
+  [IPC.VERGE_SYS_PROXY_SET]: ["chat"],
 };

@@ -28,6 +28,7 @@ import type { MusicBootstrap } from "../music/bootstrap";
 import type { VergeService } from "../verge/verge-service";
 import type { NetworkService } from "../verge/network-service";
 import type { ProfileService } from "../verge/profile-service";
+import type { VergeSettingsStore } from "../verge/verge-settings";
 import type { LlmClient } from "../services/llm/llm-client";
 import type { CitaService } from "../cita";
 import type { SocialContextService } from "../services/social-context/social-context-service";
@@ -56,6 +57,11 @@ export interface CoreServices {
   verge: VergeService;
   network: NetworkService;
   profiles: ProfileService;
+  /**
+   * 设置页（Wave 3 T9）用的 verge.yaml store。给的是闭包不是实例：
+   * Verge 的数据目录可能在用户手上搬家，也可能压根没装过（那时回 null）。
+   */
+  vergeSettings: () => VergeSettingsStore | null;
 }
 
 export interface CoreResult {

@@ -628,6 +628,16 @@ export const IPC = {
   VERGE_NETWORK_LOG: "verge:network:log",
   /** main → 所有窗口：完整快照或单帧流量（NetworkUpdate）。 */
   VERGE_NETWORK_UPDATE: "verge:network:update",
+  // —— Wave 3 T9 设置面 ——
+  /** verge.yaml 白名单键的读/写（Verge 在跑时写会被拒）。 */
+  VERGE_SETTINGS_GET: "verge:settings:get",
+  VERGE_SETTINGS_SET: "verge:settings:set",
+  /**
+   * 系统代理：读是盘上的现状，写只接受 `{ enabled }`——
+   * 地址与例外由 main 从内核端口与 verge.yaml 算出来，页面递进来的那两样一律无视。
+   */
+  VERGE_SYS_PROXY_GET: "verge:sys-proxy:get",
+  VERGE_SYS_PROXY_SET: "verge:sys-proxy:set",
   // —— v1.4.0 桌宠互动 ——
   /** main → 宠物窗：右键菜单里的互动动作（petCommand）。 */
   VERGE_PET_COMMAND: "verge:pet-command",

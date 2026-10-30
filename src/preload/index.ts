@@ -47,6 +47,8 @@ import type {
   RuleEntry,
 } from "../shared/network-detail-types";
 import type { ProfileResult, ProfileRow } from "../shared/subscription-types";
+import type { SystemProxyRead, SystemProxySetResult, SystemProxyToggle } from "../shared/system-proxy-types";
+import type { VergeSettingsPatch, VergeSettingsRead, VergeSettingsResult } from "../shared/verge-settings-types";
 import type { PetCommand } from "../shared/pet-commands";
 
 // 渲染目标标识：preload 每次加载（即每次页面初始化/重新加载）生成一次，
@@ -1216,6 +1218,18 @@ const vergeApi = {
       ipcRenderer.on(IPC.VERGE_SUB_CHANGED, listener);
       return () => ipcRenderer.off(IPC.VERGE_SUB_CHANGED, listener);
     },
+  },
+  /**
+   * 设置页（Wave 3 T9）。系统代理只接受 `{ enabled }`：地址与例外由 main 从内核端口与
+   * verge.yaml 算出来，渲染端递进来的 `server` / `bypass` 在通道层就被丢掉了。
+   */
+  settings: {
+    get: () => ipcRenderer.invoke(IPC.VERGE_SETTINGS_GET) as Promise<VergeSettingsRead>,
+    set: (patch: VergeSettingsPatch) =>
+      ipcRenderer.invoke(IPC.VERGE_SETTINGS_SET, patch) as Promise<VergeSettingsResult>,
+    proxyGet: () => ipcRenderer.invoke(IPC.VERGE_SYS_PROXY_GET) as Promise<SystemProxyRead>,
+    proxySet: (toggle: SystemProxyToggle) =>
+      ipcRenderer.invoke(IPC.VERGE_SYS_PROXY_SET, toggle) as Promise<SystemProxySetResult>,
   },
   /** main → 宠物窗：右键菜单选的互动动作。 */
   onPetCommand: (callback: (command: PetCommand) => void) => {

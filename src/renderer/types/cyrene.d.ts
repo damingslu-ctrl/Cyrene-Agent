@@ -116,6 +116,18 @@ declare global {
         setOption(uid: string, patch: Record<string, unknown>): Promise<import("../../shared/subscription-types").ProfileResult>;
         onChanged(callback: (rows: import("../../shared/subscription-types").ProfileRow[]) => void): () => void;
       };
+      /**
+       * 设置页（Wave 3 T9）：verge.yaml 白名单 + Windows 系统代理。
+       * `proxySet` 只有开关这一个字段——代理地址与例外列表由 main 现算，页面递不进去。
+       */
+      settings: {
+        get(): Promise<import("../../shared/verge-settings-types").VergeSettingsRead>;
+        set(patch: import("../../shared/verge-settings-types").VergeSettingsPatch):
+          Promise<import("../../shared/verge-settings-types").VergeSettingsResult>;
+        proxyGet(): Promise<import("../../shared/system-proxy-types").SystemProxyRead>;
+        proxySet(toggle: { enabled: boolean }):
+          Promise<import("../../shared/system-proxy-types").SystemProxySetResult>;
+      };
       /** main → 宠物窗：右键菜单选的互动动作。 */
       onPetCommand(callback: (command: import("../../shared/pet-commands").PetCommand) => void): () => void;
       /** 渲染端 → main：漫游/投掷落定后记一次位置。 */

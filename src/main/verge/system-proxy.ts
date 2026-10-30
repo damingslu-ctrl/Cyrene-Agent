@@ -26,19 +26,6 @@ export * from "../../shared/system-proxy-types";
 /** Verge 与自家设置页用的都是这一把键；HKLM 那份要管理员，而且会盖住别人策略配的东西，不碰。 */
 export const INTERNET_SETTINGS_KEY = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
 
-/** 与 WinINET 惯例同源的默认豁免：本机、私有段、回环网段——不含任何公网前缀。 */
-export const DEFAULT_SYSTEM_PROXY_BYPASS = [
-  "localhost",
-  "127.*",
-  "192.168.*",
-  "10.*",
-  "172.16.*", "172.17.*", "172.18.*", "172.19.*",
-  "172.20.*", "172.21.*", "172.22.*", "172.23.*",
-  "172.24.*", "172.25.*", "172.26.*", "172.27.*",
-  "172.28.*", "172.29.*", "172.30.*", "172.31.*",
-  "<local>",
-].join(";");
-
 const VALUE_NAMES = {
   enable: "ProxyEnable",
   server: "ProxyServer",

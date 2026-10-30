@@ -153,6 +153,9 @@ import { createNetworkService } from "../verge/network-service";
 import { registerNetworkIpc } from "../verge/network-ipc";
 import { createProfileAssembly } from "../verge/profile-bootstrap";
 import { registerProfileIpc } from "../verge/profile-ipc";
+import { createVergeSettingsStore, type VergeSettingsStore } from "../verge/verge-settings";
+import { createVergeRunningProbe } from "../verge/verge-process";
+import { registerVergeSettingsIpc } from "../verge/verge-settings-ipc";
 import { attachQuietClock, quietChangedPayload } from "../verge/quiet-clock-wiring";
 import { armQuiet, isQuietNow } from "../verge/quiet-clock";
 import { TUCK_IDLE_SECS, TUCK_PROBE_IDLE_SECS } from "../verge/tuck-clock";
@@ -553,10 +556,23 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
 
         // v1.24 订阅页（Wave 2）：profiles.yaml 账本 + runtime 注入 + 单写者闸门。
         // 目录每次都现查（Verge 可能在用户手上搬家），所以这里给的是闭包而不是路径。
+        // 单写者闸门用同一把探针：它每档 TTL 起一次 tasklist，两处各探一次等于把同一个
+        // 问题问两遍——订阅写面与设置写面必须看到「同一个 Verge 在不在跑」。
+        const vergeRunningProbe = createVergeRunningProbe();
         const profiles = createProfileAssembly({
           getConfigRoot: vergeConfigRoot,
           userData: app.getPath("userData"),
+          isVergeRunning: vergeRunningProbe,
         });
+
+        // v1.26 设置页（Wave 3 T9）：verge.yaml 白名单读写。store 本身无状态（每次现读盘），
+        // 所以这里也只给闭包——目录一搬家，下一次读就跟着搬。没装过 Verge 回 null，
+        // 「没目录」与「文件坏了」由通道层分开说，不许合成一句「读不到配置」。
+        const vergeSettings = (): VergeSettingsStore | null => {
+          const root = vergeConfigRoot();
+          if (root === null) return null;
+          return createVergeSettingsStore({ root, isVergeRunning: vergeRunningProbe });
+        };
 
         // 宠物窗右键菜单（Task 11）：菜单动作写盘走 service，窗口动作就地取 win。
         // 到点自醒也在这里接：落盘后的 setTimeout(remaining).unref()，到点当场清、
@@ -653,6 +669,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           verge,
           network,
           profiles,
+          vergeSettings,
         };
       },
 
@@ -894,6 +911,21 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           },
         });
 
+        // v1.26 设置页（Wave 3 T9）：verge.yaml 白名单 + Windows 系统代理，四条通道。
+        // 代理端口在这里现问内核：`/configs` 报出来的那个才是此刻真的在听的；
+        // 内核没在跑是常态而不是异常，必须回 null（抛出去的话，页面只能看到一个 IPC 拒绝），
+        // 由通道层退到 verge.yaml 里那把 `verge_mixed_port`，两头都没有才说 no-port。
+        const removeVergeSettingsIpc = registerVergeSettingsIpc(ipc, {
+          settings: services.vergeSettings,
+          corePort: async () => {
+            try {
+              return (await services.network.fetchConfig()).mixedPort;
+            } catch {
+              return null;
+            }
+          },
+        });
+
         // 漫游/投掷停稳后的一次性落盘：渲染端只在停稳时发，不逐帧写盘。
         ipc.on(IPC.VERGE_PET_POSITION_SETTLED, (_event, position: unknown) => {
           if (typeof position !== "object" || position === null) return;
@@ -911,6 +943,12 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           id: "verge-profile-ipc",
           phase: "flushPersistence",
           dispose: async () => { removeProfileIpc(); },
+        });
+        // 设置面同理：verge.yaml 就地原子写、注册表就地写，退出没有待刷的账。
+        shutdown.register({
+          id: "verge-settings-ipc",
+          phase: "flushPersistence",
+          dispose: async () => { removeVergeSettingsIpc(); },
         });
 
         // 本机版本信息：设置页与 --brand-probe 共用。原来这里是 app-update:* 五条通道。

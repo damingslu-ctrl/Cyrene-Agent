@@ -77,7 +77,8 @@ export interface VergeSettingsRead {
   view: VergeSettingsView;
   /** null = 读到了；其余值说明「这一屏是空的，不是因为它们是 false」。 */
   reason: VergeSettingsReason | null;
-  filePath: string;
+  /** null 只在「连 Verge 的数据目录都没发现」时出现——那台机器压根没装过 Verge，别编一个路径。 */
+  filePath: string | null;
   detail?: string;
 }
 
