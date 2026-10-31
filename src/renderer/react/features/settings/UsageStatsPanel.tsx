@@ -158,10 +158,10 @@ export function UsageStatsPanel() {
           level: offset >= 7 - filled ? level : 0,
           hasUsage: offset >= 7 - filled && value > 0,
         })),
-        tooltip: `${formatFullDate(locale, rangeStart)} ~ ${formatFullDate(locale, rangeEnd)}：${formatTokenCompact(value)} Token`,
+        tooltip: `${formatFullDate(locale, rangeStart)} ~ ${formatFullDate(locale, rangeEnd)}${t("ui.labelColon")}${formatTokenCompact(value)} Token`,
       };
     });
-  }, [heat, heatMode, locale]);
+  }, [heat, heatMode, locale, t]);
 
   return (
     <div className="cy-usage">
@@ -235,7 +235,7 @@ export function UsageStatsPanel() {
                     >
                       {column.cells.map((cell) => {
                         const title = cell.hasUsage
-                          ? `${formatFullDate(locale, cell.iso)}：${formatFullNumber(cell.tokens)} Token · ${formatFullNumber(cell.requests)} ${t("settingsPage.usage.unitRequests")}`
+                          ? `${formatFullDate(locale, cell.iso)}${t("ui.labelColon")}${formatFullNumber(cell.tokens)} Token · ${formatFullNumber(cell.requests)} ${t("settingsPage.usage.unitRequests")}`
                           : formatFullDate(locale, cell.iso);
                         return (
                           <span
