@@ -2124,4 +2124,102 @@ A3 那把 `APP_UPDATE_CHECK` 的判据还是**不区分大小写、不带锚点*
 ④ 上限给的是 512 MiB（`installer-download.ts:40`）而不是「当前包 289,746,294 字节 + 一点余量」：换成 zip 分发时不该把更新判死，
 但这也意味着**上限本身不是内容校验**，能拦住它的是摘要。
 
+### Wave 4 T12c：客户端更新的状态机——三本账不许互相冒充，起来之后才退（2026-10-31）
 
+计划里 T12 那一格（`update-service.ts` + `installer-launch.ts`）到这里补齐：判定与字节两份数据面
+各自收口之后，剩下的全是「只有这一层会判错」的四件事——账本之间的作废关系、判据的成本顺序、
+在途去重的两种答案、以及退出时机的唯一凭据。
+
+**① 账本之间不互相作废，判据是「这一趟有没有资格改上一趟的结论」。** 三本账（检查 / 下载 / 安装）
+各写各的，外加一根独立的 `phase`（`update-service.ts:359` 起那三段 `perform*` 各自进出时改）。
+三条负判据钉在一起：检查**失败**不作废上一趟读出来的那颗资产（`:376` 那句注释就是判据本身），
+发布页**回落**（`latest`）不作废已经核对过的包（`:372-375`），下载**失败**不作废 `ready`（`:435-437`）。
+把它们连起来的形状是「今天没网 → 昨天下好的包也不算数」，而用户在离线时点开安装本该能装——
+装不装由 `install` 那一段**重算字节**来判，不由别的账本提前宣判。反过来 `install` 判出
+`stale-package`（被人动过）时确实要清 `ready`（`:476-483`）：这一趟读到了盘上的事实，它有资格。
+
+**② 判据的顺序就是成本的顺序，而且这一档能被尺量。** `performInstall`（`:445`）依次是
+认版本（内存比较）→ 问内核（一个布尔）→ `sizeOf`（一次 stat）→ `digestOf`（读 290 MB）→ `launch` →
+`quitApp`。`:461` 那道内核闸门排在 `:475` 重算摘要之前，尺不是「看代码顺不顺」而是数**调用次数**：
+`core-running` 那一趟要求 `digestOf` 与 `sizeOf` 都是 0 次（`update-service.test.ts:406-421`）。
+把闸门挪到读盘之后，测试立刻红——这一条是变异 M3 验出来的（改 `if (deps.coreIsRunning())` 取反，红 3 条）。
+
+**③ 在途去重分两种，答案不一样，而其中一把尺一开始没牙。** 同一段的第二次点击**并入**那一趟：
+尺按 promise 的身份判（`test:494` `expect(second).toBe(first)`）；跨段的点击回 `in-flight` 且
+**不写进对方那本账**（`:541` 那一支直接 `Promise.resolve`，绕开所有 `write*`）。后者原本红不回来：
+快照 `h.service.state()` 写在「发出那两趟」之后，于是被拒那一趟当场往检查账里写的假账一起进了快照，
+这把尺退化成只量「两趟之后仍是那两趟」——而那正是要否掉的行为本身。改成**先拍账面再发**（`test:515-519`），
+M4 才红在点名的那一条上：`download 在途时不许往 check 那本账里写假账`。这是 memory 里那条
+「放宽之后要补验牙」的第四次复现，形状是新的：**快照的取值时机本身就是判据**。
+
+**④ `launched` 之后才退，起不来就什么都不做。** `spawn()` 返回不等于安装器起来了：ENOENT（包被人删了、
+被杀毒软件收走）是以**异步 `error` 事件**报的（`installer-launch.ts:117`），所以成功只认 `:124` 那个
+`spawn` 事件；两个事件一个都不来也得收口（`:110-116`，5 秒），否则这一趟永不落地、把调用方挂死。
+`launch-failed` 是唯一一档「什么都没发生」的败，所以那里绝对不许退出（`:487-490`）——反过来的形状是
+退出码 0、猫没了、什么都没装。反过来 `quitApp()` 自己抛错也不改写 `launched`（`:497-501` 那段 try/catch）：
+起来的是安装器，退出是另一件事，把两者并成一档会让用户以为更新失败而实际正在装。
+`detached + stdio:"ignore" + windowsHide + unref`（`:99-103`、`:128`）四件各有后果：不 detached 安装器
+跟着我们退，不 unref 就是在等一个永远不会回来的退出码，不 windowsHide 用户桌面上闪一个控制台。
+
+**⑤ 对 spec D3 的一处刻意偏离：不走 `shell.openPath`，走 `spawn` 带三颗参数。**
+spec 第 62 行写的是「校验后 `shell.openPath` 启动安装器并退出」，但那条口**结构上不能带参数**，
+而这三条行为全靠参数才成立（逐颗出处写在 `installer-launch.ts:24-44`，行号是从本机
+`node_modules` 里 app-builder-lib 26.15.3 的 NSIS 模板读出来的）：`/S` 是静默，而 `build/installer/installer.nsh`
+的 `customInit` 那段**升级保护**（把 `models/skills/prompts` 先挪进同级暂存目录、装完搬回）整块包在
+`${If} ${Silent}` 里——不静默反而不保护，旧卸载器的 `RMDir /r` 会连着用户自己放进去的模型一起清掉；
+`--updated` 让 `allowOnlyOneInstallerInstance.nsh:108` 先 `Sleep` 等 App 自退（而不是弹模态框或 `taskkill`）、
+让 `installUtil.nsh:86-92` 在允许改安装目录时仍保留快捷方式；`--force-run` 才是 `installSection.nsh:104-109`
+里「非 oneClick 的向导安装器静默跑完把 App 起回来」的那把钥匙——少了它，静默升级跑完桌上就没有猫了。
+这条偏离不是口头承诺：`installer-launch.test.ts:207-239` 那三把尺直接**读那份脚本**——升级保护仍在静默分支里、
+静默那一路不写 `installer-options.json`、三颗参数都在源码注释里点过名；宏不在了就抛（不许读成空串），
+所以脚本改了分支条件、参数这边必须重估。
+
+**⑥ 顺手拆掉的一颗雷：静默升级会把用户勾过的「开机自启」静默判成关。** `customInstall` 那段
+`$CyreneLaunchAtLogin` 只有 checked / else 两个分支，而静默安装里自定义页被整个跳过、复选框从没被勾过、
+变量是空的 → 走 else 写 `installer-options.json` 里 `launchAtLogin:false`；下次启动
+`consumeInstallerLaunchAtLoginSelection`（`src/main/settings/launch-at-login.ts:21`）把那份一次性凭据读走并
+**显式关掉**自启。应用内更新每次都静默，所以这条路的每一次升级都在替用户改这个开关。改成
+`${IfNot} ${Silent}` 才写（没有选择就没有凭据），桌面快捷方式那颗只补注释不改行为——带 `--updated` 时
+旧卸载器按 `--keep-shortcuts` 跑，原 `.lnk` 从没被删过，不需要重建。
+
+**⑦ 排程那一条链只走检查，而 `stop()` 必须是终止。** `start()` 排 90s（spec D3「启动后 90s 一次」）、
+之后每 6h，`.finally` 里重排的仍是 `check()`（`:517-521`）；这条「一次都不碰下载」是负判据（`test:585-611`
+数 `calls.download` 与 `calls.release` 两个计数），因为自动下载会把 290 MB 的下行塞进用户没要求的时刻。
+自查时发现一个真缺陷：在途那一趟的 `.finally` 会在 `stop()` **之后**再排一颗 6 小时闹钟——进程正在退，
+事件环被吊住。加了一个闭包量 `stopped`（`:301`、`:516`、`:610`），`start()` 复位（否则 stop 之后再 start
+就永久不再排程）。这一档有尺：`stop()` 那一条断言「闹钟表里只剩一颗」，M5 摘掉 `stopped` 就红。
+
+**⑧ 落盘只有那一颗设置，其余一概不落。** `<userData>/update/settings.json` 里只许有 `autoCheck`
+（`:54`、`:138`），原子写走 temp + `renameWithRetrySync`（`:103-108`）；账本与 `currentVersion` 明确**不落盘**
+（`state()` 与比较用的那一颗都是现读 `app.getVersion()`，`:527` 与 `:361`）——盘上记的本机版本会在装完那一刻立刻说谎。落盘位置钉在 `update/`
+而不是 `updates/` 里面（`test:697`），否则启动清扫与保留回收都碰得到它。反向尺这轮终于能立：14 档 reason
+每档必须以 `"${reason}"` 字面量出现在 `src/main/update/` 的非测试源码里，且每档点名一条**测试标题**跑得出它
+（`test:928-983`，`REASON_PROOF`）——这是 T12a 记的那条 ②，生产者齐了才立得住。
+
+**尺子与变异**：定向 `src/main/update` **4 文件 / 89 条全绿**（本轮新增 56：`update-service.test.ts` 44 +
+`installer-launch.test.ts` 12；T12a/b 那 33 条一字未动）。十二档变异（`.tmp/mutation-t12c.mjs`，按内容锚点下手、
+每档跑完立刻按原始字节还原并核对 md5）：**M1-M12 全部红回**，覆盖三条作废关系、成本顺序、在途两档、
+退出时机、排程只走检查、6h 与 90s 两档、`stopped` 终止、设置里多写一颗、`unref`、`windowsHide`、basename 死判。
+**M4 第一次跑是绿的**——不是产品对，是那把尺的快照取值时机坏了（见 ③）；补尺后用同一档变异重跑才红，
+上面这些数用的是补尺之后的最终版尺。
+
+**门**：`tsc -p tsconfig.main.json --noEmit` 0；`node scripts/build/desktop-typescript.mjs main` 0（810 个文件，T11 记录的是 805）；
+定向 `src/main/update` + `src/main/egress` + `src/main/verge` **47 文件 / 734 passed | 1 skipped（735）**、8.05s（egress 那八份是必做项：
+A1 整仓扫上游标识、A3 判据不区分大小写也不带锚点，新通道的词离 `autoUpdater` 只差一次手滑）；
+全量 `CI=true node node_modules/vitest/vitest.mjs run`——**785 文件 / 8559 passed | 2 skipped（8561）**、302.67s。
+对 T11 收口记录的 781 / 8470|2：**+4 文件**＝`src/main/update/` 那四份测试，**+89 条**＝恰好同一个目录的总数，
+差额里没有别处——这一轮没有为了让门绿而动别的模块。
+
+**未做，记账**：
+① **装配仍没有人 import**：`update-service.ts` 与 `installer-launch.ts` 现在是够不着产品代码的两份模块，
+`ipc-contract` 那道「注册必须从 `src/main/index.ts` 可达」的门看不见它们（继承 T12a/b 的 ①）。五条 IPC 通道 +
+preload +「更新」卡片 + 三份语言是 T12d；在那之前「全量门绿」不等于这条通路存在过。
+② **真 spawn 一次都没跑过**：`installer-launch` 那 12 条全用假 `child_process`。三颗参数与安装器分支的对应
+是从模板与自家 `installer.nsh` **读**出来的，不是装出来的；⑤⑥ 两条要靠 T14 的真窗（真起一次静默安装）才算验过。
+③ **⑥ 那处脚本改动没装机验证过**：`verify:installer` 与打包链路本轮没重跑（改的是 `build/installer/installer.nsh`
+的分支包裹，`pnpm package:win:dir` 未跑）。T14 那一趟要么重打一颗包，要么在真窗验收里显式带上「自启开关在静默升级后仍是开」。
+④ **下载了但一直没装的那颗包会留在盘上**（290 MB）：回收只发生在下一次下载换名之后
+（`installer-download.ts:362` 的 `pruneInstalled(target.fileName)`）。「装完才回收」是这一层的取舍，
+本轮不改；要不要给「已经比本机新就别留着」再加一道，等真窗看过一次再定。
+⑤ `in-flight` 那两档回执的 `at` 各用自己的 `now()`：两个人被拒拿到的是两条不同时刻的**回执**，不是一条账。
+页面读它可以，不许把它并进那三本账。
