@@ -2344,3 +2344,99 @@ Wave 1 那次同型事故（`:1151` 记的「通道是 chat-only，而 aux 窗�
 而那条通路上的**资产名与 sha256 是否真按 `github-release.ts` 的认法挂着**，本轮只对过假 JSON，没对过真发布页。
 在 T13 把包挂上去之前，真点一次大概率回 `no-asset`——那句话怎么说、为什么不丢人，卡片里有尺（`no-asset` 一档），
 但「我们的发布流程到底挂不挂得出这个名字」得等 T13。
+
+### Wave 4 T13：A3 从一条禁令改成三层合同——顺带挖出尺子自己的两处盲区（2026-10-31）
+
+**① A3 不再是「不许有」，而是「必须有，而且只能有这两个来源」。** 只禁不要求的锁会在一种情况下读成绿：
+更新器整个被摘掉。那一档界面上没有任何异常，「更新」卡片干脆不存在，而零命中的静态判据高兴得像刚通过了体检。
+所以 A3 现在是三层：禁（`electron-updater`／`autoUpdater`／`provider: github` 原样保留）、要求在场
+（三条反向规则 `upstream-off.test.ts:112,128,136` 钉 service 构造、组合根装配、IPC 注册各一个落点）、
+以及集合相等（`:399` 那一段把更新面所有 URL 解析出来，仓库 owner/name 必须**不多不少**等于
+`:331` 的 `[damingslu-ctrl/Cyrene-Agent, MetaCubeX/mihomo]`，host 只许 `:333` 那一族）。
+另加两条把「反向锁本身」锁住：`electron-builder.yml` 里 `publish: null` 这一行必须字面在场（`:144`），
+`verify:installer` 里 `assertNoUpdateFeed(` 这个调用形状必须在（`:156`）——前者的必要性见那一条的注释，
+`no-publish-config.test.ts` 在键被整个删掉时仍然绿，而那恰好是 CI 里 electron-builder 自己造发布源的那条路。
+
+**② 发布脚本：三条只有真跑过才知道的事实，写在文件头。** `scripts/release/publish-update.mjs`（445 行）
+默认只出计划，`--publish` 才发。顺序按成本排（`preflight` `:270`）：白名单 → 说明文件 → 从
+`electron-builder.yml` 派生资产名 → tag 与版本号同号 → 产物目录里不许有 `latest.yml` → 体积下限 → 流式算 sha256。
+真发那一圈（`publishUpdate` `:331`）再补三件机器教我的事：**(a)** 远端那枚 tag 必须是 annotated
+（`:178` 读 `git/ref/tags` 验 `object.type`，轻量标签一律拒——`gh release create` 顺手建的就是轻量那枚，
+而客户端 `github-release.ts` 按 `tag_name` 找版本，靠 `releases/latest` 而不是 git ref，写反一次就是「发了但客户端永远看不见」）；
+**(b)** `:168` 先问 `gh release view`，那一版已有 Release 就拒绝重发——发出去的东西不改写；
+**(c)** `:208` 发完回读远端摘要与 `releases/latest`，摘要对不上判 `digest-mismatch` 并**照样返回而不抛错**
+（`publish-update.test.ts:393` 那条测试钉的是「已发出的东西不能假装没发」——回滚比报红危险）。
+代理是每条 gh 调用都带的（`:135` `ghEnv`），不是文档里写一句：本机直连 github.com 被 SNI DPI 拦着。
+
+**③ 挖到第一处盲区：尺子按目录名跳过了 `release`，而发布脚本正好住在那儿。** 变异第三档（把白名单放开成
+`Playa-Cyrene/Cyrene-Agent`）跑出来只红了本地那一条白名单测试，A4「上游品牌链接」那条**没红**——
+照理这个字符串一进射程就该当场拦下。查下去是 `scan-source-files.ts:27` 那一条按目录名跳过的规则里带着 `entry === "release"`（该行现在的内容已是修好的 `node_modules`／`dist`）：
+它一个产物也没挡到过（electron-builder 的产物在**仓库根**的 `release/`，而仓库根压根不是扫描根），
+却把 `scripts/release/`（源码）整份划出射程。实测口径改动前后是 2075 → 2076 个文件——差额正好是那支往 GitHub 推包的工具。
+修法是把「产物」判据换成产物自己的名字（`node_modules`／`dist`），并在 `upstream-off.test.ts:281` 补一条正对照：
+`scripts/release/publish-update.mjs` 必须出现在扫描集合里。**这一档的教训不是「少扫了一个文件」，
+而是「用名字当判据的跳过规则，迟早会跳过名字的主人」**——同一个错误这轮出现了两次（见 ④）。
+
+**④ 第二处盲区在交付车上，不在尺子上：`.gitignore` 没锚定，把发布脚本整个吞了。** `release/` 这条规则
+本来要挡仓库根的构建产物，未锚定的写法连 `scripts/release/` 一起吃掉——`git status` 里查不到那支新脚本，
+提交会**静默**不带它，而本地全量测试照绿（文件在盘上）。锚成 `.gitignore:33` 的 `/release/` 之后，
+三个方向都验了：`scripts/release/` 变可见、仓库根 `release/` 仍忽略、
+`native/cyrene-screenshot/target/release/` 由它自家 `.gitignore` 的 `/target/` 负责（不靠这一条）。
+为什么不给「git 里必须能查到这支脚本」加一条单测：它已经在两处天然成立——新尺 `publish-update.test.ts`
+是按文件 URL `import` 那支脚本的，egress 的普查又点名要它；任何一份不在，两处都直接红，不需要第三条尺。
+
+**⑤ 反向锁自己也得有牙：一个 shape 一条规则，不并成三选一。** `requiredIn` 量的是「命中文件集合 ⊇ 落点」。
+三个调用形状里有两个同住在组合根 `default-dependencies.ts`（`:591` 装配、`:991` IPC 注册），
+所以原来那条三选一合并 pattern 摘掉其中任何一个都照样绿——`grep -c` 量到变异后同一文件仍剩 1 处命中，
+这就是它抓不到的证据。拆成 `:112/:128/:136` 三条之后，M5（把 `:991` 那行改成不存在的名字）红在
+「A3 自研更新通道在场（IPC 注册）」这一条上：卡片还在，五条通道没人应答。
+
+**⑥ 只有一份真相，两处都用「不许自己抄」来判。** 安装器名一律从 `electron-builder.yml` 的
+`nsis.artifactName` 派生（`:112` `resolveBuild`），体积下限从 `verify:installer` 导入
+（`installer-artifacts.mjs:29` 改成 `export`）；`publish-update.test.ts:89,107` 判的是**脚本正文**里
+不许出现 `Mochi-Setup`／`productName`／自己写一遍的 `MIN_INSTALLER_BYTES = 数字`——品牌一改，
+抄过的那一处不会报错，只会以 ENOENT 的形式伪装成「产物缺失」。
+`:168` 那条钉的是另一个方向：`--min-installer-bytes` 这个口子**不许**出现在命令行参数表里
+（能被一个参数拆掉的闸门不是闸门；它只对程序内注入开放，单测靠它才不必真造 21 MB 文件）。
+`:154` 用 5330 字节文件对比 `createHash` 的整块结果，钉住流式实现不漏尾——漏尾的 sha256 是合法十六进制，
+只有对得上独立口径才看得出它错。
+
+**尺子与变异**：新尺一份 23 条（`src/main/update/publish-update.test.ts`，432 行，全部用 fake `gh` 记账本，
+一趟真网络都不发）；`upstream-off.test.ts` 10 → 20 条（新增 5 条规则＝A3 三条在场 + `publish: null` + 旧通道反向锁，
+加普查那一段 describe 的 5 条，其中「自研通道在场」一条也没并成三选一而是三条各钉一个 shape）。定向 `src/main/egress src/main/update` **14 文件 / 223 条全绿**。
+六档变异，每档跑完按原始字节 `cp` 还原、`sha256sum` 逐条对齐基线：
+M1 删 `github-release.ts:177-179` 的摘要判据 → 红 1 条（「没有 digest 在检查这一步就拒」）；
+M2 `:170` 的 semver 比高低改成字符串比 → 红 2 条（「1.9.9 与 1.10.0 这种『字符串比较必错』的一对」
+与「1.16.0-beta.1 不算比 1.16.0 新」——`shared/version.ts:67` 那一颗钉得住）；
+M3 白名单放开 → **第一次只红 1 条**，A4 没红，于是挖出 ③；修完尺子再跑同一档 → 红 2 条（白名单 + A4）；
+M4a 删 `update-service.ts:479-488` 装前重算摘要 → 红「被人动过的包不许冒充新升级」；
+M4b 删 `:464-472` 那颗内核闸门 → 红 2 条，第二条是「词表 14 档：源码里有生产者，测试里跑得出结果」那条**反向锁**
+（`core-running` 失去生产者），说明词表锁管得住「删掉一档的说法」；
+M5 摘掉组合根的 IPC 装配 → 红拆分后那一条（并证明合并写法抓不到）。
+
+**CLI 冒烟（不发网络、不落盘）**：`--help` exit 0；计划模式对着真 `release/` 跑出
+`Mochi-Setup-1.15.0.exe` 296,982,786 B、sha256 `ecc76ae38543f0a7de9ea062cc8bd3775e174d4165efaf6b7f3a7cfa971f3e0d`，
+与 `sha256sum` 的独立口径逐字一致（0.84s 流式，296 MB 不是整数个 64 KB 块，这一条同时是「不漏尾」的实地证据）；
+`--publish` 不带说明 → exit 1 且 0 次 gh 调用；`--repo Playa-Cyrene/Cyrene-Agent` → exit 1，拒绝话里点名
+「要换一本得先改 egress 那段普查」；环境无 `HTTPS_PROXY` 时打印走 7896 的提示而不是闷头超时。
+
+**门**：`tsc -p tsconfig.main.json` exit 0；`desktop-typescript.mjs main` 812 文件；`npx vite build` exit 0；
+`sync-brand.mjs --check` 一致；`check:roster` 0；`verify:installer` 绿（同一颗包 + mpv v0.41.0-1227 + MinGit 2.55.0 +
+截图辅助 2,337,688 B）。全量 `CI=true npx vitest run`——**788 文件 / 8689 passed | 2 skipped（8691）**、251.00s，exit 0。
+对 T12d 收口的 787 / 8656|2：**+1 文件**＝那份新尺，**+33 条**＝23（新尺）+ 10（`upstream-off.test.ts` 从 10 条长到 20 条：
+规则表 9→14 条＝A3 在场三条 + `publish: null` + 旧通道反向锁，另加普查 describe 的 5 条），差额里没有别处。
+`src/main/orchestrator/tools/__snapshots__/*.snap` 仍是纯 stat 脏（`git diff --numstat` 对它零行），没有 stage。
+
+**未做，记账**：
+① **一条真命令都没对 GitHub 发过**：`--publish` 那一圈只被 fake `gh` 走过。远端 annotated tag 的来历、
+`gh release create` 的真实退出码形状、上传 290 MB 的耗时与断点，全靠 T14 之前那一次手跑（且必须先由用户点头，
+它是对共享系统的写操作）。
+② **版本号还欠一次抬**：`package.json` 停在 1.15.0，而 `v1.15.0` 已经发过——`publish-update.mjs:168` 那道「已存在就拒发」
+会在真跑时第一时间拦下，这是设计行为不是 bug，但发布前得先定这一版叫 1.16.0 还是 1.20.0。
+③ **CI 里没有发布这一步**：`package-windows.yml` 只打包不发布，`release:publish`（`package.json:46`）是本地手跑。
+把发布搬进 CI 要先解决 runner 侧的 `GH_TOKEN` 与 workflow scope（`project-cyrene-release-pipeline` 记的那条 SSH 死路），
+本轮没动。
+④ **`scripts` 里那五份 node:test 的 `.test.mjs` 仍然没有任何门在跑**：`vitest.config.mts` 的 include 不含 `scripts/**`，
+CI 的兜底那句是 `--exclude "src/**" --passWithNoTests`。这正是发布脚本的尺为什么住在 `src/main/update/` 而不是
+`scripts/release/` 旁边的原因——住在射程里才有牙。要不要给 `scripts` 单开一条门，记在这里等裁决。
+⑤ 真窗验收与「决策反转：从断更新到自研更新通道」那篇文档归 T14。
