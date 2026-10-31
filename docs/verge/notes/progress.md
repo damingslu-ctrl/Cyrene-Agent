@@ -2477,7 +2477,7 @@ T14 补的是「真代码 + 真出口 + 真发布页」那一层，并在那里�
 
 ### Wave 4 T14：真窗三趟各按一次「检查更新」——计划里那句「假 GitHub」换了做法（2026-10-31）
 
-**① 「假一台 GitHub 服务器」在这条通道上做不到，而做不到正是判据。** 计划 `2026-10-29-clash-verge-full-integration.md:110`
+**① 「假一台 GitHub 服务器」在这条通道上做不到，而做不到正是判据。** 计划 `2026-10-29-clash-verge-full-integration.md:111`
 写的是「真窗：… 假更新全流程（本地 HTTP 服务器）」。要落它得拧两处，而这两处恰好是 A3 要守的东西：
 `CLIENT_RELEASE_API_URL`（`github-release.ts:35`）是从 `CLIENT_UPDATE_REPO`（`:32`）模板拼出来的常量，**没有** base URL 注入点
 （钉死就是判据）；出口白名单也不放行一台假服务器（放行等于把 A3 拆了）。在生产代码里留一条 dev 覆写最容易，
@@ -2530,7 +2530,7 @@ T14 补的是「真代码 + 真出口 + 真发布页」那一层，并在那里�
 **尺子**：新增 `scripts/verify/client-update-cdp.mjs`（真窗档，一趟三腿；ENV 与产品红分开退出码 2／1）。
 它**没有**接到 `package.json` 的脚本表——同目录的 `network-tabs-cdp.mjs`／`subscriptions-write-cdp.mjs`／`pet-girl-cdp.mjs`
 也没接，这里跟着既有惯例走，不自造一条只有它有的口子。
-计划（`:111`）点名的 `docs/verge/notes/environment-notes.md` **不存在**：跨任务环境账本实际住在
+计划（`:113`）点名的 `docs/verge/notes/environment-notes.md` **不存在**：跨任务环境账本实际住在
 `.superpowers/sdd/2026-10-17-p0-p1-pixel-cat-shell/environment-notes.md`，而 `.gitignore:172` 把 `.superpowers/` 整个忽略——
 它是本地账本，不进仓。所以本轮那三条（仓库／资产名／权限边界）写在这里，环境级的事实追加在本地账本。
 
