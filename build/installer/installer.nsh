@@ -66,6 +66,9 @@ FunctionEnd
     Rename "$INSTDIR\..\.Cyrene.models-preserve" "$INSTDIR\models"
   ${EndIf}
 
+  ; 静默那一路这个变量是空的，等于不建桌面快捷方式——不会丢：带 `--updated` 时
+  ; 旧卸载器是按 `--keep-shortcuts` 跑的（installUtil.nsh 的 setIsTryToKeepShortcuts），
+  ; 原 .lnk 从没被删掉，路径与图标都不变，所以不需要重建。
   ${If} $CyreneCreateDesktopShortcut == ${BST_CHECKED}
     CreateShortCut "$DESKTOP\${SHORTCUT_NAME}.lnk" "$appExe" "" "$appExe" 0 "" "" "${APP_DESCRIPTION}"
     ClearErrors
@@ -74,16 +77,23 @@ FunctionEnd
 
   CreateShortCut "$SMPROGRAMS\${MENU_FILENAME}\卸载 ${PRODUCT_FILENAME}.lnk" "$INSTDIR\${UNINSTALL_FILENAME}" "" "$INSTDIR\${UNINSTALL_FILENAME}" 0
 
-  ${If} $CyreneLaunchAtLogin == ${BST_CHECKED}
-    CreateDirectory "$APPDATA\${APP_PACKAGE_NAME}"
-    FileOpen $0 "$APPDATA\${APP_PACKAGE_NAME}\installer-options.json" w
-    FileWrite $0 "{$\"launchAtLogin$\":true}"
-    FileClose $0
-  ${Else}
-    CreateDirectory "$APPDATA\${APP_PACKAGE_NAME}"
-    FileOpen $0 "$APPDATA\${APP_PACKAGE_NAME}\installer-options.json" w
-    FileWrite $0 "{$\"launchAtLogin$\":false}"
-    FileClose $0
+  ; 静默安装里自定义页被整个跳过，两个复选框从没被勾过，读回来的变量是空的。
+  ; 这时候写 installer-options.json 等于替用户做决定：$APPDATA 里那份一次性凭据会被
+  ; 下次启动 consumeInstallerLaunchAtLoginSelection 读走并把「开机自启」显式判成关——
+  ; 而应用内更新那条路（/S --updated --force-run）每次都静默，用户勾过的自启会被静默改掉。
+  ; 所以静默那一路一个字都不写：没有选择，就没有凭据。
+  ${IfNot} ${Silent}
+    ${If} $CyreneLaunchAtLogin == ${BST_CHECKED}
+      CreateDirectory "$APPDATA\${APP_PACKAGE_NAME}"
+      FileOpen $0 "$APPDATA\${APP_PACKAGE_NAME}\installer-options.json" w
+      FileWrite $0 "{$\"launchAtLogin$\":true}"
+      FileClose $0
+    ${Else}
+      CreateDirectory "$APPDATA\${APP_PACKAGE_NAME}"
+      FileOpen $0 "$APPDATA\${APP_PACKAGE_NAME}\installer-options.json" w
+      FileWrite $0 "{$\"launchAtLogin$\":false}"
+      FileClose $0
+    ${EndIf}
   ${EndIf}
 !macroend
 !endif

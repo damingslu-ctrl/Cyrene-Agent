@@ -20,6 +20,7 @@
  */
 import { parseSha256Digest, type CoreAssetPick } from "../verge/core-source";
 import { isValidPluginVersion, isNewerVersion } from "../../shared/version";
+import type { ClientUpdateReason } from "../../shared/client-update-types";
 
 /**
  * 客户端通道只认这一个仓库（spec D3「客户端从 fork 的 Release 拉安装包」）。
@@ -129,12 +130,17 @@ export interface ClientCheckDecision {
   outcome: "available" | "latest" | "failed";
   /** 只有读到了才非空——「读不到」与「读到但没更新」在回执里必须是两档。 */
   latestVersion: string | null;
-  reason: string | null;
+  /**
+   * 用的是 `shared/client-update-types.ts` 那张词表，不是自由字符串：
+   * 这一层的每一档失败都必须说得出页面已经准备了措辞的那一句话。
+   * 词表里新增一档而这里没有生产者，`update-service.test.ts` 那把反向尺会红。
+   */
+  reason: ClientUpdateReason | null;
   detail: string | null;
   asset: ClientAssetPick | null;
 }
 
-const FAIL = (reason: string, detail: string, latestVersion: string | null = null): ClientCheckDecision => ({
+const FAIL = (reason: ClientUpdateReason, detail: string, latestVersion: string | null = null): ClientCheckDecision => ({
   outcome: "failed",
   latestVersion,
   reason,
