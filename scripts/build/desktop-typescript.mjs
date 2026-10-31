@@ -22,7 +22,16 @@ if (parsed.errors.length > 0) {
 
 const entryPoints = parsed.fileNames.filter((file) => /\.[cm]?tsx?$/.test(file) && !/\.d\.[cm]?ts$/.test(file));
 const outDir = parsed.options.outDir;
-if (target === "main") rmSync(path.join(outDir, "plugins"), { recursive: true, force: true });
+// 编译前把整棵输出抹掉。esbuild 只写这一趟编译到的文件，**不会回收**上一次在、这次不在的产物：
+// 本轮实测过这个形状——造一颗临时模块编进 `dist/main/main/`，删掉它的源码，再按改前的脚本编一趟
+// （812 个入口照常报「built」），那颗 JS 原地留着、mtime 都没动；换成这一行再编，它才消失。
+// 而 `electron-builder.yml:27` 打的是 `dist/**/*`，所以产物面的残留会一路跟进装机包。
+// 病的是源码面归零、产物面没人回收这个**结构性缺口**（P4 删掉的公告与旧更新器正是这一类），
+// 不是某一颗已知的文件：当前装机包里 grep 不到那两组的名字，说明这台机器的 `dist` 曾经整体清过——
+// 那是运气，不是设计，而不可达的尸块会让产物面与源码面对不上，且只有产物面是用户拿在手里的东西
+// （`upstream-off` 的 A1／A3 扫的是源码面，看不见这里）。
+// 原来这里只抹 `plugins` 一个目录：那是唯一一个被回收过的角落，编译出的 JS 从来没人管。
+rmSync(outDir, { recursive: true, force: true });
 
 await build({
   entryPoints,

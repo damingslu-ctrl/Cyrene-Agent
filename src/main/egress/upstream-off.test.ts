@@ -164,6 +164,22 @@ const RULES: Rule[] = [
     requiredIn: ["scripts/verify/installer-artifacts.mjs"],
   },
   {
+    clause: "A1/A3 编译前抹掉整棵输出",
+    // P4 删了 `src/main/news`（公告）与 `src/main/updater`（更新器）两组源码，而 esbuild 只写
+    // 这一趟编译到的文件、**不回收**上一次在而这次不在的产物，打包打的又是 `dist/**/*`
+    // （`electron-builder.yml:27`）：源码面归零之后，产物面没有任何一处会跟着归零。
+    // 本轮按形状实测过（临时模块 → 编进 dist → 删源码 → 用改前脚本再编，那颗 JS 原地留着），
+    // 但**没有**声称历史装机包里躺着那两组名字：当前那颗包的 `app.asar` grep 不到它们
+    // （正对照 `default-dependencies` 3 命中），说明这台机器的 dist 曾经整体清过——运气，不是设计。
+    // 这里认的是「整棵抹掉」这个形状（`rmSync(outDir, …)`），不是某个目录名：原来只抹 `plugins`
+    // 那一行治的是一个露出来的名字，编译出的 JS 从来没人管（与 T13 扫描器按名字跳过 `release` 同档）。
+    pattern: /rmSync\(\s*outDir\s*,/,
+    positiveControls: ["rmSync(outDir, { recursive: true, force: true });"],
+    exceptions: [],
+    required: true,
+    requiredIn: ["scripts/build/desktop-typescript.mjs"],
+  },
+  {
     clause: "A4 上游品牌链接",
     pattern: /Playa-Cyrene|Playa-0v0|playa0|playaagentcyrene\.online|ky2569ly@gmail\.com/i,
     positiveControls: ["https://github.com/Playa-Cyrene/Cyrene-Agent/issues"],
