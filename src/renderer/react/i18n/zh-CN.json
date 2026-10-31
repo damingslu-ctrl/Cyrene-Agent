@@ -2027,6 +2027,7 @@
     "moments": "空间动态",
     "scheduledTasks": "定时任务",
     "network": "网络",
+    "labelColon": "：",
     "modelNotConnected": "模型未连接",
     "userAlt": "用户",
     "openUserProfile": "打开个人资料",

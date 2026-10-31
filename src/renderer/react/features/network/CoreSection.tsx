@@ -162,16 +162,16 @@ export function CoreSection({ api }: { api?: CoreApi }) {
           )}
 
           <ul className="net-verge__facts">
-            <li>{t("network.core.modeLabel")}：{t(coreModeKey(status.mode))}</li>
-            <li>{t("network.core.secretLabel")}：{t(coreSecretKey(view.secretSource))}</li>
-            {status.controller && <li>{t("network.core.controllerLabel")}：<code>{status.controller}</code></li>}
-            {ports && <li>{t("network.core.portsLabel")}：{ports}</li>}
-            {status.pid !== null && <li>{t("network.core.pidLabel")}：{status.pid}</li>}
-            {uptimeMs !== null && <li>{t("network.core.uptimeLabel")}：{formatDuration(uptimeMs)}</li>}
-            {heal && <li>{t("network.core.healLabel")}：{heal}</li>}
+            <li>{t("network.core.modeLabel")}{t("ui.labelColon")}{t(coreModeKey(status.mode))}</li>
+            <li>{t("network.core.secretLabel")}{t("ui.labelColon")}{t(coreSecretKey(view.secretSource))}</li>
+            {status.controller && <li>{t("network.core.controllerLabel")}{t("ui.labelColon")}<code>{status.controller}</code></li>}
+            {ports && <li>{t("network.core.portsLabel")}{t("ui.labelColon")}{ports}</li>}
+            {status.pid !== null && <li>{t("network.core.pidLabel")}{t("ui.labelColon")}{status.pid}</li>}
+            {uptimeMs !== null && <li>{t("network.core.uptimeLabel")}{t("ui.labelColon")}{formatDuration(uptimeMs)}</li>}
+            {heal && <li>{t("network.core.healLabel")}{t("ui.labelColon")}{heal}</li>}
             {updateLine && (
               <li>
-                {t("network.core.update.lastLabel")}：
+                {t("network.core.update.lastLabel")}{t("ui.labelColon")}
                 <span className={`net-core-update net-core-update--${updateLine.tone}`}>
                   {t(updateLine.outcomeKey)}
                   {updateLine.reasonKey ? ` · ${t(updateLine.reasonKey)}` : ""}

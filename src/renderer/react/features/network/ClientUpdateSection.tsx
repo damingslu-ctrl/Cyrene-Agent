@@ -85,7 +85,7 @@ function LineItem({ labelKey, line }: { labelKey: string; line: ClientLine | nul
   if (!line) return null;
   return (
     <li>
-      {t(labelKey)}：
+      {t(labelKey)}{t("ui.labelColon")}
       <span className={`net-client-line net-client-line--${line.tone}`}>
         {t(line.outcomeKey)}
         {line.reasonKey ? ` · ${t(line.reasonKey)}` : ""}
@@ -230,12 +230,12 @@ export function ClientUpdateSection({ api }: { api?: ClientUpdateApi }) {
 
           <ul className="net-verge__facts">
             <li>
-              {t("network.clientUpdate.currentLabel")}：v{view.currentVersion}
+              {t("network.clientUpdate.currentLabel")}{t("ui.labelColon")}v{view.currentVersion}
               {target && ` · ${t("network.clientUpdate.targetLabel", { version: target })}`}
             </li>
             {downloadLine && downloadLine.bytes !== null && (
               <li>
-                {t("network.clientUpdate.packageLabel")}：<code>{downloadLine.fileName}</code> · {formatBytes(downloadLine.bytes)}
+                {t("network.clientUpdate.packageLabel")}{t("ui.labelColon")}<code>{downloadLine.fileName}</code> · {formatBytes(downloadLine.bytes)}
               </li>
             )}
             <LineItem labelKey="network.clientUpdate.check.label" line={clientCheckLine(view.check, now)} />

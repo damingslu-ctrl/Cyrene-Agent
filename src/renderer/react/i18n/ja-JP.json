@@ -2060,6 +2060,7 @@
     "moments": "モーメンツ",
     "scheduledTasks": "スケジュールタスク",
     "network": "ネットワーク",
+    "labelColon": "：",
     "modelNotConnected": "モデル未接続",
     "userAlt": "ユーザー",
     "openUserProfile": "プロフィールを開く",

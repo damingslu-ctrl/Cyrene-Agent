@@ -192,7 +192,7 @@ export function SettingsView({ api }: { api?: NetworkApi }) {
             </fieldset>
           </div>
           <p className="net-hint">
-            {t("network.settingsMode")}：{view.mode ? t(`network.mode${view.mode === "rule" ? "Rule" : view.mode === "global" ? "Global" : "Direct"}`) : "—"}
+            {t("network.settingsMode")}{t("ui.labelColon")}{view.mode ? t(`network.mode${view.mode === "rule" ? "Rule" : view.mode === "global" ? "Global" : "Direct"}`) : "—"}
             {" · "}
             {t("network.settingsModeHint")}
           </p>

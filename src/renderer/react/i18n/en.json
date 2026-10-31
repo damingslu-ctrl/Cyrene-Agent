@@ -2027,6 +2027,7 @@
     "moments": "Moments space",
     "scheduledTasks": "Scheduled tasks",
     "network": "Network",
+    "labelColon": ": ",
     "modelNotConnected": "No model connected",
     "userAlt": "You",
     "openUserProfile": "Open profile",

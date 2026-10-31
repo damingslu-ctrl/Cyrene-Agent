@@ -545,11 +545,11 @@ export function PopQuizPanel({
                       : t("interaction.quizGradedPending")}
                   </span>
                   <div className="cy-quiz-graded__answer">
-                    {t("interaction.quizYourAnswer")}：<MarkdownContent content={userAnswer ?? ""} />
+                    {t("interaction.quizYourAnswer")}{t("ui.labelColon")}<MarkdownContent content={userAnswer ?? ""} />
                   </div>
                   {result?.correctAnswer !== undefined && (
                     <div className="cy-quiz-graded__answer">
-                      {t("interaction.quizCorrectAnswer")}：<MarkdownContent content={describeQuizAnswerValue(question, result.correctAnswer, { true: t("interaction.quizTrueLabel"), false: t("interaction.quizFalseLabel") })} />
+                      {t("interaction.quizCorrectAnswer")}{t("ui.labelColon")}<MarkdownContent content={describeQuizAnswerValue(question, result.correctAnswer, { true: t("interaction.quizTrueLabel"), false: t("interaction.quizFalseLabel") })} />
                     </div>
                   )}
                 </div>
@@ -590,7 +590,7 @@ export function PopQuizPanel({
       </div>
       {current.learningObjective && (
         <div className="cy-quiz-objective">
-          {t("interaction.quizObjectiveLabel")}：<MarkdownContent content={current.learningObjective} />
+          {t("interaction.quizObjectiveLabel")}{t("ui.labelColon")}<MarkdownContent content={current.learningObjective} />
         </div>
       )}
       {(current.type === "choice" || current.type === "multi") && (

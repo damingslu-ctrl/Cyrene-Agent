@@ -2,8 +2,18 @@
 // 把检查那一段的三种下场各跑一趟——`latest`（发布页那版不比本机新）、`available`（问到更新的一版）、
 // `network-failed`（请求没回来）——每趟都是真代码、真出口、真发布页。
 //
-// 用法：node scripts/verify/client-update-cdp.mjs [--runs=latest,available,failed]
+// 用法：node scripts/verify/client-update-cdp.mjs [--runs=latest,available,failed] [--locales=zh-CN,en,ja-JP]
 // 退出码：0 绿／1 红／2 环境没给跑（见 ENV 那段）。
+//
+// `--locales=` 那一档在做什么：三腿的**每一趟**都可以换一份语言表再跑一遍。语言只走生产通路
+// （`window.settings.saveGeneral({language})` → 主进程落 `app-settings.json` → 浏览器侧重载，
+// 让 `initUiLocale()` 现读，等价于用户改完语言后的下一次启动），生产代码里照样没有覆写口。
+// 重载不能由页面自己发起：产品的全局导航闸把所有 `will-navigate` 都 `preventDefault()` 了
+// （`src/main/windows/external-link.ts:46`），页面内的 `location.reload()` 会被静默回掉，
+// 所以这里用 CDP 的 `Page.reload`（浏览器侧，同 `webContents.reload()`，不落盘、不改产品一行代码）。
+// 切完必须**当场认出是哪一份表**：等的是那一份里的原文卡标题，命中到别的语言就报红——
+// 否则语言没切过去，探针会拿着 zh-CN 的表把 en 这一档念成绿的。第一帧尤其骗人：
+// i18next 先按出厂回退档画一帧，`initUiLocale()` 从主进程读到语言才翻，所以「有张卡上屏」不算数。
 //
 // 为什么这三趟就敢叫「真窗」，而计划里那句「假 GitHub 全流程」在这里换了做法：
 // 假一台 GitHub 服务器要拧两处，而这两处正是这条通道要守的东西——`CLIENT_RELEASE_API_URL` 没有可注入
@@ -47,6 +57,8 @@ const OLD_VERSION = "1.0.0";
 const SETTINGS_REL = "profile/update/settings.json";
 
 const LOCALES = ["zh-CN", "en", "ja-JP"];
+/** 出厂默认语言：新沙箱不切就是它。真值在 `src/shared/ui-language.ts` 的 `UI_LANGUAGE_FALLBACK`。 */
+const DEFAULT_LOCALE = "zh-CN";
 
 let stepNo = 0;
 function step(label) {
@@ -249,12 +261,15 @@ class Session {
     this.wsUrl = wsUrl;
     this.nextId = 1;
     this.pending = new Map();
+    /** 导航的凭据：`Page.loadEventFired` 来一次加一。换语言那一档等的是它，不是「target 还在列表里」。 */
+    this.loadSeq = 0;
   }
 
   async open() {
     this.ws = new WebSocket(this.wsUrl);
     this.ws.addEventListener("message", (ev) => {
       const msg = JSON.parse(String(ev.data));
+      if (msg.method === "Page.loadEventFired") this.loadSeq += 1;
       if (!msg.id) return;
       const hit = this.pending.get(msg.id);
       if (!hit) return;
@@ -378,7 +393,7 @@ const READ_CARD = `(() => {
       .filter((el) => el.querySelector(".net-client-line"))
       .map((el) => {
         const mark = el.querySelector(".net-client-line");
-        return { head: (text(el) || "").split("：")[0], text: text(mark), tone: toneOf(mark, "net-client-line--") };
+        return { head: (text(el) || "").split(/：|: /)[0], text: text(mark), tone: toneOf(mark, "net-client-line--") };
       }),
     checkbox: (() => {
       const el = view.querySelector("input[name='client_update_auto_check']");
@@ -415,15 +430,17 @@ async function waitFor(predicate, timeoutMs, label) {
 
 /* ------------------------------------------------------------------ 一趟跑法 */
 
-async function runOne(name, config, tables, electronBin) {
-  const sandbox = path.join(BASE, `run-${name}`);
+async function runOne(name, config, tables, electronBin, locale) {
+  // 默认语言那几趟沿用旧目录名（台账里记的就是 `run-<名>`）；换语言的另开目录，
+  // 免得两份语言表共用一颗沙箱、把上一次的 `app-settings.json` 当成这一次的现场。
+  const sandbox = path.join(BASE, locale === DEFAULT_LOCALE ? `run-${name}` : `run-${name}-${locale}`);
   const appdata = path.join(sandbox, "appdata");
   const profile = path.join(sandbox, "profile");
   fs.rmSync(sandbox, { recursive: true, force: true });
   fs.mkdirSync(profile, { recursive: true });
   fs.mkdirSync(appdata, { recursive: true });
 
-  const run = { name, sandbox, expect: { outcome: config.expectOutcome, reason: config.expectReason, version: config.expectVersion } };
+  const run = { name, locale, sandbox, expect: { outcome: config.expectOutcome, reason: config.expectReason, version: config.expectVersion } };
   const before = { sandbox: treeSnapshot(sandbox), realUpdateSurfaces: realUpdateSurfaces() };
 
   const env = { ...process.env, APPDATA: appdata, ...(config.env ?? {}) };
@@ -449,11 +466,46 @@ async function runOne(name, config, tables, electronBin) {
     await clickThatNavigates(gate, ".cy-onboarding__actions .cy-onboarding__button--primary");
     gate.close();
 
-    step(`${name}：等主窗 target，进「网络」并翻开「设置」页签（齿轮）`);
+    step(`${name}：等主窗 target${locale === DEFAULT_LOCALE ? "" : `，先把界面语言切到 ${locale}`}`);
     const mainTarget = await findTarget((url) => url.includes("/react/index.html") && !url.includes("onboarding=1"), 120_000);
     if (!mainTarget) throw new Error(`点完同意没等到主窗 target；app 输出：\n${appLog.join("").slice(-2500)}`);
-    const page = await attach(mainTarget);
+    let page = await attach(mainTarget);
     await evaluate(page, waitExpression(`() => () => !document.documentElement.hasAttribute("data-ui-theme-pending") ? true : null`, PAGE_WAIT_MS), { awaitPromise: true });
+
+    if (locale !== DEFAULT_LOCALE) {
+      // 一把尺要量两份语言，就得先让 App 真的换到那份上：这里用的就是设置菜单里那颗
+      // 「界面语言」在生产里走的同一条通路（`UserAvatar.tsx` 的 `selectLanguage`），
+      // 再 reload 一次，让 `initUiLocale()` 从主进程现读——等价于用户改完语言后的下一次启动。
+      const landed = await evaluate(
+        page,
+        `window.settings.saveGeneral({ language: ${JSON.stringify(locale)} }).then((v) => v?.language ?? null)`,
+        { awaitPromise: true },
+      );
+      if (landed !== locale) {
+        throw new Error(`主进程把语言存成了 ${String(landed)}，不是 ${locale}：语言没落进 app-settings.json，这一档不能算切过去了`);
+      }
+      // 等这一次导航真的落地，而不是等 `/json/list` 里还有这个 target：老文档在 reload 期间照样
+      // 在列表里、照样能 evaluate，在它身上按按钮等于对一副尸体按——按钮点了，新文档开在聊天页，
+      // 那张卡永远不上屏（第一趟就是这么「语言没切过去」的）。
+      //
+      // 重载只能从外面按，不能在页面里按：`installGlobalNavigationGuard()`（`src/main/windows/external-link.ts:46`）
+      // 给每个窗口的 `will-navigate` 都挂了 `event.preventDefault()`，页面内的 `location.reload()` 属于
+      // 页面自己发起的导航，被这道闸一口回掉——第二/三趟就挂在这里等一个永远不会来的 load 事件。
+      // 这是产品的安全边界，不动它；`Page.reload` 走的是浏览器侧（同 `webContents.reload()`），
+      // 不触发 `will-navigate`，等价于用户重启 App 后 `initUiLocale()` 从主进程现读那一次。
+      const loadBefore = page.loadSeq;
+      await page.send("Page.reload", { ignoreCache: false }, 8_000).catch(() => null); // 导航会吞掉回音
+      await waitFor(
+        async () => (page.loadSeq > loadBefore || page.ws.readyState !== WebSocket.OPEN ? true : null),
+        PAGE_WAIT_MS,
+        "重新载入落地（load 事件，或这条 ws 被导航关掉）",
+      );
+      const reloaded = await findTarget((url) => url.includes("/react/index.html") && !url.includes("onboarding=1"), PAGE_WAIT_MS);
+      if (!reloaded) throw new Error(`换语言后重新载入没等回主窗 target：这一档的现场在 ${sandbox}`);
+      page.close();
+      page = await attach(reloaded);
+      await evaluate(page, waitExpression(`() => () => !document.documentElement.hasAttribute("data-ui-theme-pending") ? true : null`, PAGE_WAIT_MS), { awaitPromise: true });
+    }
     // 侧栏那颗按钮认 title，不认位置：三份语言文件里的 `ui.network` 都拿来比，探针不重打文案。
     const sideLabels = JSON.stringify(tables.map((entry) => entry.sideLabel));
     for (const expr of [
@@ -475,17 +527,27 @@ async function runOne(name, config, tables, electronBin) {
       await evaluate(page, waitExpression(expr, PAGE_WAIT_MS), { awaitPromise: true });
     }
 
-    step(`${name}：等「客户端更新」那张卡上屏，并定下用哪一份语言表`);
+    // 语言是真真切过去了还是要等它自己说：i18next 先按出厂回退档画第一帧，`initUiLocale()` 从主进程
+    // 读到语言后才翻。所以这里等的是**那一份表里的原文标题**，不是「有张卡上屏」——
+    // 早读一步就会把还没翻的界面认成 zh-CN，量的是中文，报的却是 en 档。
+    const wantTitle = tables.find((entry) => entry.locale === locale)?.card.title;
+    if (!wantTitle) throw new Error(`语言表里没有 ${locale} 那颗卡标题`);
+    step(`${name}：等「${wantTitle}」那张卡上屏（${locale} 那份表的原文）`);
     const card0 = await waitFor(
       async () => {
         const value = await evaluate(page, READ_CARD);
-        return value && value.title ? pickLocale(tables, value.title) && value : null;
+        return value && value.title === wantTitle ? value : null;
       },
       PAGE_WAIT_MS,
-      "卡片与卡标题",
+      `卡标题「${wantTitle}」`,
     );
     const copy = pickLocale(tables, card0.title);
-    run.locale = copy.locale;
+    run.localeOnScreen = copy.locale;
+    // 等文案的和认表的是两把尺，这里必须对得上：认到别份表就是语言没切过去，
+    // 否则探针会拿着 zh-CN 的表把界面念成绿的。
+    if (copy.locale !== locale) {
+      throw new Error(`这一档要的是 ${locale}，卡上那句「${card0.title}」落在 ${copy.locale} 那份表里：界面语言没真切过去，后面的逐字对齐都不算数`);
+    }
 
     // 前闸：一次性目录里三本账必须是空的。账本不落盘（只有 autoCheck 落），所以读到东西只有两种解释——
     // 沙箱没吃进去（读的是真目录），或者这条通道在偷偷写盘。两种都不许往下走。
@@ -579,7 +641,10 @@ async function runOne(name, config, tables, electronBin) {
     const checkLine = card.marked.find((entry) => entry.text?.startsWith(outcomeCopy));
     if (!checkLine) throw new Error(`「上次检查」那一行没画出来：${JSON.stringify(card.marked)}`);
     if (checkLine.tone !== config.expectTone) throw new Error(`脸色是 ${checkLine.tone}，这一档要 ${config.expectTone}`);
-    if (!card.facts.some((text) => text.includes(`${lookup(copy.copy, "network.clientUpdate.currentLabel")}：v${state1.currentVersion}`))) {
+    // 「标签 冒号 值」那颗冒号也归语言文件管：探针不重打标点，否则 en 那档用 CJK 冒号排版
+    // （`This machine：v…`）这件事就永远量不出来——中文冒号在英文界面上是个真缺陷，不是口味。
+    const colon = lookup(copy.copy, "ui.labelColon");
+    if (!card.facts.some((text) => text.includes(`${lookup(copy.copy, "network.clientUpdate.currentLabel")}${colon}v${state1.currentVersion}`))) {
       throw new Error(`facts 第一行没写本机版本：${JSON.stringify(card.facts)}`);
     }
     const targetCopy = interp(lookup(copy.copy, "network.clientUpdate.targetLabel"), { version: config.expectTarget ?? PINNED_LATEST });
@@ -602,7 +667,7 @@ async function runOne(name, config, tables, electronBin) {
       await toggleOn(page, profile, copy, run);
     }
 
-    await shoot(page, `${name}-01-after-check.png`);
+    await shoot(page, `${name}-${locale}-01-after-check.png`);
     run.assertionsPassed = true;
   } catch (error) {
     // 半截的现场比结论值钱：红的时候要看清读到过什么，而不是只知道「throw 了」。
@@ -712,6 +777,20 @@ function parseRuns() {
   return names;
 }
 
+/**
+ * 语言档默认只跑出厂那一档（zh-CN）：`--locales=` 才把三腿在别份语言表上再各跑一遍。
+ * 名字必须落在 `src/shared/ui-language.ts` 的白名单里——写个 `ko` 进来，主进程会静默回落中文，
+ * 而这一档的期望是韩文，那把尺只会把自己绕晕。
+ */
+function parseLocales() {
+  const arg = process.argv.slice(2).find((value) => value.startsWith("--locales="))?.slice("--locales=".length);
+  const names = (arg ?? DEFAULT_LOCALE).split(",").map((value) => value.trim()).filter(Boolean);
+  for (const name of names) {
+    if (!LOCALES.includes(name)) throw new Error(`不认识这个语言档：${name}（可选 ${LOCALES.join("/")}，白名单在 src/shared/ui-language.ts）`);
+  }
+  return names;
+}
+
 /** 断链那一档的前提：那颗 discard 端口真的没人听。有人听就是环境变了，不是产品的事。 */
 async function assertDeadProxy(target) {
   const net = await import("node:net");
@@ -735,6 +814,7 @@ async function assertDeadProxy(target) {
 
 async function main() {
   const names = parseRuns();
+  const locales = parseLocales();
   assertSandbox();
   if (names.some((name) => RUNS[name].env)) {
     await assertDeadProxy(RUNS[names.find((name) => RUNS[name].env)].env.HTTPS_PROXY);
@@ -745,7 +825,7 @@ async function main() {
   const tables = localeTables();
   const electronBin = createRequire(import.meta.url)("electron");
   const packageBefore = sha256(PACKAGE_JSON);
-  const report = { started_at: new Date().toISOString(), runs: names, results: [], ok: false };
+  const report = { started_at: new Date().toISOString(), runs: names, locales, results: [], ok: false };
   const results = [];
 
   const restorePackageJson = (backup) => {
@@ -756,27 +836,29 @@ async function main() {
   };
 
   try {
-    for (const name of names) {
-      const config = RUNS[name];
-      let backup = null;
-      if (config.mutateVersion) {
-        // 只有 `available` 这一档动 package.json：备份放在树外，跑完按字节还原，sha 当场对。
-        backup = path.join(BASE, "package.json.bak");
-        fs.copyFileSync(PACKAGE_JSON, backup);
-        const raw = fs.readFileSync(PACKAGE_JSON, "utf8");
-        const patched = raw.replace(/("version":\s*")[^"]*(")/, `$1${config.mutateVersion}$2`);
-        if (patched === raw) throw new Error("package.json 里找不到 version 那一行，造不出 available 这一档");
-        // 正则写完不靠它自己说成功： parse 回来对一遍，写坏了就在这儿红，别让 App 带着半个版本号启动。
-        if (JSON.parse(patched)?.version !== config.mutateVersion) {
-          throw new Error(`改完的 package.json 解析出来不是 ${config.mutateVersion}，正则碰错了地方`);
+    for (const locale of locales) {
+      for (const name of names) {
+        const config = RUNS[name];
+        let backup = null;
+        if (config.mutateVersion) {
+          // 只有 `available` 这一档动 package.json：备份放在树外，跑完按字节还原，sha 当场对。
+          backup = path.join(BASE, "package.json.bak");
+          fs.copyFileSync(PACKAGE_JSON, backup);
+          const raw = fs.readFileSync(PACKAGE_JSON, "utf8");
+          const patched = raw.replace(/("version":\s*")[^"]*(")/, `$1${config.mutateVersion}$2`);
+          if (patched === raw) throw new Error("package.json 里找不到 version 那一行，造不出 available 这一档");
+          // 正则写完不靠它自己说成功： parse 回来对一遍，写坏了就在这儿红，别让 App 带着半个版本号启动。
+          if (JSON.parse(patched)?.version !== config.mutateVersion) {
+            throw new Error(`改完的 package.json 解析出来不是 ${config.mutateVersion}，正则碰错了地方`);
+          }
+          fs.writeFileSync(PACKAGE_JSON, patched, "utf8");
+          step(`${name}：本机版本号临时压到 ${config.mutateVersion}（真发布页那一版于是「比本机新」）`);
         }
-        fs.writeFileSync(PACKAGE_JSON, patched, "utf8");
-        step(`${name}：本机版本号临时压到 ${config.mutateVersion}（真发布页那一版于是「比本机新」）`);
-      }
-      try {
-        results.push(await runOne(name, config, tables, electronBin));
-      } finally {
-        if (backup) restorePackageJson(backup);
+        try {
+          results.push(await runOne(name, config, tables, electronBin, locale));
+        } finally {
+          if (backup) restorePackageJson(backup);
+        }
       }
     }
     report.results = results;
