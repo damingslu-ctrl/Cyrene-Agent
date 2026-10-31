@@ -2636,6 +2636,7 @@ useMemo 里的 tooltip 跟不跟着翻。四档：zh 全角上屏（正对照，
 en 换半角**且整个面板 `[title]` 扫不出全角**、周／累计两档的列 tooltip 同一颗、ja 保持全角
 （搬进语言文件不是把中日一起改成半角）。另钉一条「屏上不许出现 `ui.labelColon` 字样」——
 i18next 配了 `parseMissingKeyHandler`（`i18n/index.ts:29`），缺 key 时键名会原样画上屏，这是冒号这一类缺陷的另一种发作形态。
+（那句「缺 key 原样上屏」当时只是顺手钉的一条断言，只覆盖 jsdom 那一个场景；现已立成独立的锁——见下一条账。）
 
 **变异验牙（真红过）**：把那两处 `t("ui.labelColon")` 改回写死的 `：`，现场尺立刻红两条，红的正文就是英文界面当初的样子——
 `October 29, 2026：1,500 Token · 4 requests`、`November 2, 2025 ~ November 8, 2025：0 Token`；改完按 sha 还原
@@ -2654,4 +2655,45 @@ i18next 配了 `parseMissingKeyHandler`（`i18n/index.ts:29`），缺 key 时键
 
 **没做**：这轮没再开真窗（冒号这一条在 jsdom 里量的是同一个生产组件与同一份语言表，真窗那九趟量的是更新通道）。
 上一条账的 ②（下载／安装／`digest-mismatch` 三档）与 ③（真发布 + 版本号抬）照旧**等用户点头**。
+
+
+### Wave 4 T14 追加·叁：把「用出去的 key 解析不解析得出来」立成独立的锁（2026-10-31）
+
+**洞的来历**：上一条账在 jsdom 现场尺里顺手钉了一句「屏上不许出现 `ui.labelColon` 字样」，理由是
+`parseMissingKeyHandler: (key) => key`（`i18n/index.ts:29`）——漏了的 key 不报错，**键名自己画上屏**。
+两头落空形状都在 node 里实测过：指不到 → 原样回 `a.nope7`；指到子对象 → 画
+`key 'a.b (zh-CN)' returned an object instead of string.`。但那一句只覆盖 UsageStatsPanel 一个场景，
+1823 枚键里漏一枚别的，还是得靠运气发现。这轮把它立成一把独立尺。
+
+**新锁** `src/renderer/react/i18n/used-keys.test.ts`（4 条）：射程 `src/renderer/react/**`（glob 原始命中 298，
+扣掉测试与夹具 188 个文件；`src/renderer/music`、`src/renderer/pet` 各 0 处 `t("a.b")`，不 import 这套 i18n，
+圈进来是替别人家同名 helper 背锅）。三条腿：字面量键（`LITERAL_KEY` `:41`，`t("a.b")` / `t('a.b')` / `i18next.t("a.b")`）
+三份表都得解析出**非空字符串**（`isUsableString` `:83`，MISS／BLANK／NOT-STRING 三种落空各点名第一处站点）；
+模板键的静态前缀（`TEMPLATE_PREFIX` `:44`，`t(`settingsPage.usage.range${x}`)` 这种动态拼法）三份表各至少领到一枚叶子；
+外加一条「扫不到东西就等于没有尺」的地板（`:109`，文件 150／键 1500／前缀 20）。纯动态键 `t(labelKey)` 明确**不进射程**。
+
+**普查结论：当前 0 落空**（1823 枚字面量键、25 枚前缀，三份表全解析得出）。⇒ 这条锁不是修缺陷，
+是一道前瞻闸；所以它的价值全押在牙上，牙按下述四条变异认证（**尺子中途改过一次，五道变异全部用最终版尺重跑**）。
+
+**变异验牙**（`en.json` 基线 sha `51b954001237c9c5e9d2073d1df4917fd52c2f241781b1f316a108bbda3b2a1b`、
+`UsageStatsPanel.tsx` 基线 `10fba4d87948905e8b9349d4b4762c56edddbe9c88725a0d201b58f2e297c25c`，两处都按 sha 还原，`git status` 干净）：
+- M1 值改成两颗空格 → `每一枚字面量键…` 红：`en ui.labelColon (BLANK) @ InteractionPanel.tsx:548`。
+- M2 值改成子对象 → 红：`(NOT-STRING(object))`。⇒「解析得出」不够，必须是非空字符串，这条腿不是摆设。
+- M3 键整枚改名消失 → 红：`(MISS)`。
+- M4 动态键段名换错（`:276` 的 `…range${x}` → `…span${x}`）→ 前缀腿三档语言一起红，点名站点 `UsageStatsPanel.tsx:276`。
+- M5 **尺自己看不见的洞，写进尺里不当秘密**：把 `range` 截成 `rang`，尺**照绿**。前缀匹配天生分不清「截断」与「正确前缀」
+  （`rang` 仍是 `range7/range30/range90` 的前缀），硬要分就得猜动态尾巴长什么样——那是把猜测定成规范。
+  `:146` 那条「这把尺有牙」里现在钉着一句正面向的断言，明写这是洞不是牙。
+  **补法记在没做里**：换一把渲染现场的尺，量「屏上不许出现『表根段 + 点』形状的字符串」，
+  截断与漏 key 一起逮住，且不需要任何静态猜测。
+
+**门**：定向 `CI=true npx vitest run src/renderer/react/i18n` 14 条绿（resources 4 + used-keys 4 + label-colon 6）；
+全量 **791 文件 / 8704 passed | 2 skipped（8706）**、217.06s、exit 0（对上一轮 790／8700|2 恰好多这一文件这 4 条）；
+`npx vite build` exit 0；`check:renderer` / `check:main` / `check:preload` exit 0；`check:brand` 一致。
+**ad-hoc 类型检查的第二枚洞**（跟上一条账那枚 `global.d.ts` 并列记）：renderer 工程是 DOM 味的，`types` 里没 node，
+所以任何 `import { globSync } from "node:fs"` 都报 TS2591、`__dirname` 报 TS2304——`label-colon.test.ts` 同病，
+不是新文件带来的。临时配置补上 `"types": ["node"]` 后，两把扫描尺一起 exit 0（`.tmp/tsconfig.used-keys-check.json`）。
+
+**没做**：① M5 那把渲染现场的「键名形状」尺（本轮唯一的已知盲区，不需要授权，下一轮做）；
+② 这轮没开真窗；③ 上一条账的 ②③（真下载／安装／真发布 + 版本号抬）照旧**等用户点头**。
 
