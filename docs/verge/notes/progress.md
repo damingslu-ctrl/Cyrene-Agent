@@ -2685,7 +2685,8 @@ i18next 配了 `parseMissingKeyHandler`（`i18n/index.ts:29`），缺 key 时键
   （`rang` 仍是 `range7/range30/range90` 的前缀），硬要分就得猜动态尾巴长什么样——那是把猜测定成规范。
   `:146` 那条「这把尺有牙」里现在钉着一句正面向的断言，明写这是洞不是牙。
   **补法记在没做里**：换一把渲染现场的尺，量「屏上不许出现『表根段 + 点』形状的字符串」，
-  截断与漏 key 一起逮住，且不需要任何静态猜测。
+  截断与漏 key 一起逮住，且不需要任何静态猜测。**（下一轮就做完了，但「漏 key」那半句要说清条件：
+  只有三份表一起缺才画得上屏，见下一条账的 M6／M7。）**
 
 **门**：定向 `CI=true npx vitest run src/renderer/react/i18n` 14 条绿（resources 4 + used-keys 4 + label-colon 6）；
 全量 **791 文件 / 8704 passed | 2 skipped（8706）**、217.06s、exit 0（对上一轮 790／8700|2 恰好多这一文件这 4 条）；
@@ -2694,6 +2695,53 @@ i18next 配了 `parseMissingKeyHandler`（`i18n/index.ts:29`），缺 key 时键
 所以任何 `import { globSync } from "node:fs"` 都报 TS2591、`__dirname` 报 TS2304——`label-colon.test.ts` 同病，
 不是新文件带来的。临时配置补上 `"types": ["node"]` 后，两把扫描尺一起 exit 0（`.tmp/tsconfig.used-keys-check.json`）。
 
-**没做**：① M5 那把渲染现场的「键名形状」尺（本轮唯一的已知盲区，不需要授权，下一轮做）；
+**没做**：① M5 那把渲染现场的「键名形状」尺（本轮唯一的已知盲区，不需要授权，下一轮做）**（已收，见下一条账）**；
 ② 这轮没开真窗；③ 上一条账的 ②③（真下载／安装／真发布 + 版本号抬）照旧**等用户点头**。
+
+
+### Wave 4 T14 追加·肆：屏上不许出现「长得像键」的字符串——渲染现场尺，堵 M5 那个洞（2026-10-31）
+
+**这轮做的一件事**：上一条账 M5 留下的洞不糊过去，换一把尺在渲染现场堵。
+新锁 `src/renderer/react/features/settings/UsageStatsPanel.key-shape.test.tsx`（3 条，jsdom 真挂 `UsageStatsPanel`）。
+
+**口径**：表根名单**不写死**，运行时取 `zh-CN.json` 的顶层键（实测 46 枚，`:42`）；`KEY_SHAPE`（`:45`）要「表根段 + 点 +
+至少一段标识符」，左边界 `(?:^|[^\w.])` 挡掉两类误伤——`本机 v1.15.0` 那种前导点、`subsettingsPage.usage` 那种黏在词里。
+扫的是**屏上真看得见的一切**：`host.textContent` 加每个元素的每个属性值（`onScreenStrings` `:87`），
+`title`／`aria-label`／`placeholder` 都在射程里；冒号那把尺只量 `title`，这把不挑属性。
+地板：三档语言各渲染一次，正文都得 >150 字符（实测 186），否则「屏上干净」可能只是「屏上没东西」。
+第三条腿把区间标签的期望值**直接从三份 JSON 里读**（`:146`，不走 i18next）——否则「解析得出」就成了自证。
+
+**牙（三道变异都用最终版尺跑；被改的四份文件——1 段源码 + 3 份语言表——全部按 sha 逐字节核对还原）**：
+- **M5 重放**（`UsageStatsPanel.tsx:276` 的 `…range${item.value}` → `…rang${…}`）：**静态那把照绿**（前缀腿看不见截断，
+  正是它的洞），**现场这把两腿一起红**，红字里直接印出用户会看见的东西：
+  `["settingsPage.usage.rang7settingsPage.usage.rang30settingsPage.usage.rang90","settingsPage.usage.rang7",…]`，
+  另一腿是 `zh-CN 档区间标签「近 7 天」: expected '…用量趋势settingsPage.usage.rang7…' to contain '近 7 天'`。
+  ⇒ 盲区堵上了，而且不用猜动态尾巴的形状。
+- **M6（只改坏 `en.json` 一处：`labelColon` → `labelColonX`）**：静态尺红 `en ui.labelColon (MISS) @ …chat/components/InteractionPanel.tsx:548`，
+  现场尺**绿**。我起初把这当成现场尺的洞——实测才知道是设计如此：`fallbackLng`（`i18n/index.ts:21`；值 `UI_LANGUAGE_FALLBACK = "zh-CN"`，
+  `src/shared/ui-language.ts:12`，`index.ts:17` 再导出为 `UI_LOCALE_FALLBACK`）把**只缺一份表**的键兜住了，屏上画的是中文值，
+  **没有键名形状可扫**。顺手量到症状原文：英文档 tooltip 变成 `October 29, 2026：1,500 Token · 4 requests`（全角冒号渗进英文界面），
+  而这颗键**碰巧**有语体差——按**值**的那把冒号尺当场两腿红。⇒ **上一条账「截断与漏 key 一起逮住」这半句是我说过头了**，
+  已在两边文件头改写清楚：**只缺一份表 → 只有静态尺看得见；三份表一起缺 → 两把一起响**。
+- **M7（三份表一起改名）**：静态尺两腿红（MISS ×3，外加「这把尺有牙」里 `used-keys.test.ts:164` 那枚正面对照
+  `typeof lookup(zhCN, "ui.labelColon") === "string"` 一起倒——正面例子钉的是真键，改坏它当然该红）；
+  现场尺红 `["ui.labelColon1","ui.labelColon100"]`：键名原样上屏，后面还黏着 tooltip 里的数字。
+  ⇒ 现场尺在它该响的那一档真的会响。
+
+**一处旧账要更正**（上一条账里那句「renderer 工程把 `**/*.test.tsx` 排除在类型检查外」说窄了）：
+`tsconfig.renderer.json:27-28` 排除的是 `.test.ts` **和** `.test.tsx` 两样，所以 `used-keys.test.ts` 也不进 `check:renderer`；
+`:15` 那句 `"types": ["vite/client"]` 是**覆盖**不是追加——ad-hoc 配置里写 `"types": ["node"]` 会把 `vite/client` 顶掉，
+于是三枚 `.css` import 报 TS2882。正确写法是 `"types": ["vite/client", "node"]`（`.tmp/tsconfig.used-keys-check.json` 已改成这样，
+四把 i18n 尺一起 exit 0）。另：这把尺的地板用假值 `999999` 探过一次，探出正文实测 **186** 字符后原样写回。
+
+**门**：定向 `CI=true npx vitest run src/renderer/react/i18n …/UsageStatsPanel` **5 文件 / 21 条全绿**
+（resources 4 + used-keys 4 + label-colon 静态 6 + label-colon 现场 4 + key-shape 现场 3）；
+全量 **792 文件 / 8707 passed | 2 skipped（8709）**、exit 0（对上一条账 791／8704|2 恰好多这一文件这 3 条；
+274.39s 比上一轮的 217s 慢，因为这趟全量与 `vite build` + 四枚 check 同时在跑，不是回归）；`npx vite build` exit 0（11.14s）；`check:renderer` / `check:main` / `check:preload` exit 0；
+`check:brand` = `[brand] Mochi (dev.damin.mochi) 一致`。
+**没做**：① 这把现场尺目前只钉 `UsageStatsPanel` 一个场景。射程要扩到设置页／网络页其余面板，得一个场景一份挂载夹具
+（`window.*` IPC 桩 + jsdom 缺的那些上下文），是一件一件做的活，不是改一行 glob；M6 那类「只缺一份表」的缺陷，
+现场按**值**能逮到的也只有冒号这颗键（它碰巧有语体差），别把「现场尺绿」当成「三份表齐」的证据——那归静态尺。
+② 这轮没开真窗（jsdom 里量的是同一个生产组件与同一份语言表）。③ 上一条账的 ②③（真下载／安装／真发布 + 版本号抬）照旧**等用户点头**。
+
 

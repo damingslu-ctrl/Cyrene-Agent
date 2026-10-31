@@ -23,8 +23,14 @@
  * 前缀那条腿判的是「有没有叶子以静态段开头」，所以它认得出段名换错（`…span${x}` 当场红，
  * 变异验过），却认得出**截断**——`…rang${x}` 仍是 `range7/range30/range90` 的前缀，屏上会画
  * `settingsPage.usage.rang7`，这条腿一声不响。要在静态扫里分辨它，就得猜「动态尾巴该长什么形状」，
- * 那是把猜测定成规范。真要堵这个洞，得在渲染现场量（`UsageStatsPanel.label-colon.test.tsx` 那种 jsdom 档：
- * 屏上不许出现「表根段 + 点」形状的字符串）——见台账里下一条未做项。
+ * 那是把猜测定成规范。这个洞由渲染现场那把尺堵：`../features/settings/UsageStatsPanel.key-shape.test.tsx`
+ * （M5 截断变异在那边跑红过，见台账）。
+ *
+ * 两把尺的分工还有一处要记清，因为它决定谁能逮住哪种缺陷：`fallbackLng: UI_LOCALE_FALLBACK`（`index.ts:21`，
+ * 值是 `zh-CN`，`src/shared/ui-language.ts:12`）会兜住**只缺一份表**的键——实测「en 缺、zh 有」时
+ * `t()` 回的是那句中文，**不是键名**。⇒ 那种缺陷的症状是「英文界面画中文」，屏幕上没有键名形状可扫，
+ * 现场尺看不见，只有这把静态尺（要求三份表都解析得出）看得见。三份表一起缺才会走到
+ * `parseMissingKeyHandler` 那条路上，那时两把尺都响。
  */
 import { globSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
