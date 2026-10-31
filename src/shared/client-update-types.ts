@@ -117,3 +117,20 @@ export interface ClientUpdateState {
   download: ClientDownloadReceipt | null;
   install: ClientInstallReceipt | null;
 }
+
+/** 「改自动检查」这一趟落盘的下场：内存里改了 ≠ 盘上住了。 */
+export interface ClientUpdateSave {
+  ok: boolean;
+  detail: string | null;
+}
+
+/**
+ * 通道回给页面的形状：整份状态 + 只有开关那一条会填的落盘下场。
+ *
+ * 四条动作都回**整份** `ClientUpdateState` 而不是各自那一条回执，是因为「这次点击归哪本账」
+ * 页面已经知道自己按了哪颗；把三本账一起给，卡片才不必为「刚点的是安装，但检查那本也更新了」
+ * 这种帧自己拼一份状态出来。`saved` 与 `CoreView.update` 同构：只有对应那一条通道会填。
+ */
+export interface ClientUpdateView extends ClientUpdateState {
+  saved: ClientUpdateSave | null;
+}

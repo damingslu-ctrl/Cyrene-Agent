@@ -1479,6 +1479,11 @@
 .net-core-update--error { color: var(--rb-danger); }
 .net-core-update--neutral { color: var(--rb-text-secondary); }
 
+/* 更新卡片那三本账：与上面同一把尺，整行一起上色——失败详情是那句话的一部分，
+   只把「失败」染红而把正文留在灰里，读起来像半句话出了问题。 */
+.net-client-line--error { color: var(--rb-danger); }
+.net-client-line--neutral { color: var(--rb-text-secondary); }
+
 .net-verge__read-failed {
   margin: 8px 0 0;
   color: var(--rb-danger);

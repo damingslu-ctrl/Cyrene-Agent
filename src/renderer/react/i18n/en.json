@@ -737,7 +737,7 @@
     "switchSessionModelTitle": "Switch the model for this conversation"
   },
   "appUpdate": {
-    "localBuild": "Built locally — no online update checks"
+    "updateCard": "Built locally. Updates aren't clicked from this page — the “Network › Settings › App updates” card asks the GitHub releases page, downloads the package and installs it."
   },
   "lastTurn": {
     "editMessage": "Edit last message",
@@ -2453,6 +2453,84 @@
           "extract-failed": "Unzipping failed, or I could not tell which .exe to install",
           "swap-failed": "The new file would not land in the core folder (it is not writable, or that .exe is in use)"
         }
+      }
+    },
+    "clientUpdate": {
+      "title": "App updates",
+      "currentLabel": "This machine",
+      "targetLabel": "v{{version}} available",
+      "packageLabel": "Package on disk",
+      "working": "Working…",
+      "saidDetail": "Detail: {{detail}}",
+      "ago": "{{dur}} ago",
+      "ipcFailed": "The update channel isn't answering: this read returned no ledger, or that run never finished.",
+      "installNoReply": "\"Install\" never came back. Once the installer starts this app quits, so a missing receipt is by design — if the window is still here, nothing was installed and you can press it again.",
+      "confirmHint": "Pressing \"Install\" quits this app and hands over to the installer; there is no undo. Press again within 10 seconds to confirm, otherwise the button falls back on its own.",
+      "installConfirm": "Press again to install",
+      "autoCheck": "Check for new versions online",
+      "autoCheckHint": "When on: one check 90 seconds after start, then every 6 hours. That chain only reaches \"check\" — downloading and installing always need your hand; I never replace the app on this machine by myself.",
+      "phase": {
+        "idle": "Idle",
+        "checking": "Checking",
+        "downloading": "Downloading",
+        "installing": "Installing",
+        "unread": "Not read yet"
+      },
+      "check": {
+        "button": "Check",
+        "label": "Last check",
+        "available": "A newer version was found",
+        "latest": "The published version isn't newer than this one",
+        "failed": "This check didn't get through"
+      },
+      "download": {
+        "button": "Download",
+        "label": "Last download",
+        "ready": "Package is on disk and the digest matches",
+        "failed": "This download didn't get through"
+      },
+      "install": {
+        "button": "Install",
+        "label": "Last install",
+        "launched": "The installer was started and this app quits right after. Whether it actually landed is unknowable in this process — the version number on next start is the only evidence.",
+        "failed": "Nothing was installed this time; the version on this machine is still where it was"
+      },
+      "lead": {
+        "checking": "Asking the release page which version is current. Until this run finishes, the \"Last check\" line below is still the previous ledger.",
+        "downloading": "Downloading that installer. It doesn't count as held until the bytes are written and the sha256 matches the one the release page gave.",
+        "installing": "Starting the installer. This app can quit at any moment — that's the design, not a crash.",
+        "launched": "The last thing this process can say is \"the installer started\". Whether it truly replaced the app is beyond my knowledge; the version on next launch is the answer.",
+        "ready": "A verified package is already sitting in the updates directory. Pressing \"Install\" swaps it — it will never press itself.",
+        "available": "The release page has a version newer than this machine. Downloading and installing are two separate nods from you.",
+        "latest": "The published version isn't newer than this one, so there's nothing to fetch. A package I already verified is not voided by this.",
+        "never": "Nothing has been checked yet. \"Check\" asks only the pinned repository and writes whatever comes back, verbatim, into that ledger.",
+        "checkFailed": "The check ledger says failure, and the reason entry is what says why. Download and install keep their own ledgers and weren't dragged down by it."
+      },
+      "receipt": {
+        "inFlight": "This click joined the run that is already going ({{phase}}): no new connection, no new ledger entry. Wait for it and read again."
+      },
+      "hint": {
+        "noBook": "That ledger has no entry at all: main didn't write one, and I won't invent a sentence for it."
+      },
+      "save": {
+        "ok": "Stored in update/settings.json — this setting survives a restart.",
+        "failed": "This session has the new value, but it didn't reach the disk, so a restart returns to the default. The detail below says why the write failed."
+      },
+      "reason": {
+        "network-failed": "The release page didn't answer: the request never returned, wasn't 2xx, or was cut at the deadline. Nothing changed this run; the ledger is still the previous one.",
+        "bad-response": "What came back can't be read as a legal version number. Not being able to read it is not \"no newer version\" — that claim gets its own entry.",
+        "no-asset": "That release has no Mochi-Setup-<version>.exe, or so many same-version assets that I can't tell which one to take.",
+        "wrong-source": "That release doesn't belong to the pinned repository: its html_url points at someone else's repo, and this run refuses it.",
+        "prerelease-only": "Only a prerelease or draft exists. Semantically releases/latest shouldn't hand one over, and even if it does, we don't install it.",
+        "digest-missing": "The release page gave no sha256 for this package: I download zero bytes rather than \"fetch it and see\".",
+        "digest-mismatch": "The bytes in hand aren't the sha256 the release page declared — the network is broken or someone swapped the package mid-flight. The .part file was deleted on the spot.",
+        "too-large": "This package exceeds the size budget (already over when content-length alone is counted). It was never allowed onto the disk.",
+        "write-failed": "Writing to disk failed: volume full, directory couldn't be created, or the rename was blocked. The partial file was deleted immediately and never entered the ledger.",
+        "no-package": "At install time there was no verified package on disk — cleaned up, or never downloaded in this session. Download it again.",
+        "stale-package": "The package is still there but doesn't match the version now pinned: it was swapped, or the check moved ahead. An old package won't be passed off as the new upgrade.",
+        "core-running": "Our own core is still running, so this install didn't proceed: the installer force-quits this app, the cooperative shutdown never runs, and the proxy plus its ports would be left behind with nobody to collect them. Stop it in the \"Core\" card first.",
+        "launch-failed": "The installer never started. This is the only outcome where nothing happened: the app is still running, the package is still on disk, and you can try again.",
+        "in-flight": "A run is already in progress; this click did not open a second connection."
       }
     },
     "verge": {

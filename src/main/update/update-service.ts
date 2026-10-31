@@ -241,7 +241,11 @@ export interface ClientUpdateServiceDeps {
   getRelease?(): Promise<unknown>;
   settingsPath?(): string;
   settingsIo?: SettingsIo;
-  /** 我们自己那颗内核在不在跑（`isOwnCoreMode(mode) && state !== "stopped"`）。外部/安装版那颗不算。 */
+  /**
+   * 我们自己那颗内核此刻活着吗。算式在装配层（`update-bootstrap.ts` 的 `ownCoreIsLive`：
+   * `isOwnCoreMode(mode)` 且 `state` 是 `running`／`starting`）——外部／安装版那颗不算，
+   * `exited`（已经没了）与 `blocked`（压根没起）也不算：拦那种状态等于我们自己造一道墙。
+   */
   coreIsRunning(): boolean;
   /** 安装器起来之后由装配层调用：走的是 App 的正常退出，好让协作退出与代理还原跑完。 */
   quitApp(): void;

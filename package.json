@@ -8,7 +8,7 @@
       "rxjs": "7.8.1"
     }
   },
-  "description": "麻糬桌面猫（本机构建，不联网升级）",
+  "description": "麻糬桌面猫（本机构建，更新走 GitHub 发布页）",
   "main": "dist/main/main/index.js",
   "bin": {
     "mochi": "./dist/cli/index.js"

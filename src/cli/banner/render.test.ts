@@ -63,10 +63,12 @@ describe("render", () => {
     }
   });
 
-  it("renderAbout includes the local build line instead of an upstream URL", () => {
-    expect(renderAbout({ width: 64 })).toContain(
-      "Build:    local · no online update checks",
-    );
+  it("renderAbout names our own releases channel and prints no URL", () => {
+    const out = renderAbout({ width: 64 });
+    // Wave 4 T12 之后「不联网检查更新」这句就是假话了；改成说清来源，但不印可达 URL——
+    // 打印 URL 会被读成「去这个地址下载」，而真正拉包的只有 main 里那条白名单通路。
+    expect(out).toContain("Build:    local · updates via our GitHub releases");
+    expect(out).not.toMatch(/https?:\/\//);
   });
 
   it("renderAbout contains all ABOUT_LINES", () => {

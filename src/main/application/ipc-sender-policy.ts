@@ -53,4 +53,12 @@ export const IPC_SENDER_POLICY: Readonly<Record<string, readonly WindowKind[]>> 
   [IPC.VERGE_CORE_RESTART]: ["chat"],
   /** 更新要联网、要往 `<userData>/core` 写文件、还会换掉下次起内核吃的那颗映像——比「起」更重。 */
   [IPC.VERGE_CORE_UPDATE]: ["chat"],
+  // —— Wave 4 T12d 更新卡片：装的是这台机器上的 App 本身，宠物窗没有这个 UI，也不该有决定权 ——
+  [IPC.VERGE_CLIENT_UPDATE_STATE]: ["chat"],
+  [IPC.VERGE_CLIENT_UPDATE_CHECK]: ["chat"],
+  /** 下载安装包：往 `<userData>/updates/` 写 290 MB，比读一次发布页重得多。 */
+  [IPC.VERGE_CLIENT_UPDATE_DOWNLOAD]: ["chat"],
+  /** 起安装器 = 让这个 App 退出并被替换；这台机器上最重的一下，只认主窗。 */
+  [IPC.VERGE_CLIENT_UPDATE_INSTALL]: ["chat"],
+  [IPC.VERGE_CLIENT_UPDATE_SET_AUTO_CHECK]: ["chat"],
 };

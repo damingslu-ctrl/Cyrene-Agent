@@ -196,7 +196,7 @@ export function GeneralSettingsPanel() {
             <div className="cy-settings-row">
               <div className="cy-settings-row__copy">
                 <strong>{t("settingsPage.general.buildChannel")}</strong>
-                <span>{t(appInfoView?.noteKey ?? "appUpdate.localBuild")}</span>
+                <span>{t(appInfoView?.noteKey ?? "appUpdate.updateCard")}</span>
               </div>
             </div>
             {dataDir && (

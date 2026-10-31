@@ -6,7 +6,7 @@
 import { PRODUCT_NAME, PRODUCT_NAME_ZH } from "../../shared/brand";
 
 export const BANNER_TITLE = `${PRODUCT_NAME}（${PRODUCT_NAME_ZH}）`;
-export const BANNER_TAGLINE = "本机构建 · 不联网检查升级";
+export const BANNER_TAGLINE = "本机构建 · 更新走 GitHub 发布页";
 
 export const BANNER_LINES = [
   `♡ ${BANNER_TITLE} ♡`,
@@ -15,7 +15,7 @@ export const BANNER_LINES = [
 ] as const;
 
 export const ABOUT_LINES = [
-  "Build:    local · no online update checks",
+  "Build:    local · updates via our GitHub releases",
   "License:  MIT (see LICENSE)",
 ] as const;
 

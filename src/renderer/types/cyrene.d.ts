@@ -140,6 +140,19 @@ declare global {
         restart(): Promise<import("../../shared/core-types").CoreView>;
         update(): Promise<import("../../shared/core-types").CoreView>;
       };
+      /**
+       * 客户端更新（Wave 4 T12d）：读账 / 检查 / 下载 / 安装 / 改自动检查。
+       * 四条动作都不递参数、五条都回**整份账**（三本账 + 此刻在走哪一段 + 开关那次落盘的下场）：
+       * 「下哪一版」只由 main 算，而排程那条链会在页面看不见的时候改检查那本账。
+       */
+      clientUpdate: {
+        state(): Promise<import("../../shared/client-update-types").ClientUpdateView>;
+        check(): Promise<import("../../shared/client-update-types").ClientUpdateView>;
+        download(): Promise<import("../../shared/client-update-types").ClientUpdateView>;
+        install(): Promise<import("../../shared/client-update-types").ClientUpdateView>;
+        setAutoCheck(on: boolean):
+          Promise<import("../../shared/client-update-types").ClientUpdateView>;
+      };
       /** main → 宠物窗：右键菜单选的互动动作。 */
       onPetCommand(callback: (command: import("../../shared/pet-commands").PetCommand) => void): () => void;
       /** 渲染端 → main：漫游/投掷落定后记一次位置。 */

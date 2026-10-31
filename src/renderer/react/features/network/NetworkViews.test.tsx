@@ -892,7 +892,7 @@ describe("页签外壳", () => {
     delete (window as Window & { verge?: unknown }).verge;
   });
 
-  it("齿轮页在内核卡下面接上 Verge 两张卡；preload 没带 settings 通道时也不空转", async () => {
+  it("齿轮页在内核卡下面接上更新卡与 Verge 两张卡；preload 没带 settings 通道时也不空转", async () => {
     const api = makePanelApi();
     const settings: VergeSettingsApi = {
       get: vi.fn(async () => ({ view: EMPTY_VERGE_SETTINGS_VIEW, reason: null, filePath: null })),
@@ -909,14 +909,18 @@ describe("页签外壳", () => {
     await act(async () => { host.querySelector<HTMLButtonElement>(".net-tab--icon")!.click(); });
     await act(async () => { await Promise.resolve(); });
     expect(host.querySelector(".net-settings")).not.toBeNull();
-    // 顺序也是契约：内核宿主排最前（下面几张卡读的都是它的控制面），内核配置在后，Verge 那两张收尾。
+    // 顺序也是契约：内核宿主排最前（内核配置那张卡读的就是它的控制面），紧跟的是「客户端更新」
+    // ——它拦安装的那道闸门就是上面那张卡的「在跑」；再往下才是本机设置与 Verge 那两张。
     const cards = [...host.querySelectorAll<HTMLElement>(".net-panel__inner > .net-card")].map((c) => c.className);
     expect(cards).toEqual([
       "net-card net-section net-verge",
+      "net-card net-section net-client",
       "net-card net-section net-settings",
       "net-card net-section net-verge",
       "net-card net-section net-verge",
     ]);
+    // 这一趟 mount 压根没给 window.verge.clientUpdate：卡片必须说出「接口不可用」，不许空转成一块白。
+    expect(host.querySelector(".net-client .net-hint")?.textContent).toContain("接口不可用");
 
     // 反例：老 preload / 别的窗口没挂上 settings 时，页面要说出「接口不可用」，不许抛错留一块白。
     delete (window as Window & { verge?: unknown }).verge;

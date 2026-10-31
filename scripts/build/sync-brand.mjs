@@ -62,7 +62,7 @@ export function buildBrandFields(brand) {
     pkg: {
       name: lower,
       productName: brand.productName,
-      description: `${brand.productNameZh}桌面猫（本机构建，不联网升级）`,
+      description: `${brand.productNameZh}桌面猫（本机构建，更新走 GitHub 发布页）`,
       binKey: lower,
     },
   };

@@ -158,6 +158,8 @@ import { registerProfileIpc } from "../verge/profile-ipc";
 import { createVergeSettingsStore, type VergeSettingsStore } from "../verge/verge-settings";
 import { createVergeRunningProbe } from "../verge/verge-process";
 import { registerVergeSettingsIpc } from "../verge/verge-settings-ipc";
+import { createClientUpdateAssembly } from "../update/update-bootstrap";
+import { registerClientUpdateIpc } from "../update/update-ipc";
 import { attachQuietClock, quietChangedPayload } from "../verge/quiet-clock-wiring";
 import { armQuiet, isQuietNow } from "../verge/quiet-clock";
 import { TUCK_IDLE_SECS, TUCK_PROBE_IDLE_SECS } from "../verge/tuck-clock";
@@ -578,6 +580,32 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           },
         });
 
+        // v1.27 客户端更新（Wave 4 T12d）：装的是这台机器上的 App 本身，不是内核文件。
+        // 判定全在 update-service，字节在 installer-download，那一下在 installer-launch；
+        // 这里只给四样真东西：本客户端的 userData（写面只有 `updates/` 与 `update/settings.json`
+        // 两处，Verge 的目录一字节不碰）、`app.getVersion()`、内核宿主**内存里**那份当下账
+        // （「装得动吗」问的是我们 spawn 的那颗活没活着，不是盘上的状态文件——算式在
+        // `ownCoreIsLive`，与内核卡片那两颗会 kill 进程的按钮同一把尺），以及受控退出那一条。
+        // `quitApp` 给的是 `app.quit()` 而不是硬退：绕开 before-quit 的形状是
+        // 「升级装完了，系统代理还指着我们那颗内核的端口」。
+        const clientUpdate = createClientUpdateAssembly({
+          userData: app.getPath("userData"),
+          currentVersion: () => app.getVersion(),
+          coreStatus: () => core.status(),
+          quitApp: () => app.quit(),
+          log: (line) => logger.info(LogTag.Runtime, `[更新] ${line}`),
+        });
+        // start() 两件事：扫掉上次没下完的 `.part`，再按盘上那颗 autoCheck 排第一条链（90s 后一次，之后每 6h）。
+        // 忘了这一行，这条通道就只剩手动按钮，排程那一条链根本不存在。
+        clientUpdate.service.start();
+        // 排程那一条链必须跟着撤：不叫 `stop()`，检查那趟的 `.finally` 会在正在退出的进程里
+        // 再排一颗 6 小时闹钟，而它后面的装配（含内核收口）已经跑完了。
+        shutdown.register({
+          id: "verge-client-update-host",
+          phase: "stopLocalResources",
+          dispose: async () => { clientUpdate.service.stop(); },
+        });
+
         // v1.24 订阅页（Wave 2）：profiles.yaml 账本 + runtime 注入 + 单写者闸门。
         // 目录每次都现查（Verge 可能在用户手上搬家），所以这里给的是闭包而不是路径。
         const profiles = createProfileAssembly({
@@ -693,6 +721,7 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           profiles,
           vergeSettings,
           core,
+          clientUpdate,
         };
       },
 
@@ -955,6 +984,12 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
         // 通道归主窗独占——宠物窗没有理由能替全机起一颗内核（见 IPC_SENDER_POLICY）。
         const removeCoreHostIpc = registerCoreHostIpc(ipc, services.core);
 
+        // v1.27 客户端更新（Wave 4 T12d）：读账 / 检查 / 下载 / 安装 / 改自动检查五条。
+        // 四条动作一个参数都不收——「下哪一版、从哪儿下」必须是 main 算出来的那两颗白名单 URL，
+        // 不是渲染端递进来的东西；判据与字节都在 update-service 那三层里，这层连错一次就是演一次成功。
+        const clientUpdate = services.clientUpdate;
+        const removeClientUpdateIpc = registerClientUpdateIpc(ipc, clientUpdate.service);
+
         // 漫游/投掷停稳后的一次性落盘：渲染端只在停稳时发，不逐帧写盘。
         ipc.on(IPC.VERGE_PET_POSITION_SETTLED, (_event, position: unknown) => {
           if (typeof position !== "object" || position === null) return;
@@ -985,6 +1020,13 @@ export function createDefaultApplicationDependencies(): ApplicationDependencies 
           id: "verge-core-ipc",
           phase: "flushPersistence",
           dispose: async () => { removeCoreHostIpc(); },
+        });
+        // 更新那五条排在撤内核通道之后、内核进程收口之前：装上之后没有一颗进程归我们管了，
+        // 但留着通道就等于允许在「正在退出的这一班」里再发起一次安装。
+        shutdown.register({
+          id: "verge-client-update-ipc",
+          phase: "flushPersistence",
+          dispose: async () => { removeClientUpdateIpc(); },
         });
 
         // 本机版本信息：设置页与 --brand-probe 共用。原来这里是 app-update:* 五条通道。

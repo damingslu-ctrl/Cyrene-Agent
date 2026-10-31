@@ -11,6 +11,7 @@ import {
 } from "../../../../shared/network-types";
 import { useTranslation } from "../../i18n";
 import { ConnectionsView } from "./ConnectionsView";
+import { ClientUpdateSection } from "./ClientUpdateSection";
 import { CoreSection } from "./CoreSection";
 import { LogsView } from "./LogsView";
 import { NetworkTabs } from "./NetworkTabs";
@@ -36,6 +37,7 @@ export function NetworkPanel() {
   const subscriptionApi = window.verge?.subscriptions;
   const settingsApi = window.verge?.settings;
   const coreApi = window.verge?.core;
+  const clientUpdateApi = window.verge?.clientUpdate;
   const [snapshot, setSnapshot] = useState<NetworkSnapshot>(emptyNetworkSnapshot);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<string | null>(null);
@@ -295,8 +297,10 @@ export function NetworkPanel() {
           {tab === "subscriptions" && <SubscriptionsView api={subscriptionApi} />}
           {tab === "settings" && (
             <>
-              {/* 内核排在最前：下面两张卡读的都是它的控制面，它没起来时那两张必然全瞎。 */}
+              {/* 内核排在最前：下面「内核设置」那张卡读写的就是它的控制面，它没起来时那张必然全瞎。 */}
               <CoreSection api={coreApi} />
+              {/* 更新紧跟着内核：这一张装的是这台机器上的 App 本身，而它拦安装的那道闸门就是上面那张卡的「在跑」。 */}
+              <ClientUpdateSection api={clientUpdateApi} />
               <SettingsView api={api} />
               <VergeSettingsSection api={settingsApi} />
             </>

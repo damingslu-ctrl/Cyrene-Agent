@@ -30,6 +30,7 @@ import type { NetworkService } from "../verge/network-service";
 import type { ProfileService } from "../verge/profile-service";
 import type { VergeSettingsStore } from "../verge/verge-settings";
 import type { CoreAssembly } from "../verge/core-bootstrap";
+import type { ClientUpdateAssembly } from "../update/update-bootstrap";
 import type { LlmClient } from "../services/llm/llm-client";
 import type { CitaService } from "../cita";
 import type { SocialContextService } from "../services/social-context/social-context-service";
@@ -63,6 +64,11 @@ export interface CoreServices {
    * 每次现造会把「我们已经起了那颗」丢掉。给 `registerCoreIpc` 与退出收口共用。
    */
   core: CoreAssembly;
+  /**
+   * 客户端更新（Wave 4 T12d）：也是实例而不是闭包——三本账与「此刻在走哪一段」是这一班进程的状态，
+   * 每次现造会把正在下的那 290 MB 变成一份没人认领的账。
+   */
+  clientUpdate: ClientUpdateAssembly;
   /**
    * 设置页（Wave 3 T9）用的 verge.yaml store。给的是闭包不是实例：
    * Verge 的数据目录可能在用户手上搬家，也可能压根没装过（那时回 null）。

@@ -50,6 +50,7 @@ import type { ProfileResult, ProfileRow } from "../shared/subscription-types";
 import type { SystemProxyRead, SystemProxySetResult, SystemProxyToggle } from "../shared/system-proxy-types";
 import type { VergeSettingsPatch, VergeSettingsRead, VergeSettingsResult } from "../shared/verge-settings-types";
 import type { CoreView } from "../shared/core-types";
+import type { ClientUpdateView } from "../shared/client-update-types";
 import type { PetCommand } from "../shared/pet-commands";
 
 // 渲染目标标识：preload 每次加载（即每次页面初始化/重新加载）生成一次，
@@ -1244,6 +1245,20 @@ const vergeApi = {
     stop: () => ipcRenderer.invoke(IPC.VERGE_CORE_STOP) as Promise<CoreView>,
     restart: () => ipcRenderer.invoke(IPC.VERGE_CORE_RESTART) as Promise<CoreView>,
     update: () => ipcRenderer.invoke(IPC.VERGE_CORE_UPDATE) as Promise<CoreView>,
+  },
+  /**
+   * 客户端更新（Wave 4 T12d）。四条动作同样一个参数都不递：下哪一版、从哪个地址下、
+   * 起哪颗安装器只由 main 那一侧算出来（出口白名单守的就是那两颗 URL）。
+   * 五条都回**整份账**（三本账 + 此刻在走哪一段）：排程那条链会在页面看不见的时候改检查那本，
+   * 只拿本次回执会画出一张「检查还停在昨天」的卡。
+   */
+  clientUpdate: {
+    state: () => ipcRenderer.invoke(IPC.VERGE_CLIENT_UPDATE_STATE) as Promise<ClientUpdateView>,
+    check: () => ipcRenderer.invoke(IPC.VERGE_CLIENT_UPDATE_CHECK) as Promise<ClientUpdateView>,
+    download: () => ipcRenderer.invoke(IPC.VERGE_CLIENT_UPDATE_DOWNLOAD) as Promise<ClientUpdateView>,
+    install: () => ipcRenderer.invoke(IPC.VERGE_CLIENT_UPDATE_INSTALL) as Promise<ClientUpdateView>,
+    setAutoCheck: (on: boolean) =>
+      ipcRenderer.invoke(IPC.VERGE_CLIENT_UPDATE_SET_AUTO_CHECK, on) as Promise<ClientUpdateView>,
   },
   /** main → 宠物窗：右键菜单选的互动动作。 */
   onPetCommand: (callback: (command: PetCommand) => void) => {

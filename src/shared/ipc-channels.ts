@@ -653,6 +653,19 @@ export const IPC = {
    * 分两次问就得让页面自己猜哪一份更新对应哪一次起停。
    */
   VERGE_CORE_UPDATE: "verge:core:update",
+  // —— Wave 4 T12 客户端更新（自托管安装包）——
+  /**
+   * 只读的一档：三本账 + 当下在走哪一段 + 本机版本号，一次给全。
+   * 通道名一律避开上游那套更新词的形状（见 `egress/upstream-off.test.ts` 的 A3），
+   * 这一条通路是我们自己的，不是那个被拆掉的官方更新器的替身。
+   */
+  VERGE_CLIENT_UPDATE_STATE: "verge:client-update:state",
+  /** 三条动作回同一份 `ClientUpdateView`：结论是「三本账现在各写着什么」，不是布尔。 */
+  VERGE_CLIENT_UPDATE_CHECK: "verge:client-update:check",
+  VERGE_CLIENT_UPDATE_DOWNLOAD: "verge:client-update:download",
+  VERGE_CLIENT_UPDATE_INSTALL: "verge:client-update:install",
+  /** 只接受一个布尔；落盘没住也照实回（`saved`），因为「这次有效、重启后回默认」是两件事。 */
+  VERGE_CLIENT_UPDATE_SET_AUTO_CHECK: "verge:client-update:set-auto-check",
   // —— v1.4.0 桌宠互动 ——
   /** main → 宠物窗：右键菜单里的互动动作（petCommand）。 */
   VERGE_PET_COMMAND: "verge:pet-command",
