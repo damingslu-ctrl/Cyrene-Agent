@@ -2131,22 +2131,22 @@ A3 那把 `APP_UPDATE_CHECK` 的判据还是**不区分大小写、不带锚点*
 在途去重的两种答案、以及退出时机的唯一凭据。
 
 **① 账本之间不互相作废，判据是「这一趟有没有资格改上一趟的结论」。** 三本账（检查 / 下载 / 安装）
-各写各的，外加一根独立的 `phase`（`update-service.ts:359` 起那三段 `perform*` 各自进出时改）。
-三条负判据钉在一起：检查**失败**不作废上一趟读出来的那颗资产（`:376` 那句注释就是判据本身），
-发布页**回落**（`latest`）不作废已经核对过的包（`:372-375`），下载**失败**不作废 `ready`（`:435-437`）。
+各写各的，外加一根独立的 `phase`（`update-service.ts:362` 起那三段 `perform*` 各自进出时改）。
+三条负判据钉在一起：检查**失败**不作废上一趟读出来的那颗资产（`:380` 那句注释就是判据本身），
+发布页**回落**（`latest`）不作废已经核对过的包（`:376-378`），下载**失败**不作废 `ready`（`:439-441`）。
 把它们连起来的形状是「今天没网 → 昨天下好的包也不算数」，而用户在离线时点开安装本该能装——
 装不装由 `install` 那一段**重算字节**来判，不由别的账本提前宣判。反过来 `install` 判出
-`stale-package`（被人动过）时确实要清 `ready`（`:476-483`）：这一趟读到了盘上的事实，它有资格。
+`stale-package`（被人动过）时确实要清 `ready`（`:480-487`）：这一趟读到了盘上的事实，它有资格。
 
-**② 判据的顺序就是成本的顺序，而且这一档能被尺量。** `performInstall`（`:445`）依次是
+**② 判据的顺序就是成本的顺序，而且这一档能被尺量。** `performInstall`（`:449`）依次是
 认版本（内存比较）→ 问内核（一个布尔）→ `sizeOf`（一次 stat）→ `digestOf`（读 290 MB）→ `launch` →
-`quitApp`。`:461` 那道内核闸门排在 `:475` 重算摘要之前，尺不是「看代码顺不顺」而是数**调用次数**：
+`quitApp`。`:465` 那道内核闸门排在 `:479` 重算摘要之前，尺不是「看代码顺不顺」而是数**调用次数**：
 `core-running` 那一趟要求 `digestOf` 与 `sizeOf` 都是 0 次（`update-service.test.ts:406-421`）。
 把闸门挪到读盘之后，测试立刻红——这一条是变异 M3 验出来的（改 `if (deps.coreIsRunning())` 取反，红 3 条）。
 
 **③ 在途去重分两种，答案不一样，而其中一把尺一开始没牙。** 同一段的第二次点击**并入**那一趟：
 尺按 promise 的身份判（`test:494` `expect(second).toBe(first)`）；跨段的点击回 `in-flight` 且
-**不写进对方那本账**（`:541` 那一支直接 `Promise.resolve`，绕开所有 `write*`）。后者原本红不回来：
+**不写进对方那本账**（`:545` 那一支直接 `Promise.resolve`，绕开所有 `write*`）。后者原本红不回来：
 快照 `h.service.state()` 写在「发出那两趟」之后，于是被拒那一趟当场往检查账里写的假账一起进了快照，
 这把尺退化成只量「两趟之后仍是那两趟」——而那正是要否掉的行为本身。改成**先拍账面再发**（`test:515-519`），
 M4 才红在点名的那一条上：`download 在途时不许往 check 那本账里写假账`。这是 memory 里那条
@@ -2155,8 +2155,8 @@ M4 才红在点名的那一条上：`download 在途时不许往 check 那本账
 **④ `launched` 之后才退，起不来就什么都不做。** `spawn()` 返回不等于安装器起来了：ENOENT（包被人删了、
 被杀毒软件收走）是以**异步 `error` 事件**报的（`installer-launch.ts:117`），所以成功只认 `:124` 那个
 `spawn` 事件；两个事件一个都不来也得收口（`:110-116`，5 秒），否则这一趟永不落地、把调用方挂死。
-`launch-failed` 是唯一一档「什么都没发生」的败，所以那里绝对不许退出（`:487-490`）——反过来的形状是
-退出码 0、猫没了、什么都没装。反过来 `quitApp()` 自己抛错也不改写 `launched`（`:497-501` 那段 try/catch）：
+`launch-failed` 是唯一一档「什么都没发生」的败，所以那里绝对不许退出（`:491-494`）——反过来的形状是
+退出码 0、猫没了、什么都没装。反过来 `quitApp()` 自己抛错也不改写 `launched`（`:501-505` 那段 try/catch）：
 起来的是安装器，退出是另一件事，把两者并成一档会让用户以为更新失败而实际正在装。
 `detached + stdio:"ignore" + windowsHide + unref`（`:99-103`、`:128`）四件各有后果：不 detached 安装器
 跟着我们退，不 unref 就是在等一个永远不会回来的退出码，不 windowsHide 用户桌面上闪一个控制台。
@@ -2170,7 +2170,7 @@ spec 第 62 行写的是「校验后 `shell.openPath` 启动安装器并退出�
 `--updated` 让 `allowOnlyOneInstallerInstance.nsh:108` 先 `Sleep` 等 App 自退（而不是弹模态框或 `taskkill`）、
 让 `installUtil.nsh:86-92` 在允许改安装目录时仍保留快捷方式；`--force-run` 才是 `installSection.nsh:104-109`
 里「非 oneClick 的向导安装器静默跑完把 App 起回来」的那把钥匙——少了它，静默升级跑完桌上就没有猫了。
-这条偏离不是口头承诺：`installer-launch.test.ts:207-239` 那三把尺直接**读那份脚本**——升级保护仍在静默分支里、
+这条偏离不是口头承诺：`installer-launch.test.ts:200-223` 那三把尺直接**读那份脚本**——升级保护仍在静默分支里、
 静默那一路不写 `installer-options.json`、三颗参数都在源码注释里点过名；宏不在了就抛（不许读成空串），
 所以脚本改了分支条件、参数这边必须重估。
 
@@ -2214,6 +2214,8 @@ A1 整仓扫上游标识、A3 判据不区分大小写也不带锚点，新通�
 ① **装配仍没有人 import**：`update-service.ts` 与 `installer-launch.ts` 现在是够不着产品代码的两份模块，
 `ipc-contract` 那道「注册必须从 `src/main/index.ts` 可达」的门看不见它们（继承 T12a/b 的 ①）。五条 IPC 通道 +
 preload +「更新」卡片 + 三份语言是 T12d；在那之前「全量门绿」不等于这条通路存在过。
+　　→ **2026-10-31 T12d 已关闭**：五条通道、preload 桥、装配层与卡片都进树了，这一条改成 28 条端到端接线锁
+　　（`update-ipc.test.ts:302-388`）钉住，见下面 T12d 那一节的 ⑦。
 ② **真 spawn 一次都没跑过**：`installer-launch` 那 12 条全用假 `child_process`。三颗参数与安装器分支的对应
 是从模板与自家 `installer.nsh` **读**出来的，不是装出来的；⑤⑥ 两条要靠 T14 的真窗（真起一次静默安装）才算验过。
 ③ **⑥ 那处脚本改动没装机验证过**：`verify:installer` 与打包链路本轮没重跑（改的是 `build/installer/installer.nsh`
@@ -2223,3 +2225,122 @@ preload +「更新」卡片 + 三份语言是 T12d；在那之前「全量门绿
 本轮不改；要不要给「已经比本机新就别留着」再加一道，等真窗看过一次再定。
 ⑤ `in-flight` 那两档回执的 `at` 各用自己的 `now()`：两个人被拒拿到的是两条不同时刻的**回执**，不是一条账。
 页面读它可以，不许把它并进那三本账。
+
+### Wave 4 T12d：五条通道接到那只手上——「更新」卡片与三处写着「不检查更新」的假话（2026-10-31）
+
+计划里 T12 那一格（`docs/verge/plans/2026-10-29-clash-verge-full-integration.md:95-100`）到这轮收口：
+判定、字节、那一下三层已经有 89 条尺守着，缺的是让它够得着用户的那一段——五条通道、发送方闸门、
+装配层、preload 桥、桥接类型、网络页齿轮页签那张卡、三份语言。这一段没有新算法，
+所以全部风险都住在「接错而两边全绿」上：三层模块的单测一根手指都碰不到，全量门绿也只证明它们存在过。
+
+**① 五条通道回同一份整账，而不是各自那一本。** `update-ipc.ts:30` 那一句 `view()` 是唯一形状：
+`{ ...update.state(), saved }`。理由不是对称美学——排程那条链会在用户看不见的时候往**检查**那本账里写
+（`update-service.ts:522-524` 的 `.finally` 重排的是 `check()`），一次点击只回自己那本就会画出一张
+「刚查过，可检查那行还停在昨天」的卡。四条动作把 `await` 回来的那份中途态扔掉、动作之后再现读账，
+尺是数调用尾序：`update-ipc.test.ts:170-182` 要求 `seq` 恰为 `[动作, "read"]` 且回执等于刚落账的那份。
+`saved` 只有开关那一条会填（`:154-167`）：另外四条既没写过盘，不许顺手造一份「存好了」。
+
+**② 四条动作一个参数都不收，这一条是出口闸门的一部分。** `update-ipc.ts:34-47` 那三个 handler 的签名里
+没有参数位，preload 那四条也只是 `invoke(常量)`（`src/preload/index.ts:1256-1259`）。
+「下哪一版、从哪个地址下、起哪颗安装器」必须是 main 那一侧算出来的两颗白名单 URL——一旦渲染端能递，
+`upstream-hosts.ts` 那套逐跳守法就变成守着我们自己不算的东西。`update-ipc.test.ts:184-192` 从渲染端
+硬递 `{ version, downloadUrl }` 与 `"1.99.0"` 两颗，断言状态机收到的仍是 `toHaveBeenCalledWith()`（空），
+负半条 `:361` 直接扫源码：那四条通道的 `invoke` 后面不许有第二个实参。
+
+**③ 「装得动吗」问的是内存里那颗进程，不是盘上的状态文件。** 算式只有一份，在
+`update-bootstrap.ts:38-40`：`isOwnCoreMode(mode) && (state === "running" || state === "starting")`。
+装配点递的是 `coreStatus: () => core.status()`（`default-dependencies.ts:594`），不是现搓的布尔——
+搓第二遍的形状是内核卡片那两颗会 kill 进程的按钮与安装闸门口径分家。四档里 `exited`（崩了、自愈打完停在原地）
+与 `blocked`（压根没起）都不该拦安装：把它们算成「还在跑」等于逼用户先在内核卡片点一次「停止」，
+而那一下什么进程都没关，纯是我们自己造的一道墙；`external`（Verge 那颗）再跑也不拦，安装器动不到它。
+这口径与 `core-bootstrap` 的 `canSwap` 同一件事，`update-ipc.test.ts:278-300` 按四档 mode × 五档 state 摆平。
+
+**④ 写面两处、退出受控、撤的顺序有讲究。** 落盘只有 `<userData>/updates/`（安装包与 `.part`）与
+`<userData>/update/settings.json`（那颗 `autoCheck`）两处（`update-bootstrap.ts:75-76`），Verge 的目录一字节不碰
+（spec D2；`:327-332` 那条锁顺手扫装配层源码里不许出现 `configRoot`／`verge.yaml`）。
+`quitApp` 给的是 `() => app.quit()`（`default-dependencies.ts:595`）而不是硬退：绕开 `before-quit` 的形状是
+「升级装完了，系统代理还指着我们那颗内核的端口」。`:342-345` 那条把 `process.exit()` 列成负判据。
+撤的顺序也是判据：`verge-client-update-ipc`（`:1027`）排在撤内核通道之后、内核进程收口之前——
+留着通道就等于允许在「正在退出的这一班」里再发起一次安装；`verge-client-update-host`（`:604`）撤排程，
+否则在途那一趟的 `.finally` 会在装配已经跑完的进程里再响一颗 6 小时闹钟（T12c ⑦ 那颗 `stopped` 的正面）。
+
+**⑤ 界面上「没有回音」那一档，既不许读成失败也不许读成成功。** `install` 起来之后服务当场发起退出，
+回执发不发得出由那次退出说了算；`:232` 的 `clientActionFailureKey` 把 install 那一条单独分出去，
+卡片 `ClientUpdateSection.tsx:167` 拿它的话术报错。反过来 `launched` 那句话是这张卡最贵的假话——
+`launched` 之后这个进程就没了，装好没装上无从知道，所以措辞锁不锁 key、锁字面：
+`client-update-view.test.ts:367-374` 三种语言都不许出现「升级成功／安装成功／successfully／完了しました」，
+且都必须点出「下一次启动的版本号才是凭据」。
+
+**⑥ 组件层只留三条形而上的纪律，其中两条是本轮自己踩出来的形状。** 一是安装两步确认的窗口按**点击那一刻**的
+`Date.now()` 判，不按页面上那颗定时器的 `now`（`ClientUpdateSection.tsx:173-183`）：闹钟最坏迟到一格，
+方向必须错向「再多按一次」而不是「这一下算数」。二是落盘的下场住在**本地那一槽**，不住在 `view.saved` 里
+（`:192-194`）：10 秒一轮的 `state()` 永远带 `saved: null`（`update-ipc.ts:32`），
+画在派生行上会自己把「内存改了、盘上没住」洗成什么都没说过——这条如果不单独立槽，用户重启后发现开关回滚了。
+静默轮询不动 `loading`（`:127-134`）同理：每 10 秒闪一次「加载中」比停在旧账上难看得多。
+
+**⑦ 「只定义不接线」这条三轮都记过的 ①，这轮换成 28 条端到端锁。** `update-ipc.test.ts:302-388` 那一段
+读的是**源码本身**：装配四步（`createClientUpdateAssembly` / `service.start()` / `registerClientUpdateIpc` /
+两条 shutdown id）一步不缺，preload 五条各自 `invoke` 对应常量，桥接类型收下五条形状，设置页把桥递进卡片
+且 `<ClientUpdateSection` 出现在 `<CoreSection` 之后。计划里 T12 那一格写的是「设置页『更新』区」，
+落点改在网络页齿轮页签（`NetworkPanel.tsx:301-303`）——卡片要读的是内核那张卡的账，跟它同页才有意义；
+设置页只留一句指路的话（见 ⑧）。
+
+**⑧ 顺手做了一次诚实普查，抓到三处写在界面上的假话。** 这一轮之前，「本机构建 · 不联网检查更新」这句话
+在三个互不相干的面各自印着：设置页那一行（`app-update-view.ts:33` 的 `noteKey`）、CLI 横幅与 `--about`
+（`banner/text.ts:9,18`）、以及 `package.json` 的 description（安装器 FileDescription 的来源，
+由 `scripts/build/sync-brand.mjs:65` 生成）。卡片上线之后这三句同时变假——更新现在真的有人点了。
+三处一起改：设置页那句话改成指路（「更新不在这页点——「网络 › 设置 › 客户端更新」那张卡…」），
+横幅与 about 改成「更新走 GitHub 发布页 / updates via our GitHub releases」，品牌生成器与 `package.json`
+跟着重跑（`check:brand` 一致）。`src/shared/app-info.ts` 那颗 `buildChannel: "local"` **保留**：
+它说的是这颗二进制怎么造出来的，不是更新从哪儿来——两件事共用一个词才是这轮假话的来路。
+每份语言各加一条措辞锁（`app-update-view.test.ts:67-90`）：负半条禁「不检查更新」那一类收口话，
+正半条要求句子里指得到那张卡，两头都得有，缺一条就红。
+
+**⑨ `net-verge` 是语义标记，不是样式钩子——这张卡不挂。** 卡片落地时我先挂上了 `net-verge`（跟内核卡、
+Verge 设置卡同一族），`NetworkViews.test.tsx:931` 那条「恰好 3 张」当场红。查下去发现 `.net-verge` 在
+`NetworkPanel.css` 里**一条规则都没有**：它纯粹是「这张卡读写 Verge 的东西」的语义标记，而那把尺量的正是这句话。
+这张卡换的是这台机器上的 App 本身，挂上去等于让一把真尺去量一件不存在的合同（M9 用变异复现了两种红）。
+裁决：卡片自带 `net-client` 作标记（`ClientUpdateSection.tsx:209`），`net-verge` 那把尺原样留着继续说真话。
+同一条普查把 `:915` 的卡片顺序表改成五行——顺序也是契约，更新卡紧跟内核卡，因为拦它的那道闸门就是上面那张卡的「在跑」。
+
+**尺子与变异**：新尺两份 94 条——`update-ipc.test.ts` 28（五条通道形状 + 装配层口径 + 端到端接线），
+`client-update-view.test.ts` 66（词表映射、脸色只给坏消息、三行账、两步确认、落盘三态、i18n 双向锁）；
+既有文件 `app-update-view.test.ts` 3 → 6（措辞锁三种语言各一条）。十四档变异（`.tmp/mutation-t12d.mjs`，
+逐档输出在 `.tmp/t12d-mut.txt`）**14/14 全部红在点名那一条上**：M1 launched 冒领成功 → 措辞锁；
+M2 en 的一句留空 → 三种语言都有值；M3 词表注水一档 → 4 条红（含反向那条「一处不多」）；
+M4 中性档收窄 → `core-running` 被染红那一条；M5 忘 `start()` → 装配四步；M6 装配点手搓布尔 → 口径唯一性；
+M7 preload 递参数 → 四条动作不带参；M8 放行宠物窗 → 只归主窗；M9 挂 `net-verge` → 卡片顺序与计数；
+M10 开关不验类型 → 只接受布尔；M11 下载抛错演成没事 → 2 条（不吞异常 + 通道没被拆掉）；
+M12 先读账再动作 → 2 条（尾序 + 不补读账）；M13 横幅回到旧话 → render 的 about 锁；
+M14 那句话指回不存在的 key → 4 条（形状 + 三种语言）。十一个文件按原始字节还原，`md5sum -c` 逐条 OK。
+
+本轮被尺拦下的三处（都是先写完再跑、不是设计时想到）：卡片多一个直接子节点让 `:915` 顺序表红；
+`net-verge` 计数 4≠3；`egress/upstream-off.test.ts` 的 A3 判据**不区分大小写也不看是否在注释里**，
+我在 `ipc-channels.ts` 的 JSDoc 里写了上游那个更新器的名字来解释「为什么不用它」，直接被自家出口门拦下。
+第三处没有放宽锁、也没给注释开例外——改了说法（`:657-659` 现在只说「避开上游那套更新词的形状」）。
+A3 的反向契约改写（要求 `update-service` 在场、只出现两个仓库 URL）是 T13 的活，本轮没动那把尺。
+
+**门**：三道 `tsc`（main / preload / renderer）各自 exit 0；定向 75 文件 / **1227 条全绿**
+（`src/main/update` + 网络页 + 设置页 + `src/cli` + `src/shared` + `src/main/egress` + `ipc-sender-gate`，33.71s）；
+全量 `CI=true npx vitest run`——**787 文件 / 8656 passed | 2 skipped（8658）**、299.31s，exit 0。
+对 T12c 收口记录的 785 / 8559|2：**+2 文件**＝那两份新尺，**+97 条**＝94（两份新尺）+3（措辞锁三种语言），
+差额里没有别处——这一轮没有为了让门绿而动别的模块。`node scripts/build/desktop-typescript.mjs main` 812 文件
+（T12c 记 810，+2 正好是 `update-ipc.ts` 与 `update-bootstrap.ts`）；`npx vite build` exit 0；
+`sync-brand.mjs --check` 一致；`check-roster` 0。`src/main/orchestrator/tools/__snapshots__/*.snap`
+这轮是纯 stat 脏（与 index 里的 blob 逐字节相同、CR 计数都是 0），没有 stage。
+
+**未做，记账**：
+① **真窗一次都没跑过**：这张卡没在真 Electron 窗里画过一次，五条通道没经过真 IPC 发送方闸门。
+Wave 1 那次同型事故（`:1151` 记的「通道是 chat-only，而 aux 窗压根没登记」）在这里**看起来**不会犯——
+卡片就长在 `chat` 类的主窗里，所以登记本来就成立；但这条推理本身没被屏幕验过，归 T14。
+② **「接口不可用」那一档只有单测覆盖**：preload 没带 `clientUpdate` 时画一句、不空转成一块白
+（`ClientUpdateSection.tsx:225`；`NetworkViews.test.tsx:923` 那条新断言）。真老 preload 没试过。
+③ **真起一次静默安装**（T12c 的 ② 仍然没关）：`launched` 之后能不能拿到回执、猫退桌之后安装器有没有真换上，
+只有 `clientActionFailureKey` 那一支在；要靠 T14 用假 GitHub 连起来跑。
+④ **排程那颗开关的「重启之后还在」**：`update/settings.json` 的读写有单测（原子写 + 读盘自愈），
+真窗里没验过「关掉 → 重启 → 仍关着」。
+⑤ **发布通路还没接**（T13）：`scripts/release/publish-update.mjs` 与 A3 的反向契约改写都在待办。
+这张卡点「检查更新」打的是钉死自家仓库的真发布页（出口白名单放行 `github.com`／`api.github.com`），
+而那条通路上的**资产名与 sha256 是否真按 `github-release.ts` 的认法挂着**，本轮只对过假 JSON，没对过真发布页。
+在 T13 把包挂上去之前，真点一次大概率回 `no-asset`——那句话怎么说、为什么不丢人，卡片里有尺（`no-asset` 一档），
+但「我们的发布流程到底挂不挂得出这个名字」得等 T13。
