@@ -25,7 +25,8 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "..", "..");
 
 // 安装器小于该值必然缺资源（Electron 本体 + mpv + MinGit 远大于此）
-const MIN_INSTALLER_BYTES = 20 * 1024 * 1024;
+// 导出给发布脚本用：同一档体积下限写两处，早晚会有一处被放宽而另一处不知道。
+export const MIN_INSTALLER_BYTES = 20 * 1024 * 1024;
 
 /**
  * 反向锁：输出目录里不得出现升级源索引 `latest.yml`。

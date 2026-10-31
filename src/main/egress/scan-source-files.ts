@@ -19,7 +19,12 @@ export const SCAN_EXTENSIONS = new Set([
 
 export function sourceFiles(root: string, out: string[] = []): string[] {
   for (const entry of readdirSync(root)) {
-    if (entry === "node_modules" || entry === "dist" || entry === "release") continue;
+    // 按名字跳 `release` 曾经在这里：它一个产物也没挡住（electron-builder 的输出在**仓库根**的
+    // `release/`，而仓库根本就不是扫描根，五个根里没有任何 `release` 产物），
+    // 却把 `scripts/release/`（发布脚本本体）整份划到射程外——实测少扫 1 个文件，
+    // 那 1 个正好是往 GitHub 推安装包的那支脚本。产物目录要跳就跳它的真名（`node_modules`/`dist`），
+    // 别拿一个既可能是产物、也可能是源码的名字当判据。
+    if (entry === "node_modules" || entry === "dist") continue;
     const full = path.join(root, entry);
     const stats = statSync(full);
     if (stats.isDirectory()) sourceFiles(full, out);

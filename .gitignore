@@ -26,7 +26,11 @@ dist/skills/
 # 聊天渲染性能基线 harness 的两版构建产物（runner 按需重建）
 dist/perf-normal/
 dist/perf-profiling/
-release/
+# 钉到仓库根：这一条要挡的是 electron-builder 的输出目录（根下的 release/），
+# 不是 scripts/release/。写成裸 `release/` 会连发布脚本那一层一起吞掉——文件在盘上、
+# 测试在本地全绿，却永远进不了提交，发布通路自己也丢了。
+# native/cyrene-screenshot/target/ 由它自家 .gitignore 的 /target/ 负责，不靠这一条。
+/release/
 release-*/
 .build-temp/
 
