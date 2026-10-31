@@ -2440,3 +2440,119 @@ M5 摘掉组合根的 IPC 装配 → 红拆分后那一条（并证明合并写�
 CI 的兜底那句是 `--exclude "src/**" --passWithNoTests`。这正是发布脚本的尺为什么住在 `src/main/update/` 而不是
 `scripts/release/` 旁边的原因——住在射程里才有牙。要不要给 `scripts` 单开一条门，记在这里等裁决。
 ⑤ 真窗验收与「决策反转：从断更新到自研更新通道」那篇文档归 T14。
+
+### 决策反转：从断更新到自研更新通道（Wave 4 收口，2026-10-31）
+
+**① 当初断的是「别人的更新通道」，不是「更新」这件事。** 2026-10-19 那两道删除（`a06a32e6` 拆上游公告子系统、
+`41f4ce5b`「删除 GitHub 更新装配面，设置页改为本机构建版本信息」）动机是身份：更新源住在 Playa 那一本，
+装着它的通道就等于把「桌面上这只猫下一次变成什么」交给别人——一次自动更新就能把 fork 换回上游的脸。
+所以那一轮做了三件事：删装配面、`electron-builder.yml` 钉 `publish: null`、界面上写「本机构建，不检查更新」。
+这三件今天有两件仍然站着，一件换了含义——见 ③。
+
+**② 反转是被后来的令逼出来的。** 「clash verge 的所有功能都整合进入客户端，并且随时接入 GitHub 版的同步更新」
+把「断更新」从目的降级成代价。Wave 4 要的形状是：更新的是**本机这颗 App**、来源是**自己的发布本**
+（`github-release.ts:32` 钉死 `damingslu-ctrl/Cyrene-Agent`）、而更新面继续与上游隔离。
+断与接的分界从来不在「要不要更新」，在「更新谁、从哪来、谁有权换掉我桌上的东西」。
+
+**③ 反转不是回滚：回滚最省事，也正是原决策要防的那件事。** 引回 `electron-updater` 半小时就能跑，但它的发布源
+由打包配置决定，`latest.yml` 一存在，任何人重签一次发布就能换掉用户手里的 App——这正是 2026-10-19 要堵的洞。
+所以 A3 从一条禁令改成三层合同（T13）：`electron-updater`／`autoUpdater`／`provider: github` **照旧禁**；
+自研通道**必须在场**（三条反向规则各钉一个落点，不许并成三选一）；更新面所有 URL 的仓库集合**不多不少**等于
+`[damingslu-ctrl/Cyrene-Agent, MetaCubeX/mihomo]`，host 只许那一族。
+`publish: null` 与 `assertNoUpdateFeed` 都留着——它们现在是这条通道的**反面证据**：装机包里不许有第二张嘴。
+
+**④ 边界一根没松。** 出口白名单逐跳守住（在 `safe-fetch.ts:54` 那次 `fetch` 之前判，判的是 URL 的 host）；
+写盘面只有两颗——`<userData>/update/settings.json` 与 `<userData>/updates/`（spec D2），Verge 拥有的文件一个不碰；
+`%APPDATA%\Cyrene`（246M，用户真实数据）整个 Wave 只被读，T14 每一趟的沙箱差分都带着这条对照一起验。
+判据也没因为「接回来」而放宽：semver 比高低不是字符串比、缺摘要在检查这一步就拒、装前重算摘要、
+内核在跑不许换装（`update-service.ts:46,48,50` 的排程 90s／6h／30s 是首查、间隔与发布页超时）。
+
+**⑤ 反转推翻的旧断言，逐条对账。** 界面上那三处「本机构建，不检查更新」T12d 已改掉（改的是话，不是改口径去迁就话）；
+「更新通道不落盘」是错的——它落 `update/settings.json` 这一颗，且**只有**这一颗；`autoCheck` 默认是 true，
+不是「默认沉默」。**仍然成立**的那部分：上游公告子系统没有回来也不该回来，它播的是 Playa 的运营消息，
+与本机版本无关，跟自研更新通道不是同一件事——这条如果混着写，下次就有人拿「更新通道」的名义把它引回来。
+
+**⑥ 这条通道从今天起有真窗凭据。** 之前所有绿都住在单测面（fake fetch、假 `gh`、注入的下载器）。
+T14 补的是「真代码 + 真出口 + 真发布页」那一层，并在那里挖出三条只有真窗才说得出来的事实（见下一节）。
+
+### Wave 4 T14：真窗三趟各按一次「检查更新」——计划里那句「假 GitHub」换了做法（2026-10-31）
+
+**① 「假一台 GitHub 服务器」在这条通道上做不到，而做不到正是判据。** 计划 `2026-10-29-clash-verge-full-integration.md:110`
+写的是「真窗：… 假更新全流程（本地 HTTP 服务器）」。要落它得拧两处，而这两处恰好是 A3 要守的东西：
+`CLIENT_RELEASE_API_URL`（`github-release.ts:35`）是从 `CLIENT_UPDATE_REPO`（`:32`）模板拼出来的常量，**没有** base URL 注入点
+（钉死就是判据）；出口白名单也不放行一台假服务器（放行等于把 A3 拆了）。在生产代码里留一条 dev 覆写最容易，
+但那条覆写在装机包里也长着嘴。所以探针一根手指都没碰生产代码，改成给三种下场各造一条**真凭据**：
+`latest` 用真发布页对真版本号；`available` 用真发布页对**临时压低一格的本机版本号**（`currentVersion` 本来就是
+`app.getVersion()` 现读，不落盘、不记账，跑完按原始字节还原，`package.json` 的 sha 前后一致）；
+`network-failed` 把那一跳断在**传输层**。`digest-mismatch` 不在这里跑——它要动那颗 296,982,786 字节安装包的字节，
+而下载与安装这两段在这档里一颗按钮都没点（点下去是往盘上写 290 MB，再点一次是退出并被替换，没有反悔通路）；
+那一档的凭据住在 `installer-download.test.ts` 与 `update-service.test.ts`，这里不冒充它。
+
+**② 三趟的下场（一趟命令，`report.ok=true`，exit 0）。** `latest`：`outcome=latest`、`reason=null`、`latestVersion=1.15.0`、
+屏幕那行「发布页那版不比本机新 · v1.15.0」；`available`：`outcome=available`、本机被判成 `1.0.0`、屏幕「问到了新版本 · v1.15.0」；
+`failed`：`outcome=failed`、`reason=network-failed`、`latestVersion=null`、屏幕「这一次没问成 · 发布页没答话：… · 详情：发布页请求没回来：fetch failed」。
+最后一句里的 `fetch failed` 是这一档最硬的旁证：败的是 Node/undici 的 `fetch`，不是一张 Chromium 错误页。
+判定读 IPC 账本（`check.outcome/reason`），文案读界面 DOM，而 DOM 期望值从三份 locale JSON 现取全限定键
+（`network.clientUpdate.lead.*`）——两侧都读，任何一侧单独骗过去都会红。
+
+**③ 挖到第一条事实：这一跳不走 Chromium 网络栈，所以 Chromium 的开关是无效的。** 第一版探针用
+`--proxy-server=direct` + `--host-resolver-rules=MAP api.github.com 127.0.0.1:9` 造断链，实测**照样读到 `latest`**：
+更新面的请求是主进程 `fetch()`（undici，`safe-fetch.ts:54`）发的，那两个开关管的是另一个网络栈。
+探针当场按「闸没落下」报红、没让它蒙过去。换成正经的一层：`NODE_USE_ENV_PROXY=1` + `HTTPS_PROXY=http://127.0.0.1:9`
+（discard 端口，没人监听），连接在 `connect` 就死、一个字符的响应体都没拿到；启动前先 `assertDeadProxy` 自证那颗假出口真的死了
+（握手上了就报 ENV、退出码 2，不许它冒充产品红），且这一档**不带任何 Chromium 开关**——带着就是假装有牙。
+改 hosts 要管理员权限，本机拿不到，也不该为验收去改系统。
+
+**④ 第二条事实：`saved` 不在 `state()` 上，所以「落盘成功」这句话在 UI 驱动下根本不可能按探针想要的方式出现。**
+`update-ipc.ts:32` 的 STATE 回的是 `view(null)`——十秒一轮的轮询**永远**带 `saved: null`；落盘的下场只骑在
+`VERGE_CLIENT_UPDATE_SET_AUTO_CHECK` 那一条返回值上（`:49-54`），UI 把它存进本地那一槽（`ClientUpdateSection.tsx:117,194`）。
+探针原来等 `state().saved.ok`，于是自己造出一条永远绿不了的尺。改法等价的三份凭据：盘上那颗
+`profile/update/settings.json` 的字面内容 + `state().autoCheck` + 屏幕上 `.net-notice--ok` 那行文案
+（与 `network.clientUpdate.save.ok` 逐字比）。**教训是形状级的：判据要问的对象住在哪一层，就得去哪一层拿。**
+
+**⑤ 落盘边界（spec D2）在这里是被验的，不是被假设的。** 每趟都开一次性沙箱（`--user-data-dir` + APPDATA 全指到
+`D:\cyrene-update-accept\run-<名>\`），结束时对整棵沙箱做**路径集合**差分：`latest` 趟新增 98 颗、其中更新面的只有
+`profile/update/settings.json`；`available` 趟 93 颗、更新面 0 颗；`failed` 趟 97 颗、更新面 0 颗——`updates/` 三趟都没长出来。
+差分必须排在子进程真正退出之后：原来排在 `kill()` 之后立刻跑，被 Electron 还攥着的句柄顶出 `EBUSY`。
+同一趟另有一条独立对照：真实用户面（`%APPDATA%` 下 brand 派生的那颗 + 遗留名 `cyrene-verge`／`Cyrene`／`clash-verge*`）
+的 `update*` 目录前后逐条目 size:mtime **未变**，三趟全真。为什么量 size:mtime 而不读内容：更新通道只被允许落一颗，
+判据是**集合形状**；读内容要打开几百颗 Electron 自己铺的文件，边读边被它攥着的句柄顶红。
+`available` 那趟的 `toggle: false` 是显式写的——`undefined` 参与 `===` 比较会把「没碰盘」读成「碰了盘」，这条也红过一次。
+
+**⑥ 顺手挖到的另一处：编译不回收旧产物，而打包打的是整棵 `dist`。** `electron-builder.yml:27` 的 `files` 收 `dist/**/*`，
+而 esbuild 只写这一趟编译到的文件。按形状实测过：造一颗临时模块编进 `dist/main/main/` → 删掉它的源码 → 用改前的脚本再编一趟
+（照样报「built 812 files」），那颗 JS **原地留着、mtime 都没动**；换成新加的那一行（`desktop-typescript.mjs:34` 整棵 `rmSync(outDir)`）再编，它才消失。
+原来这里只抹 `plugins` 一颗目录，编译出的 JS 从来没人回收。**我没有声称历史装机包里躺着 P4 删掉的那两组名字**：
+当前那颗包的 `app.asar` grep 不到 `news-feed`／`app-update-service`（正对照 `default-dependencies` 3 命中），
+说明这台机器的 `dist` 曾经整体清过——那是运气不是设计。反向锁落在 `upstream-off.test.ts:167` 一条新规则，
+认的是「整棵抹掉」这个**形状**（`rmSync(\s*outDir\s*,`）而不是某个目录名：按名字治是 T13 ③④ 那一档错误的第三次复发。
+
+**尺子**：新增 `scripts/verify/client-update-cdp.mjs`（真窗档，一趟三腿；ENV 与产品红分开退出码 2／1）。
+它**没有**接到 `package.json` 的脚本表——同目录的 `network-tabs-cdp.mjs`／`subscriptions-write-cdp.mjs`／`pet-girl-cdp.mjs`
+也没接，这里跟着既有惯例走，不自造一条只有它有的口子。
+计划（`:111`）点名的 `docs/verge/notes/environment-notes.md` **不存在**：跨任务环境账本实际住在
+`.superpowers/sdd/2026-10-17-p0-p1-pixel-cat-shell/environment-notes.md`，而 `.gitignore:172` 把 `.superpowers/` 整个忽略——
+它是本地账本，不进仓。所以本轮那三条（仓库／资产名／权限边界）写在这里，环境级的事实追加在本地账本。
+
+**门**：`tsc -p tsconfig.{main,preload,renderer}.json --noEmit` 三份 exit 0；`desktop-typescript.mjs main` 812 文件、
+`preload` + `learn-exam-preload.mjs`、`cli.mjs`、`npx vite build` 全 exit 0；`sync-brand.mjs --check` 一致；
+`check:roster`「OK 12 cats + 麻糬, 5 asset keys each」；`verify:installer` 绿（同一颗包 296,982,786 B +
+mpv v0.41.0-1227-ge471496c5 + MinGit 2.55.0 + 截图辅助 2,337,688 B）。
+真窗档一趟三腿 exit 0、`report.ok=true`（上面 ② 那三行就是它的输出）；跑完 `package.json` 的 sha 仍是
+`5aa8408c64a3aafe4fe2caee0ecfffeda8892bbf8dd56721b14929e23387a269`，与压版本号之前逐字一致。
+定向 `src/main/egress src/main/update` **14 文件 / 224 条全绿**（对 T13 的 223：**+1**＝那条新反向锁，
+`upstream-off.test.ts` 20 → 21）。**变异一档**：把 `desktop-typescript.mjs:34` 改回原来那句只抹 `plugins` →
+恰好红 1 条，红的就是新加的那一条（`A1/A3 编译前抹掉整棵输出：看门狗被摘掉了: expected 0 to be greater than 0`），
+其余 20 条照常绿；按原始字节 `cp` 还原、sha 对齐基线 `bb17d0fac00da57dd0c29d74bbf0efd63fd47a9aceddac6caf344e1d8fb7a660`
+后再跑 → 21/21 绿。全量 `CI=true npx vitest run`——**788 文件 / 8690 passed | 2 skipped（8692）**、254.62s，exit 0；
+对 T13 收口的 788 / 8689|2 只多那 1 条，文件数没动，差额里没有别处。
+`src/main/orchestrator/tools/__snapshots__/*.snap` 仍是纯 stat 脏（`git diff --numstat` 对它零行），没有 stage。
+
+**未做，记账**：
+① 真窗覆盖的只有**检查**这一段。下载（290 MB 落 `updates/`）与安装（起安装器、退出并被替换）在这档里没有点，
+`digest-mismatch` 也没有真窗凭据——三者的凭据全部住在单测面。要真跑下载得单独授权并留够盘与时间；要真跑安装等于放弃当前进程。
+② 一次真发布仍没发过（承 T13 ①），版本号仍欠一次抬（承 T13 ②）。
+③ 三腿都在 zh-CN 下量过；`en`／`ja-JP` 两份文案只被 JSON 侧读过，没在真窗里切语言重跑一遍。
+④ `NODE_USE_ENV_PROXY` 这条杠杆属于 Node 而不是本 fork：哪天升 Node 把它换掉了，这一档会报 ENV 而不是红——
+   这是有意的（别把环境没给跑读成产品坏了），但也意味着这一腿的绿要靠人偶尔去看一眼它还在不在。
+
