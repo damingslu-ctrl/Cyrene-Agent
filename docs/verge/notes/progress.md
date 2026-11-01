@@ -3240,6 +3240,108 @@ bulk 的出口。补出口再跑，或由用户点头用别的路子喂包；我
 `.tmp/` 全程没进 git，
 `release/` 里那两颗（exe 290 MB 级 + `SHA256SUMS.txt`）也留在盘上没 stage。
 
+### Wave 4 收口账·叁：`scripts/` 下那五颗 node:test 有了门禁；锁自己被变异验出两个「少认」洞（2026-11-01）
+
+**洞**：`scripts/` 里有五颗用 `node:test` API 写的测试（`scripts/build/verify-dynamic-imports.test.mjs`、
+`scripts/packaging/electron-builder-config.test.mjs`、`prepare-mingit.test.mjs`、`prepare-mpv.test.mjs`、
+`scripts/perf/chat-renderer-recording.test.mjs`），而 `vitest.config.mts:7` 的 include 是逐条列举的白名单
+（`:15` 只收了 `scripts/cline-poc/**/*.test.ts`），一条都不含它们；改动之前整仓也搜不到 `node --test` 这条命令。
+于是这五颗「在盘上、全绿、没人跑」——摘要校验、构建守卫这种直接守安装包的断言，改坏了没有人来收。
+
+**门禁**：`package.json:56` 加 `"test:scripts": "node --test \"scripts/**/*.test.mjs\""`，
+`.github/workflows/test.yml:98`-`:99` 在原来那几步 vitest 之后单独加一步 `pnpm run test:scripts`。
+引号留着的那条通路是实测的：`npm run` 展开出来的那一行原样是 `node --test "scripts/**/*.test.mjs"`
+（`.tmp/scripts-gate-run.txt:2`），glob 交给 node 自己认。没实测去引号会怎样——这一句只是不冒那个险的理由，
+不算结论。
+实测一趟 `GATE_EXIT=0`，`ℹ tests 17 / pass 17 / fail 0`（`.tmp/scripts-gate-run.txt:20`/`:22`/`:23`），
+`duration_ms 1586`（`:27`；先前那一趟是 693 ms，同一台机器同一份树，差的只是 node 起进程）。
+
+**顺带量到 node 的一个性格，它决定这把锁长什么样**：往 `node --test` 的参数里再塞一颗永远匹配不到的
+glob（`.tmp/glob-empty-test.mjs` 塞的是 `zzz/**/*.nope`），node 不报错、**照跑其余 17 条并退出 0**。
+所以「CI 那一步跑了」不等于「那五颗跑了」——glob 一旦落空，这一步会安静地什么也不测。这把锁因此不能只钉
+「脚本存在 + CI 调用」，必须自己数盘：C 那条算的是「`scripts/` 树里每一颗长得像测试的文件都被某个 runner
+认走」，并且 `found.length > 0` 先钉住走查不是空集。
+
+**本机 `pnpm run` 这条跑不动，是 ENV 不是改动坏了**：`engines.pnpm >= 10.33.0` vs 本机 9.15.9 ⇒
+`ERR_PNPM_UNSUPPORTED_ENGINE`（与 [[project-p0-fork-environment-and-acceptance]] 记的同一条）。所以本机改用
+`npm run test:scripts` 验同一条引号通路，CI 那一侧仍走 pnpm——两边的区别只在启动器，glob 与参数是同一串。
+
+**锁**：`src/main/scripts-test-gate.test.ts` 四条，判据不是「有几颗文件」而是三件事同时成立——
+A 门禁脚本存在（`:113`）、B CI 真的调用它（`:122`）、C `scripts/` 里任何一颗长得像测试的文件都不许掉在
+两个 runner 之外（`:128`，算术在 `:143`）、D 走查与枚举都看得见东西（`:146`）。两处刻意放宽：A 只钉
+glob 的形状不钉整串（`:119`），往宽里改不该让 A 红，那是 C 的射程；B 认 `pnpm test:scripts` 与
+`pnpm run test:scripts` 两种写法（`:125`），钉死一种会把合法改口读成红。
+
+**先红**：`.tmp/scripts-gate-red.txt:8`-`:11` 是 `× A / × B / × C / ✓ D`、`:166` `3 failed | 1 passed`、
+`:170` `VITEST_EXIT=1`——那时尚无门禁脚本与 CI 步骤，正是这三条该红。这颗文件最终版绿：
+`.tmp/scripts-gate-green.txt:9` `4 passed`、`:13` `VITEST_EXIT=0`。（红档里的测试名是放宽前的旧标题，
+A 当时叫「且 glob 落在 scripts 那一棵」，D 叫「走查看得见东西（看不见要说成环境没给跑，不许报绿）」。）
+
+**变异验牙**（`.tmp/gate-teeth-driver.mjs` 现拼一份假仓库根，七档，`TEETH 7/7` 在 `.tmp/gate-teeth.txt:8`；
+退出码按 driver `:154` 那句 `process.exit(bad === 0 ? 0 : 1)`，7/7 即 0）：
+
+| 档 | 结果 | 命中 |
+| --- | --- | --- |
+| clean（原样） | 绿 | — |
+| M1 删掉 `package.json` 的门禁脚本 | 红 | A,C |
+| M2 删掉 CI 那一步 | 红 | B |
+| M3 门禁 glob 收窄一层（`scripts/*.test.mjs`） | 红 | C |
+| M4 藏一颗 `scripts/perf/hidden-case.test.js` | 红 | C |
+| M5 把锁自己的枚举收窄一型（去掉裸 `.js`） | 红 | D |
+| 放行：glob 往宽里加一型 + M4 那颗一起在场 | 绿 | — |
+
+两个绿档不是陪跑：clean 证明现场本身跑得起来，放行档证明 C 真在算覆盖率，而不是「看见非
+`\.test\.mjs$` 就喊红」——只验红的锁，一条永远红的也算「抓到东西」。
+
+**M4/M5 是这把锁自己踩出来的两个洞**，方向都一样，是**少认**：少认一种扩展名，那颗文件就从 `found`
+里蒸发，C 数不到越界者便空跑成绿。第一版枚举写成 `(jsx?|mjs|cjs|tsx|mts|cts)`，`tsx?` 盖不住裸 `js` ⇒
+M4 整档绿（driver 的 `:77` 那颗文件在走查里根本不存在）。改成八型逐条列（`:46`，名单在 `:34`）之后，
+第二次踩在同一处：`tsx` 盖不住裸 `ts`，D 的名字级对照当场逮住（那一趟报 `× D`，指的是当时那份文件的
+`:146`——就是 `expect(isTestShaped(name)).toBe(true)` 那句；名单加进去之后行号已经挪到今天这一版，所以
+这一行号今天 grep 不回来，别拿它当凭据；那一趟也没留盘，这条 claim 的持久凭据是 M5 那一档，不是我的记忆）。最终把每型都配上正对照（`:157`-`:159`）、
+再补三颗反对照（`prepare-mpv.mjs`、`helper.js`、`case.test.js.bak` 都不许收）。
+
+**另两处自审拦下来的**：① 走查起手写在仓库根，会爬进 `native` 的 target 目录、`release` 和 `.tmp`
+（本机 `.tmp` 里放过 73 片安装包分块），跑不动且不是这条判据的射程——收成像只走 `scripts` 那一棵
+（`:53`-`:66`，跳 `node_modules`）。② 头一版把注释里的 `native/**/target` 直接写进 JS 块注释，那串
+`*/` 把注释提前关掉，oxc 报 `Expected a semicolon`——第一次跑红红在了错的地方。
+
+**tsc 的盲区**（这条不新，但每次新增 `src/main/**.test.ts` 都会再撞一次）：`tsconfig.main.json` 的
+exclude 里有 `src/main/**/*.test.ts`，直接 `-p tsconfig.main.json --noEmit` 回来 0 什么也没证明。
+用 `.tmp/tsconfig.scripts-gate-check.json`（`extends` 那份 + `exclude: []` + `include` 只点这颗）配
+`--listFiles`：`TSC_ISOLATED_EXIT=0`（`.tmp/scripts-gate-tsc.txt:218`），且这颗文件在 listFiles 里出现
+1 次——它真的进了 program。
+
+**出口顺带补一条能引用的读数**：`.tmp/egress-reprobe.mjs` 把客户端尺的前闸读法单独跑了一趟（不 spawn app、
+不写目录），`v1.16.1` 那颗 `Mochi-Setup-1.16.1.exe` 直连 30 s 只搬回 307,733 B ⇒ `kbps 10`、
+整包 303,964,701 B 投影 `494` 分钟，而 `budgetMs 1080000`（20 分钟减 2 分钟余量，
+`scripts/verify/client-update-cdp.mjs:69`/`:73`）——`fitsWindow false`（`.tmp/egress-reprobe-1101.txt:8`-`:12`）。
+今天这四个读数一串是 6 / 12 / 14 / 10 KB/s（`.tmp/cu-1161-download2.txt:124`、`.tmp/cu-1161-download3.txt:124`、
+`.tmp/reports/core-card-update.json:25`、上面那份）。中间还有一次读数只在终端里见过、没落盘，所以账上不认它——
+「只有盘上的才算凭据」这条对自己也算。
+
+**门**：全量 `CI=true npx vitest run` **794 文件 / 8718 passed | 2 skipped（8720）**、369.82 s
+（`.tmp/full-gate-scripts-lock.txt:7538`/`:7539`/`:7541`，`Start at 21:06:03` 压在锁的最终版之后——那颗文件盘上
+时间 21:04:43）。与上一条账的基线 793 / 8714 | 2 相比多出 **1 文件 / 4 条**，正是这把新锁。
+「0 条失败」这句是从那两行的算术读出来的，不是 grep「FAIL」grep 出来的：`:7538` 写的是 `794 passed (794)`
+（总数就是 794），`:7539` 写的是 `8718 passed | 2 skipped (8720)`（8718 + 2 = 8720 合得上）；日志里另有 92 处
+"failed" 全是产品自己错误路径的日志行（`:8` 那句 `[AgentRunController] stale rewind refresh failed` 是其中一条），
+跟测试失败无关。这条还要打折说一句：`FULL_GATE_EXIT` 那句 echo 落在终端没进文件，所以「exit 0」也是推的——
+单独验这把锁的那趟才有落盘的码：`.tmp/scripts-gate-green.txt:9` `4 passed`、`:13` `VITEST_EXIT=0`。
+同一批最终文件又各跑了一次，把退出码追写进各自文件：`:13` `VITEST_EXIT=0`、
+`.tmp/scripts-gate-run.txt:28` `GATE_EXIT=0`、`.tmp/scripts-gate-tsc.txt:218` `TSC_ISOLATED_EXIT=0`——
+这一趟压在变异验牙之后，用的就是最终那几份。
+这把锁进的是 vitest 的射程（`src/main/**/*.test.ts`），所以全量那一趟本来就会带上它；CI 那一步新加的
+`pnpm run test:scripts` 要等下一趟 push 才第一次真跑，本仓这一条只能靠 `.tmp/scripts-gate-run.txt` 那 17 条背书。
+
+**没做／记下来**：① 上一轮 `download` 档那四条**产品**判据仍然没凭据（ENV 不是绿），②③ `en`／`ja-JP` 的
+`download` 档、`Browser.close` 每趟要强杀那条查因，三条原样没动。④ 这把新锁只保证那五颗「会跑到」，
+不保证它们跑的内容对——本轮没逐条复看那 17 条断言。⑤ `.snap` 那颗只有 EOL 变化，`git diff --numstat` 里
+根本不出现，没 stage。⑥ 假仓库根那七档 driver 与它的现场（`.tmp/gate-teeth-driver.mjs`、
+`.tmp/tsconfig.scripts-gate-check.json`、`.tmp/egress-reprobe.mjs`、`.tmp/glob-empty-test.mjs`）按老规矩留在
+`.tmp`，本账引的就是它们；删了下一轮只能重新猜怎么拼现场。
+
+
 
 
 
