@@ -3331,8 +3331,13 @@ exclude 里有 `src/main/**/*.test.ts`，直接 `-p tsconfig.main.json --noEmit`
 同一批最终文件又各跑了一次，把退出码追写进各自文件：`:13` `VITEST_EXIT=0`、
 `.tmp/scripts-gate-run.txt:28` `GATE_EXIT=0`、`.tmp/scripts-gate-tsc.txt:218` `TSC_ISOLATED_EXIT=0`——
 这一趟压在变异验牙之后，用的就是最终那几份。
-这把锁进的是 vitest 的射程（`src/main/**/*.test.ts`），所以全量那一趟本来就会带上它；CI 那一步新加的
-`pnpm run test:scripts` 要等下一趟 push 才第一次真跑，本仓这一条只能靠 `.tmp/scripts-gate-run.txt` 那 17 条背书。
+这把锁进的是 vitest 的射程（`vitest.config.mts:9`），所以全量那一趟本来就会带上它。
+**这一句下一轮就地纠正**（原话是「CI 那一步新加的 `pnpm run test:scripts` 要等下一趟 push 才第一次真跑」）：
+不需要等 push——同一晚给 `test.yml` 加了 `workflow_dispatch`（`92dfca62`）并真 dispatch 了一趟
+（run 41312172151），可第 22 步 `Test · scripts（node:test）` 读到的还是 skipped，因为它前面第 15 步
+`Test · src / renderer` 先红，GitHub 把后续整片跳过（`.tmp/ci-test-run-jobs.json:1` 里那句
+`"conclusion":"skipped","n":22,"name":"Test · scripts（node:test）"`）。所以那 17 条到今天仍然只有本仓
+`.tmp/scripts-gate-run.txt:20`/`:22`/`:28`（tests 17 / pass 17 / `GATE_EXIT=0`）背书，CI 那一侧的凭据见本节末。
 
 **没做／记下来**：① 上一轮 `download` 档那四条**产品**判据仍然没凭据（ENV 不是绿），②③ `en`／`ja-JP` 的
 `download` 档、`Browser.close` 每趟要强杀那条查因，三条原样没动。④ 这把新锁只保证那五颗「会跑到」，
@@ -3340,6 +3345,250 @@ exclude 里有 `src/main/**/*.test.ts`，直接 `-p tsconfig.main.json --noEmit`
 根本不出现，没 stage。⑥ 假仓库根那七档 driver 与它的现场（`.tmp/gate-teeth-driver.mjs`、
 `.tmp/tsconfig.scripts-gate-check.json`、`.tmp/egress-reprobe.mjs`、`.tmp/glob-empty-test.mjs`）按老规矩留在
 `.tmp`，本账引的就是它们；删了下一轮只能重新猜怎么拼现场。
+
+### Wave 4 收口账·肆：CI 那一红是时区，不是断言——基准换成本地分量，这一类的锁从「数一数」改成「逐颗咬」（2026-11-01）
+
+**红在哪、凭据**：本 fork 头一趟真跑起来的 Test workflow（run `41312172151`，dispatch 在 `92dfca62`，
+windows runner 在 UTC）红在第 15 步 `Test · src / renderer`；本机 +08:00 从来没红过。红的那句是
+`src/renderer/pet/companion.test.ts:939` `expect(GIRL_LINES.wake).toContain(snap.bubble?.text)`。
+本机自己造了一趟 UTC 现场把它复现出来：`TZ=UTC CI=true npx vitest run` ⇒
+**1 failed | 793 passed (794)**、**1 failed | 8718 passed | 2 skipped (8721)**、`TZ_UTC_GATE_EXIT=1`
+（`.tmp/tz-utc-full-gate.txt:7854`/`:7855`/`:7862`）——总数与同批文件的本地绿档（`.tmp/full-gate-scripts-lock2.txt:7808`/`:7809`
+= 794 / 8719 passed | 2 skipped (8721)，`FULL_GATE_EXIT=0` 在 `:7816`）**一模一样，只是有一颗从 passed 挪进 failed**。
+「只挪一颗」这四个字是这一条最值钱的读数：它说明不是环境崩了、也不是某档测不到，就是那一颗的判据跟着时区换了语料。
+
+**根因链（三处都要在场才成立）**：① 基准是固定瞬间 `const T0 = 1_700_000_000_000;`，它的**本地小时**
+随运行时区变——+08:00 是 06:13，UTC 是 22:00:00。② 引擎的挂钟缺省就落在这颗数上：
+`src/renderer/pet/companion.ts:1006` `this.wallNow = options.wallNow ?? this.now;`——没显式钉 `wallNow` 的档，
+挂钟=那颗瞬间。③ 作息闸门按小时读：`companion.ts:1174` 取 `new Date(this.wallNow()).getHours()`，
+`:1175` 那颗惊醒档用 `hour >= 22 || hour < 5` 判夜里 ⇒ 6 点算白天、22 点算夜里，于是同一句断言在 UTC 读到的是
+深夜那套「嘘——」。**别把这条推论用歪**：另外四道夜里闸门（`:664`、`:793`、`:822`、`:3372`）用的是 `hour < 7`，
+所以「早上 6 点是白天」只在 `:1175` 这一档成立，在其余四档 6 点仍算夜里——这是为什么复现只挪了一颗，而不是整片。
+`dayPartOf` 自己在 `:626`。
+
+**产品侧改了什么**：10 颗引擎单测的基准全换成 `new Date(2023, 10, 15, 6, 13, 20).getTime()`（本地分量构造，
+两侧同一颗小时数），带一行指路注释（`companion.test.ts:42`、`companion-girl-toys2.test.ts:23`、
+`companion-girl-v113.test.ts:28` 是三种代表：直通、直通、经一跳）。成对那两档把挂钟自己钉上：`:922`/`:925`
+`dayWall = 2026-01-10 08:00` 配 `:939` 的 `GIRL_LINES.wake`，`:943`/`:946` `nightWall = 23:30` 配 `:952` 的
+`GIRL_LINES.wakeNight`——判据取哪一套作息，就得自己把钟钉进那一段，交给缺省等于把判据外包给运行时区。
+`numstat` 上九颗是 2/1，`companion.test.ts` 是 11/2（多那八行是成对档的钉钟与注释）。
+
+**新锁**：`src/renderer/pet/pet-test-clock.test.ts`（236 行，射程 `vitest.config.mts:10` 的 `src/renderer/**/*.test.ts`，
+所以全量门自动带上它）。四条判据必须同时成立，缺一条都不算锁：
+A（`:154`）走查真有射程——空走查会把 C 读成绿；B（`:170`）谓词自己钉正反对照；C（`:211`）射程内逐颗不越界；
+E（`:216`）按正确写法造的基准在**缺省挂钟**下真取到白天那套语料（E 管的是「分量抄对了没有」，
+基准抄成 23 点时两侧都红在这里）。越界两型：① 量级 ≥ `EPOCH_INSTANT_FLOOR = 1e11`（`:43`）的裸瞬间，
+**不限声明位**——`dayPartOf(1_700_000_000_000)` 这种当参数直接喂给作息函数的，跟当基准用是同一颗雷（B 在
+`:174`/`:175` 有这两型样本）；② 被注入成引擎时钟的模块作用域裸数字基准（`:126` `bareClockBaseForm` +
+`:114` `clockSeededNames`，直通 `now: () => NAME`／`wallNow: () => NAME` 与经一跳 `let t = NAME;` 都认），
+**这一型不看量级**——`10_000` 当钟用同样是固定瞬间（+08:00 落早上 8 点、UTC 落半夜 0 点），
+而它跟「秒表起点／相对时长」在形状上不可区分，所以只能认「有没有去挂钟」，不能数位数。
+明知在射程外、写清楚不假称覆盖的两型（`:24`-`:26`）：测试体内 `let t = 0;` 那种相对起点（全判会把合法写法一起锁死）、
+基准搬进共享 helper 后文件里没有本地声明（那时由 helper 自己守）——这两型靠评审与 E 的语义兜，不靠 C。
+把「看不见」说成「没有」是这一类锁最常见的假绿。
+
+**第一版为什么会假绿（本轮最该留下的一条）**：上一版只有第①类 + A 的一条计数下限
+（`withLocalBase.length >= 10`），验牙的 M9 把两颗文件的基准改成 `const T0 = 10_000;` 后**当场读成绿**：
+`.tmp/pet-clock-teeth.txt:19`（+08:00）与 `:21`（UTC）两行写的都是「M9 … → 绿（要 红）」，整趟 `TEETH BAD=2`（`:30`）。
+原因不是谓词坏了，是**判据选错了**：`10_000` 量级低于下界，第①类天生看不见它；而 A 那个计数按「整档有没有
+`new Date(年,月,日,时` 这个形状」数，一颗文件只要别处还留着缩进的分量 Date（`companion-girl-v113.test.ts` 就有），
+把它的模块基准改坏也不会让它从计数里消失——实测形状 11 颗 → 10 颗，仍然 ≥10 ⇒ 绿（这三颗数现在还能重跑：
+`node .tmp/measure-lock-scope.mjs` ⇒ `scope 110 / lcbAnywhere 11 / moduleScopeLcb 10`）。
+所以计数只当「射程非空」的旁证用（写在 `:166`-`:167`），真正逐颗咬住的是第②类。改完新增四档变异专门盯新谓词：
+M12 第②类短路、M13 注入集合只认 `wallNow`（漏 `now` 等于没牙，因为缺省挂钟挂在 `now` 上）、
+M14 一跳坏掉、M11 裸瞬间写在非声明位。
+
+**牙（`.tmp/pet-clock-teeth2.txt`）**：19 档 × +08:00/UTC 两侧 = 38 个读数，`✔ 38 / ✘ 0`，
+`TEETH 19 档 × 2 时区侧 全过`（`:40`），收尾 `拍平核对：201 颗文件哈希全部一致`（`:39`）、`DRIVER_RC=0`（`:41`）。
+红档逐条点名，不许「红在别处」蒙过：要点名 B 的是 M3/M4/M5/M7/M12/M13/M14，要点名 B+C 的是 M6（阈值降到 1
+把相对时长也咬了），要点名 C 的是 M1/M2/M9/M10/M11，要点名 A 的是 M8（射程收窄到 `.test.tsx`），要点名 E 的是
+M15（基准分量抄成深夜）；38 个读数的「红档」栏与「要点名」栏逐一对上，只有 M4 额外多红了 C（谓词什么都咬，
+逐颗扫当然也咬得着——多咬不是漏咬，判据放它过）。三档**放行**都在：基准换成另一组合法分量、
+新增一年时长常量＋注释里提那颗旧字面量、不挂钟的秒表起点与字符串里的长数字（`:33`-`:38`）——
+只有红档没有放行档的锁，下一轮没人敢改测试。driver 与现场按老规矩留在 `.tmp`（`pet-clock-teeth-driver.mjs`、
+`tsconfig.pet-clock-check.json`、`measure-*.mjs`、`precheck-teeth-patches.mjs`），本账引的就是它们；
+`precheck` 那一趟是上一轮教训的应用：38 次 spawn 之前先逐颗确认变异针头在盘上存在且唯一，别跑完才发现「什么都没改」。
+这一趟的读数也落盘了：`.tmp/precheck-teeth-patches.txt:23` `PATCH 预核全过`，上面 10 颗针头各命中一次
+（`^✔` 计数 10、`✘` 计数 0）——第一次跑它时只把结论打在终端，按本轮自己的口径那不算凭据，所以压着最终文件又跑了一遍。
+
+**门（用最终那几份文件重跑的两侧同读数）**：`CI=true npx vitest run` 本机 +08:00 ⇒ **795 文件 passed (795)**、
+**8723 passed | 2 skipped (8725)**、`VITEST_LOCAL_EXIT=0`（`.tmp/pet-clock-final-local.txt:7762`/`:7763`/`:7770`，
+Duration 303.89 s）；同一批文件 `TZ=UTC` ⇒ **795**、**8723 passed | 2 skipped (8725)**、`VITEST_UTC_EXIT=0`
+（`.tmp/pet-clock-final-utc.txt:7669`/`:7670`/`:7677`）。两侧**逐字段相等**，这句才是本轮要的判据——
+「UTC 也绿」如果只报 exit 0，说不清是判据稳还是语料换了一套碰巧都过。与上一条账基线的算术要说清三条读数：
+· 上笔账引的 794 / 8718 | 2（`:3323`）是 `.tmp/full-gate-scripts-lock.txt:7538`/`:7539`（21:12 那趟）；
+· 同批文件 21:36 又跑了一趟是 794 / **8719** | 2（`.tmp/full-gate-scripts-lock2.txt:7809`），差的正是 `src/main/scripts-test-gate.test.ts`
+  从 4 档加到 5 档——多的是 `:131` 那颗 E（「这一步有真能在本 fork 上触发起来的入口」，21:12 那趟之后写进来、
+  21:37:23 随 `92dfca62` 提交），本轮把它当基线；
+· 逐颗比对（`.tmp/gate-count-diff.txt:1`-`:5`）⇒ 只多 `pet-test-clock.test.ts (4)`，`changed: []`、`removed: []`，
+  所以 +1 文件 / +4 条 = 8721 → 8725，一颗旧测试没被改口、也没被悄悄删掉。
+单测之外还有一道：`tsconfig.renderer.json` 把这些 pet 测试 exclude 掉了，直接 `-p` 回来 0 什么也不证明，
+所以用隔离 tsconfig 单跑锁这颗——`.tmp/pet-clock-tsc-final.txt:3` `TSC_PET_CLOCK_EXIT=0`（上一趟的码落在终端没进文件，
+所以压着最终文件又跑了一遍；这条对自己也算：没落盘的读数不算凭据）。锁单颗两侧：
+`.tmp/pet-clock-lock-utc2.txt:8` `1 passed (1)`、`:9` `4 passed (4)`。
+
+**这台机器的时区只能造两档（ENV 边界，别说成「任意时区都过」）**：Windows 上进程内改 `process.env.TZ` 无效，
+只有**另起进程**且 `TZ=UTC` 才生效——所以「两侧」= 机器时区 +08:00 与 UTC，别的偏移（比如 -05:00）本机造不出来。
+好消息是 UTC 恰好是 CI runner 那一侧，本轮要的迁移判据在射程内；坏消息是这把锁并不能证明「任何时区都绿」，
+它证明的是「基准不再带时区语义」——分量构造的小时数是写死的 6 点，跟偏移无关，这才是可以外推的那一半。
+
+**出口读数（顺带，别当成修好了什么）**：`HTTPS_PROXY=http://127.0.0.1:7896` 现在直接 connection refused
+（mixed 端口不在了；没启停 Clash Verge，那条禁令原样有效），而 `HTTPS_PROXY=` 空值直连可达 `api.github.com`——
+本轮的 gh 读数与 `git push fork master:master`（`92dfca62..75e3429c`）都是**空代理**走通的。上一笔账里「唯一通路是 7896+HTTPS」
+这条已经不成立，遇到 push/gh 失败先试空代理，别去动 Verge。
+
+**`on: push` 为什么还不出 run：仍没解，只多一个读数**：本 fork 现在 `runs_total=20`、事件唯一值 `workflow_dispatch`，
+`push` 事件 0 趟（`.tmp/fork-actions-events.txt:1`，同一行还记着两颗 Test run 的 sha：`41317945159:75e3429c` 与
+`41312172151:92dfca62`）。上游同工作流有几百趟 push run（前一笔账的 `.tmp/fork-actions-inventory.txt` 读数），
+所以差别不在 YAML 而在 fork 的 Actions 状态；本轮按老规矩**绕过去**（加 `workflow_dispatch` 入口 + 手动跑），
+不去猜 GitHub 那一侧的开关，也不动 fork 设置——那属于要用户本人点头的共享状态。
+
+**CI 那一侧的真凭据（#280 领的那条）**：`92dfca62` 那趟第 22 步 `Test · scripts（node:test）` 是 skipped（上面对纠正的账在
+`:3335`-`:3340`）；`75e3429c` 推上去后又 dispatch 了两趟，两趟**都还没让那一步报出自己的结论**——但两趟各领到一条别的读数：
+
+- 第一趟 `41317945159`（`.tmp/ci-test-41317945159-jobs.json:1`）红在**第 15 步 `Test · main / orchestrator`**，1-14 步 success，
+  16-22 与第 42 步（Post Set up Node.js）整片 skipped。红的内容不是断言，是两条 30 s 超时：
+  `conversation-transcript-phase2.acceptance.test.ts:179` 那个 `it.each(["chat","work","code","learn"])` 的 chat 一档
+  （`.tmp/ci-41317945159-job-log.txt:5299`/`:5300`）与 `work-verification-closure.test.ts:151`「build 通过共享 Runner
+  实际执行工作区脚本」（`:5312`/`:5313`），另有两处带 `##[error]` 前缀的同句重复（`:5344`/`:5350`）。这一条就是 #282，
+  本轮没动它——但下一节要用的那颗红就是从这一趟的续集里长出来的。
+- 第二趟 `41318904827`（`.tmp/ci-41318904827-jobs.json:1`）红在**第 20 步 `Test · main / core（其余）`**，21、22 又 skipped。
+  红的那颗是**行尾**，见下一节 Wave 4 收口账·伍。
+- 同一趟把上一轮的时区修复在 CI 上验掉了：第 14 步 `Test · src / renderer`（`companion.test.ts` 那一片的家）**246 文件 /
+  2318 条全绿**（`.tmp/ci-41318904827-job-log.txt:2165`/`:2166`），而第 15 步 orchestrator 这次 **154 / 1939 全绿**
+  （`:5344`/`:5345`）——上一趟那两条超时在完全相同的字节上没有复现，这把 #282 钉在「容量/超时」这一型而不是「断言错」。
+  其余分步读数（同一份日志，逐段）：13 步 52/686（`:1291`/`:1292`）、16 步 31/508（`:5813`/`:5814`）、17 步 30/235
+  （`:6154`/`:6155`）、18 步 34/244（`:6446`/`:6447`）、19 步 77/704（`:7351`/`:7352`）、20 步 1 failed | 170 passed (171) /
+  1 failed | 2089 passed | 1 skipped (2091)（`:9258`/`:9259`）。
+- 那一步自己的结论仍然只有本机背书（`.tmp/test-scripts-gate-final.txt:20`-`:23` tests 17 / pass 17 / fail 0）：
+  所以给 `test.yml` 补了 `if: ${{ !cancelled() }}`（`.github/workflows/test.yml:113`-`:119`，理由写在注释里），
+  下一趟 dispatch 才是 #280 要的那条真凭据。
+
+**没做／记下来**：① 上一轮 `download` 档那四条**产品**判据仍然没凭据（ENV 不是绿），②③ `en`／`ja-JP` 的
+`download` 档、`Browser.close` 每趟要强杀那条查因，三条原样没动。④ 这把新锁只保证「射程非空 + 基准形状不越界」，
+不保证 110 颗文件里每条断言跑的内容对。⑤ `.snap` 那颗只有 EOL 变化，`git diff --numstat` 里不出现，没 stage。
+⑥ 射程外那两型（测试体内相对起点、基准搬进共享 helper）本轮没补机械判据。⑦ 时区只测了本机两档。
+⑧ `on: push` 零 run 的根因、以及第三方 Cursor GitHub App 那套 check suite 仍会被 push 触发（不是我们的门），
+两条原样挂着。⑨ 全量门里 `npm notice run` 那类前缀与 ANSI 码会进日志：按逐文件计数比对时必须先剥
+`\x1b[...m`，不然整批读数会算成 0——本轮第一次比就这么错过一回。
+
+### Wave 4 收口账·伍：CI 那一红是行尾，不是断言——同一颗断言在两副正文上必须给出同一个答案（2026-11-01）
+
+**红在哪、凭据**：第二趟 `41318904827` 第 20 步 `Test · main / core（其余）`，红的那一颗是
+`src/main/verge/core-ipc.test.ts (26 tests | 1 failed)`（`.tmp/ci-41318904827-job-log.txt:7466`），
+断言收到的正文第一行是 `/**\r\n * 内核宿主的装配层（Wave 3 T10b）…`，而它要匹配的是 `/canSwap,\n\s*coreDir,/`
+（`:8836`/`:8837` 那两行 `AssertionError`）。本机同一颗文件同一条断言从来没红过——这一句下一段会被自己推翻一半。
+
+**根因不在断言，在 checkout**：这台机 `git config core.autocrlf = true`（`.tmp/eol-before-after.txt:17`），
+仓里没有 `.gitattributes`（`:18`），而被读的 `src/main/verge/core-bootstrap.ts` 是纯 LF（`:15` CR=0 / LF=402）。
+Windows runner 镜像同样 autocrlf=true ⇒ `actions/checkout` 把 LF 的 blob 换成 CRLF 的工作树 ⇒ `canSwap,` 后面
+直接顶着一个 `\r`，`\n` 永远对不上。这条因果不靠叙述，锁的 E 档用真字节钉住：同一颗断言在 LF 与 CRLF 两副正文上
+必须读出**两个答案**（`src/main/eol-fragile-assertion.test.ts:256`-`:277`），少了这一档，前面四条都能在一把
+「其实咬不着任何东西」的锁上绿着。
+
+**「本机绿」为什么不值钱——本机自己就是混合态**（字节普查 `.tmp/eol-before-after.txt:11`-`:16`）：
+`test.yml` 纯 CRLF（CR=119/LF=119/成对 119）、`build-options.test.ts` 纯 CRLF(1527)、`ChatPage.test.ts` 纯 CRLF(114)，
+而 `core-ipc.test.ts`(406)、`core-bootstrap.ts`(402)、新锁(278) 纯 LF。同一台机器上「读盘原文再按换行匹配」的断言
+吃的是哪种行尾，取决于那颗文件当年怎么落盘——所以本机绿只能算碰巧，不能外推到 CI，也不能外推到另一颗文件。
+
+**同一颗谓词跑两遍，改前改后都落盘**：`.tmp/eol-before-after.mjs` 是锁 `:43`-`:156` 那套扫描/判定的 JS 移植，
+射程照锁自己（`src` + `scripts`）= **801 颗测试文件**（`.tmp/eol-before-after.txt:1`）。「改前」= 工作树当前版把三颗
+被修的文件换成 `git show HEAD:` 的正文、且锁不参与；「改后」= 工作树当前版。读数：**改前 5 行越界**（`:2`-`:7`）——
+`build-options.test.ts:1308` 那颗 `/(^|\n)---(\n|$)\s*(^|\n)---/` 一行里含三个裸 `\n`、按 hit 出行所以占 3 行，
+另两行是 `core-ipc.test.ts:392` 与 `ChatPage.test.ts:84`，合起来是 **4 个字面量位 / 3 颗文件**；
+**改后 0 行**（`:8`）。`:9` 那行 `BEFORE_AFTER ✔ 改前有读数、改后为 0（与锁 C 档同读数）` 钉的就是
+「移植的谓词」与「锁的 C 档」两边读数一致——移植抄错会当场不对齐，而不是安静地少算。
+
+**测试侧改了哪三行**：`core-ipc.test.ts:392` → `/canSwap,\r?\n\s*coreDir,/`；`ChatPage.test.ts:84` 那条长距离匹配
+末尾的 `\n        return;` → `\r?\n        return;`；`build-options.test.ts:1308` →
+`/(^|(?:\r?\n))---((?:\r?\n)|$)\s*(^|(?:\r?\n))---/`。第三颗是**改而不是豁免**：一旦给锁开一张豁免表，下一颗同类
+就得再议一次，而这里要钉的是「这类写法本身不合法」。用非捕获的 `(?:\r?\n)` 而不是把匹配位放宽成 `\s`，
+是因为那颗断言段间本来就有 `\s*` 在吞空白；换行匹配位若也认任意空白，「两个 `---` 之间什么也没有」这个要防的形状就跟着漏了。
+
+**环境侧改的是 workflow，不是仓**：`.github/workflows/test.yml:21`-`:27` 在 `actions/checkout@v7`（`:29`）**之前**
+`git config --global core.autocrlf false`，注释里点名第一颗红的文件与判据去处。钉 global 而不钉仓库级，
+是因为 checkout 用的是 git 自己的进程、仓库级配置要解包之后才生效，管不到这批文件——这个**顺序**由锁的 D 档钉住
+（`:244`-`:253`：pin 的下标必须小于 checkout 的下标，且两颗锚点都得存在，否则「两者都不存在」也会空跑成绿）。
+没顺手加 `.gitattributes`：那是给全仓换一次行尾口径（会牵动所有读盘原文的断言与快照），而本轮要的只是
+「CI 读到 blob 原样」；pin 就够了，且不动任何人的文件。要说清 pin 治不了什么：本机那三颗 CRLF 文件它改不了，
+真正不再分叉的是判据本身（`\r?\n`），不是环境。
+
+**新锁**：`src/main/eol-fragile-assertion.test.ts`（278 行，纯 LF，落在 `vitest.config.mts:9` 的 include 里，全量门自动带上）。
+判据是**两件事同时成立**（`:12`-`:13`）：那颗正则落在「匹配」的调用里，且它写死了一种行尾（`\n` 前面既没有 `\r?`
+也没有 `\s`，或者反过来只认 `\r\n`）。五档缺一不可：
+A（`:195`-`:219`）走查真爬得动——`>700` 颗的下限（`:197`）+ 五颗名字级锚点（`:203`-`:210`，分居主/渲染/编排三棵，
+第四颗专管 `.tsx` 的扩展名枚举，第五颗是**本锁自己**：「C 档的 0 越界若不含自扫，就是给自己留天窗」），
+外加扫描器两端各一颗对照（认得出字面量 / 不把除法当字面量 / 注释与串里的 `/a\nb/` 算散文）；
+B（`:221`-`:232`）谓词档位——7 条合法对照 `toEqual([])`、5 条越界对照 `not.toEqual([])`，再加
+`.replace(/\n/g,"\r\n")` 放行 vs `.split(/\n/)` 越界这一对；
+C（`:234`-`:242`）全仓结论 0，并先把一颗已知越界写法喂进同一条链路（`:239`/`:240`）证明读数机咬得着；
+D（`:244`-`:253`）环境那一半；E（`:256`-`:277`）真字节因果对照。
+放行名单只有 `replace`/`replaceAll`（`:30`），理由写在 `:228`-`:229`：`.split(/\n/)` 切完每行还挂着 `\r`，
+下游断言跟着变——它是「匹配位」的另一种写法，不是「处理行尾」的活儿。字符类（`[\r\n]`、`[^\n]`）放行的理由与
+`.replace()` 同源（`:32`-`:35`）：它不要求某个确定的邻接字符。调用者读不出来按**越界**办（`:127`-`:142`）：
+默认放行会让「读不出」变成假绿，宁可多红一颗让人来看。
+
+**为什么这一类的判据盯的是 `\n` 前面那个字符**：`ChatPage.test.ts:55` 的 `indexOf("\n            }}")` 同属读盘原文，
+却不会吃这一类的亏——needle 从 `\n` 起头、对前一个字符不作要求，而 CRLF 正文里那个 `\n` 照样存在（`\r` 排在它前面）。
+会受伤的是把内容钉在换行**之前**的写法（`canSwap,\n` 要求逗号紧跟换行）。所以谓词考的是「`\n` 的左侧有没有 `\r?`／`\s`」，
+而不是「这颗正则里有没有 `\n`」——后者会把上面这处也一起咬下来，那就是误报。
+
+**第一版被自己的 C 档咬了两次（dog-fooding 生效的证据）**：D 档定位 checkout 那条原本写 `[^\n]*\n`，落在 `.search()`
+里＝只认 LF，现在 `:247` 是 `[^\r\n]*\r?\n`；E 档原本写 `/\r\n/.test(crlf)`，那是「只认 CRLF」的匹配位、正是本锁要判的
+形状，现在 `:265` 换成字符串形式 `.includes("\r\n")`。两处都是**改文件而不是放宽谓词**——放宽一次，下一颗就没人管了。
+E 档的 witness 也错过一回：原打算用 `!crlf.includes("\n\r")` 证明两档正文不同，实测不成立（空行在 CRLF 档是 `\r\n\r\n`，
+里面正好带 `\n\r`）⇒ 先量过再改判据，现在钉的是「LF 档一颗 CR 都没有」+「CRLF 档有成对」（`:263`-`:265`），
+那个错法留在 `:260`-`:262` 的注释里当反面教材。反对照只能用 `new RegExp("canSwap,\\n\\s*coreDir,")` 造（`:269`）：
+写成字面量就会被本锁 C 档算成越界——「锁的射程」与「锁自己的正文」必须同时成立，不然它就是自咬。
+
+**牙（`.tmp/eol-teeth.txt`）**：12 档全对上（`:14` `TEETH 12 档 / 12 期望全对上`）。红档逐条点名，不许「红在别处」蒙过：
+M1→C（把那行改回只认 LF）、M2→A（走查根收到 `src/main` 一棵）、M3→A（扩展名枚举少认 `.tsx`）、M4→B（字符类里的换行
+也判越界）、M5→B（只认紧邻 CR、不认 `\r?`）、M6→C（匹配上下文一律放行＝读数机空转）、M7→D（把 pin 挪到 checkout 之后）、
+M8→E（两档正文做成同一份＝因果档空转）、M9→C（新文件里写一颗越界正则，验走查够得着新文件）；M4/M5/M6 实际多红了 C
+（谓词坏掉时全仓扫描当然也咬得着——多咬不是漏咬，判据放它过）。三档**放行**都在：P1 换成另一种合法写法 `\s*\n`、
+P2 在注释里写一颗越界正则原文、P3 新增一颗全合法的测试文件（`:10`-`:12`）——只有红档没有放行档的锁，下一轮没人敢改测试。
+driver 每档跑完都比对被改过那几颗的 sha，不吻合直接 throw（`.tmp/eol-teeth-driver.mjs:91`-`:94`），12 档都走完并落了盘
+＝这 12 次还原都对上；跑之前还逐颗预核变异针头打得上（`:73`-`:79`），这是上一轮教训的应用。
+这一轮又踩了一次上一笔账 ⑨ 记过的坑：**三档放行第一次被读成红**，因为 vitest 在管道里仍上色，转义码把
+「Tests 5 passed」从中间劈开；`run()` 现在固定剥 `\x1b\[[0-9;]*[A-Za-z]` 再分类（`:40`-`:42`），重跑才 12/12。
+
+**门（全用最终那几份文件，且退出码落盘）**：全量 `CI=true npx vitest run` ⇒ **796 文件 passed (796)**、
+**8728 passed | 2 skipped (8730)**、`Start at 23:45:23`、376.69 s、`FULL_GATE_EXIT=0`
+（`.tmp/eol-full-gate.txt:7828`/`:7829`/`:7830`/`:7831`/`:7836`）。与上一笔账的基线 795 / 8723 | 2 差 **+1 文件 / +5 条**，
+这句不是算术而是逐颗文件比对出来的读数（`.tmp/eol-gate-count-diff.txt:1`-`:5`：基线侧 795 颗合计 8725、本轮 796 颗合计 8730，
+`added: src/main/eol-fragile-assertion.test.ts (5)`、`changed: []`、`removed: []`）——旧断言一颗没被改口，也没被悄悄删掉。
+日志里 20 行含 "FAIL" 全是产品自己错误路径的正文（`:633` 那条 `[chats-store] 待发消息落盘失败 … Error: WRITE_FAILED`
+是其中一条），另有 17 行是测试**名字**里带 failed 的 `stderr |` / `stdout |` 分段头（`:792` 那条
+`发送失败写入 failed receipt 且保留已落盘 assistant` 是其中一条），都不进失败计数；「0 条失败」这句由 `:7828` 的
+`796 passed (796)`（总数就是 796）与 exit 0 两头一起支撑。锁单颗：`.tmp/eol-lock-final.txt:6` `(5 tests)`、
+`:10`/`:11` `1 passed (1)` / `5 passed (5)`。node:test 那 17 颗仍在自己那道门里
+（`.tmp/test-scripts-gate-final.txt:20`-`:23` tests 17 / pass 17 / fail 0）。
+牙这一轮的退出码也追到盘上：`.tmp/eol-teeth.txt:15` `DRIVER_RC=0`——上一版只把结论打在终端，按本仓口径那不算凭据，
+所以压着最终那几份又跑了一遍（跑完仍是 12 档还原逐颗 sha 核对通过）。
+
+**明知在射程外、写清楚不假称覆盖的两型（`.tmp/eol-outofrange.txt`，逐行都落在盘上）**：
+① 字符串/模板形式的「匹配原文」参数里含裸 `\n`——**46 处**（`:2`），其中所在文件真的读盘的只有 **6 处**
+（`:41`-`:46`）：`ChatPage.test.ts:55` 那处按上面一段的理由不吃这一类的亏，剩下五处是读 CSS 的
+`.split("\n")`（`brand-color-migration.test.ts:94`、`color-token-resolution.test.ts:126`、
+`hardcoded-color-ratchet.test.ts:65`、`theme-palette-derivation.test.ts:174`/`:327`）——切完每行挂着 `\r`，
+它们各自会不会翻 verdict 本轮没逐颗复算，只有实测旁证：第二趟 CI 在 CRLF 工作树上把 `src/renderer/ui/**` 那一片
+连同渲染端整步跑成全绿（`.tmp/ci-41318904827-job-log.txt:2165`/`:2166` 246/2318）。这一型另起 #284 收口，
+本轮**不说**「这类已经锁干净」：锁 C 档认的是正则字面量，字符串形式要判就得追数据流（哪来的文本），
+第一版试过用「整颗文件读不读盘」当合取，结果 5 条读数里 3 条是内存里的 `.replace`——把范围放对之前，
+文件级的合取只会造噪音，这是这一轮实际走过的弯路。其余 40 处所在文件 `本文件读盘=false`，判的是内存里拼出来的串，
+EOL 与它们无关。
+② `new RegExp("…\\n…")` 形式的模式串——**1 处**（`:49`/`:50`），就是本锁 E 档那颗反对照（`:269`）。
+「射程里唯一的裸 `\n` 构造式模式串正是锁自己造的那颗反例」这句是普查读出来的，不是推的。
+
+**没做／记下来**：① #282 那两条 30 s 超时原样挂着——第二趟同字节没复现只是「容量/超时」这一型的旁证，不是修好了。
+② 字符串形式那一型（46 处 / 其中 6 处所在文件读盘）没进锁，另起 #284；本轮没说「这类已经锁干净」。
+③ 三颗被修的断言只复算了它们自己那条判据，同文件其余断言没逐条复看。④ `.snap` 那颗只有 EOL 变化、
+`git diff --numstat` 里不出现，照旧没 stage。⑤ pin 只治 CI 那一侧的工作树：本机 `test.yml`(CRLF 119)、
+`build-options.test.ts`(CRLF 1527)、`ChatPage.test.ts`(CRLF 114) 这三颗要真换成 LF，得 `git add --renormalize`
+或补 `.gitattributes`——后者是给全仓改行尾口径的仓级决定，要用户本人点头，本轮都不动。
+⑥ `if: !cancelled()` 与 autocrlf pin 都只有本机读数，**CI 侧的结论要等下一趟 dispatch**（#280 因此还挂着）。
+⑦ 这条是给下一轮的：全量门日志里 17 行 `stderr | …failed…` 是测试名字而非失败计数，20 行 "FAIL" 是产品正文——
+「grep 关键字当判据」在这仓里根本用不了，判绿只走总计数 + exit 码这两头。
 
 
 
