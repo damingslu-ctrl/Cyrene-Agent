@@ -90,3 +90,10 @@ jobs:
         # fork worker 静默崩溃，改由 plugin-sdk workflow 单独验证），skills / cline-poc
         # 暂无测试文件，因此允许空跑；packages 恢复或新增测试后本步骤自动生效。
         run: pnpm exec vitest run --exclude "src/**" --passWithNoTests
+
+      # scripts 下那几颗 node:test 文件（构建守卫 / 打包配置 / mingit+mpv 摘要校验 / 录制尺）
+      # 写的是 node:test API，vitest 的 include 白名单一条都不含它们，上面的分块步骤全绿也
+      # 碰不到它们——所以这一趟单独由 node 自带的 runner 跑。src/main/scripts-test-gate.test.ts
+      # 钉着「这一步存在」与「scripts 里没有掉在两个 runner 之外的测试文件」。
+      - name: Test · scripts（node:test）
+        run: pnpm run test:scripts
