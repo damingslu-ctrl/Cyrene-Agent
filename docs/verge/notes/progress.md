@@ -3005,4 +3005,76 @@ i18next 配了 `parseMissingKeyHandler`（`i18n/index.ts:29`），缺 key 时键
 ⑥ 本轮没动用户在跑的 `clash-verge.exe`／服务／桌宠进程；#274 那四条腿仍等用户退出 Clash Verge。
 
 
+### Wave 3 余量收口·贰：内核卡片六档全跑完——五档绿，第六档换成一句环境的实话（2026-11-01）
+
+**闸门是自己开的**：上一条账（2821 起）末尾那句「四条腿仍等用户退出 Clash Verge」在这一轮反了——五档开跑时
+（11:53 本地起）`clash-verge.exe` 已经不在，五份报告的 `clashVergeImageAtEnd` 全 `false` 就是这件事的读数。
+我没有去启停用户的任何程序，这一条只记次序。
+六档的读数（`.tmp/reports/core-card-*.json`，`started_at` 都是 UTC）：`external` 03:53:09Z、`gate` 03:53:47Z、
+`heal` 03:54:38Z、`no-config` 03:55:24Z、`start` 05:06:33Z（换成最终那把尺重跑的一趟）、`update` 见下。
+
+**五档绿，每档判在什么上**
+
+| 档 | 屏上（逐字取自报告） | 盘／进程表那一半 |
+| --- | --- | --- |
+| `external` | 「用上了现成的控制器：Verge 那颗内核在答话，我没有起进程」；起／停止／重启三颗灰 | `core.log` 70 B、`spawnLines:0`；控制器 `127.0.0.1:50891`（尺子自己那颗假控制器）；`sweepAtStart/End.killed` 都空 |
+| `gate` | 「Clash Verge 正在运行，单写者闸门不让我起第二颗内核」 | 种下的同名映像 `plant.pid 10368` → 撤掉（`plantClearedAt 03:54:05Z`）→ **正对照**起来 `PID：21188`；`59073/59074` 两条 listening 都归 21188；`runtime/core.yaml` 里 `127.0.0.1:59073` / `scratch-core-secret-9f3` / `59074` 三颗键逐字对 |
+| `heal` | 「内核起来了（端口画的是回执里那一组，不是我猜的）」+「本轮自愈：1/3」 | 进程表：24496 → 23096（自愈换的那颗）→ 点重启 25012；exe 逐字 `C:\Program Files\Clash Verge\verge-mihomo.exe`，命令行 `-d …\profile\core -f …\profile\runtime\core.yaml`；`core.log` 2382 B、`spawnLines:2` |
+| `no-config` | 「合成不出那份配置：多半是没选订阅，或那份订阅的正文坏了 · 详情：no-profile：没有选中的订阅：先导入或启用一份，再起内核」 | 红字原样透出、没改成一句「失败」；`core.log` 76 B、`spawnLines:0`（起不来就是不 spawn） |
+| `start` | 「已运行：8s」由卡片自己那轮 10 s 轮询长出来；「内核已停下（那次 kill 是我发的，pid 与端口都收回来了）」 | 同一地址三敲：注入口令 200（`{"meta":true,"version":"v1.19.32"}`）／无口令 401／订阅正文口令 401；`portsAfterStop:[]`；`core.log` 2357 B、`spawnLines:2` |
+
+**边界（这五档合起来才是 spec D2 的凭据）**：五档 `vergeDirUnchanged` 全 `true`（`clash-verge.yaml` 每档各自的 sha 前后
+逐字节相同，`Merge.yaml`／两份 `Sub*.yaml`／`profiles.yaml` 同一趟里没动过一位）；真用户账本
+`%APPDATA%\io.github.clash-verge-rev…\profiles.yaml` 五档 `shaBefore === shaAfter === 7f55d385…`；
+`clashVergeImageAtEnd:false` 且 `sweepAtStart/killed`、`sweepAtEnd/killed` 全空——我们起的进程收尾时都收回来了，
+没往盘上留残留。
+
+**先病的是尺子：14 处 `expectReceipt` 没 `await`**（`scripts/verify/core-card-cdp.mjs:937` 是它的声明）
+
+`expectReceipt` 是 `async`，漏一处 `await` 不报错，只把一个 Promise 交出去、判据当场蒸发。旧尺里五档腿这么写了 14 处
+——也就是说上面那张「屏上逐字」的表，在补 `await` 之前**一条都没真被断言过**，回执语气错了、详情串换了，绿照绿。
+逐处补上之后五档重跑才是这一节的读数。顺手加一把自锁 `assertRulerWired()`（`core-card-cdp.mjs:183`，
+`main()` 第一件事就是它，`core-card-cdp.mjs:1607`）：开跑前扫自己的源码，见到没 `await` 的 `expectReceipt(` 就报红——
+下一轮再漏，坏在开工前而不是坏在结论里。
+
+**第六档不改口，改成一句环境的实话：出口前闸三**（`core-card-cdp.mjs:1159` `assertUpdateEgress`）
+
+`update` 档要**真下真换**那颗 22 MB 的 mihomo 包，而产品给资产那一跳的窗口只有 120 秒
+（`src/main/verge/mihomo-update.ts:61` `MIHOMO_TIMEOUT_MS = 120_000`，UA 是 `mihomo-update.ts:63` 那颗
+`mochi-core-updater/v1`）。这台机器此刻的出口是元数据通、bulk 被 DPI 掐着——让产品去撞那把刀，屏上只会落下
+`… 没下回来：请求没回来：fetch failed`，而尺子等满 320 秒把它报成**产品红**（exit 1），读起来像「换装这条路坏了」。
+所以这一闸排在 `spawnApp` 之前，量的是算术不是运气：按产品真会去敲的那条 `browser_download_url`
+（`core-card-cdp.mjs:1060` 的候选表现在把 URL 一起带回来，早先漏了它，闸门第一版就死在
+`Failed to parse URL from undefined`）取 2 MB 探针（`EGRESS_PROBE_BYTES`，`core-card-cdp.mjs:73`），
+30 秒自己掐表（`core-card-cdp.mjs:74`），用 `content-range` 的总长算出「整包按这速率要几秒」，
+要求落在 110 秒内（`core-card-cdp.mjs:76`——120 秒是「到点就砍」的上限，不是余量）。
+探针与产品对齐到能对齐的地步：默认跟跳转（`Range` 实测带得过 GitHub 那两跳，回 206）、同一颗 UA、
+`AbortController` 同一个机制、`spawnApp` 是 `{...process.env,…}` 所以尺子和 app 吃**同一组**
+`HTTPS_PROXY`／`NODE_USE_ENV_PROXY`，一个字节也不落盘。
+
+- 本机实测（最终那把尺）：`EXIT=2`，「github.com 这一趟搬不完 mihomo-windows-amd64-v1.19.33.zip：探针收到 1863714
+  字节用了 30005ms（约 61 KB/s），整包 22512121 字节按这速率要 362 秒，而产品给资产那一跳只有 120 秒」
+  （`.tmp/gate-update-final.txt`；前一趟同判据量到 20 KB/s ⇒ 1122 秒，`.tmp/gate-update-r3.txt`——那一趟还留着
+  `ENV: ENV:` 那个重复前缀，是我自己的措辞 bug，已改）。
+  报告 `.tmp/reports/core-card-update.json` 里只有 `release` 与 `egressProbe` 两组读数，
+  **没有** `sweepAtStart`／`cardOnEntry`／`processes` 任何一条——因为这一趟确实没开 app、没造目录。
+- 尺子有牙也不咬人：把这段探针摘出来离线喂四档（环路快／约 40 KB/s 限流／半路 destroy／分块不给总长），
+  4/4 合判据；环路那档投影 2895 ms ⇒ 放行，所以这一闸没把 `update` 档永久焊死，只是这一趟不放行。
+  每一档都看见 `range: "bytes=0-2097151"` 与 UA `mochi-core-updater/v1`——量的是产品那条腿，不是别的域。
+
+**门**：定向 `--start` 用最终尺重跑 `EXIT=0`、`ok:true`、走到「→ 7 盘上收尾」（`.tmp/start-final-ruler.txt`）；
+全量 `CI=true npx vitest run` **793 文件 / 8714 passed | 2 skipped（8716）**、366.81 s、exit 0
+（`.tmp/vitest-1161-ruler.txt`，与上一条账的基线逐字相同——尺子改动不进 vitest 的射程，这条要说清楚，
+它不是「尺子被单测验过」的证据，验尺子的是上面那四档正对照）。
+
+**没做 / 记下来**：① 上一条账写「`external` 档收尾 `Browser.close` 15s 没退、尺子强杀了 app，只有这一趟出现」——
+**这句现在错了**：这一轮五档的 `closes[0].forced` **全是 `true`**。读数不受影响（报告 `ok:true`、端口与进程都清干净），
+但它是每趟都发生的常态，不是偶发；原因仍未查，下一次动这几档时先量这个。
+② `update` 档的**产品**判据（真下 22 MB、对摘要、换装、下次起内核吃新版）到今天仍无凭据：这一轮它被判成 ENV，
+ENV 不是绿。缺的是一条能搬 bulk 的出口——15:25 本地 `netstat` 里 7896 没有 listening 那行（只有旧 PID 10192 留下的
+`FIN_WAIT_2` 残链，`tasklist` 已经查不到那颗进程），直连那一腿两趟量到 20 KB/s 与 61 KB/s。
+补一条出口再跑，或由用户点头用别的路子喂那颗包；我不会替用户把 Clash Verge 启起来。
+③ 五档的屏上半句只到「逐字对齐报告里那串字」为止；像素层面仍按桌宠那套 oracle 之外——内核卡这一层从来只认盘／进程表／IPC。
+
+
 
