@@ -5,6 +5,12 @@ Cyrene-Agent 的版本变更记录。格式参考 [Keep a Changelog](https://kee
 
 > 本文件由 `pnpm run release` 生成，请勿手工编辑；需要调整措辞请改写对应的提交信息。
 
+## [1.16.1](https://github.com/damingslu-ctrl/Cyrene-Agent/compare/v1.16.0...v1.16.1) (2026-11-01)
+
+### 修复
+
+* **verge:** 「安装」武装那一拍把屏上那行字一起追上 99f72e6
+
 ## [1.16.0](https://github.com/damingslu-ctrl/Cyrene-Agent/compare/v1.15.0...v1.16.0) (2026-11-01)
 
 ### 新增
