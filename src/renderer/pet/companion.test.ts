@@ -35,7 +35,11 @@ import { gesturePoseFor } from "./girl-gesture";
 import { GIRL_GESTURE_ACTION } from "./girl-scene";
 import { wrapBubbleText } from "./art";
 
-const T0 = 1_700_000_000_000;
+// 挂钟基准必须用本地分量构造。绝对 epoch 常量（原来那颗 1_700_000_000_000）的 getHours() 随运行
+// 机器的时区变：+08:00 下是早上 6 点，UTC 下是晚上 22 点；而引擎的挂钟缺省就落在这颗数上
+// （companion.ts 的 wallNow ?? now），凡是没显式钉 wallNow 的档都会跟着换一套作息语料。
+// 2026-11-01 CI（windows-latest，UTC）就是被这一型打红了一颗。判据锁在 pet-test-clock.test.ts。
+const T0 = new Date(2023, 10, 15, 6, 13, 20).getTime();
 const workArea = { x: 0, y: 0, width: 1000, height: 700 };
 const size = { width: 82, height: 108 };
 const ctx: CompanionContext = { workArea, size, canRoam: true };
@@ -913,8 +917,13 @@ describe("猫娘 II：连击 / 惊醒 / 羁绊 / 作息 / 扑与球", () => {
   });
 
   it("睡中被碰是惊醒而不是挠脚：立刻醒、受惊记号 + 一句被吓到的话", () => {
+    // 与下一档成对：那一颗钉深夜 23:30 取 wakeNight，这一颗钉白天 08:00 取 wake。
+    // 断的是哪一套作息语料，就得自己把挂钟钉到那一段——挂钟缺省落在 T0 上等于把判据交给运行时区。
+    const dayWall = new Date(2026, 0, 10, 8, 0).getTime();
     let t = T0;
-    const engine = new CompanionEngine({ storage: makeStorage(), now: () => t, random: seq([0.5]) });
+    const engine = new CompanionEngine({
+      storage: makeStorage(), now: () => t, wallNow: () => dayWall, random: seq([0.5]),
+    });
     engine.setForm("girl");
     engine.toggleSleep(t);
     expect(engine.getSnapshot().activity).toBe("sleep");

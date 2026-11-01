@@ -5,7 +5,8 @@ import { AUTO_SLEEP_IDLE_MS, clockLine, phaseLine, skyLine } from "./girl-clock"
 import { FESTIVALS, festivalOn } from "./girl-festival";
 import { wrapBubbleText } from "./art";
 
-const T0 = 1_700_000_000_000;
+// 本地分量构造，别写绝对 epoch 常量：那种数的 getHours() 随运行时区变。判据锁见 pet-test-clock.test.ts。
+const T0 = new Date(2023, 10, 15, 6, 13, 20).getTime();
 const BOND_KEY = "cyrene.pet.bond.v1";
 
 function makeStorage(initial: Record<string, string> = {}) {
