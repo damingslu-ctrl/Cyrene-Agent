@@ -1,10 +1,16 @@
 name: Test
 
+# `workflow_dispatch` 不是装饰：这个 fork 上 `on: push` 从来没有产出过一趟 run
+# （Test 与 plugin-sdk 各自 total_count=0，全仓 18 趟 run 全是 workflow_dispatch；
+# 同一份工作流在上游有 636 趟 push run）。少这一行，下面所有步骤——包括
+# `Test · scripts（node:test）`——就只是文件里的一段话，谁也跑不到它。
+# 判据在 src/main/scripts-test-gate.test.ts 的 E 条。
 on:
   push:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
 
 jobs:
   test:

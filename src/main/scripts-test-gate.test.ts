@@ -8,13 +8,16 @@
  * 于是它们「在盘上、全绿、没人跑」——2026-11-01 实测那一趟是 17 tests / 17 pass / 750 ms：
  * 红不了，也不会被跑，锁的字段被改坏没有人来收。
  *
- * 判据不是「有几颗文件」，是**三件事同时成立**：门禁脚本存在（A）、CI 真的调用它（B）、
- * `scripts/` 里任何一颗长得像测试的文件都不许掉在两个 runner 之外（C）。
+ * 判据不是「有几颗文件」，是**四件事同时成立**：门禁脚本存在（A）、CI 真的调用它（B）、
+ * `scripts/` 里任何一颗长得像测试的文件都不许掉在两个 runner 之外（C）、这一步还得有一个
+ * 真能在本 fork 上触发起来的入口（E）。B 只管「文件里写了这一行」，而实测本 fork 上
+ * `on: push` 从来不产出 run——写在 workflow 里不等于跑得起来，这条差值由 E 补。
  * C 靠通配匹配算，而匹配器本身有两颗对照钉着：同一棵树上真在的一颗必须命中、
  * 它的实现体必须不命中（D）——少了后一颗，「匹配一切」的坏匹配器会让 C 空跑成绿。
  * D 还钉「长得像测试」这条枚举本身：少认一种扩展名会让那颗文件从走查里蒸发，
  * C 便数不到越界者，同样是空跑成绿。
  */
+import { load } from "js-yaml";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -123,6 +126,24 @@ describe("scripts/ 的 node:test 门禁", () => {
     // 正对照：这份 workflow 里必然有 vitest 那几步，证明读对了文件、不是空串。
     expect(workflow).toMatch(/vitest run/);
     expect(workflow).toMatch(/pnpm(?:\s+exec)?\s+(?:run\s+)?test:scripts(?![\w-])/);
+  });
+
+  it("E 这一步有真能在本 fork 上触发起来的入口", () => {
+    // 读 YAML 而不是在原文上找 `workflow_dispatch` 那串字：注释里也写着这个词
+    // （就在 workflow 自己顶上几行），正则读法会把「写在注释里的打算」当成「有入口」。
+    const raw = (load(workflow) as { on?: unknown }).on;
+    // 两种合法写法都认：块式映射（键值各一行）与流式序列（`on: [push, ...]`）。
+    // 只钉一种会把合法改口读成红——钉错方向的锁，下一轮就没人信它了。
+    const triggerNames = Array.isArray(raw) ? raw : Object.keys((raw ?? {}) as Record<string, unknown>);
+    // 正对照：另两个触发器解析得出来，证明 `on` 这块真被读到了，
+    // 不是「解析器读成空数组/空对象」被 E 认成「没有入口」，也不是空的那一侧混过了断言。
+    expect(triggerNames).toContain("push");
+    expect(triggerNames).toContain("pull_request");
+    // 实测（2026-11-01）：本 fork 全仓 18 趟 run 全是 workflow_dispatch，两个带 `on: push`
+    // 的工作流（Test / plugin-sdk）各自 total_count=0；同一份工作流在上游有 636 趟 push run。
+    // 「push 会触发」在这个仓是一句不兑现的话，所以入口必须是手动 dispatch，否则 B 钉住的
+    // 那一行永远不会被执行——门禁的全部意义就没了。
+    expect(triggerNames).toContain("workflow_dispatch");
   });
 
   it("C scripts 下每颗测试文件都被某个 runner 认走", () => {
