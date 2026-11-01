@@ -27,6 +27,10 @@
 // 2) 一次性目录里那两个端口必须真空着——否则 `pickPortPair` 会退到 17890 那一串，
 //    量到的失败原因是「这台机器忙」，不是产品。
 //
+// `--update` 还有第三道：出口搬不搬得完那一整包（见 assertUpdateEgress）。产品给资产那一跳只有
+// 120 秒，出口不通时屏上落下的是那句 `fetch failed`，尺子等满 320 秒会把「这台机器没 bulk 出口」
+// 报成产品红——所以这一闸在开 app 之前掐表量速率，量不出「搬得完」就不按下那颗键。
+//
 // 页面上出现之前先过一道沙箱前闸：订阅页必须列出只有这份一次性账本才有的主机名。
 // 对不上＝APPDATA 没被吃进去、app 读的是用户真目录；那时候点「起内核」会拿真账本起真内核，
 // 所以这道闸排在每一次点击之前，且**任何一档都绕不过去**。
@@ -58,6 +62,18 @@ const ACTION_WAIT_MS = 40_000;
 const UPDATE_WAIT_MS = 300_000;
 /** 卡片自己重读账本的间隔是 10 秒（`POLL_MS`）；等它不请自来要多给几轮。 */
 const POLL_WAIT_MS = 45_000;
+
+/**
+ * `update` 档的第三道前闸用的数。产品给资产那一跳的窗口是
+ * `src/main/verge/mihomo-update.ts` 的 `MIHOMO_TIMEOUT_MS` = 120 秒（到点自己 `abort`，
+ * 屏上落下那句 `fetch failed`），包体 22 MB 上下——「这一趟搬得完搬不完」是可以事先量的算术，
+ * 不必拿一次真下载去撞那把刀。
+ */
+const MIHOMO_ASSET_WINDOW_MS = 120_000;
+const EGRESS_PROBE_BYTES = 2 * 1024 * 1024;
+const EGRESS_PROBE_DEADLINE_MS = 30_000;
+/** 120 秒是「到点就砍」的上限，不是「还能搬完」的余量：真撞在 119 秒上，下一趟就换了运气。 */
+const EGRESS_BUDGET_MS = MIHOMO_ASSET_WINDOW_MS - 10_000;
 
 /** 截图与报告落在仓库 `.tmp/`，**不在一次性目录内**：开局就 `rmSync(BASE)`，证据会被下一次自己抹掉。 */
 const SHOTS = path.join(ROOT, ".tmp", "shots", "core-card");
@@ -153,6 +169,28 @@ function detailFragments() {
 
 function hasDetailFragment(text) {
   return detailFragments().some((fragment) => fragment && String(text).includes(fragment));
+}
+
+/**
+ * 尺子自己的牙：`expectReceipt` 是 async，漏一处 `await` 不报错，只把一个 Promise 交出去——
+ * 于是「这句回执是不是那句文案」「脸色对不对」两条判据当场空转，那一档照样能跑绿。
+ * 2026-11-01 实测：14 处全都没 await。其中两处把返回值赋给变量后读 `.text`，读到 undefined，
+ * 一处在 `bar.text.includes(...)` 上崩（no-config 档那条 TypeError 是尺子的，不是产品的），
+ * 另一处（`stopOwnCore` 的收尾）让「停止」那句回执从证据里静静变成一个缺字段——
+ * start / external / gate / heal / update 五档都从这个洞上走过一次绿。
+ * 所以这道闸排在开 app 之前：每一趟先自证判据真的接上了线。
+ */
+function assertRulerWired() {
+  const self = fs.readFileSync(fileURLToPath(import.meta.url), "utf8").split(/\r?\n/);
+  const floating = self
+    .map((line, index) => ({ line, no: index + 1 }))
+    .filter(({ line }) => /^\s*(?:(?:const|let|var) \w+ = )?expectReceipt\(/.test(line));
+  if (floating.length > 0) {
+    throw new Error(
+      `尺子自己坏了：这 ${floating.length} 处判据没接线（async 断言漏 await＝整条断言空转）：` +
+        floating.map(({ no, line }) => `${no}: ${line.trim()}`).join("；"),
+    );
+  }
 }
 
 /* ---------------------------------------------------------------- 盘上取证 */
@@ -1027,12 +1065,128 @@ async function fetchReleaseEvidence() {
   const release = await res.json();
   const candidates = (release.assets ?? [])
     .filter((asset) => /^mihomo-windows-amd64-.*\.zip$/i.test(String(asset.name ?? "")) && String(asset.browser_download_url ?? ""))
-    .map((asset) => ({ name: asset.name, digest: String(asset.digest ?? "").toLowerCase() }));
+    .map((asset) => ({ name: asset.name, digest: String(asset.digest ?? "").toLowerCase(), downloadUrl: String(asset.browser_download_url ?? "") }));
   if (candidates.length === 0) throw new Error("发布页里没有 windows-amd64 的 zip");
   const pick = [...candidates].sort((a, b) => a.name.split("-").length - b.name.split("-").length || a.name.localeCompare(b.name))[0];
   const matched = /^sha256:([0-9a-f]{64})$/.exec(pick.digest);
   if (!matched) throw new Error(`发布页没给 ${pick.name} 的 sha256：${JSON.stringify(pick.digest)}`);
-  return { tag: release.tag_name, asset: pick.name, digest: matched[1], candidates: candidates.length };
+  // `downloadUrl` 也带回来：前闸三量的是「产品真会去敲的那条 URL 搬不搬得动」，
+  // 换成另一个域或另一颗资产，量到的就不是这一腿的出口了。
+  return { tag: release.tag_name, asset: pick.name, digest: matched[1], downloadUrl: pick.downloadUrl, candidates: candidates.length };
+}
+
+/**
+ * 出口探针：按产品那条资产 URL 取头 `EGRESS_PROBE_BYTES` 字节，取满就掐。
+ *
+ * 走法与产品对齐到能对齐的地步：`fetch` 默认跟跳转（`Range` 实测过 GitHub 那两跳带得过去，
+ * 回 206 且 `content-range: bytes 0-…/<总长>`），UA 用产品那颗 `mochi-core-updater/v1`，
+ * 超时交给 `AbortController`——跟 `downloadBytes` 里同一个机制。
+ * 出口开关也对齐：`spawnApp` 是 `{...process.env, APPDATA, ...extraEnv}`，`update` 档不注入代理，
+ * 所以尺子这个进程和 app 那个进程吃的是**同一组** `HTTPS_PROXY` / `NODE_USE_ENV_PROXY`。
+ * 一个字节也不落盘。
+ */
+async function probeAssetEgress(release) {
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), EGRESS_PROBE_DEADLINE_MS);
+  let totalBytes = null;
+  let got = 0;
+  // 读数一律带着「按这一速率整包要几秒」：判定用的是产品的窗口，不是我看顺眼的某个 KB/s。
+  const shape = (ms, extra = {}) => ({
+    bytes: got,
+    ms,
+    totalBytes,
+    kbps: got > 0 ? Math.max(1, Math.round(got / (ms / 1000) / 1024)) : 0,
+    projectedMs: got > 0 && totalBytes ? Math.round((totalBytes / got) * ms) : null,
+    ...extra,
+  });
+  try {
+    const res = await fetch(release.downloadUrl, {
+      headers: { range: `bytes=0-${EGRESS_PROBE_BYTES - 1}`, "user-agent": "mochi-core-updater/v1" },
+      signal: controller.signal,
+    });
+    // 206 是「服务器认了 Range」；回 200 就是整包往这儿灌，读满探针那 2 MB 也照样算得出速率。
+    if (res.status !== 206 && res.status !== 200) throw new Error(`回 ${res.status}`);
+    const fromRange = /\/(\d+)\s*$/.exec(String(res.headers.get("content-range") ?? ""));
+    const declared = fromRange ? Number(fromRange[1]) : Number(res.headers.get("content-length"));
+    totalBytes = Number.isFinite(declared) && declared > 0 ? declared : null;
+    const reader = res.body?.getReader?.();
+    if (!reader) throw new Error("没给可读的响应体");
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      got += value.length;
+      if (got >= EGRESS_PROBE_BYTES) break;
+    }
+    return shape(Date.now() - startedAt);
+  } catch (error) {
+    const ms = Date.now() - startedAt;
+    const cause = error?.cause?.code ?? error?.cause?.message ?? "";
+    if (got > 0) {
+      // 掐表到点（或半路被断）但字节确实在动：这仍然是一个速率读数，够把「搬不完」算出来。
+      return shape(ms, { cutShort: `${String(error?.message ?? error)}${cause ? `（${cause}）` : ""}` });
+    }
+    throw new Error(`${hostOf(release.downloadUrl)} 回不来：${String(error?.message ?? error)}${cause ? `（${cause}）` : ""}，${ms}ms 内一个字节都没到`);
+  } finally {
+    clearTimeout(timer);
+    // 探针自己拉起的那条流要还回去：不掐，node 的事件循环一直被它撑着，
+    // 尺子会在报完 ENV 之后挂在那儿不退（`--external` 那趟就是这样被外面的超时杀掉的）。
+    controller.abort();
+  }
+}
+
+function hostOf(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return String(url).slice(0, 60);
+  }
+}
+
+/** 前闸三取回来的发布页，腿里那一趟直接复用：同一趟问两次发布页，两次的答案可能不是同一版。 */
+let updateRelease = null;
+
+/**
+ * `update` 档的第三道前闸：先把「这条出口搬不搬得完那一整包」量出来，再决定开不开 app。
+ *
+ * 排在 `spawnApp` 之前是有理由的：这一腿的产品判据要真下真换，出口不通时它在屏上留下的
+ * 只有那句 `mihomo-windows-amd64-….zip 没下回来：请求没回来：fetch failed`——
+ * 尺子拿 320 秒去等一句环境话，最后报的是产品红（exit 1），读起来像「换装这条路坏了」。
+ * 2026-11-01 实测：这台机器此刻直连 GitHub 是元数据通、bulk 不通（1 MB 段 ECONNRESET，
+ * 2 MB 段 27 KB/s），Clash Verge 那 7896 没在听（用户把 GUI 关了，尺子不去启它）。
+ * 所以这一闸只说一句话：**这一趟没开 app、一个字节都没写，缺的是一条能搬 bulk 的出口。**
+ */
+async function assertUpdateEgress(report) {
+  let release;
+  try {
+    release = await fetchReleaseEvidence();
+  } catch (error) {
+    throw new EnvError(`发布页这一趟问不到（${error?.message ?? error}）：环境不通，不是产品没换成`);
+  }
+  report.release = release;
+  updateRelease = release;
+  let probe;
+  try {
+    probe = await probeAssetEgress(release);
+  } catch (error) {
+    throw new EnvError(`${error?.message ?? error}；这一档要真下 ${release.asset}，包搬不动是环境问题，不是产品没换成`);
+  }
+  report.egressProbe = { ...probe, tag: release.tag, asset: release.asset, productWindowMs: MIHOMO_ASSET_WINDOW_MS, budgetMs: EGRESS_BUDGET_MS };
+  if (probe.projectedMs === null) {
+    throw new EnvError(
+      `${hostOf(release.downloadUrl)} 这一趟读不出包的总长（content-range / content-length 都没有），` +
+        `算不出「${release.asset} 在 ${MIHOMO_ASSET_WINDOW_MS / 1000} 秒里搬不搬得完」——证明不了就别按下那颗键。`,
+    );
+  }
+  if (probe.projectedMs > EGRESS_BUDGET_MS) {
+    throw new EnvError(
+      `${hostOf(release.downloadUrl)} 这一趟搬不完 ${release.asset}：探针收到 ${probe.bytes} 字节用了 ${probe.ms}ms（约 ${probe.kbps} KB/s），` +
+        `整包 ${probe.totalBytes} 字节按这速率要 ${Math.round(probe.projectedMs / 1000)} 秒，而产品给资产那一跳只有 ` +
+        `${MIHOMO_ASSET_WINDOW_MS / 1000} 秒（这一闸要它落在 ${EGRESS_BUDGET_MS / 1000} 秒内）` +
+        `${probe.cutShort ? `，探针自己到点就断了：${probe.cutShort}` : ""}。` +
+        "补一条能搬 bulk 的出口再跑这一档：`HTTPS_PROXY` 配 `NODE_USE_ENV_PROXY=1` 会随 spawnApp 进 app 的环境，不注入就是直连。",
+    );
+  }
 }
 
 /* ------------------------------------------------------------------- 各档腿 */
@@ -1045,7 +1199,7 @@ function step(label) {
 /** 公共收尾：把「我们起的这颗」停干净，并证明停干净了。 */
 async function stopOwnCore(report, expectPortsReleased) {
   const snapshot = await pressCoreButton("core_stop", { receiptKey: "stopped" });
-  const bar = expectReceipt(snapshot, "stopped", { tone: "ok" });
+  const bar = await expectReceipt(snapshot, "stopped", { tone: "ok" });
   expectFacts(snapshot, {}, ["portsLabel", "pidLabel", "controllerLabel"]);
   if (!isCopy(snapshot.state, "state.stopped")) throw new Error(`点完停止，状态徽标不是「已停止」：${snapshot.state}`);
   if (snapshot.online) throw new Error(`账上说是已停止，徽标还亮着绿点`);
@@ -1065,7 +1219,7 @@ async function legStart(report) {
   const ports = { mixed: LEG.mixed, controller: LEG.controller };
   step("点「起内核」（借安装目录里那颗，真 spawn）");
   const started = await pressCoreButton("core_start", { receiptKey: "started" });
-  expectReceipt(started, "started", { tone: "ok" });
+  await expectReceipt(started, "started", { tone: "ok" });
   report.start = { bar: started.bar.text, facts: started.facts, state: started.state, buttons: started.buttons };
   if (!started.online) throw new Error(`内核起来了却没亮绿点：${started.state}`);
   if (!isCopy(started.state, "state.running")) throw new Error(`状态徽标不是「运行中」：${started.state}`);
@@ -1127,7 +1281,7 @@ async function legStart(report) {
 
   step("点「重启」：账上换一颗 pid，端口以回执为准");
   const restarted = await pressCoreButton("core_restart", { receiptKey: "restarted" });
-  expectReceipt(restarted, "restarted", { tone: "ok" });
+  await expectReceipt(restarted, "restarted", { tone: "ok" });
   const pid2 = Number(factValue(restarted, "pidLabel"));
   report.restart = { bar: restarted.bar.text, pidBefore: pid, pidAfter: pid2 };
   if (!Number.isInteger(pid2) || pid2 === pid) throw new Error(`重启之后 pid 没换：${pid} → ${pid2}`);
@@ -1153,7 +1307,7 @@ async function legExternal(report) {
   const controllerHost = `http://127.0.0.1:${fake.port}`;
   step("点「起内核」：控制器可达就该只接管、不动手");
   const started = await pressCoreButton("core_start", { receiptKey: "adopted" });
-  expectReceipt(started, "adopted", { tone: "ok" });
+  await expectReceipt(started, "adopted", { tone: "ok" });
   report.external = { bar: started.bar.text, facts: started.facts, buttons: started.buttons, hints: started.hints };
   if (!started.online || !isCopy(started.state, "state.running")) throw new Error(`接管成功却没亮绿点：${started.state}`);
   expectFacts(started, { modeLabel: "mode.external", secretLabel: "secret.none" }, ["portsLabel", "pidLabel", "uptimeLabel", "healLabel"]);
@@ -1204,7 +1358,7 @@ async function legGate(report) {
 
   step("点「起内核」：闸门在 spawn 之前就该挡下");
   const blocked = await pressCoreButton("core_start", { receiptKey: "reason.verge-running" });
-  expectReceipt(blocked, "reason.verge-running", { tone: "error" });
+  await expectReceipt(blocked, "reason.verge-running", { tone: "error" });
   report.gate = { bar: blocked.bar.text, facts: blocked.facts, attention: blocked.attention, buttons: blocked.buttons };
   if (blocked.online) throw new Error(`被闸门挡下了却亮着绿点`);
   if (!isCopy(blocked.state, "state.blocked")) throw new Error(`状态不是「没让它起」：${blocked.state}`);
@@ -1234,7 +1388,7 @@ async function legGate(report) {
   // 探针那一份结果缓存 2 秒（VERGE_PROBE_TTL_MS）：不等过它，第二次点击读到的还是上一轮的旧账。
   await new Promise((r) => setTimeout(r, 3_000));
   const opened = await pressCoreButton("core_start", { receiptKey: "started" });
-  expectReceipt(opened, "started", { tone: "ok" });
+  await expectReceipt(opened, "started", { tone: "ok" });
   report.gatePositive = { bar: opened.bar.text, facts: opened.facts };
   const pid = Number(factValue(opened, "pidLabel"));
   if (!Number.isInteger(pid) || pid <= 0) throw new Error(`闸门拆开后起来了，可 PID 那一行读不出来：${JSON.stringify(opened.facts)}`);
@@ -1258,7 +1412,7 @@ async function legHeal(report) {
   const installedExe = requireInstalledCoreExe(report);
   step("先正常起一颗我们自己的");
   const started = await pressCoreButton("core_start", { receiptKey: "started" });
-  expectReceipt(started, "started", { tone: "ok" });
+  await expectReceipt(started, "started", { tone: "ok" });
   const pid1 = Number(factValue(started, "pidLabel"));
   checkCoreProcess(report, pid1, { expectedExe: installedExe, label: "heal-before" });
   report.heal = { pidBefore: pid1 };
@@ -1299,7 +1453,7 @@ async function legHeal(report) {
 
   step("人工「重启」= 新一轮意图：自愈计数要归零");
   const restarted = await pressCoreButton("core_restart", { receiptKey: "restarted" });
-  expectReceipt(restarted, "restarted", { tone: "ok" });
+  await expectReceipt(restarted, "restarted", { tone: "ok" });
   report.heal.reset = { facts: restarted.facts, pidAfter: Number(factValue(restarted, "pidLabel")) };
   if (factValue(restarted, "healLabel") !== null) throw new Error(`手动重启之后还挂着自愈计数：${factValue(restarted, "healLabel")}`);
   await stopOwnCore(report, ports);
@@ -1308,19 +1462,15 @@ async function legHeal(report) {
 async function legUpdate(report) {
   const ports = { mixed: LEG.mixed, controller: LEG.controller };
   const installedExe = requireInstalledCoreExe(report);
-  step("自己取一次发布页，作为独立对照");
-  let release;
-  try {
-    release = await fetchReleaseEvidence();
-  } catch (error) {
-    throw new EnvError(`发布页这一趟问不到（${error?.message ?? error}）：环境不通，不是产品没换成`);
-  }
-  report.release = release;
+  // 发布页由前闸三取、出口由前闸三量（`report.release` / `report.egressProbe` 就在那一趟里落下）：
+  // 腿里再问一次会多一个「两次答案不是同一版」的形状，而那正好是这一档最难查的错。
+  const release = updateRelease;
+  if (!release) throw new EnvError("发布页没由前闸三取回来：这一档的入口不在 main 的闸门序列里");
 
   step("第一次点「更新内核」：真下 22 MB、对摘要、换装（此刻没有我们在跑的那颗）");
   if (fs.existsSync(BUNDLED_EXE)) throw new Error(`开局就该没有 ${BUNDLED_EXE}：这一档要量的是「从没有到装上」`);
   const first = await pressCoreButton("core_update", { receiptKey: "update.outcome.installed", waitMs: UPDATE_WAIT_MS });
-  const firstBar = expectReceipt(first, "update.outcome.installed", { tone: "ok" });
+  const firstBar = await expectReceipt(first, "update.outcome.installed", { tone: "ok" });
   report.updateInstalled = { bar: firstBar.text, span: first.updateSpan, facts: first.facts };
   // 「装上了」这句不许偷来一颗绿点当「用上了」：这一档此刻一颗进程都不是我们起的。
   if (first.online) throw new Error(`换完文件这张卡就亮了绿点：把「装上了」说成「生效了」`);
@@ -1347,7 +1497,7 @@ async function legUpdate(report) {
 
   step("起了它才发现：三态发现优先借安装版，我们那颗一步都没走");
   const started = await pressCoreButton("core_start", { receiptKey: "started" });
-  expectReceipt(started, "started", { tone: "ok" });
+  await expectReceipt(started, "started", { tone: "ok" });
   expectFacts(started, { modeLabel: "mode.installed" }, []);
   const borrowedPid = Number(factValue(started, "pidLabel"));
   checkCoreProcess(report, borrowedPid, { expectedExe: installedExe, label: "update-borrowed" });
@@ -1358,7 +1508,7 @@ async function legUpdate(report) {
 
   step("跑着的时候点「更新内核」：要中性色那句 busy，而且不烧那 22 MB");
   const busy = await pressCoreButton("core_update", { receiptKey: "update.outcome.busy", waitMs: UPDATE_WAIT_MS });
-  expectReceipt(busy, "update.outcome.busy", { tone: "neutral" });
+  await expectReceipt(busy, "update.outcome.busy", { tone: "neutral" });
   report.updateBusy = { bar: busy.bar.text };
   if (sha256(BUNDLED_EXE) !== shaBorrowed) throw new Error(`busy 这一次却把 ${BUNDLED_EXE} 换了`);
   if (mtimeMs(BUNDLED_EXE) !== mtimeBorrowed) throw new Error(`busy 这一次动了文件的时间戳`);
@@ -1370,7 +1520,7 @@ async function legUpdate(report) {
   step("停下来再点：逐字节相同那句 latest，文件与时间戳都不许动");
   await stopOwnCore(report, ports);
   const latest = await pressCoreButton("core_update", { receiptKey: "update.outcome.latest", waitMs: UPDATE_WAIT_MS });
-  expectReceipt(latest, "update.outcome.latest", { tone: "ok" });
+  await expectReceipt(latest, "update.outcome.latest", { tone: "ok" });
   report.updateLatest = { bar: latest.bar.text, span: latest.updateSpan, facts: latest.facts };
   if (sha256(BUNDLED_EXE) !== shaBorrowed) throw new Error(`latest 这一次重写了文件`);
   if (mtimeMs(BUNDLED_EXE) !== mtimeBorrowed) throw new Error(`latest 这一次动了时间戳（「文件没动」那句是假的）`);
@@ -1395,7 +1545,7 @@ async function legUpdate(report) {
   if (card2.updateSpan) throw new Error(`重开一扇窗之后「${copyOf("update.lastLabel")[0]}」那一行还在：${JSON.stringify(card2.facts)}`);
   if (!hasHint(card2, "update.firstHint")) throw new Error(`重开后没把「还没试过更新」那句教回卡片：${JSON.stringify(card2.hints)}`);
   const bundledStart = await pressCoreButton("core_start", { receiptKey: "started" });
-  expectReceipt(bundledStart, "started", { tone: "ok" });
+  await expectReceipt(bundledStart, "started", { tone: "ok" });
   expectFacts(bundledStart, { modeLabel: "mode.bundled" }, []);
   const bundledPid = Number(factValue(bundledStart, "pidLabel"));
   checkCoreProcess(report, bundledPid, { expectedExe: BUNDLED_EXE, label: "bundled" });
@@ -1419,7 +1569,7 @@ async function legNoConfig(report) {
   const ports = { mixed: LEG.mixed, controller: LEG.controller };
   step("没选订阅时点「起内核」：配置写不出来就不该 spawn");
   const blocked = await pressCoreButton("core_start", { receiptKey: "reason.no-config" });
-  const bar = expectReceipt(blocked, "reason.no-config", { tone: "error" });
+  const bar = await expectReceipt(blocked, "reason.no-config", { tone: "error" });
   report.noConfig = { bar: bar.text, facts: blocked.facts, attention: blocked.attention, buttons: blocked.buttons };
   if (blocked.online) throw new Error(`配置都没写出来却亮了绿点`);
   if (!isCopy(blocked.state, "state.blocked")) throw new Error(`状态不是「没让它起」：${blocked.state}`);
@@ -1445,7 +1595,16 @@ class EnvError extends Error {}
 
 /* --------------------------------------------------------------------- 主路 */
 
+/** 报告与截图落在仓库 `.tmp/`：开局那句 `rmSync(BASE)` 会把一次性目录整个抹掉，证据不能住在里面。 */
+function writeReport(report) {
+  fs.mkdirSync(REPORTS, { recursive: true });
+  const file = path.join(REPORTS, `core-card-${MODE}.json`);
+  fs.writeFileSync(file, JSON.stringify(report, null, 2), "utf8");
+  return file;
+}
+
 async function main() {
+  assertRulerWired();
   assertSandbox();
 
   // 前闸一：`clash-verge.exe` 的状态。要求按档位分（见 LEGS.needGateOpen）。
@@ -1476,6 +1635,22 @@ async function main() {
     console.error(`[core-card-cdp] ENV: CDP 端口 ${DEBUG_PORT} 还被占着（上一趟没退干净？）；这一趟没开 app。`);
     process.exitCode = ENV_EXIT;
     return;
+  }
+  // 前闸三：`update` 档要真下整包（产品的资产那一跳只有 120 秒），出口搬不动就别让产品去撞那把刀。
+  if (MODE === "update") {
+    try {
+      await assertUpdateEgress(report);
+    } catch (error) {
+      report.ok = false;
+      report.envError = true;
+      report.error = `ENV: ${error?.message ?? error}`;
+      // 落报告：这一趟没开 app，但读数得留下——不然盘上留着的是上一趟的失败现场，会被读成这一趟的。
+      const file = writeReport(report);
+      console.error(`[core-card-cdp] ${report.error}`);
+      console.error(`[core-card-cdp] 这一趟没开 app、没造目录、一个字节都没写；探针读数在 ${file}`);
+      process.exitCode = ENV_EXIT;
+      return;
+    }
   }
 
   // 开局先扫一遍上一次崩在这里的自己人：判据是命令行里带着一次性目录，与用户那颗不可能重合。
@@ -1556,8 +1731,7 @@ async function main() {
     report.clashVergeImageAtEnd = vergeRunning();
   }
 
-  const file = path.join(REPORTS, `core-card-${MODE}.json`);
-  fs.writeFileSync(file, JSON.stringify(report, null, 2), "utf8");
+  const file = writeReport(report);
   if (report.ok) {
     console.log(JSON.stringify({ ok: true, mode: MODE, report: file }, null, 2));
     return;
