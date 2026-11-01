@@ -20,7 +20,7 @@
 // 假一台 GitHub 服务器要拧两处，而这两处正是这条通道要守的东西——`CLIENT_RELEASE_API_URL` 没有可注入
 // 的 base URL（钉死就是判据），出口白名单也不放行一台假服务器（放行等于把 A3 拆了）。在生产代码里留一条
 // dev 覆写最容易，但那条覆写在装机包里也长着嘴。所以这里一根手指都没碰生产代码：
-// - `latest`／`available` 用**真发布页**（钉住的 `damingslu-ctrl/Cyrene-Agent`，v1.16.0 挂在上面）。
+// - `latest`／`available` 用**真发布页**（钉住的 `damingslu-ctrl/Cyrene-Agent`，v1.16.1 挂在上面）。
 //   `available` 那一趟靠把本机版本号压低一格造出来：`currentVersion` 是本机唯一可动的自变量，
 //   而它本来就是 `app.getVersion()` 现读的——不落盘、不记账，所以「本机是 1.0.0」这句假话不会留下后果。
 // - `network-failed` 把出口断在**传输层**：这台机器的 App 里，那一跳走的是主进程 `fetch()`（undici，
@@ -58,13 +58,19 @@ const DEBUG_PORT = 9338;
 const PAGE_WAIT_MS = 45_000;
 const PACKAGE_JSON = path.join(ROOT, "package.json");
 /** 钉住的那一版；发布页换了这一档就要跟着换，否则 `available` 那趟的期望不成立。 */
-const PINNED_LATEST = "1.16.0";
-/** `available`／`download` 那两趟把本机版本号压到这里：发布页的 v1.16.0 于是「比本机新」。 */
+const PINNED_LATEST = "1.16.1";
+/** `available`／`download` 那两趟把本机版本号压到这里：发布页的 v1.16.1 于是「比本机新」。 */
 const OLD_VERSION = "1.0.0";
 /** `download` 那一趟的出口：主进程 undici 不认 `--proxy-server`，只能从 env 那一层给（理由见文件头）。 */
 const DEFAULT_PROXY = "http://127.0.0.1:7896";
 /** 低于这个体量的东西不像这颗安装器（真包约 290 MB）：防的是「下回来一颗错误页」被当成新包。 */
 const DOWNLOAD_MIN_BYTES = 64 * 1024 * 1024;
+/** `download` 那一趟产品判据的全部耐心：与下面 `waitFor` 里那句 20 分钟同源，两处只许有一把表。 */
+const DOWNLOAD_BUDGET_MS = 20 * 60_000;
+const EGRESS_PROBE_BYTES = 2 * 1024 * 1024;
+const EGRESS_PROBE_DEADLINE_MS = 30_000;
+/** 投影要留的余量：探针量的是这一段瞬时速率，真包后半程只会更抖，不会更稳。 */
+const EGRESS_MARGIN_MS = 2 * 60_000;
 const SETTINGS_REL = "profile/update/settings.json";
 
 const LOCALES = ["zh-CN", "en", "ja-JP"];
@@ -1073,6 +1079,77 @@ function sha256Stream(file) {
 }
 
 /**
+ * 按下载**之前**先量一次出口：这一档的产品判据要从真发布页搬整颗安装器，而它只有 `DOWNLOAD_BUDGET_MS`
+ * 这一把表。搬不完不是产品的错——让产品去撞，屏上什么也不会说，20 分钟后由 `waitFor` 抛一句超时，
+ * 读起来像「下载这条路坏了」。所以先取一小段带范围的探针，用 `content-range` 的总长把整包按这段
+ * 速率摊一下，摊不进表里就报 ENV（exit 2），一个字节也不落到沙箱。
+ *
+ * 只量直连那一腿：这台机器上尺子自己的 `fetch()` 是直连的（Node 要带 `NODE_USE_ENV_PROXY=1` 启动才认
+ * env 代理，见文件头那句「第三趟就红在这里」），而 app 那一腿的代理是从 env 里递给它的。带了 `--proxy=`
+ * 的时候两者不在同一条路上，量了也不算数——这一闸宁可跳过，不许拿另一条路的速率判这一条。
+ */
+async function assertDownloadEgress(fileName) {
+  const proxy = downloadProxy();
+  if (proxy) return { skipped: `出口指到 ${proxy}：尺子自己的 fetch 不认 env 代理，量不到 app 那一腿，不做投影` };
+  const url = `https://github.com/${pinnedRepo()}/releases/download/v${PINNED_LATEST}/${fileName}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), EGRESS_PROBE_DEADLINE_MS);
+  const startedAt = Date.now();
+  let bytes = 0;
+  let totalBytes = null;
+  let status = null;
+  let cut = null;
+  let timedOut = false;
+  try {
+    const res = await fetch(url, { headers: { range: `bytes=0-${EGRESS_PROBE_BYTES - 1}` }, signal: controller.signal });
+    status = res.status;
+    const match = /\/(\d+)\s*$/.exec(res.headers.get("content-range") ?? "");
+    totalBytes = match ? Number(match[1]) : null;
+    if (res.body) {
+      for await (const chunk of res.body) bytes += chunk.length;
+    }
+  } catch (error) {
+    timedOut = error?.name === "AbortError" || error?.cause?.name === "AbortError";
+    // undici 把真正的死因塞在 `cause` 里，外层只剩一句 `fetch failed`——不挖出来，
+    // ENV 那句就只说「没搬回来」，分不清是没人听、被 DPI 掐了还是证书那层炸了。
+    const cause = error?.cause;
+    const causeText = cause?.code ?? cause?.message ?? "";
+    cut = timedOut ? "到点自己掐表" : `${error?.message ?? error}${causeText ? `（${causeText}）` : ""}`;
+  } finally {
+    clearTimeout(timer);
+  }
+  const elapsedMs = Math.max(1, Date.now() - startedAt);
+  const reading = { url, probeBytes: bytes, totalBytes, elapsedMs, status, cutShort: cut, timedOut, budgetMs: DOWNLOAD_BUDGET_MS };
+  const envFail = (detail) => {
+    const envError = new Error(`环境没给跑：${fileName} 这一趟——${detail}（status=${status}，探针收到 ${bytes} 字节用了 ${elapsedMs}ms${cut ? `，断因：${cut}` : ""}）`);
+    envError.isEnvironment = true;
+    envError.reading = reading;
+    throw envError;
+  };
+  // 「一个字节都没收到」排在「量不到总长」之前：那是连响应头都没落地的形状，
+  // 拿 content-range 缺失去解释它，会把一条断掉的腿说成对家不会发头。
+  if (bytes === 0) envFail("探针没搬回一个字节，下载那一腿不通");
+  if (totalBytes === null) envFail("响应没给 content-range，摊不出「整包按这速率要多久」，就不下结论");
+  reading.kbps = Math.round((bytes / elapsedMs / 1024) * 1000);
+  reading.projectedMs = Math.round((elapsedMs * totalBytes) / bytes);
+  if (cut !== null && !timedOut) {
+    // 到点自己掐表那种「切断」是这一档常态（慢腿等不满一整段），照下面的投影判；
+    // 而对家先把连接掀了——连这一小段都没稳住，摊出来的速率不算数。
+    envFail(
+      `探针半路被切断，连 ${EGRESS_PROBE_BYTES} 字节这一小段都没稳住（约 ${reading.kbps} KB/s），摊不出可信的速率，就不下结论`,
+    );
+  }
+  if (reading.projectedMs > DOWNLOAD_BUDGET_MS - EGRESS_MARGIN_MS) {
+    envFail(
+      `搬不完：约 ${reading.kbps} KB/s，整包 ${totalBytes} 字节按这速率要 ${Math.round(reading.projectedMs / 1000)} 秒，` +
+        `而尺子给下载那一把表只有 ${Math.round(DOWNLOAD_BUDGET_MS / 1000)} 秒（留 ${Math.round(EGRESS_MARGIN_MS / 1000)} 秒余量）` +
+        (timedOut ? `；这一段是到自己掐表才停的（${EGRESS_PROBE_DEADLINE_MS / 1000} 秒没凑满 ${EGRESS_PROBE_BYTES} 字节）` : ""),
+    );
+  }
+  return reading;
+}
+
+/**
  * `download` 那一档的后半段：真下一颗包、核字节、篡改、再验拒装。
  *
  * **绝不真装**：安装那一下按设计是「起安装器 → 退出 App → 被替换」，没有反悔通路。所以先按
@@ -1086,6 +1163,8 @@ function sha256Stream(file) {
 async function exerciseDownload(page, copy, run, profile, child) {
   const updatesDir = path.join(profile, "updates");
   const fileName = `Mochi-Setup-${PINNED_LATEST}.exe`;
+  run.egressProbe = await assertDownloadEgress(fileName);
+  step(`${run.name}：出口前闸放行——${JSON.stringify(run.egressProbe)}`);
 
   step(`${run.name}：按「下载」——发布页那颗真包会落到沙箱盘上`);
   // 探针必须在按下载**之前**钉下去：这一档要回答的问题正是「下载这一两分钟里，屏幕上发生了什么」，
@@ -1103,7 +1182,7 @@ async function exerciseDownload(page, copy, run, profile, child) {
     const value = await readState(page);
     if (value.download === null) return null;
     return value.phase === "idle" ? value : null;
-  }, 20 * 60_000, "下载那本账落笔（真包，量级 290 MB，给足 20 分钟）");
+  }, DOWNLOAD_BUDGET_MS, "下载那本账落笔（真包，量级 290 MB，给足 20 分钟）");
   run.downloadState = downloaded;
   const receipt = downloaded.download;
 
@@ -1327,6 +1406,9 @@ async function main() {
     // 红那一趟的现场要进报告：读不到 stateAfter / cardAfter / addedUpdateish，就等于只知道自己错了、
     // 不知道错在哪一层（main 没落账？页面没说那句话？还是写面越了界？）。
     if (error?.run) report.failedRun = error.run;
+    // 出口前闸判成 ENV 时，读数本身要进报告：只有那句「搬不完」而没有 kbps/投影秒数，
+    // 下一轮就没法分清是出口又瘦了还是闸门自己坏了。
+    if (error?.reading) report.egressProbe = error.reading;
     console.error(`[client-update-cdp] ${error?.isEnvironment ? "ENV（不是产品红）" : "FAIL"}: ${report.error}`);
     console.error(JSON.stringify(report, null, 2));
     for (const result of results) if (!result?.ok) console.error(`[client-update-cdp] ${result?.name} app 输出尾部：\n${result?.appLogTail}`);
