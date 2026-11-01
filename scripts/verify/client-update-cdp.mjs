@@ -2,7 +2,8 @@
 // 把检查那一段的三种下场各跑一趟——`latest`（发布页那版不比本机新）、`available`（问到更新的一版）、
 // `network-failed`（请求没回来）——每趟都是真代码、真出口、真发布页。
 //
-// 用法：node scripts/verify/client-update-cdp.mjs [--runs=latest,available,failed] [--locales=zh-CN,en,ja-JP]
+// 用法：node scripts/verify/client-update-cdp.mjs [--runs=latest,available,download,failed] [--locales=zh-CN,en,ja-JP] [--proxy=http://127.0.0.1:7896]
+// `download` 不在默认档里：它要从真发布页拉一颗 290 MB 的包。
 // 退出码：0 绿／1 红／2 环境没给跑（见 ENV 那段）。
 //
 // `--locales=` 那一档在做什么：三腿的**每一趟**都可以换一份语言表再跑一遍。语言只走生产通路
@@ -19,7 +20,7 @@
 // 假一台 GitHub 服务器要拧两处，而这两处正是这条通道要守的东西——`CLIENT_RELEASE_API_URL` 没有可注入
 // 的 base URL（钉死就是判据），出口白名单也不放行一台假服务器（放行等于把 A3 拆了）。在生产代码里留一条
 // dev 覆写最容易，但那条覆写在装机包里也长着嘴。所以这里一根手指都没碰生产代码：
-// - `latest`／`available` 用**真发布页**（钉住的 `damingslu-ctrl/Cyrene-Agent`，v1.15.0 挂在上面）。
+// - `latest`／`available` 用**真发布页**（钉住的 `damingslu-ctrl/Cyrene-Agent`，v1.16.0 挂在上面）。
 //   `available` 那一趟靠把本机版本号压低一格造出来：`currentVersion` 是本机唯一可动的自变量，
 //   而它本来就是 `app.getVersion()` 现读的——不落盘、不记账，所以「本机是 1.0.0」这句假话不会留下后果。
 // - `network-failed` 把出口断在**传输层**：这台机器的 App 里，那一跳走的是主进程 `fetch()`（undici，
@@ -28,15 +29,21 @@
 //   换成正经的一层：Node 24 认 `NODE_USE_ENV_PROXY=1`，把 https 出口指到 `127.0.0.1:9`（discard 端口，
 //   开局先自己试连一次，握手上了就报 ENV）——白名单照旧放行，它判的是 URL 的 host，败的是那一跳的连接。
 //   改 hosts 要管理员权限，本机拿不到，也不该为验收去改系统。
-// - `digest-mismatch`（摘要不符）**不在这里跑**：它要动那颗 290 MB 安装包的字节，而下载与安装这两段
-//   在这档里一颗按钮都没点——点下去是往盘上写 290 MB，再点一次是退出并被替换，没有反悔通路。
-//   那一档的凭据在 `installer-download.test.ts` 与 `update-service.test.ts`（用的是装配层留的注入点），
-//   这里不冒充它。真窗覆盖到的只有检查这一段，报告里也是这么写的。
+// - `download` 那一趟把下载与安装两段也真走一遍：先按「下载」把发布页那颗 290 MB 的包拉到沙箱盘上，
+//   盘上的字节数跟账对得上、sha256 跟发布页那颗 `SHA256SUMS.txt` 对得上（探针自己取的，
+//   不拿 App 那本账当凭据）；然后把包**换成一小段文本**再按两次「安装」。
+//   装之前那次 sha256 重算是真窗能碰到的最后一道闸，它判 `stale-package`、一颗安装器都不起来，
+//   而 App 必须还留在原地（这一档绝不真装：安装那一下按设计是退出并被替换，没有反悔通路）。
+//   换上去的是非 PE 文本，就算这道闸漏了，起到的也只是一颗装不上任何东西的文件。
+// - `digest-mismatch`（**发布页给的摘要本身**就是错的）仍然不在这里跑：那要伪造一颗错摘要的 release，
+//   真窗没有注入点。它由 `installer-download.test.ts` 与 `update-service.test.ts` 覆盖（用的是装配层留的
+//   注入点）。`download` 那一趟验的是另一个 reason、另一条通路（装前重算），两者不互相冒充。
 //
 // 每一趟都是**一次性目录**：`--user-data-dir` + APPDATA 全指到 `D:\cyrene-update-accept\run-<名>\`。
 // 落盘边界（spec D2）在这里是被验的，不是被假设的：每趟结束时对整棵沙箱做文件差分，
-// 更新通道只允许留下 `profile/update/settings.json` 这一颗（且只有碰开关那趟有），`updates/` 必须压根没长出来。
-import { spawn } from "node:child_process";
+// 更新通道只允许留下 `profile/update/settings.json`（只有碰开关那趟有）与 `download` 那趟
+// `profile/updates/` 里那一颗被换过的包；其余各趟 `updates/` 必须压根没长出来。
+import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -51,9 +58,13 @@ const DEBUG_PORT = 9338;
 const PAGE_WAIT_MS = 45_000;
 const PACKAGE_JSON = path.join(ROOT, "package.json");
 /** 钉住的那一版；发布页换了这一档就要跟着换，否则 `available` 那趟的期望不成立。 */
-const PINNED_LATEST = "1.15.0";
-/** `available` 那一趟把本机版本号压到这里：发布页的 v1.15.0 于是「比本机新」。 */
+const PINNED_LATEST = "1.16.0";
+/** `available`／`download` 那两趟把本机版本号压到这里：发布页的 v1.16.0 于是「比本机新」。 */
 const OLD_VERSION = "1.0.0";
+/** `download` 那一趟的出口：主进程 undici 不认 `--proxy-server`，只能从 env 那一层给（理由见文件头）。 */
+const DEFAULT_PROXY = "http://127.0.0.1:7896";
+/** 低于这个体量的东西不像这颗安装器（真包约 290 MB）：防的是「下回来一颗错误页」被当成新包。 */
+const DOWNLOAD_MIN_BYTES = 64 * 1024 * 1024;
 const SETTINGS_REL = "profile/update/settings.json";
 
 const LOCALES = ["zh-CN", "en", "ja-JP"];
@@ -189,13 +200,13 @@ function interp(text, vars = {}) {
 }
 
 /**
- * 检查那一趟的回执该怎么拼——照 `ClientUpdateSection.tsx` 的 `actionReceipt()`：
+ * 某一段（`check`／`download`／`install`）的回执该怎么拼——照 `ClientUpdateSection.tsx` 的 `actionReceipt()`：
  * 有 reason 就 `outcome · reason [· 详情：detail]`，没有就 `outcome [· v版本]`。
  * 判据（outcome／reason／detail）全部来自通道回来的那本账，探针只管拼法：
  * 拼错了就红——「界面上那句话是不是语言文件里那句话」正是这一档要的东西。
  */
-function expectedCheckNotice(copy, receipt) {
-  const outcome = lookup(copy, `network.clientUpdate.check.${receipt.outcome}`);
+function expectedNotice(copy, section, receipt) {
+  const outcome = lookup(copy, `network.clientUpdate.${section}.${receipt.outcome}`);
   if (receipt.reason) {
     const reason = lookup(copy, `network.clientUpdate.reason.${receipt.reason}`);
     return receipt.detail
@@ -231,6 +242,26 @@ const RUNS = {
     toggle: false,
     switches: [],
   },
+  download: {
+    expectVersion: OLD_VERSION,
+    expectOutcome: "available",
+    expectReason: null,
+    expectTone: "ok",
+    expectLeadKey: "network.clientUpdate.lead.available",
+    expectTarget: PINNED_LATEST,
+    mutateVersion: OLD_VERSION,
+    toggle: false,
+    /** 真下载一颗包、篡改、验拒装（下半段见 `exerciseDownload`）。 */
+    exerciseDownload: true,
+    switches: [],
+    env: {
+      NODE_USE_ENV_PROXY: "1",
+      HTTPS_PROXY: downloadProxy(),
+      https_proxy: downloadProxy(),
+      NO_PROXY: "",
+      no_proxy: "",
+    },
+  },
   failed: {
     expectVersion: PINNED_LATEST,
     expectOutcome: "failed",
@@ -250,9 +281,21 @@ const RUNS = {
       NO_PROXY: "",
       no_proxy: "",
     },
+    /**
+     * 「这颗端口必须没人听」是**这一档**独有的前提，只有它需要预闸。
+     * 别拿 `env` 当判据：`download` 那档也带 env，那是本机**真代理**——第一趟就是被这把尺按住的
+     * （它握手成功，于是被判「假出口没死透」，一次真下载都没开始）。
+     */
+    deadProxy: true,
     switches: [],
   },
 };
+
+/** `--proxy=` / `CLIENT_UPDATE_PROXY` / 本机那颗混合端口，按序取第一颗。 */
+function downloadProxy() {
+  const arg = process.argv.slice(2).find((value) => value.startsWith("--proxy="))?.slice("--proxy=".length);
+  return arg ?? process.env.CLIENT_UPDATE_PROXY ?? DEFAULT_PROXY;
+}
 
 /* ------------------------------------------------------------------ CDP 机械 */
 
@@ -406,6 +449,99 @@ const READ_CARD = `(() => {
     })),
   };
 })()`;
+
+/**
+ * 卡片整个不在场时，这一份说明是谁把它顶下台的：网络页在不在、此刻哪一格 `is-active`、
+ * 页签条上都有些什么。第一趟真下载分不清「按钮灰着」与「这一页已经不是齿轮页」，
+ * 那两句红话长得一样、修法完全不同。
+ */
+const READ_PAGE = `(() => {
+  const text = (el) => (el ? (el.innerText || "").replace(/\\s+/g, " ").trim() : null);
+  return {
+    clientSections: document.querySelectorAll("section.net-client").length,
+    netPanel: !!document.querySelector(".net-panel"),
+    activeTab: text(document.querySelector(".net-tab.is-active")),
+    tabs: [...document.querySelectorAll(".net-tab")].map((el) => ({ label: text(el), className: el.className })),
+  };
+})()`;
+
+/**
+ * 下载那一两分钟里，「客户端更新」那张卡还在不在屏上——第一趟真下载（run-b）就断在这里，而当时的现场
+ * 只说得出「卡片不在场 + activeTab 是概览」。那一句至少有三样不同的修法（后来两趟实测页没跑，
+ * 说明 run-b 那一次是另一回事），所以把三颗探针钉进页面自己答：
+ *
+ * - `stamped`：戳在 `.net-panel` 那个 **DOM 节点**上。React 卸载重挂会换掉节点，戳就丢；页签只是被
+ *   切走、面板还挂着时戳还在。这一条把「面板被重建」和「页签被换」分开——前者是产品的红（用户正操作
+ *   的那一页被顶下台），后者才归尺子管。
+ * - 探针对象整个不见了＝`window` 换过了（文档重载）。`loadSeq` 是同一件事在尺子这一侧的第二份凭据，
+ *   两边一起看才不靠单一口径。
+ * - `log`：`MutationObserver` 每落一次就比一次签名（此刻哪格 active／戳在不在／卡片几枚），
+ *   **签名真变了才记一笔**。流量曲线每秒都在画，逐笔记会把这一两分钟淹成上万条。
+ *
+ * 探针只读 DOM，不写产品状态：`window.__rulerProbe` 这个名字产品侧不存在，也不许存在——
+ * 它是尺子借宿的地方，不是产品的字段。
+ */
+function plantTabProbe(token) {
+  return `(() => {
+  const TOKEN = ${JSON.stringify(token)};
+  const read = () => {
+    const active = document.querySelector(".net-tab.is-active");
+    const panel = document.querySelector(".net-panel");
+    return {
+      tab: active ? (active.innerText || "").replace(/\\s+/g, " ").trim() : null,
+      stamped: !!(panel && panel.__rulerStamp === TOKEN),
+      sections: document.querySelectorAll("section.net-client").length,
+    };
+  };
+  const state = { token: TOKEN, plantedAt: Date.now(), t0: performance.now(), log: [], dropped: 0, signature: null };
+  const note = (why) => {
+    const now = read();
+    const sig = now.tab + "|" + now.stamped + "|" + now.sections;
+    if (sig === state.signature) return;
+    state.signature = sig;
+    if (state.log.length >= 60) { state.dropped += 1; return; }
+    state.log.push(Object.assign({ why, atMs: Math.round(performance.now() - state.t0) }, now));
+  };
+  const panel = document.querySelector(".net-panel");
+  if (panel) panel.__rulerStamp = TOKEN;
+  note("plant");
+  if (window.__rulerObserver) window.__rulerObserver.disconnect();
+  window.__rulerObserver = new MutationObserver(() => note("mutation"));
+  window.__rulerObserver.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+  window.__rulerProbe = state;
+  return read();
+})()`;
+}
+
+/** 读回探针：`null` 就是 `window` 换过了——老文档连同挂在它上面的那颗对象一起没了。 */
+const READ_TAB_PROBE = `(() => (window.__rulerProbe
+  ? { token: window.__rulerProbe.token, plantedAt: window.__rulerProbe.plantedAt, elapsedMs: Math.round(performance.now() - window.__rulerProbe.t0), dropped: window.__rulerProbe.dropped, log: window.__rulerProbe.log }
+  : null))()`;
+
+/**
+ * 把现场翻成一句话。判据只有这三样，宁可说得粗，也不许编得漂亮而没根据。
+ * 说这句话不为把这一趟放过去——它是为了让下一眼的人不用再猜。
+ */
+function tabProbeVerdict(probe, loadSeqDelta, pageNow) {
+  if (probe === null) {
+    return loadSeqDelta > 0
+      ? "文档在下载期间重新载入了：window 上的探针随老文档一起没了，loadSeq 也对得上"
+      : "探针不在了，可 loadSeq 没动——这两条凭据各执一词，先修尺子的读法，别把它读成产品的红";
+  }
+  const last = probe.log[probe.log.length - 1] ?? null;
+  if (last && last.stamped === false) {
+    return `面板被重建了：.net-panel 那个节点上的戳在 +${last.atMs}ms 那笔（页签「${last.tab}」）已经丢了——` +
+      "React 把用户正操作的那一页卸载重挂，页签回落到默认档「概览」。这是产品的红";
+  }
+  if (pageNow && pageNow.clientSections === 0 && pageNow.netPanel) {
+    return `面板还是原来那个节点（戳在），页签却切到了「${pageNow.activeTab}」：` +
+      `页签条上按过，或有代码调了 setTab——不是重建。最后几笔：${JSON.stringify(probe.log.slice(-3))}`;
+  }
+  if (pageNow && pageNow.clientSections > 0) {
+    return `下载结束时卡片还在屏上（页签「${pageNow.activeTab}」、戳 ${last && last.stamped ? "在" : "丢"}）：这一趟页没跑`;
+  }
+  return `说不准：卡片不在、`.concat(`.net-panel 也不在（${JSON.stringify(pageNow)}）。最后几笔：${JSON.stringify(probe.log.slice(-3))}`);
+}
 
 /** 通道那本账（页面拿到的整份 view）：判据在这里，不在 DOM 里。 */
 async function readState(page) {
@@ -623,7 +759,7 @@ async function runOne(name, config, tables, electronBin, locale) {
     await waitFor(async () => (await readState(page)).phase === "idle", 40_000, "这一趟走完 phase 退回 idle");
 
     step(`${name}：把屏幕上那句话逐字对齐语言文件`);
-    const want = expectedCheckNotice(copy.copy, state1.check);
+    const want = expectedNotice(copy.copy, "check", state1.check);
     const card = await waitFor(async () => {
       const value = await evaluate(page, READ_CARD);
       return value && value.notices.some((entry) => entry.text === want) ? value : null;
@@ -661,7 +797,11 @@ async function runOne(name, config, tables, electronBin, locale) {
     if (buttons.client_update_install.label !== lookup(copy.copy, "network.clientUpdate.install.button")) {
       throw new Error(`「安装」没武装却写着「${buttons.client_update_install.label}」——按钮名会骗一次点击`);
     }
-    // 三步都不点：下载是往盘上写 290 MB，安装是退出并被替换。这一档只到检查为止。
+    // 检查之外的两步只有 `download` 那一趟点：它先把包换成文本再按安装，见 `exerciseDownload`；
+    // 其余各档只到检查为止（下载会往盘上写 290 MB，安装是退出并被替换）。
+    if (config.exerciseDownload) {
+      await exerciseDownload(page, copy, run, profile, child);
+    }
     if (config.toggle) {
       step(`${name}：把自动检查开回去（不给用户留一条关掉的状态）`);
       await toggleOn(page, profile, copy, run);
@@ -685,14 +825,23 @@ async function runOne(name, config, tables, electronBin, locale) {
     run.addedFileCount = added.length;
     const updateish = added.filter((rel) => /(^|\/)updates?(\/|$)/i.test(rel));
     run.addedUpdateish = updateish;
+    // `download` 那一趟按设计要让 `updates/` 长出那一颗包（后来被换成了文本）；其余各趟一颗都不许长。
+    const expectedPackage = config.exerciseDownload && run.downloadProof
+      ? `profile/updates/${run.downloadProof.fileName}`
+      : null;
+    const unexpected = updateish.filter((rel) => rel !== SETTINGS_REL && rel !== expectedPackage);
     run.boundaryOk =
-      !updateish.some((rel) => rel !== SETTINGS_REL) && config.toggle === updateish.includes(SETTINGS_REL);
+      unexpected.length === 0 &&
+      config.toggle === updateish.includes(SETTINGS_REL) &&
+      (expectedPackage === null || updateish.includes(expectedPackage));
     const realNow = realUpdateSurfaces();
     run.realUpdateSurfacesUnchanged = JSON.stringify(realNow) === JSON.stringify(before.realUpdateSurfaces);
     // 已经有别的原因红了就先报那一个——写面的差值已经记进 run，看现场时一样在。
     if (!failure) {
-      if (updateish.some((rel) => rel !== SETTINGS_REL)) {
-        failure = new Error(`更新通道写了第三处：${JSON.stringify(updateish)}（spec D2 只给两处）`);
+      if (unexpected.length > 0) {
+        failure = new Error(`更新通道写了不该写的地方：${JSON.stringify(unexpected)}（spec D2 只给 settings.json 一处；下载那趟另给 updates/ 里那一颗包）`);
+      } else if (expectedPackage !== null && !updateish.includes(expectedPackage)) {
+        failure = new Error(`这一趟真下过包，退出后 updates/ 里却没有 ${expectedPackage}：${JSON.stringify(updateish)}`);
       } else if (config.toggle !== updateish.includes(SETTINGS_REL)) {
         failure = new Error(
           config.toggle ? `按了开关却没在 ${SETTINGS_REL} 留下东西` : `这一趟没碰开关却写了盘：${JSON.stringify(updateish)}`,
@@ -768,11 +917,314 @@ async function toggleOn(page, profile, copy, run) {
   if (fs.existsSync(path.join(profile, "updates"))) throw new Error("开关那两下把 updates/ 也带出来了：它一个字节都不该写");
 }
 
+/* -------------------------------------------------------- 真下载 + 篡改拒装 */
+
+/** 安装器有没有被起起来：按镜像名问一次进程表（任务名的编码不影响，只认 ASCII 镜像名）。 */
+function installerProcesses(imageName) {
+  const res = spawnSync("tasklist", ["/FI", `IMAGENAME eq ${imageName}`, "/NH"], { encoding: "utf8", windowsHide: true });
+  if (res.status !== 0 || typeof res.stdout !== "string") return [];
+  return res.stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.includes(imageName));
+}
+
+/** 发布页里那颗我们自己写的摘要清单：这一档拿它当**独立**的 sha256 凭据（见 `publishedDigest`）。 */
+const SUMS_ASSET = "SHA256SUMS.txt";
+
+/** 钉住的仓库从生产代码里读，探针不重打一遍：写死了它，换仓库名那次尺子会跟着说谎。 */
+function pinnedRepo() {
+  const source = fs.readFileSync(path.join(ROOT, "src", "main", "update", "github-release.ts"), "utf8");
+  const hit = /export const CLIENT_UPDATE_REPO = "([^"]+)"/.exec(source);
+  if (!hit) throw new Error("读不出 github-release.ts 里的 CLIENT_UPDATE_REPO：钉住的发布页是哪一本？");
+  return hit[1];
+}
+
+/**
+ * 探针自己去发布页取那颗包的 sha256。
+ *
+ * 它和 App 用的不是同一份凭据：App 认的是 release API 里 `assets[].digest`（GitHub 自己算的），
+ * 这里读的是发布那一刻 `publish-update.mjs` 按字节写进 `SHA256SUMS.txt` 的那一枚。两边对上，
+ * 才说明「App 落到盘上的字节」既过了它自己的闸、也确实是我们发出去的那颗包。
+ *
+ * 这一跳走的是**尺子这个进程**，不是 App：App 那趟下载由档位自带的 env 代理牵着，尺子自己的
+ * `fetch()` 默认直连（Node 只有带 `NODE_USE_ENV_PROXY=1` 启动才认 env 代理）。第三趟就红在这里——
+ * 290 MB 已经落盘、账也记成 ready，只有尺子自己取凭据那一跳断了（`fetch failed`）。
+ * 重试三次仍拿不到就报 ENV：凭据不在，这一档不算验过；不许把它读成产品没拦住。
+ */
+async function publishedDigest(fileName) {
+  const url = `https://github.com/${pinnedRepo()}/releases/download/v${PINNED_LATEST}/${SUMS_ASSET}`;
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const res = await fetch(url, { headers: { "user-agent": "client-update-cdp" } });
+      if (!res.ok) {
+        lastError = new Error(`HTTP ${res.status}`);
+      } else {
+        const line = (await res.text())
+          .split(/\r?\n/)
+          .find((entry) => entry.trimEnd().endsWith(fileName));
+        const hex = line?.trim().split(/\s+/)[0]?.toLowerCase();
+        if (!hex || !/^[0-9a-f]{64}$/.test(hex)) {
+          throw new Error(`${SUMS_ASSET} 里没有 ${fileName} 那一行（读到 ${JSON.stringify(line ?? null)}）`);
+        }
+        return hex;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    step(`download：第 ${attempt} 次取 ${SUMS_ASSET} 没成（${String(lastError.message ?? lastError)}）`);
+    if (attempt < 3) await sleep(3_000);
+  }
+  const envError = new Error(
+    `尺子自己取不到 ${url}（${String(lastError?.message ?? lastError)}）：` +
+      "这一档没有独立的摘要凭据，不验。App 那趟下载已经落盘，是这一侧的出口断了——" +
+      "给这条命令带上 NODE_USE_ENV_PROXY=1 与 HTTPS_PROXY（和档位用的是同一颗代理）再跑。",
+  );
+  envError.isEnvironment = true;
+  throw envError;
+}
+
+const CLICK_INSTALL = `(() => { const el = document.querySelector("button[name='client_update_install']"); if (!el || el.disabled) return false; el.click(); return true; })()`;
+
+/** 每一笔只问两句：`window` 还是不是那颗、`.net-panel` 还是不是原来那个节点。整份 log 只在收尾读一次。 */
+const READ_PROBE_NOW = `(() => {
+  const probe = window.__rulerProbe || null;
+  const panel = document.querySelector(".net-panel");
+  return { marker: probe ? probe.token : null, stamped: !!(probe && panel && panel.__rulerStamp === probe.token) };
+})()`;
+
+/** 齿轮那颗页签——产品设置步骤里点的就是它，这里按回去不是新的动作，是把同一格再按一次。 */
+const CLICK_SETTINGS_TAB = `(() => { const el = document.querySelector(".net-tabs .net-tab--icon"); if (!el) return false; el.click(); return true; })()`;
+
+/**
+ * 按一次「安装」，并把「此刻那颗到底什么形状」一路记进台账。
+ *
+ * 第一趟真下载就是在这里断的：main 那本账已经 `ready`、`phase=idle`，页面却没给一颗按得下去的
+ * 安装键，而旧写法只丢一句「卡上没有可点的按钮」——那分不清三件事：按钮灰着、这一页已经不是
+ * 齿轮页、还是 React 那一拍还没落。三者长相一样、修法完全不同，所以现场要自己说话。
+ *
+ * 第二趟把话说清了：十笔全是「卡片不在场」，而 `activeTab` 是「概览」——卡所在的齿轮页被顶下台了。
+ * 于是这一层按探针给的分类走两条完全不同的路：
+ * - **戳还在**（`.net-panel` 还是原来那个 DOM 节点，只是页签切走了）：那是尺子该自己收拾的事，
+ *   把齿轮页签按回去再继续——这一下和设置步骤里已经做过的那一下是同一格，不改判据、不掩盖什么。
+ * - **戳没了**（节点被换）或**探针没了**（`window` 换过）：那是产品把用户正操作的那一页顶下台，
+ *   按回去就等于替它洗白，所以当场报红，并把分类写进话里。
+ *
+ * 最多等满 30 s（三整轮 10 s 轮询）：灰一阵子是可以量的事，按不下去才是产品的红。
+ */
+async function clickInstall(page, run, planted) {
+  const started = Date.now();
+  const attempts = [];
+  let gearClicks = 0;
+  for (;;) {
+    const card = await evaluate(page, READ_CARD);
+    const button = card?.buttons.find((entry) => entry.name === "client_update_install") ?? null;
+    const pageNow = card ? null : await evaluate(page, READ_PAGE);
+    const stamp = await evaluate(page, READ_PROBE_NOW);
+    if (attempts.length < 10) {
+      attempts.push({
+        waitedMs: Date.now() - started,
+        onScreen: card ? "卡片在场" : "卡片不在场",
+        button,
+        page: pageNow,
+        markerAlive: stamp.marker === planted.token,
+        stampAlive: stamp.stamped,
+        loadSeqDelta: page.loadSeq - planted.loadSeq,
+        gearClicks,
+      });
+    }
+    if (!button && pageNow) {
+      if (stamp.marker !== planted.token || page.loadSeq !== planted.loadSeq) {
+        throw new Error(`下载之后文档重新载入了：探针 token ${String(stamp.marker)} ≠ ${planted.token}，` +
+          `loadSeq 从 ${planted.loadSeq} 走到 ${page.loadSeq}，页签回落到「${pageNow.activeTab}」。这一趟的现场在 ${run.sandbox}`);
+      }
+      if (!stamp.stamped) {
+        throw new Error(`下载之后 .net-panel 那个节点被重建了（戳丢了），页签回落到「${pageNow.activeTab}」：` +
+          `用户正操作的那一页在自己脚下换了一页——这是产品的红，尺子不许替它按回齿轮页继续走。现场：${JSON.stringify(attempts)}`);
+      }
+      if (await evaluate(page, CLICK_SETTINGS_TAB)) gearClicks += 1;
+    }
+    if (button && !button.disabled && (await evaluate(page, CLICK_INSTALL))) {
+      run.installButtonAttempts = attempts;
+      run.installGearClicks = gearClicks;
+      return;
+    }
+    if (Date.now() - started > 30_000) {
+      const probe = await evaluate(page, READ_TAB_PROBE);
+      const pageNow = await evaluate(page, READ_PAGE);
+      run.tabProbe = probe;
+      throw new Error(
+        `按不动「安装」：等满 30 s（三整轮 10 s 轮询）仍没给一颗能按的键。` +
+          `分类：${tabProbeVerdict(probe, page.loadSeq - planted.loadSeq, pageNow)}。` +
+          `现场：${JSON.stringify(attempts)}`,
+      );
+    }
+    await sleep(400);
+  }
+}
+
+/** 290 MB 用流算，不整个读进内存。 */
+function sha256Stream(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const stream = fs.createReadStream(file);
+    stream.on("error", reject);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+/**
+ * `download` 那一档的后半段：真下一颗包、核字节、篡改、再验拒装。
+ *
+ * **绝不真装**：安装那一下按设计是「起安装器 → 退出 App → 被替换」，没有反悔通路。所以先按
+ * 「下载」把真包拉到沙箱，核对完盘上的字节与摘要之后，把它换成一小段文本再按两次「安装」：
+ * 装之前那次 sha256 重算是真窗能碰到的最后一道闸，它不算出 `stale-package` 就是产品红。
+ * 换上去的是非 PE 文本——就算这道闸漏了，起到的也只是一颗装不上任何东西的文件。
+ *
+ * 摘要凭据不取自 App 自己那本账（`download` 回执按设计不带 digest，只带字节数），
+ * 而是探针自己去发布页读 `SHA256SUMS.txt`：见 `publishedDigest`。
+ */
+async function exerciseDownload(page, copy, run, profile, child) {
+  const updatesDir = path.join(profile, "updates");
+  const fileName = `Mochi-Setup-${PINNED_LATEST}.exe`;
+
+  step(`${run.name}：按「下载」——发布页那颗真包会落到沙箱盘上`);
+  // 探针必须在按下载**之前**钉下去：这一档要回答的问题正是「下载这一两分钟里，屏幕上发生了什么」，
+  // 事后才钉的探针只能回答「现在长什么样」。
+  const token = `probe-${Date.now().toString(36)}`;
+  const planted = { token, loadSeq: page.loadSeq, at: await evaluate(page, plantTabProbe(token)) };
+  run.tabProbePlanted = planted;
+  const clickedDownload = await evaluate(
+    page,
+    `(() => { const el = document.querySelector("button[name='client_update_download']"); if (!el || el.disabled) return false; el.click(); return true; })()`,
+  );
+  if (!clickedDownload) throw new Error("卡上没有可点的 client_update_download 按钮");
+
+  const downloaded = await waitFor(async () => {
+    const value = await readState(page);
+    if (value.download === null) return null;
+    return value.phase === "idle" ? value : null;
+  }, 20 * 60_000, "下载那本账落笔（真包，量级 290 MB，给足 20 分钟）");
+  run.downloadState = downloaded;
+  const receipt = downloaded.download;
+
+  // 账落笔了，先把屏上这一段读回来：这一趟的产品判据（字节、摘要、拒装）都跟页签在哪家没关系，
+  // 而「用户点完下载，自己的页面还在不在」是另一件必须说清的事。两头都要有凭据，一头不许替另一头说话。
+  run.tabProbe = await evaluate(page, READ_TAB_PROBE);
+  run.tabProbeNow = await evaluate(page, READ_PAGE);
+  run.tabProbeLoadSeqDelta = page.loadSeq - planted.loadSeq;
+
+  if (receipt.outcome === "failed" && receipt.reason === "network-failed") {
+    const envError = new Error(`环境没给跑：下载那一跳没回来（${receipt.detail}）——出口指到了 ${downloadProxy()}`);
+    envError.isEnvironment = true;
+    throw envError;
+  }
+  if (receipt.outcome !== "ready") {
+    throw new Error(`下载的下场是 ${receipt.outcome}（reason=${receipt.reason} detail=${receipt.detail}），这一档要 ready`);
+  }
+  if (receipt.version !== PINNED_LATEST) throw new Error(`下到的包版本是 ${receipt.version}，该是 ${PINNED_LATEST}`);
+  if (receipt.fileName !== fileName) throw new Error(`包名是 ${receipt.fileName}，该是 ${fileName}`);
+
+  const disk = path.join(updatesDir, fileName);
+  if (!fs.existsSync(disk)) throw new Error(`${disk} 不在盘上：账说 ready，字节却没落下来`);
+  const size = fs.statSync(disk).size;
+  if (size !== receipt.bytes) throw new Error(`盘上 ${size}B，账上 ${receipt.bytes}B：两侧不是同一颗包`);
+  if (size < DOWNLOAD_MIN_BYTES) throw new Error(`包只有 ${size}B，低于这颗安装器该有的体量（${DOWNLOAD_MIN_BYTES}B）`);
+  const diskSha = await sha256Stream(disk);
+  const expectedSha = await publishedDigest(fileName);
+  if (diskSha !== expectedSha) {
+    throw new Error(`App 落到盘上的 sha256 是 ${diskSha.slice(0, 12)}…，发布页 ${SUMS_ASSET} 写的是 ${expectedSha.slice(0, 12)}…`);
+  }
+  const files = fs.readdirSync(updatesDir);
+  if (files.length !== 1 || files[0] !== fileName) throw new Error(`updates/ 里不止那一颗包：${JSON.stringify(files)}`);
+  run.downloadProof = { fileName, bytes: size, digest: diskSha, sums: expectedSha, files };
+  await shoot(page, `${run.name}-${run.locale}-02-after-download.png`);
+
+  // 篡改：换成一小段文本。原包是 290 MB 的 PE；这一换，体积和 sha256 都不是下载时核过的那份了。
+  const tampered = `client-update-cdp: 这一颗不是安装器（原包 sha256 ${expectedSha}）\n`;
+  fs.writeFileSync(disk, tampered, "utf8");
+  const tamperedSha = sha256(disk);
+  const tamperedSize = fs.statSync(disk).size;
+  if (tamperedSha === expectedSha) throw new Error("篡改后 sha256 没变：这份尺子没换到字节上");
+  run.tamperProof = { bytes: tamperedSize, digest: tamperedSha };
+  step(`${run.name}：包已换成 ${tamperedSize}B 的文本（sha ${tamperedSha.slice(0, 12)}…），按两次「安装」验拒装`);
+  run.tabProbeVerdict = tabProbeVerdict(run.tabProbe, run.tabProbeLoadSeqDelta, run.tabProbeNow);
+  step(`${run.name}：下载这段路上屏上的事：${run.tabProbeVerdict}`);
+
+  // 第二下必须落在 10 s 的确认窗里：等武装那句最多等 8 s，剩下两秒够按下——等到第 10 秒才看见
+  // 武装，窗已经关了，第二下只会重新武装，然后「安装那本账落笔」在 3 分钟后红成一把假的产品尺。
+  const armedLabel = lookup(copy.copy, "network.clientUpdate.installConfirm");
+  await clickInstall(page, run, planted);
+  const armedCard = await waitFor(async () => {
+    const value = await evaluate(page, READ_CARD);
+    const button = value?.buttons.find((entry) => entry.name === "client_update_install");
+    return button && button.label === armedLabel ? value : null;
+  }, 8_000, `「安装」武装成「${armedLabel}」`);
+  run.armedCard = armedCard;
+
+  const clickedAgain = await evaluate(
+    page,
+    `(() => { const el = document.querySelector("button[name='client_update_install']"); if (!el || el.disabled) return false; el.click(); return true; })()`,
+  );
+  if (!clickedAgain) throw new Error("第二下「安装」按不到");
+
+  const installed = await waitFor(async () => {
+    const value = await readState(page);
+    return value.install !== null && value.phase === "idle" ? value : null;
+  }, 3 * 60_000, "安装那本账落笔");
+  run.installState = installed;
+  const install = installed.install;
+
+  if (install.outcome === "launched") {
+    throw new Error(`篡改过的包被判成 launched：装之前那次 sha256 重算没拦住——这是这档最贵的一条红（detail=${install.detail}）`);
+  }
+  if (install.reason === "core-running") {
+    const envError = new Error(`环境没给跑：安装闸先撞上 core-running（沙箱里不该有我们自己的内核在跑）——拒装那一关没走到`);
+    envError.isEnvironment = true;
+    throw envError;
+  }
+  if (install.outcome !== "failed" || install.reason !== "stale-package") {
+    throw new Error(`篡改后的安装下场是 ${install.outcome}/${install.reason}，该是 failed/stale-package（detail=${install.detail}）`);
+  }
+  if (!String(install.detail ?? "").includes(`${tamperedSha.slice(0, 12)}…`)) {
+    throw new Error(`回执没报出盘上那枚 sha（${tamperedSha.slice(0, 12)}…）：${install.detail}`);
+  }
+  if (!String(install.detail ?? "").includes(`${expectedSha.slice(0, 12)}…`)) {
+    throw new Error(`回执没报出下载时那枚 sha（${expectedSha.slice(0, 12)}…）：${install.detail}`);
+  }
+  if (child.exitCode !== null || child.signalCode !== null) {
+    throw new Error(`App 在「拒装」之后退出了（exitCode=${child.exitCode}）：拒装这一档必须还留在原地`);
+  }
+  // App 还活着，通道还能答话——「没退」不是靠进程表猜的，是这条 IPC 真的答回来了。
+  const still = await readState(page);
+  if (still.phase !== "idle" || still.install?.outcome !== "failed") {
+    throw new Error(`拒装之后通道那本账自己变了：${JSON.stringify({ phase: still.phase, install: still.install })}`);
+  }
+  if (!fs.existsSync(disk)) throw new Error("拒装之后盘上那颗包不见了：有东西动了它");
+  if (sha256(disk) !== tamperedSha) throw new Error("拒装之后盘上那颗包被换了：有东西动了它");
+  const procs = installerProcesses(fileName);
+  if (procs.length > 0) throw new Error(`拒装之后仍看到安装器进程：${JSON.stringify(procs)}`);
+
+  run.installProof = { outcome: install.outcome, reason: install.reason, detail: install.detail, appAlive: true, installerProcesses: procs };
+
+  const want = expectedNotice(copy.copy, "install", install);
+  const card = await waitFor(async () => {
+    const value = await evaluate(page, READ_CARD);
+    return value && value.notices.some((entry) => entry.text === want) ? value : null;
+  }, 15_000, `拒装回执那句「${want}」`);
+  run.installNotice = want;
+  run.cardAfterInstall = card;
+  await shoot(page, `${run.name}-${run.locale}-03-after-tampered-install.png`);
+}
+
 /* ---------------------------------------------------------------------- 主流程 */
+
+/** 默认三档：`download` 那一趟要真拉一颗 290 MB 的包，不指名不跑。 */
+const DEFAULT_RUNS = ["latest", "available", "failed"];
 
 function parseRuns() {
   const runsArg = process.argv.slice(2).find((arg) => arg.startsWith("--runs="))?.slice("--runs=".length);
-  const names = (runsArg ?? Object.keys(RUNS).join(",")).split(",").map((s) => s.trim()).filter(Boolean);
+  // 默认三档不含 `download`：那一档要从真发布页拉一颗 290 MB 的包，得指名才跑。
+  const names = (runsArg ?? DEFAULT_RUNS.join(",")).split(",").map((s) => s.trim()).filter(Boolean);
   for (const name of names) if (!RUNS[name]) throw new Error(`不认识这一档：${name}（可选 ${Object.keys(RUNS).join("/")}）`);
   return names;
 }
@@ -795,7 +1247,7 @@ function parseLocales() {
 async function assertDeadProxy(target) {
   const net = await import("node:net");
   const { hostname, port } = new URL(target);
-  const envError = (why) => Object.assign(new Error(`127.0.0.1:${port} 那颗假出口没死透：${why}`), { isEnvironment: true });
+  const envError = (why) => Object.assign(new Error(`${hostname}:${port} 那颗假出口没死透：${why}`), { isEnvironment: true });
   await new Promise((resolve, reject) => {
     const socket = net.connect({ host: hostname, port: Number(port) });
     let settled = false;
@@ -816,10 +1268,6 @@ async function main() {
   const names = parseRuns();
   const locales = parseLocales();
   assertSandbox();
-  if (names.some((name) => RUNS[name].env)) {
-    await assertDeadProxy(RUNS[names.find((name) => RUNS[name].env)].env.HTTPS_PROXY);
-    step("出口预闸：127.0.0.1:9 确实没人听");
-  }
   fs.mkdirSync(SHOTS, { recursive: true });
 
   const tables = localeTables();
@@ -836,6 +1284,14 @@ async function main() {
   };
 
   try {
+    // 出口预闸排在任何一趟之前，但它只属于**故意用一颗死出口**的那一档（`deadProxy`）。
+    // 判据曾经写成「这趟带 env 吗」——而 `download` 那档的 env 是本机真代理，于是握手成功被判
+    // 「假出口没死透」，一次真下载都没开始就红了。ENV 要排在 try 里，不然出不了 2 这个码。
+    const dead = names.map((name) => RUNS[name]).find((config) => config.deadProxy);
+    if (dead) {
+      await assertDeadProxy(dead.env.HTTPS_PROXY);
+      step(`出口预闸：${new URL(dead.env.HTTPS_PROXY).host} 确实没人听`);
+    }
     for (const locale of locales) {
       for (const name of names) {
         const config = RUNS[name];
@@ -883,4 +1339,9 @@ async function main() {
   }
 }
 
-main();
+main().catch((error) => {
+  // 兜底：try 之外还有解析档位/语言/沙箱那几步。裸抛出栈只有一串堆栈、没有退出码约定，
+  // 而「ENV 出 2、产品红出 1」是把尺的对外契约——跑的人据此决定是修产品还是修环境。
+  console.error(`[client-update-cdp] ${error?.isEnvironment ? "ENV（不是产品红）" : "FAIL"}: ${error?.message ?? error}`);
+  process.exitCode = error?.isEnvironment ? 2 : 1;
+});
