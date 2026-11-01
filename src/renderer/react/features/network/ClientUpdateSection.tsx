@@ -175,6 +175,10 @@ export function ClientUpdateSection({ api }: { api?: ClientUpdateApi }) {
     // 窗口是按点击那一刻判的，不按页面上那颗 `now`：定时器最坏会迟到一格，方向必须错向「再多按一次」。
     if (!clientConfirmAlive(armedAt, at)) {
       setArmedAt(at);
+      // 但**字**是从 `now` 派生的，而 `now` 只在 10 秒那一拍往前挪。不把手上这一刻一起交给它，
+      // 第一下到下一拍之间那颗键上写着「安装」、按下去却真的会装——正是 `clientActions()` 上面
+      // 那句「不能顶着按钮名骗一次点击」要拦的事，也是真窗 `download` 那一档等满 8 秒没等到武装字的原因。
+      setNow(at);
       setNotice({ tone: "neutral", text: t("network.clientUpdate.confirmHint") });
       return;
     }
