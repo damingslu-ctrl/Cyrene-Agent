@@ -18,6 +18,14 @@ jobs:
     env:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
+      # Windows runner 镜像把 `core.autocrlf` 设成 true，而本仓没有 `.gitattributes`——
+      # 于是 checkout 会把 LF 的 blob 换成 CRLF 的工作树，凡是「读源码原文再按 `\n` 匹配」的
+      # 断言就在 CI 上与本机读成两副样子。2026-11-01 实测到第一颗：
+      # `src/main/verge/core-ipc.test.ts` 里 `canSwap,\n coreDir,` 那条本机绿、CI 红
+      # （收到的正文是 `/**\r\n * 内核宿主的装配层…`）。判据在 src/main/eol-fragile-assertion.test.ts。
+      - name: Pin checkout EOL to the stored blobs
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
@@ -101,5 +109,11 @@ jobs:
       # 写的是 node:test API，vitest 的 include 白名单一条都不含它们，上面的分块步骤全绿也
       # 碰不到它们——所以这一趟单独由 node 自带的 runner 跑。src/main/scripts-test-gate.test.ts
       # 钉着「这一步存在」与「scripts 里没有掉在两个 runner 之外的测试文件」。
+      #
+      # `if: !cancelled()` 不是排版：同一个 job 里任一步红，后面的步整片被标 skipped——
+      # 2026-11-01 两趟实测就是这样：第 15 步红 ⇒ 16-22 skipped，第 20 步红 ⇒ 21-22 skipped，
+      # 而这一步恰好在最后一位，所以它永远领不到自己的读数。它守的是「别的步骤碰不到的文件」，
+      # 上面红没红跟它的判据无关，所以它必须自己报一次结论（job 仍按各步结论合成为红）。
       - name: Test · scripts（node:test）
+        if: ${{ !cancelled() }}
         run: pnpm run test:scripts

@@ -389,7 +389,7 @@ describe("内核宿主五条通道端到端接线（防只定义不接线）", (
    */
   it("装配层真的把更新器接上，且换文件的闸门排在下载之前", () => {
     expect(bootstrap).toMatch(/createCoreUpdater\(\{/);
-    expect(bootstrap).toMatch(/canSwap,\n\s*coreDir,/);
+    expect(bootstrap).toMatch(/canSwap,\r?\n\s*coreDir,/);
     expect(bootstrap).toMatch(/updateCore: \(\) => updater\.update\(\)/);
     expect(bootstrap).toMatch(/updateState: \(\) => updater\.state\(\)/);
     // 写路径只有一条：`<userData>/core`。Verge 安装目录那一路只能问「在不在」，

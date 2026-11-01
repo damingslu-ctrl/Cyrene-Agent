@@ -81,7 +81,7 @@ describe("ChatPage 首条消息暂存工作区绑定", () => {
   it("绑定失败必须提示用户并中止发送，不得静默入队后由派发守卫拒绝", () => {
     // 失败分支：可见反馈（错误弹窗）+ 不继续入队（块级 return；按缩进区分回调内的 return next）
     expect(sendMessageSource).toMatch(
-      /workspaceResult[\s\S]{0,1200}?\} else \{[\s\S]{0,600}?feedback\.alert\([\s\S]{0,800}?\n        return;/,
+      /workspaceResult[\s\S]{0,1200}?\} else \{[\s\S]{0,600}?feedback\.alert\([\s\S]{0,800}?\r?\n        return;/,
     );
   });
 

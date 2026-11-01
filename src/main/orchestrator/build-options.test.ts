@@ -1305,7 +1305,7 @@ describe("moments context 注入（Phase 3 Chat Awareness）", () => {
     }, deps)
 
     expect(result.options.soulRuntimeContext).not.toContain("【近期朋友圈动态】")
-    expect(result.options.soulRuntimeContext).not.toMatch(/(^|\n)---(\n|$)\s*(^|\n)---/)
+    expect(result.options.soulRuntimeContext).not.toMatch(/(^|(?:\r?\n))---((?:\r?\n)|$)\s*(^|(?:\r?\n))---/)
   })
 })
 
