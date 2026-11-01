@@ -3781,6 +3781,90 @@ LF 副本 `rc=0`（`:3`，末行读数 `EOL CENSUS OK 3 files CR=0` `:7`）、CR
 **#284 的裁决**：不改这六处（不咬，且有双向行尾的绿为凭），不加字符串形式的静态锁（缺 provenance 前提，
 加了只会红得没有道理），残余 158 颗单行尾文件登记在案。任务关闭。
 
+### Wave 4 收口账·玖：标签也是 prose——数 CR 升到全仓普查，判据锚点改成调用形状（#285 #286）
+
+**① 生效值那条读数第一次打在 CI 上（#285 到手即收）**
+
+run 41328172014（`.tmp/ci-41328172014-watch.txt:3`；job 124912417400 `:7`；`workflow_dispatch`，master）。
+钉子那一步三行读数按位次落下来（同一 log `:46`-`:48`）：
+
+- `effective value: true`——镜像这颗 true 在，但只有**生效值**读得出它；
+- `global value: `——空的，`git config --global core.autocrlf` 在这台机器上根本没设过（上一账 ⑦ 的补正读对了）；
+- `pinned value: false`——钉子落下且当场报出。
+
+同趟步 4 的三份 CR 读数（`:131`-`:134`）全是 `CR=0`，尾行 `EOL CENSUS OK 3 files CR=0`。
+**#285 关闭**：上一账写的是「这一位是本轮改的，下一趟才是它的第一个现场」——现场到手，判据成立。
+
+**② 第 22 步那一颗 skip 有了名字**
+
+CI 侧整趟只有 1 颗 skip（`:8779` `2095 passed | 1 skipped (2096)`），逐文件读数把它钉死：
+`src/main/verge/system-proxy.test.ts (27 tests | 1 skipped)`（`:7490`），
+`src/main/plugin-panel-protocol.test.ts (17 tests)`（`:7995`，**没有** skip）。
+那颗就是 `src/main/verge/system-proxy.test.ts:323` 的探针闸门（`CYRENE_SYS_PROXY_PROBE === "1"` 才跑）——
+它写的是真注册表，默认跳过是设计，不是漏。
+
+本机最终认证趟是 2 颗（`.tmp/full-gate-final.txt:7705` `8728 passed | 2 skipped (8730)`）：同一颗探针
+（`:2324`）+ `plugin-panel-protocol.test.ts (17 tests | 1 skipped)`（`:4974`）。差的那颗就是
+`src/main/plugin-panel-protocol.test.ts:134` 的 `it.skipIf(!symlinkSupported)`。
+差因不是推断：本机当场造链接实测，`file_symlink=false dir_symlink=false errors=file:EPERM,dir:EPERM`
+（`.tmp/symlink-probe.txt:1`，而且写在 D: 上，排除了跨卷因素）——这台机器没有建符号链接的权限，GH runner 有。
+**结论**：CI 与本机 skip 数差 1 是权限差，不是产品差；这一型以后再撞见，先量权限再怀疑代码。
+
+**③ 数 CR 那一步升到全仓字节普查（#286）**
+
+原来的天花板：一把量 checkout 这个动作的尺，却只逐字节读三份文件——全仓 2923 行里只点过 3 份，
+剩下 2920 份没人看过。`.github/workflows/test.yml:50`-`:52` 现在多加一层 `git ls-files --eol` 普查，
+判据「`i/lf -> w/crlf` 一条都不许有」，读数 `TREE rows=… i/lf->w/crlf=…` 打进日志。
+
+本机正对照（ autocrlf=true 的工作树，跑真步内正文 `.tmp/census-body.cjs`）：
+`TREE rows=2923 i/lf->w/crlf=2032`、`CENSUS_RC=1`——判据在「该红」的一侧确实红，不是空跑。
+CI 侧要的是同一行报 `flip=0`。
+
+**④ prose 不是实现——同一课被教了两次**
+
+第一次（上一账）：全文 `indexOf` 的位次读数被 checkout 步尾部的**注释**喂饱。改成按步骤块读数
+（`stepBlocks()` / `blockWith()`，`src/main/eol-fragile-assertion.test.ts:311`）。
+
+第二次（本轮）：改成块内 `includes` 之后，变异 B 仍然是绿的。原因藏在同一步自己的正文里——
+`console.log('TREE rows=… i/lf->w/crlf='+flip)` 这句**日志标签**里也写着那颗靶，
+把判定换成 `w/lf` 后，靶字还在同一块里活着。标签也是 prose。
+
+修法：三样锚点必须长成**调用形状**——命令得在 `execSync(` 的引号里（`:212` `TREE_CENSUS_CALL_RE`），
+两颗指针得作为 `===` 的右值、由 `&&` 连成一对且 `i/` 在前（`:214` `TREE_PAIR_RE`）。
+顺序也算判据：`i/` 是入库值、`w/` 是解包后的工作树，对调之后数的就不再是「被换行尾污染」。
+
+最终字节上的五颗变异（`.tmp/mut2-report.txt:4`-`:27`，每颗都 `rc=1` 且 `"treeCensusAfterCheckout": false` 现身）：
+A 命令换成数不出行尾的 `git ls-files`；B 靶换成 `w/lf`；C 整段四行抽掉；D 两列对调；
+E 靶换成 `w/none`、`w/crlf` 只活在标签里（就是变异 B 的形状，现在单独留档）。
+基线 `rc=0`（`:2`）。合成档从三副加到六副，新增 `SAMPLE_ONLY`、`PROSE_ONLY`、`LABEL_ONLY`（`:295`）、
+列序对调档，另给拆块自己装正对照：`stepBlocks(workflow).length === 23`（`:436`）。
+
+**⑤ 三把坏尺，都是先坏在驱动自己身上**
+
+- 变异驱动第一趟四颗全 `rc=null` + 零输出：Node 24 不带 `shell` 直接 spawn `npx.cmd` 会失败，
+  而那副样子在报告里跟「变异没被抓到」长得一模一样。改成 `process.execPath` + `node_modules/vitest/vitest.mjs`，
+  并把「基线不绿」与「空输出」各自点名（`BASELINE_NOT_GREEN` / `RUNNER_BROKE`），基线没绿时后面几颗
+  一律记 `SKIPPED_VOID`——不产出读数，而不是产出坏读数。
+- 找红的那颗正则写成了 `treeCensusAfterCheckout: false`，而 vitest 打的是带引号的 `"treeCensusAfterCheckout": false`
+  → A/C 明明红了、被报成 `RED_BUT_OTHER_REASON`。红因要看日志原文，不能只看自己的检索式。
+- 数 staged blob 行尾先用 `git cat-file blob | od -c | grep -o '\r' | wc -l`，数出 253/449，
+  比工作树的 144 还大——不可能，是管道自己错。按字节数才是读数：`test.yml` blob 8882 B / CR=0，
+  锁 25053 B / CR=0（工作树 9026 B / CR=144）→ LF blob、CRLF 工作树，CI 侧步 4 不会自己被钉红。
+
+**⑥ 门与提交字节**
+
+`VITEST_RC=0`：`Test Files 796 passed (796)` / `Tests 8728 passed | 2 skipped (8730)`
+（`.tmp/full-gate-final.txt:7704`-`:7705`）。工作流 YAML 解析后 23 颗步骤，普查正文 `node --check` 过。
+`.snap` 那处只有行尾变化，按老规矩不进 stage。提交 `c947c70a`。
+
+**没做（下一轮）**
+
+① `TREE rows=… i/lf->w/crlf=…` 这一行**还没有 CI 现场**——它是本轮改的，下一趟 dispatch 才是第一个读数；
+与上一账同一型，别把「加了」当成「验了」。
+② 普查用 `maxBuffer` 64 MB 是按 2923 行估的；仓要长到几十万行，先撞 buffer 再撞判据。登记不追。
+③ `!cancelled()` 的「前置红」半颗仍无现场（这趟又是全绿）。
+④ 步 23 名不副实（packages+skills+poc 实为空跑）仍按原样。
+
 
 
 
