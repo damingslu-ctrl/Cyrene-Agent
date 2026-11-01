@@ -3590,6 +3590,77 @@ EOL 与它们无关。
 ⑦ 这条是给下一轮的：全量门日志里 17 行 `stderr | …failed…` 是测试名字而非失败计数，20 行 "FAIL" 是产品正文——
 「grep 关键字当判据」在这仓里根本用不了，判绿只走总计数 + exit 码这两头。
 
+### Wave 4 收口账·陆：第三趟 CI 全绿——#280 的真凭据到手，以及「绿」分不出两种解释时补的那一位（2026-11-02）
+
+**这一趟是什么**
+
+- dispatch `41323753222`（`.tmp/ci-41323753222-jobs.json:1`，head sha `f781ba93`），2026-11-01T15:56:42Z →
+  16:05:32Z，`completed / success`，23 步全绿。这是第一趟同时带着 autocrlf 那颗钉子
+  （日志 `.tmp/ci-41323753222-job-log.txt:37`/`:38`，确实排在 checkout 之前）和 `if: !cancelled()` 那一步的 run。
+- **步骤号整体 +1**（多出钉子那一步）：上一账里的「第 20 步 `Test · main / core（其余）`」是这里的第 21 步，
+  「第 22 步 `Test · scripts`」是这里的第 23 步。跨趟比读数时必须先对这条，不然会把「同一颗红」读成两颗。
+
+**逐步读数（同一份日志，逐段）**
+
+- 14 步 `plugins + shared + cli` 52/686（`:1316`/`:1317`）、15 步 `src / renderer` 246/2318（`:2197`/`:2198`）、
+  16 步 `orchestrator` 154/1939（`:5378`/`:5379`）、17 步 31/508（`:5840`/`:5841`）、18 步 30/235
+  （`:6180`/`:6181`）、19 步 34/244（`:6472`/`:6473`）、20 步 77/704（`:7369`/`:7370`）、
+  21 步 `main / core（其余）` **172/2095 passed | 1 skipped (2096)**（`:8822`/`:8823`），那一步自己 83.23s（`:8825`）。
+- 21 步的差分就是这一节要的凭据：上一趟 `1 failed | 170 passed (171)` / `1 failed | 2089 passed | 1 skipped (2091)`，
+  这趟 172 颗文件全过、断言数 +5。多出的那颗文件正是 `src/main/eol-fragile-assertion.test.ts`，
+  多出的五条正是 A–E 五档。**这把锁在 CI 上被跑到并判绿，不再只有本机背书**——上一账「没做①」那条清了。
+- 23 步 `Test · scripts（node:test）` 第一次在 CI 上给出自己的结论：`tests 17 / pass 17 / fail 0`
+  （`:8873`/`:8875`/`:8876`，`duration_ms 491.5` `:8880`），跑的确实是 `node --test "scripts/**/*.test.mjs"`
+  （`:8854`）。与本机门 `.tmp/test-scripts-gate-final.txt:20`-`:23` 逐字对上——**#280 到此关闭**。
+- 但 `!cancelled()` 这趟只验了「无事发生」那一半：23 步绿，既可能是「前置全绿所以它照跑」，也可能是这把锁根本
+  没接上。判据方向留着，**要的是下一颗真的红**——前置红而它仍报自己结论，那才算另一半。
+
+**22 步是一条空档，说清楚**
+
+`Test · packages + skills + poc` 跑 `pnpm exec vitest run --exclude "src/**" --passWithNoTests`（`:8830`），
+读出 `No test files found, exiting with code 0`（`:8840`）。根因不在这一步，在 include：
+`vitest.config.mts:16`-`:20` 把 `packages/*/src/**/*.test.ts` **有意**禁掉（windows-2025 镜像下
+`plugin-sdk/src/testing/index.test.ts` 会让 fork worker 静默崩溃），而 `skills/**/tests/**`（`:14`）与
+`scripts/cline-poc/**`（`:15`）两条实测 0 颗文件（`find` 全仓只数出 1 颗 packages 下的 `.test.ts`、5 颗 scripts 下的
+`.test.mjs`）。所以这一位今天必然绿、且绿得没有内容——**步名承诺的覆盖并不存在**，形状与「界面写出来的快捷键」
+那一型同族。本轮不动它（动它要连带处理那颗被有意禁掉的崩溃），只登记读数。
+
+**绿分不出两种解释，所以补了一位数 CR**
+
+钉子失效有两条路：镜像改了默认，或有人加 `.gitattributes` 把 eol 设成 crlf。而这趟 21 步全绿**不能**证明钉子起效——
+断言已改成 `\r?\n`，两副正文都过，于是「钉子管用」与「断言宽容」在这份日志里同形。补法两件：
+
+- `.github/workflows/test.yml:28`/`:30` 把 `git config --global core.autocrlf` 的真值打进日志，改前改后各一条读数；
+- `:37` 紧跟 checkout（`:32`）之后加一位 `Census the checked-out line endings`，数三份文件的 CR，
+  任何一颗 > 0 就红并点名（`:44` 是那句放行读数）。
+
+判据方向钉在锁里：`src/main/eol-fragile-assertion.test.ts:216` 那个纯函数同时返回
+「钉子在 checkout 之前」与「数 CR 那位在 checkout 之后」两条位次，`:285` 用一副把两者搬反的合成档要求它们**都翻面**——
+不许只照抄当下文件的顺序。
+
+**这一位的牙（本机三档对照，`.tmp/eol-census-three-way.txt`）**
+
+LF 副本 `rc=0`（`:3`，末行读数 `EOL CENSUS OK 3 files CR=0` `:7`）、CRLF 副本 `rc=1`（`:9`，读数 `CR=402` `:10`）、
+真工作树只读不判（`:15`：本机 `test.yml` 带 134 颗 CR，autocrlf 还开着，这是本机正常态）。
+判据从 YAML 里取——`load` 之后按步名把那段 `node -e` 的正文截出来跑，不是把命令抄第二份：
+抄来的命令验不出「仓库里那一位真的改了」。
+
+**门（最终文件重跑）**
+
+`.tmp/eol-gate2.txt:7726` `Test Files 796 passed (796)`、`:7727` `Tests 8728 passed | 2 skipped (8730)`、
+`:7734` `GATE_EXIT=0`（那 20 行 `FAIL` 全是产品正文、17 行带 `tests … failed` 的全是测试名字，同一型噪声）。
+与上一趟门逐颗比对（`.tmp/eol-gate2-count-diff.txt:3`-`:5`）：`added: []` / `changed: []` / `removed: []`，
+文件数与条数合计两头都对得上 796/8730——这一轮改的是**判据的内部**（D 档多一条位次、多一副合成档）
+和 workflow 的两位，射程一颗没动。反向说：若 D 档那条新判据是空跑的，总数也一样不会变，
+所以它的证明不在门里，在上一节那副搬反位次的合成档里。
+
+**没做／记下来**：① 21 步那颗 `1 skipped` 仍未点名（延续）；② `!cancelled()` 的「前置红」那一半还没有现场；
+③ 数 CR 那一位只钉三份文件，不是全仓字节普查——全仓的等价判据在 D 档的「这一位存在且位次对」里，不在字节里；
+④ 22 步空档原样留着，包括它那个名不副实的步名；⑤ #282 这趟仍没复现（16 步 154/1939 全绿，而且是在
+`build-options.test.ts:1308` 改过的字节上），三条凭据攒齐了还是没有根因；⑥ 本机 `test.yml` 工作树带 CR
+没被任何锁判红，那是本机 autocrlf 的正常结果，CI 那侧才是这条判据的家；⑦ 数 CR 那一步在 pwsh 下跑的是
+`node -e` 单行折叠标量，YAML 解析与三档 rc 都验过，但**它自己还没在真 CI 上跑过一趟**——下一趟 dispatch 是它的第一个现场。
+
 
 
 
