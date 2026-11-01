@@ -2486,6 +2486,8 @@ T14 补的是「真代码 + 真出口 + 真发布页」那一层，并在那里�
 `app.getVersion()` 现读，不落盘、不记账，跑完按原始字节还原，`package.json` 的 sha 前后一致）；
 `network-failed` 把那一跳断在**传输层**。`digest-mismatch` 不在这里跑——它要动那颗 296,982,786 字节安装包的字节，
 而下载与安装这两段在这档里一颗按钮都没点（点下去是往盘上写 290 MB，再点一次是退出并被替换，没有反悔通路）；
+**〔2026-11-01 反转：下载与安装这两段后来都真点了——见文末「Wave 4 收口：真下载一颗 290 MB 的包 + 篡改拒装」。
+下面那句「`digest-mismatch` 不在这里跑」仍然成立，没被反转。〕**
 那一档的凭据住在 `installer-download.test.ts` 与 `update-service.test.ts`，这里不冒充它。
 
 **② 三趟的下场（一趟命令，`report.ok=true`，exit 0）。** `latest`：`outcome=latest`、`reason=null`、`latestVersion=1.15.0`、
@@ -2551,7 +2553,12 @@ mpv v0.41.0-1227-ge471496c5 + MinGit 2.55.0 + 截图辅助 2,337,688 B）。
 **未做，记账**：
 ① 真窗覆盖的只有**检查**这一段。下载（290 MB 落 `updates/`）与安装（起安装器、退出并被替换）在这档里没有点，
 `digest-mismatch` 也没有真窗凭据——三者的凭据全部住在单测面。要真跑下载得单独授权并留够盘与时间；要真跑安装等于放弃当前进程。
+**〔2026-11-01 反转一半：下载真点了一次——303,971,021 B 落到沙箱的 `profile/updates/`，盘上重算的 sha256 与发布页
+`SHA256SUMS.txt` 那一行独立对上；「安装」也真按了，但产品在自己最后一道闸上把它拦下了（按下前先重算包字节，
+`src/main/update/update-service.ts:479` → `stale-package`），所以下面半句仍然成立：「起安装器、退出并被替换」到今天
+没有真窗凭据，`digest-mismatch`（下载那一段的闸）也仍然只住在单测面。全文见文末「Wave 4 收口：真下载一颗 290 MB 的包 + 篡改拒装」。〕**
 ② 一次真发布仍没发过（承 T13 ①），版本号仍欠一次抬（承 T13 ②）。
+**〔2026-11-01 反转：版本号抬到 1.16.0，`v1.16.0` 已发布——上面 ① 下载的那颗就是发布页上的真货，不是假页。〕**
 ③ 三腿都在 zh-CN 下量过；`en`／`ja-JP` 两份文案只被 JSON 侧读过，没在真窗里切语言重跑一遍。
 ④ `NODE_USE_ENV_PROXY` 这条杠杆属于 Node 而不是本 fork：哪天升 Node 把它换掉了，这一档会报 ENV 而不是红——
    这是有意的（别把环境没给跑读成产品坏了），但也意味着这一腿的绿要靠人偶尔去看一眼它还在不在。
@@ -2900,6 +2907,102 @@ i18next 配了 `parseMissingKeyHandler`（`i18n/index.ts:29`），缺 key 时键
 用户自己的 Verge 在跑时这个读数本来就是 true，旧名字等于把用户的应用记成我们的残留。
 ③ `start` 档借的是安装目录里的 `verge-mihomo.exe`（设计如此）；自托管那颗的下载/换装属于 `update` 档，仍等闸门。
 ④ 本轮没动用户的 Verge / 服务 / 桌宠任何进程。
+
+
+### Wave 4 收口：真下载一颗 290 MB 的包 + 篡改拒装 + 第一次真发布（2026-11-01）
+
+**发布链，每一环都有号可查**
+
+- 版本 `1.15.0 → 1.16.0`：`9b8b849d`（`chore(版本号): 更新至 1.16.0`）就是 `v1.16.0` 那枚附注标签剥出来的提交
+  （标签对象 `cad31dd8`）；fork `master` 推到同一笔。
+- CI：workflow `package-windows`，run `41255897344`，`headSha` 逐字等于标签那一笔，conclusion `success`。
+- 发布页（`damingslu-ctrl/Cyrene-Agent`）：`v1.16.0` 于 `2026-11-01T00:34:02Z` 公开、非草稿，两枚资产——
+  `Mochi-Setup-1.16.0.exe` **303,971,021 B** / `sha256:cc63d3dfc65d5369…`，以及 `SHA256SUMS.txt` 89 B。
+  这就是上面 T14 那节 ② 「一次真发布仍没发过」的反转，也是 Wave 4 从「自研通道」走到「通道那头真有货」的那一步。
+
+**尺子新增 `download` 一档：下载—篡改—拒装一次跑完**（`scripts/verify/client-update-cdp.mjs:1085`）
+
+判据一律从盘、进程表和 IPC 那本账来，屏上的字只用来对文案，不用来判事：
+
+1. 下载那本账落笔（`download.outcome=ready`，上限 20 分钟——真包 290 MB 量级）。
+2. 盘上字节 == 账上字节（`size !== receipt.bytes` 即红）。
+3. 盘上重算的 sha256 == **发布页 `SHA256SUMS.txt`** 那一行。这是**独立**凭据：App 认的是 release API 里
+   `assets[].digest`（GitHub 自己算的），尺子读的是发布那一刻 `publish-update.mjs` 按字节写进去的那一枚。
+   两边对上才说明「落到盘上的字节既过了 App 自己的闸、也确实是我们发出去的那颗包」。
+4. `updates/` 里只有那一颗包（多一颗都算越界）。
+5. 篡改：把 303,971,021 B 换成 128 B 的一行文本（`client-update-cdp: 这一颗不是安装器（原包 sha256 cc63d3df…）`）——
+   体积和 sha 都不再是下载时核过的那份。
+6. 连按两次「安装」（第二下必须落在 10 s 确认窗内）⇒ 账本必须是 `failed`/`stale-package`，且 `detail` 里
+   **同时**出现盘上那枚与下载时那枚 sha；判成 `launched` 是这一档最贵的一条红（`client-update-cdp.mjs:1177`）。
+7. 拒装之后：App 必须还在（不靠进程表猜，是 `state()` 真答回来了）、那本账不许自己变、盘上那颗还得是那颗、
+   进程表里不许冒出安装器、屏上那句话逐字等于语言表。
+
+**实跑** `.tmp/gate-client-update-download-1.16.0-d.txt`（`ok:true`，zh-CN）
+
+- download：`bytes 303971021`，`digest == sums == cc63d3dfc65d5369…`，`files:["Mochi-Setup-1.16.0.exe"]`。
+- 篡改：`{bytes:128, digest:"b4ff1603c0a8…"}`。
+- install：`failed` / `stale-package`，详情「Mochi-Setup-1.16.0.exe 的 sha256 与下载时核对的不是同一个
+  （b4ff1603c0a8… ≠ cc63d3dfc65d…）——不许拿它冒充新升级」；`appAlive:true`、`installerProcesses:[]`。
+  从下载落账到拒装落账只隔 5.3 s——这中间夹着改包、读屏上的武装字、两下点击，而产品在按下之后真的去盘上
+  重算了一遍字节（`src/main/update/update-service.ts:479`）。
+- 屏上：错误色调那句回执逐字对齐语言表（「这一次没装成，本机那一版还在原地 · … · 详情：…」）。
+- 写边界：`boundaryOk:true`、`addedFileCount:99` 而 `addedUpdateish` 只有那颗包；`realUpdateSurfacesUnchanged:true`
+  （真用户那份更新账没被碰）；跑完 `package.json` 按字节还原，sha `2272865be0eb…`、版本回到 1.16.0。
+- 现场还在：沙箱只在**下一次开跑前**清，那颗 128 B 的篡改包此刻仍在
+  `D:\cyrene-update-accept\run-download\profile\updates\Mochi-Setup-1.16.0.exe`。
+
+**顺手抓出一条真产品缺陷：那颗键的字会骗一次点击（已修，有锁）**
+
+- 现场：`clientActions()` 上面那句「不能顶着按钮名骗一次点击」是合同，但功能上的确认窗读 `Date.now()`，
+  而**屏上**那行武装字由 state 里的 `now` 派生（`ClientUpdateSection.tsx:205`），`now` 只在 10 秒那一拍往前挪。
+  第一次按下到下一拍之间，键上写着「安装」、按下去却真的会装。真窗 `download` 档等满 8 秒没等到武装字，
+  就是把这条量出来了的。
+- 修法：武装那一支里除 `setArmedAt(at)`，同时 `setNow(at)`（`ClientUpdateSection.tsx:181`）——把手上这一刻
+  一起交给派生字的那本账，功能窗与屏上字从此同一次读数。
+- 锁：`ClientUpdateSection.test.tsx`（jsdom，6 条）钉住 `POLL_MS`、10 s 窗与两份文案，含「第一下当场就说
+  『再按一次』」和「过了那一窗第二下只重新武装」两条反向。**这里我自己先绿过一次假的**：假表针冻在按下那一瞬，
+  读到的是 `setNow` 刚改过的钟——补上 `READ_DELAY_MS = 1500`（钟先往前走再点），红才回来。
+- 真窗确认：修后重跑 `download` 档，`installButtonAttempts[0].waitedMs = 6` 就看见「再按一次才安装」；修前等满 8 s 无。
+
+**三腿在 1.16.0 上重跑，全绿**（`.tmp/gate-client-update-default-3legs-1.16.0.txt`）
+
+`latest`「发布页那版不比本机新 · v1.16.0」／`available`「问到了新版本 · v1.16.0」／`failed` `network-failed`
+详情「发布页请求没回来：fetch failed」。这一趟顺带验了上面把 `deadProxy` 预检按档位重新键过之后，
+`failed` 那腿仍把死代理当成产品该报的错，另两腿仍走 7896 那颗真发布页。
+
+**尺子自己的五处病（先坏的都是尺子，不是产品）**
+
+1. `deadProxy` 预检原来挂在 `env` 上，结果连真代理也触发预检 → 改成只对 `failed` 档生效。
+2. ENV 的 throw 从 try 里逃出去，把「环境没给跑」报成产品红 → 收进分类，报告 `environment:true`、exit 2。
+3. run-b 那次「卡片不在场」只有结论没有解释。现在下载**之前**就钉探针（`client-update-cdp.mjs:483`）：
+   `.net-panel` 节点上的 expando 戳 + window 上的 token + `Page.loadEventFired` 计数 + MutationObserver 只在
+   `tab|stamped|sections` 变化时记一笔；收尾一把判据 `tabProbeVerdict`（`client-update-cdp.mjs:524`）说清是
+   「文档重载／面板被重建／页签被换／页没跑」中的哪一种——面板节点上的戳掉了而 token 还在，判成**产品的红**
+   （用户正操作的那一页在自己脚下换了一页），尺子不许替它按回齿轮页继续走。本轮实测：下载那 156 s 里
+   探针只有 `plant` 一笔、`loadSeqDelta:0`，判据「下载结束时卡片还在屏上：这一趟页没跑」。
+4. 尺子自己拉 `SHA256SUMS.txt` 也要出口。本机直连 GitHub 那条路这一轮断了，`fetch failed` 报的是尺子而不是
+   App（run-c 因此红）。`publishedDigest`（`client-update-cdp.mjs:951`）现在重试三回、每回印出失败原因，耗尽
+   ⇒ 归类 ENV 并点名「给这条命令带上 `NODE_USE_ENV_PROXY=1` 与 `HTTPS_PROXY`（和档位用的是同一颗代理）再跑」；
+   run-d 补上这两颗环境变量后绿。
+5. `boundaryOk:false` 那回是尺子的记账顺序：在 `downloadProof` 落笔之前中止，那颗已经落盘的包被算成「多出来的
+   文件」。补完判据即 `true`，不是产品越界。
+
+**门**：定向 `ClientUpdateSection.test.tsx` 6/6；全量 `CI=true npx vitest run` **793 文件 / 8714 passed | 2 skipped（8716）**、
+260.28 s、exit 0（`.tmp/gate-vitest-1.16.0-final.txt`；对 Wave 3 收口的 792 / 8708|2 多出 1 文件 6 条，全是那把新锁）。
+`check:main`／`check:preload`／`check:renderer` 三路 `tsc` exit 0。真窗档量的是**构建产物**，产品改完重跑过一次
+`npx vite build` 再跑尺。
+
+**没做 / 记下来**：
+
+① 「起安装器、退出并被替换」这半句到今天仍无真窗凭据：第二下真按了，产品在自己最后一道闸上把它拦下了
+（装之前重算字节，`update-service.ts:479` → `stale-package`），安装器压根没起。要量这条就得允许真把这个 App
+换掉——没有反悔通路，得用户本人点头。
+② `digest-mismatch`（下载那一段核对不上）仍只住在单测面：这一档那颗本来就是发布页上的真货，没走到那条红。
+③ **发布出去的那颗包不含这轮的武装字修复**：`v1.16.0` 指 `9b8b849d`，修复在它之后。下一次抬版本发布自然带上；
+要不要为这一条单独再发一版，留给用户决定，我不静默重发。
+④ `download` 档只在 zh-CN 量过；`en`／`ja-JP` 这两份表上这一档还没跑（三腿在 1.15.0 时是九趟全绿）。
+⑤ 那颗 128 B 的篡改包留在沙箱当现场，下一次 `--run download` 开跑才清；这一趟 C: 上没落任何字节（全钉在 D:）。
+⑥ 本轮没动用户在跑的 `clash-verge.exe`／服务／桌宠进程；#274 那四条腿仍等用户退出 Clash Verge。
 
 
 

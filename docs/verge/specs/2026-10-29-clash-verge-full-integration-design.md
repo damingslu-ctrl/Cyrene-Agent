@@ -59,8 +59,10 @@ Mochi 只保留"读 Verge 数据、用它的控制器"的协作姿态。2026-10-
   校验：release asset 的 `digest` 必须是 `sha256:…` 且与下载文件相符；缺失即拒绝安装。
 - 内核通道：`https://api.github.com/repos/MetaCubeX/mihomo/releases/latest`，同上校验。
 - 时机：启动后 90s 一次、之后每 6h；**只检查不自动下载**。下载需用户在设置页点。
-- 安装：下载到 `<userData>/updates/`，校验后 `shell.openPath` 启动安装器并退出；
-  安装器静默参数 `/S`。保留最近 1 份安装包，旧包在下次成功下载后删除。
+- 安装：下载到 `<userData>/updates/`，校验后起安装器并退出。原文这里写的是 `shell.openPath`，
+  落地时改成 `child_process.spawn`——那条口**带不了参数**，而 `/S --updated --force-run` 三颗都必要
+  （理由与逐条分支见 `src/main/update/installer-launch.ts` 文件头）。静默与「这是升级」的语义不变。
+  保留最近 1 份安装包，旧包在下次成功下载后删除。
 - 关闭：设置页可关自动检查；关掉后只有手动按钮会发请求。
 - 出口边界：更新器是**唯一**允许访问 `api.github.com` / `github.com` /
   `objects.githubusercontent.com` 的模块；三把联网工具（fetch_url / download_file /
