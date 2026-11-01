@@ -1122,9 +1122,12 @@ async function probeAssetEgress(release) {
   } catch (error) {
     const ms = Date.now() - startedAt;
     const cause = error?.cause?.code ?? error?.cause?.message ?? "";
+    // 分得清「自己掐表」与「对家掀了」：两种都带着速率回交给 `assertUpdateEgress` 判。
+    // 前者是这一档的常态（慢腿等不满一整段），那仍是一个能拿来投影的速率；后者连这一小段都没稳住，
+    // 摊出来的速率不算数——留在这儿不判，判它的地方就是唯一说这句话的地方。
+    const aborted = error?.name === "AbortError" || error?.cause?.name === "AbortError";
     if (got > 0) {
-      // 掐表到点（或半路被断）但字节确实在动：这仍然是一个速率读数，够把「搬不完」算出来。
-      return shape(ms, { cutShort: `${String(error?.message ?? error)}${cause ? `（${cause}）` : ""}` });
+      return shape(ms, { cutShort: aborted ? "到点自己掐表" : `${String(error?.message ?? error)}${cause ? `（${cause}）` : ""}`, timedOut: aborted });
     }
     throw new Error(`${hostOf(release.downloadUrl)} 回不来：${String(error?.message ?? error)}${cause ? `（${cause}）` : ""}，${ms}ms 内一个字节都没到`);
   } finally {
@@ -1176,6 +1179,14 @@ async function assertUpdateEgress(report) {
     throw new EnvError(
       `${hostOf(release.downloadUrl)} 这一趟读不出包的总长（content-range / content-length 都没有），` +
         `算不出「${release.asset} 在 ${MIHOMO_ASSET_WINDOW_MS / 1000} 秒里搬不搬得完」——证明不了就别按下那颗键。`,
+    );
+  }
+  if (probe.cutShort && !probe.timedOut) {
+    // 对家先把连接掀了：这一段速率根本不代表一条搬得动 22 MB 的腿。早先这一档跟「自己掐表」并成一回事，
+    // 于是 192 KB 后 destroy 的那种腿会投影成「几秒就到」并放行——产品随后红给你看。
+    throw new EnvError(
+      `${hostOf(release.downloadUrl)} 这一趟连 ${EGRESS_PROBE_BYTES} 字节这一小段都没稳住：探针收到 ${probe.bytes} 字节用了 ${probe.ms}ms` +
+        `（约 ${probe.kbps} KB/s，断因：${probe.cutShort}），摊不出可信的速率，这一档就不下结论。`,
     );
   }
   if (probe.projectedMs > EGRESS_BUDGET_MS) {
