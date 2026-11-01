@@ -3077,4 +3077,169 @@ ENV 不是绿。缺的是一条能搬 bulk 的出口——15:25 本地 `netstat`
 ③ 五档的屏上半句只到「逐字对齐报告里那串字」为止；像素层面仍按桌宠那套 oracle 之外——内核卡这一层从来只认盘／进程表／IPC。
 
 
+### Wave 4 收口账·贰：v1.16.1 发出去了（武装字修复在里面）+ 客户端更新尺重钉 1.16.1 + `download` 档加出口前闸（2026-11-01）
+
+**先反上一条账的一句**：2995 起那段「没做／记下来」的第 ③ 条（3001–3002）写「发布出去的那颗包不含这轮的武装字修复：`v1.16.0` 指
+`9b8b849d`，修复在它之后……要不要为这一条单独再发一版，留给用户决定」——**这一条今天关了**：`v1.16.1` 指 `38952a40`，
+`git merge-base --is-ancestor 99f72e67 38952a40` 回来是 `yes`，「安装」武装那一拍的屏上字（`99f72e67`）
+就在这颗发布包里。抬版本这一步是 `38952a40` 自己（`chore(版本号): 更新至 1.16.1`），不是我另起的一刀。
+
+**这颗包是 CI 构建的，不是我本地构建的**（`.tmp/fetch-artifact.log`）——「发出去的字节 == CI 认过的字节」要能一路追溯到 tag：
+
+- `package-windows.yml` 手动 dispatch（tag push 不触发，见 [[project-cyrene-release-pipeline]]）：那一趟是 run
+  `41276605282`，`headSha 38952a40dd9c70a17e5ff8a58de2a0afa841f1ca`（就是 `v1.16.1` 指的那颗）、`conclusion success`
+  （这三条此刻在 `.tmp/ci-run-1161.txt`，收口前用 `gh run view --json` 回读了一遍，不再是只有终端里见过的一次性读数）。
+  产物 `mochi-windows-installer`
+  里那颗 zip 303,629,313 B，CI 自己声明的 sha256 = `dc703543…`。
+- 入口那条腿被 DPI 压着：单流搬 304 MB 要两小时起。改成分片（4 MiB/片 ×73）＋多车道＋断点续传——
+  日志上这是**两颗进程**（`.tmp/fetch-artifact.log:1` 与 `:5`）：A 从 07:33:26 起、9 车道、`deadline=420s`、`existing=0`，
+  到 07:41:46 落在 30/73（`elapsed=500s`）后 `deadline hit remaining=43` 退场（`:9`；到点即 `process.exit(3)`，
+  `.tmp/fetch-artifact.mjs:90`-`:92`）——A 实搬 30 片 = 125,829,120 B，按它自己的墙钟 500 s 是 **252 KB/s**（表上那 420 s
+  是死线，检查排在一批之后，所以实际跑到 500 s）。B 从 07:39:51 起、12 车道、`existing=19`，1032 s 后 73/73 齐（`:17`），
+  07:57:03 拼装并核验。**这两颗有约 115 秒同时在拉同一条腿**，而 A 在 B 起步后又补了 11 片（19→30），所以
+  「B 自己搬了几片」这份日志分不出来——别把 54 片记到 B 头上。能钉住的是全程口径：303,629,313 B ÷（07:33:26→07:57:03 =
+  1417 s）≈ **214 KB/s**。日志那行 `avg=290KB/s` 不是这个口径，两处对不上（`.tmp/fetch-artifact.mjs:110`-`:112`）：
+  分子 `done = plan.filter(complete).length` 把续上的 19 片也算进「已完成」，分母却只是这一趟自己的 `elapsed`；除的是 1024
+  而字面写 `KB/s`（实为 KiB/s）。摊出来的数因此比实搬的数好看，读的时候要打折。车道从 9 加到 12 没换来速度，
+  瓶颈在那条腿不在车道数；SAS 签名 URL 每 `RENEW_MS = 240_000` 换一枚（`:23`），日志里 `renewed sas url` 共 3 行，
+  token 不发给 blob 域、签名 URL 不落盘不进 argv。
+- 核验排在解压之后，两头都对上：**装进 git 之外**的凭据链是 `zip 摘要 === CI 声明`（`VERIFY OK zip matches CI digest`），
+  解出来的 `Mochi-Setup-1.16.1.exe` 303,964,701 B 与 CI `verify:installer` 那行报的字节数逐字相同，
+  sha256 `9b6645447b2159b13bfd0455e693d22ee1a731769d9b48eed51fddd1c6a063d4`。
+
+**发布走的是 `publish-update.mjs` 自己的闸**（`.tmp/publish-1161.txt`，全程带 `--publish` 之前先看了一趟计划）：
+本地闸门那行「`Mochi-Setup-1.16.1.exe` 303964701 bytes，sha256=9b6645447b…」→ `release view` 必须不存在 →
+`git/ref/tags` 必须 annotated → 落盘 `SHA256SUMS.txt` → `release create` → 回读。远端独立回读（`gh release view --json assets`）：
+`Mochi-Setup-1.16.1.exe` 303,964,701 B / `sha256:9b6645447b…`（与本地那枚**同一串**）、`SHA256SUMS.txt` 89 B /
+`sha256:b5d974dc…`，`isDraft:false`、`isPrerelease:false`、`createdAt 2026-11-01T03:35:58Z`。产物目录里没有 `latest.yml`
+（`assertNoUpdateFeed` 在发布这一头守着上游更新器的反向锁）。
+
+**一条读数反了脚本自己的一句话**：`scripts/release/publish-update.mjs:144` 那句警告说「直连 github.com 被 SNI DPI 拦着，
+gh 大概率挂在超时上」——这一趟 `HTTPS_PROXY` 全程没带，304 MB 照样直连推上去并回读一致。今天这台机器瘦的是**入口 bulk**，
+不是出口：同一条腿 30 秒只肯给 6 KB/s 下载，却把 304 MB 上传跑完了。警告不拦事，措辞是 2026-10-24 那次的账，
+我没动它（改它要连那颗变异验牙一起改），只把这条读数记在这儿。
+
+**尺子重钉 1.16.1，三腿在最终尺上另跑了一遍**：`client-update-cdp.mjs:61` `PINNED_LATEST = "1.16.1"`（文件头与 `:62`
+那句「发布页的 v1.16.1 于是『比本机新』」一起跟上）。`--runs=latest,available,failed --proxy=` 直连 ⇒ `EXIT=0`、`ok:true`，
+`available` 那档屏上是「本机：v1.0.0 · 可装 v1.16.1」、`latest` 那档是「发布页那版不比本机新 · v1.16.1」。
+这一趟一共落了四份默认档日志，只有最后两份压在最终尺上，先后由 mtime 钉着（尺子最后一次改动 = 16:29:28）：
+`.tmp/cu-1161-default.txt`（16:12，出口前闸刚落地、ENV 措辞与报告字段还没改）、`.tmp/cu-1161-default2.txt`（16:20，那两处改完）、
+`.tmp/cu-1161-default3.txt`（16:31，ENV 那句去掉「这一趟——这一趟」那种叠字之后＝最终尺第一遍）、
+`.tmp/cu-1161-default4.txt`（16:58，最终尺第二遍，也是本轮收口前新跑的：第 335 行 `EXIT=0` 直接落进了文件，
+前三份都只有终端里的 `echo $?`、没留下这行）。四份都是三腿 `ok:true`。
+尺子改过就要用最终版重跑认证（[[project-false-green-locks]]）——`default4` 跑在姊妹尺 16:44:00 那次改动**之后**，
+所以它是两把尺都定稿后的那一遍。
+
+**`download` 档新增出口前闸**（`client-update-cdp.mjs:1081` 注释 + `:1091` `assertDownloadEgress`，接在 `:1166`
+`exerciseDownload` 的第一句）：
+
+- 为什么先量算术：产品那一腿**没有墙钟上限**——`src/main/update/installer-download.ts:42` `CLIENT_DOWNLOAD_IDLE_MS = 90_000`
+  是**空闲**计时（`:40` 那颗 512 MiB 是字节上限），慢不等于坏；20 分钟那把表是**尺子的耐心**，这一轮从字面量提成常量
+  `DOWNLOAD_BUDGET_MS`（`:69`）。这一轮直连两趟有读数的量到 6 KB/s（`.tmp/cu-1161-download2.txt`，16:19）与 12 KB/s
+  （`.tmp/cu-1161-download3.txt`）⇒ 304 MB 要 14 小时与 7 小时（303964701÷6000＝50,660 s、÷12000＝25,330 s），让产品去跑，20 分钟后落下来的是**产品红**（exit 1），
+  读起来像「下载这条路坏了」。所以这一闸在按「下载」之前先量，量不过判 ENV（exit 2，契约还是文件头第 7 行那句 0／1／2）。
+- 与产品对齐到能对齐的地步：同一颗资产 URL（`github.com/<repo>/releases/download/v<PINNED>/<file>`，repo 从
+  `src/main/update/github-release.ts` 的 `CLIENT_UPDATE_REPO` 读回来、不重打一遍）、`Range: bytes=0-2097151`
+  （`EGRESS_PROBE_BYTES`，`:70`）、跟跳转（实测 302 → `release-assets.githubusercontent.com` 回 206，`content-range`
+  尾巴带总长）、同一个 `AbortController` 机制、30 秒自己掐表（`:71`）。一个字节也不落到沙箱。
+- **跳过，不代量**：带了 `--proxy=` 就返回 `{skipped}`（`:1093`）——这台机器上尺子自己的 `fetch()` 是直连的（Node 要带
+  `NODE_USE_ENV_PROXY=1` 才认 env 代理），量另一条路的速率判这一条不算数。所以这一闸没把 `download` 档永久焊死：
+  环路快车道投影 5943 ms ⇒ 放行（下表那一趟）。
+- 四条 ENV 分支，顺序是有讲究的：一个字节都没收到 → 没给 content-range → 半路被对家掀了 → 投影摊不进表
+  （后三条各带自己的措辞）。undici 把真死因塞在 `error.cause` 里、外层只剩一句 `fetch failed`，`:1115`-`:1116`
+  把 `cause.code ?? cause.message` 拼进断因。ENV 那一趟的读数也进报告（`:1411` `report.egressProbe = error.reading`）——
+  只有「搬不完」三个字、没有 kbps 与投影秒数，下一轮就没法分清是出口又瘦了还是闸门自己坏了。
+
+**尺子有牙也不咬人：七档正对照 7/7**（`.tmp/egress-driver.txt` 是被 `.tmp/make-egress-control.mjs` 追加进最终尺副本的驱动，
+本地服务器 59181 一颗，`CTL_TOTAL` 就用真包那 303,964,701 字节，免得分母对不上）。下表逐字取自那份 `CONTROL 7/7` 的日志
+（`.tmp/egress-control-final.txt`，措辞定稿后的最终尺副本）；「这一趟 exit 0」是驱动自己钉的——`:97`
+`process.exit(ctlBad === 0 ? 0 : 1)`，坏的时候那行写的是 `CONTROL BAD=n/…`（姊妹尺改前那份就是这个形状），日志里没有 `EXIT=` 这行。
+措辞定稿之前同一份驱动也跑过 7/7，
+七档的**判定**没随措辞动过，动的只是那几行字的叠字。`fast` 那一档的毫秒数每趟都漂（三趟量到 4783／5943／7102），
+判据不动——放行线在 `DOWNLOAD_BUDGET_MS - EGRESS_MARGIN_MS` = 1,080,000 ms，这一档那一趟落在它的一百八十分之一：
+
+| 档 | 屏上落下什么 | 判 |
+| --- | --- | --- |
+| `fast`（立刻给满 2 MiB） | 投影 5943 ms | 放行 |
+| `slow`（40 KB/s 到点掐表） | 「约 39 KB/s，整包 303964701 字节按这速率要 7679 秒…这一段是到自己掐表才停的」 | ENV |
+| `drip`（256 KB/s 整段收到、不掐表） | 「约 253 KB/s…要 1173 秒」且不带掐表尾句 | ENV |
+| `cut`（192 KB 后 `res.destroy()`） | 「探针半路被切断，连 2097152 字节这一小段都没稳住（约 1548 KB/s）」 | ENV |
+| `dead`（响应头都不落地） | 「探针没搬回一个字节，下载那一腿不通（status=null，探针收到 0 字节用了 18ms，断因：fetch failed（UND_ERR_SOCKET」 | ENV |
+| `norange`（200、不给 content-range） | 「响应没给 content-range，摊不出「整包按这速率要多久」，就不下结论（status=200，探针收到 65536 字节用了 2ms）」 | ENV |
+| `fast` + 带 `--proxy=` | `skipped` | 跳过 |
+
+`drip` 那一档是补的：投影分支的「超时」半边先前有凭据，「整段收到但仍摊不进表」那半边没有——一条只验一半的判据不算有牙。
+`dead` 那一档也是补的，因为下一条 ② 那个错只有配上「腿根本没通」这一档才量得出来。
+驱动把每档详情截到 110 字（`slice(0, 110)`）：`dead` 那行末尾在日志里是半串 `UND_ERR_SOCKE`，`slow` 那行的掐表尾句也没落完——
+表里那两处补的是原码/原句，完整的那句「……这一段是到自己掐表才停的（30 秒没凑满 2097152 字节）」在真跑 `download`
+档的 `.tmp/cu-1161-download3.txt` 里逐字有。
+这一串的日志在盘上只留了两份：改分支之前的那趟（`.tmp/egress-control-run.txt`，那时 6 档、`CONTROL 6/6`）与最终这趟——
+① 里「第一版把 `cut` 判成放行」那 194,802 ms 来自这两份更早的现场，那两趟的输出当时直接落在终端、已被覆盖，
+记账记的是判据改了什么，不是当时那一行字。
+
+**对照抓到两处尺子自己的错，都不是产品的**：① 第一版把 `cut` 判成**放行**（194,802 ms 落进表里）。对家先把连接掀了，
+那段速率根本不代表一条搬得动 304 MB 的腿——我一开始想改对照的期望，改口之前先看判据：这一档要的正是「半路断流的腿不许
+投影成能跑」，所以错的是闸，补了专用分支。② 真跑 `download` 档第一趟量到 0 字节，报的却是「没有 content-range」——
+分支顺序把「腿根本没通」解释成「对家不会发头」，而且 `status=null` 明摆着响应头都没落地。把 0 字节提到最前，
+再把 `cause` 挖出来。最终版尺子真跑 `download` 档（`.tmp/cu-1161-download3.txt`）落进投影分支：exit 2（那趟的 `echo $?`
+直接落在终端、已被覆盖，所以这条是**推出来**的——第 9 行那句「ENV（不是产品红）」与 `:1415` 的 `process.exitCode = 2`
+是同一条 `isEnvironment` 分支的两句话，而 `:1420` 那句能把码改回 1 的「还原没做完」在这份日志里出现 0 回），
+报告 `egressProbe` 里
+`probeBytes 373269 / elapsedMs 30012 / status 206 / totalBytes 303964701 / kbps 12 / projectedMs 24439717`
+（那句 ENV 原文是「搬不完：约 12 KB/s，整包 303964701 字节按这速率要 24440 秒，而尺子给下载那一把表只有 1200 秒
+（留 120 秒余量）；这一段是到自己掐表才停的（30 秒没凑满 2097152 字节）」）；默认三腿的绿不在这份文件里，另见
+`.tmp/cu-1161-default3.txt` 与 `.tmp/cu-1161-default4.txt`，`EXIT=0` 那行只有后者落了盘（见上「三腿在最终尺上另跑了一遍」那段）。
+
+**同一处错在姊妹尺里活着，这轮一起钉死**（`scripts/verify/core-card-cdp.mjs` 的出口前闸是今天早些时候落的，
+`assertUpdateEgress` `:1162`）：它的探针把「自己掐表」与「对家掀了」写进同一个 `cutShort` 字段，回来一律照投影判——
+同一种腿在两把尺里得到相反的答案。改之前拿同一份驱动喂 `git show HEAD:` 导出那一份（本地端口换成 59182，
+`.tmp/core-egress-control-prefix.txt` 落的是 `CONTROL BAD=2/6`）：`cut` 档 196,608 字节 / 39 ms ⇒ 投影 **4,466 ms ⇒ 放行**
+（110 秒的表，它按 4.5 秒就判「搬得完」，产品随后红给你看）；`slow` 档也红——落的是投影分支没错，但那句 ENV 里
+认不出「到自己掐表才停的」，屏上分不出是谁掐的表（test 里那条 `/自己掐表/` 就是为这个钉的）。
+修法与客户端尺同形：`:1128` 只把 AbortError 记成 `timedOut`，`:1130` 的 `cutShort` 相应写成「到点自己掐表」或真死因；
+`:1184` 在「读不出总长」（`:1178`）之后、「摊不进表」（`:1192`）之前插一条 `cutShort && !probe.timedOut` ⇒ ENV。
+分支顺序（0 字节 → 没总长 → 半路掀 → 投影）两把尺现在一致，对同一种腿说同一句话。
+改后 6/6（`.tmp/core-egress-control-final.txt`，`CTL_TOTAL` 用真那颗 mihomo 包的 22,512,121 字节）：`fast` 投影
+311 ms ⇒ 放行、`cut`「这一趟连 2097152 字节这一小段都没稳住：探针收到 196608 字节用了 42ms（约 4571 KB/s，
+断因：terminated（UND_ERR_SOCKET）），摊不出可信的速率」、`slow` 掐表走投影、`dead`「4ms 内一个字节都没到」、
+`nolength` 与 `cutnolength` 都先说总长——后那一档专门钉顺序，两种缺法同时在场时不许说成掀连接。
+真腿用最终尺重跑：`node scripts/verify/core-card-cdp.mjs --update`（`.tmp/gate-update-refix.txt`）exit 2——同样没把
+`echo $?` 留在文件里，是推出来的：`:1657` 给那句加上「ENV: 」前缀（日志第 1 行正是这个形状），`:1662` 紧跟着置
+`process.exitCode = ENV_EXIT`、`:1663` 当场 `return`，后面没有任何改码的通路。报告
+`.tmp/reports/core-card-update.json` 的 `egressProbe` = `bytes 421922 / ms 30014 / kbps 14 / projectedMs 1601431 /
+cutShort "到点自己掐表" / timedOut true`，除 `release` 与 `egressProbe` 之外没有 `sweepAtStart`／`cardOnEntry`——
+这一趟仍没开 app、没造目录、一个字节没写；下午这条出口比上午那趟（61 KB/s）又瘦了一档。
+
+**门**：全量 `CI=true npx vitest run` **793 文件 / 8714 passed | 2 skipped（8716）**、474.84 s、`VITEST_EXIT=0`
+（`.tmp/vitest-1161-final.txt`），与上一条账的基线**逐字相同**。这条要说清楚：尺子改动不进 vitest 的射程，
+它只证明「没把别的东西碰坏」；验这把新闸的是上面那七档正对照。
+上一句得打折：那一趟压在客户端尺最后一次改措辞**之前**起跑，而 `grep -rl client-update-cdp src scripts
+--include=*.test.*` 回来的是 **1 篇**、不是我先前写的 0 篇——那篇是 `src/renderer/react/features/network/
+ClientUpdateSection.test.tsx`，它只在文件头第 6 行的来龙去脉里提了这把尺的名字，没有任何单测读它的源码，
+所以「改动不在射程」这个结论仍成立，但「0 篇」那句是错的，账要改。
+这一轮为姊妹尺的改动又跑了全量一趟，压在两份尺子的最终版**之后**：`.tmp/vitest-1161-sibling.txt` 落的仍是
+**793 文件 / 8714 passed | 2 skipped（8716）**、412.28 s、`VITEST_EXIT=0`——三条数与上一条账的基线逐字相同，
+只有耗时不同（474.84 s ↔ 412.28 s，同一台机器同一份树，`isolate: true` 那 793 颗 worker 的启动本来就漂）。
+两把尺都不进 vitest 的射程，这两趟各自只证明「没把别的东西碰坏」。
+
+**没做／记下来**：① `download` 档的**产品**四条判据（真下一颗、对摘要、篡改、拒装）在 1.16.1 这颗上仍无凭据——
+这一轮它判成 ENV，ENV 不是绿；那四条判据本身的凭据在 `f3fdaf36` 那条账（1.16.0 那颗 290 MB）里，缺的只是一条搬得动
+bulk 的出口。补出口再跑，或由用户点头用别的路子喂包；我不会替用户把 Clash Verge 启起来。
+② `en`／`ja-JP` 的 `download` 档照旧没跑（三腿这两份表 1.15.0 时九趟全绿）。③ 上一条账 ① 那句「`Browser.close`
+每趟都要强杀」仍没查因，不在本轮射程。④ `publish-update.mjs:144` 那句代理警告与今天的读数相反，措辞留原样。
+⑤ 那堆一次性脚手架里**删**的只有三样：`.tmp/artifact-parts/`（73 片，`du -sk` 报 296,528 KiB ≈ 290 MiB）、
+拼出来的 `.tmp/Mochi-Setup-1.16.1.zip`（303,629,313 B）与那两颗「副本尺」（`.tmp/egress-control-copy.mjs`
+85 KB、`.tmp/control/` 那三份）——副本是生成器现拼的，留着只会与最终尺对不上。
+**留**的是这几份小东西：两把正对照的驱动与生成器（`.tmp/egress-driver.txt`、`.tmp/make-egress-control.mjs`、
+`.tmp/core-egress-driver.txt`、`.tmp/make-core-egress-control.mjs`，合起来不到 11 KB），因为上面那张表说得出「哪七档、
+谁掐的表」全靠它们——删了下一轮就只能重新猜怎么喂那颗闸。读数日志
+（`.tmp/egress-control-run.txt`／`-final.txt`、`.tmp/core-egress-control-prefix.txt`／`-final.txt`、
+`.tmp/ci-run-1161.txt`、`default`~`default4` 与 `download2`／`download3`）与其余
+`.tmp/*.txt` 证据一样留着，本账引的就是它们。`.tmp/fetch-artifact.mjs` 也留着——上面那几个速率与 `avg` 的毛病
+全靠它的 `:23`／`:90`-`:92`／`:110`-`:112` 撑着，删了这段就没法复查。
+`.tmp/` 全程没进 git，
+`release/` 里那两颗（exe 290 MB 级 + `SHA256SUMS.txt`）也留在盘上没 stage。
+
+
+
 
