@@ -3661,6 +3661,126 @@ LF 副本 `rc=0`（`:3`，末行读数 `EOL CENSUS OK 3 files CR=0` `:7`）、CR
 没被任何锁判红，那是本机 autocrlf 的正常结果，CI 那侧才是这条判据的家；⑦ 数 CR 那一步在 pwsh 下跑的是
 `node -e` 单行折叠标量，YAML 解析与三档 rc 都验过，但**它自己还没在真 CI 上跑过一趟**——下一趟 dispatch 是它的第一个现场。
 
+### Wave 4 收口账·柒：数 CR 那一步的第一次现场——镜像那颗 true 不在 global 层，读数就补正了一位（2026-11-02）
+
+**这一趟是什么**
+
+- dispatch `41325952342`（head sha `59a7eb04`，2026-11-01T16:21:53Z → 16:30:50Z，`completed / success`，attempt 1），
+  24 步全绿（`.tmp/ci-41325952342-steps.txt:1`-`:24`）。这是数 CR 那一步的第一趟现场。
+- **步骤号又整体 +1**（多出数 CR 那位）：上一账的「21 步 `Test · main / core（其余）`」是这里的步 22
+  （`.tmp/ci-41325952342-steps.txt:22`），「23 步 `Test · scripts`」是这里的步 24（`:24`）；数 CR 是步 4（`:4`），
+  紧跟 checkout（步 3）。跨趟比读数还是先对这条。
+
+**⑦ 到此清了：数 CR 那位在真 CI 上的第一批读数**
+
+- 逐颗点名 `CR=0 src/main/verge/core-bootstrap.ts`、`CR=0 src/main/eol-fragile-assertion.test.ts`、
+  `CR=0 .github/workflows/test.yml`（日志 `.tmp/ci-41325952342-job-log.txt:129`/`:130`/`:131`），
+  放行读数 `EOL CENSUS OK 3 files CR=0`（`:132`）。
+- 这一位的**位次**从此不再只由锁的静态读数背书：runner 自己把顺序打出来了——checkout 是步 3，数 CR 是步 4。
+- 步 22 `Test Files 172 passed (172)` / `Tests 2095 passed | 1 skipped (2096)`（`:8783`/`:8784`）与上一趟逐字相同：
+  这把锁在 CI 上是稳定第二趟，不是碰巧。
+- 步 24 的 `node:test` 尾巴 `tests 17 / pass 17 / fail 0`（`:8834`/`:8836`/`:8837`，`duration_ms 507.5` `:8841`），
+  起跑组头 `:8806`。`!cancelled()` 仍然只验了「无事发生」那一半——上一账 ② 原样留着。
+
+**现场教出来的一件：`image value:` 打出来是空的**
+
+- `:45` 那条 echo 后面什么值都没有，`:46` 钉过之后才读到 `false`。不是代入了个空——同一颗 `$( )` 在 `:46`
+  确实把值打出来了——是 **global 层本来就没设过**：镜像那颗 `true` 钉在 system 层的 gitconfig 里，
+  `git config --global core.autocrlf` 这一行看不见它。
+- 于是上一账「把真值打进日志，改前改后各一条读数」那句承诺，实际交付的是一位**会把下一个人带偏**的读数
+  （读成「这台镜像没设 autocrlf」）。本轮补正：`.github/workflows/test.yml:31` 加一条不带 `--global` 的
+  生效值读数（system+global+local 合并，这颗才真能看见镜像），原来的 global 读数改名 `global value:`（`:32`）
+  并说明它只管自己那层；`.github/workflows/test.yml:27`-`:29` 的注释把这一趟的实测写进去了。
+- D 档跟着多一条位次判据（`src/main/eol-fragile-assertion.test.ts:253`）：两条「改前」echo 必须排在钉子之前、
+  `pinned value:` 必须排在之后。**为什么位次而不是只查三条都在**：只查存在的话，把三行整体搬到钉子之后仍然绿，
+  而那条标着「生效值」的读数就变成钉过之后的值——读数开始说谎，与「界面写出来的快捷键」同型。
+  为此加第三副合成档 `SYNTHETIC_WORKFLOW_ECHO_LATE`（`:227`）：它只搬 echo，其余位次不动，
+  要求判据回 `{ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: false }`（`:307` 那一档里钉着）。
+  三颗锚 token 抽在 `:202`-`:204`，档位判据抽在 `pins()`（`:240`）。
+- 锁本轮跑过：`src/main/eol-fragile-assertion.test.ts` 5 档全绿（本机定向一趟）。**没有**给 effective 值加「必须等于 true」
+  那种判据——值由镜像决定，钉它会在哪天镜像改掉时假红；这一位只当诊断，起作用的门仍是数 CR。
+
+**#282 又攒两颗不复现（同一批字节两趟并行）**
+
+- 本趟步 17 `Test · main / orchestrator` `154 passed (154)` / `1939 passed (1939)`（`:5341`/`:5342`，63.53s `:5344`）。
+- 同一批字节（sha `f781ba93`，即上一账那趟的同一颗 commit）的另一趟 `41325894801` 也 `completed / success`
+  （16:21:13Z → 16:31:23Z）。两趟同时在跑，工作流里没有 `concurrency` 块（`.github/workflows/test.yml:8`-`:13`
+  只有 `on:`），互不取消——所以这是两个独立现场，不是一趟的两个读数。#282 仍无根因，仍不修。
+
+**门（最终文件重跑）**
+
+`.tmp/eol-gate3.txt:7782` `Test Files 796 passed (796)`、`:7783` `Tests 8728 passed | 2 skipped (8730)`、
+`:7790` `GATE_EXIT=0`（343.99s，`:7785`）。与上一趟门逐颗比对（`.tmp/eol-gate3-count-diff.txt:3`-`:5`）：
+`added: []` / `changed: []` / `removed: []`，两头总数 796/8730 一字未动——本轮改的是 D 档判据的内部
+（多一条位次、多一副合成档），一颗 `it()` 都没添，所以总数不动是**预期**，不是「什么都没改」的证据。
+
+**这一位的牙（真变异，不是合成档自证）**
+
+合成档只证明 `pins()` 这个纯函数有牙；下面两档证明**真文件被改坏时锁会红**（`.tmp/eol-echo-mutation.txt`）。
+驱动只动 `.github/workflows/test.yml` 一颗文件：① 删掉 `effective value:` 那行（`:2` 那行记了 `139→138`），
+锁红在 `:8` `Tests 1 failed | 4 passed (5)`，差分正是 `- "echoesStraddlePin": true / + false`（`:5`/`:6`）；
+② 三条读数一颗不少、把 effective/global 塞到 pinned 之后（`:11` 记了 `139→139`，一颗没少），
+同样红（`:16`）、同样那一颗差分（`:13`/`:14`）。②这一档才是要防的形状：只查「三条都在」的话它会绿，
+而那条「生效值」读的是钉过之后的值。
+复原核对：`:18` 那颗 sha 与改动前记录的 `6a50b933…` 逐字符相同，控制档 `:20`/`:21` 回到 `5 passed (5)`。
+一处尺子的话要说清：`:9` 那个 `RC1=0` 是 `grep` 的退出码不是我想要的 vitest 退出码（管道尾巴读错了对象），
+所以这一节的红只按 `:8`/`:16` 那两行读数认，不按 rc 认。
+
+**没做／记下来**：① 步 22 那颗 `1 skipped` 仍未点名（延续上一账 ①，编号跟着 +1）；② `!cancelled()` 的「前置红」
+那一半还没有现场（延续）；③ 生效值那条新读数**本轮还没在 CI 上打出来过**——它是这次改的，下一趟 dispatch 才是它的
+第一个现场，与上一账 ⑦ 同一型，别把「加了」当成「验了」；④ 数 CR 仍只钉三份文件（延续）；⑤ 23 步那条空档
+（packages + skills + poc）原样留着，本趟它继续绿得没有内容；⑥ #282 依旧没根因，凭据攒到四颗。
+
+### Wave 4 收口账·捌：EOL 第二型量过了——它不咬，理由与残余各写一条（#284）
+
+**射程外的六处是什么**
+
+`src/renderer/ui/brand-color-migration.test.ts:94`、`src/renderer/ui/color-token-resolution.test.ts:126`、
+`src/renderer/ui/hardcoded-color-ratchet.test.ts:65`、`src/renderer/ui/theme-palette-derivation.test.ts:174` 与 `:327`、
+`src/renderer/react/features/chat/pages/ChatPage.test.ts:55`。它们读的都是盘上的生产源正文，
+写死行尾的方式是**字符串**（`.split("\n")` / `indexOf("\n…")`），而本锁的 C 档只扫正则字面量，所以这六处在射程外。
+
+**逐颗说不咬的理由**
+
+- 前三处切完每行末尾多挂一颗 `\r`，可下游谓词全是**只锚头**的：`brand-color-migration.test.ts:68` 那颗
+  `PALETTE_DECL = /^\s*--rb-…\s*:/i`、`hardcoded-color-ratchet.test.ts:58` 那颗 `COLOR`——它的锚在 `#`、`rgb(`、
+  `hsla(` 的起手上；`\r` 既过不了 `\b` 那一侧的词字符判断（`f` 与 `\r` 之间照样是边界），也落不进
+  `(?![-0-9a-zA-Z])` 的否定类里，两副行尾同判。`color-token-resolution.test.ts:126` 那处的下游是
+  `readVarArgs(line, open)`——它一路扫到配对的 `)` 就收，而 `)` 永远在 `\r` **之前**，切出来的 `args` 一字不差；
+  真跨行的 `var(` 在两副行尾下都读不到 `)`，同样回 `null`，同判。
+- `theme-palette-derivation.test.ts:173` 的 `logicalLines` 与 `:327` 那圈用的是
+  `/^\s*(--(?:rb|md|cy)-[a-z0-9-]+)\s*:/`，同样只锚头。
+- `ChatPage.test.ts:55` 那颗针以 `\n` 起手（`"\n            }}"`），CRLF 正文里 `\r` 落在针的**前面**，`indexOf`
+  照样命中同一个位置；切出来的片段内部换行变成 `\r\n`，而它下游三颗断言都是 `toContain("单行内容")`。
+
+**凭据不是这段分析，是同一批断言在两副行尾上各跑过一遍**
+
+- LF 那一副由 CI 提供：本趟步 16 `Test · src / renderer` `246 passed (246)` / `2318 passed (2318)`
+  （`.tmp/ci-41325952342-job-log.txt:2160`/`:2161`），而步 4 已证明那台工作树 CR=0。
+- CRLF 那一副由本机提供：同五颗文件 `Test Files 5 passed (5)` / `Tests 34 passed (34)`
+  （`.tmp/type2-local-run.txt:16`/`:17`），而本机工作树是混的——生产源（非测试的 `.css/.ts/.tsx`）
+  1189 颗里 1031 颗带 CR（`.tmp/eol-type2-targets.txt:1`-`:2`），且这几处真读到的那颗全带：`ChatPage.tsx` CR=2265（`:4`）、
+  `AgentRunController.ts` CR=1490（`:5`）、`src/shared/pet-tokens.ts` CR=152（`:6`）、`src/renderer/ui/theme.css` CR=1188（`:9`）。
+- 顺手把「本机也是混的」数清楚：`src/renderer` + `src/shared` 全域 793 颗里 548 颗带 CR（`.tmp/eol-type2-census.txt:1`-`:3`）。
+
+**为什么这一型不给它加静态锁**
+
+按 C 档同一套 callee 规则把**字符串字面量**也扫一遍（`.tmp/eol-type2-strings.txt:1`-`:2`）：测试文件里非 `.replace()`
+的写死行尾字符串位 = 685 行；其中落在「自己会 readFileSync」的文件里 = 262 行 / 108 颗文件。逐条看过去，绝大多数是
+`.join("\n")` 这类**构造**位（把内存里的片段拼成正文，不是拿正文去匹配）和写在夹具串里的换行。正则那一型能靠
+「调用者是谁」判，是因为 `.replace` 与 `.toMatch` 的差别就写在 callee 上；字符串这一型的成立条件是
+「这颗字符串来自盘」——那是数据流，callee 给不出来。硬加这一档只会把 262 行判红，然后逼出一大批没有意义的
+`/\r?\n/` 改写，把锁的读数泡在噪声里。所以射程停在第一型，C 档「0 越界」不改口径。
+
+**这一型的残余（说清不咬的边界）**
+
+「两副都跑过」的前提是那批文件在本机真的带 CR。本机也 LF、CI 也 LF 的生产源有 158 颗（1189−1031，
+`.tmp/eol-type2-targets.txt:2` 那两个数相减）——读它们的那颗断言只吃过一副行尾，真咬的时候它会在**某一侧**红，
+不是静默：CI 侧被步 4 的 CR 普查挡在门外，本机侧就是本地开发当场撞见。这一条登记，不追。
+
+**#284 的裁决**：不改这六处（不咬，且有双向行尾的绿为凭），不加字符串形式的静态锁（缺 provenance 前提，
+加了只会红得没有道理），残余 158 颗单行尾文件登记在案。任务关闭。
+
 
 
 
