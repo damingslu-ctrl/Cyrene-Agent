@@ -2811,4 +2811,95 @@ i18next 配了 `parseMissingKeyHandler`（`i18n/index.ts:29`），缺 key 时键
 这正是下一条账（内核卡片真窗 + 真装一颗内核）存在的理由。③ `type: script` 条目照旧只列不执行。
 
 
+### Wave 3 余量收口：内核卡片真窗——两档已绿、四条腿卡在真 Verge 门前（2026-11-01）
+
+**射程**：尺 `scripts/verify/core-card-cdp.mjs` 六档（`start` / `external` / `gate` / `heal` / `update` / `no-config`），
+沙盒 `D:\cyrene-core-accept`（APPDATA 重定向 + 独立 userData），CDP 9337，每档一对一次性端口；
+判据只认盘、进程表与控制面，不认截图上「看起来像」。本轮真窗量到两档：
+`start`（2026-10-31 23:10 本地，Verge 不在跑）与 `external`（2026-11-01 07:46 本地，Verge 在跑）。
+证据 `.tmp/reports/core-card-start.json`、`.tmp/reports/core-card-external.json`；截图
+`.tmp/shots/core-card/start-01-card-entry.png`、`start-02-99-start-pass.png`、`external-01-card-entry.png`、
+`external-02-99-external-pass.png`（失败那次留在 `start-02-99-start-fail.png`）。
+
+**`start` 档：真 spawn 了安装目录里那颗 `verge-mihomo.exe`（v1.19.32）**
+
+- 屏上：状态「运行中」+ 绿点；来源「Verge 安装目录里那颗（我起的进程）」；控制器 `http://127.0.0.1:59071`；
+  端口行 `59072 / 59071`；`PID：14068`；「起内核」灰，停止/重启/更新亮。端口那一对就是沙盒那本一次性账上声明的那一对
+  （开跑前两个号都量过空闲）——断言拿的是字面量，`pickPortPair` 一旦漂到扫描段，红字会直接印出漂到哪儿。
+- 三方对照：进程表读回 exe = `C:\Program Files\Clash Verge\verge-mihomo.exe`，命令行逐字是
+  `"...\verge-mihomo.exe" -d D:\cyrene-core-accept\profile\core -f D:\cyrene-core-accept\profile\runtime\core.yaml`；
+  59071/59072 两条 listening 都归重启后的 17688；`/version` 用注入的口令回 200（`{"meta":true,"version":"v1.19.32"}`），
+  不带口令 401、用订阅正文那把口令也 401。⇒ spec D5 的数据面主权第一次拿**真内核**量过（上一条账只量过一次性控制面）。
+- runtime 文件 `...\profile\runtime\core.yaml`：注入的三颗键（`127.0.0.1:59071` / `scratch-core-secret-9f3` / `59072`）在，
+  订阅正文自带的 `127.0.0.1:59097` / `subscription-wins` / `59096` 整篇扫不出来。
+- 重启：14068 → 17688，端口仍以回执为准；「已运行」那行是等卡片每 10s 自己轮询长出来的（起的那一刻 `now - startedAt`
+  是负数，按判定不该画），实测长成 `已运行：1s`。
+- 停止：屏上「已停止」、绿点灭、无红字、提示回到「现在没有内核归我管」；1.2s 后两个端口都不再听（`portsAfterStop: []`）。
+- `core.log` 2385 B、正好两行 `spawn pid=`（起 + 重启），含「已停止（我们发起的）」「runtime 配置已写 core.yaml」「口令来源=verge」。
+- 收尾：Verge 目录五份文件 sha 前后逐字节相同；真用户账本 `7f55d385…` 前后相同；`sweepAtStart/End` 都没杀到残留。
+
+**`external` 档：假控制器 50605，真 app 去接管（用户真 Verge 正在跑）**
+
+- 屏上：「运行中」、来源「Verge 正在跑的那颗」、控制器 `http://127.0.0.1:50605`；端口/`PID`/已运行/自愈四行都不画；
+  「停止」「重启」灰、「更新内核」亮；提示里有一句「要停 Verge 那颗，请回 Clash Verge」。
+- 不动手的证据：`core.log` 70 B、0 次 spawn；`runtime/` 与 `core/` 两个目录都不存在；59072/59071 没人听；
+  假控制器被接管后仍回 200，自己记到 12 条请求（含 `/version`）。
+- 这一档是在**用户真 Verge 正在跑**的时候量成的（`clashVergeImageAtEnd: true`）：external 判在单写者闸门之前，
+  隔壁在不在跑不影响读数——这正是「可达即不动手」的次序。
+
+**牙在哪儿（不靠「看起来绿」）**
+
+| 判据 | 谁证明它会响 |
+| --- | --- |
+| 端口行 = 账本声明的一对 | 断言用字面量 59072/59071；退到扫描段的红字会印出真端口 |
+| PID 是活的、跑的是那颗 | exe 与命令行按进程表逐字比；重启必须换 pid（14068 → 17688） |
+| 口令真的生效 | 同一地址三敲：注入 200 / 无口令 401 / 订阅正文口令 401 |
+| external 没动手 | 0 spawn、runtime/core 目录不存在、端口没人听、假控制器事后仍 200 |
+| 自愈与闸门两档 | **本轮没量到**（见下） |
+
+**尺子自己的两个洞（先病的是探针，不是产品）**
+
+- 订阅正文里的 `ss` 节点缺 `cipher` / `password`（`scripts/verify/core-card-cdp.mjs:474` 只写了 server/port）→
+  真 mihomo 在解析阶段 `level=fatal … unset fields: cipher, password`（code=1）退出，自愈 3/3 打满，`start` 整条红。
+  先拿安装版那颗直接喂配置单测（`.tmp/probe-mihomo-config.mjs`）：补上两颗键后同一颗内核 8 秒内 `/version` 回 200。
+  ⇒ 是探针的账本不合法，不是产品起不来；补在 `writeScratchLedger.body()`。
+- 假控制器的监听句柄没关，`node` 的事件循环被撑住：报告已写完 `ok:true`，进程却挂在 finally 之后不退，
+  被外层超时杀掉（0x40010004），看上去像「失败」。现在 `main()` 的 finally 把 servers / sessions 一起关干净
+  （`core-card-cdp.mjs:1547`），`external` 重跑 EXIT=0。
+
+**失败跑顺手挖出一个真产品缺陷（已修，有牙的测试）**
+
+- 现场：失败那次 `core.log` 里，每次 spawn 之后 8s 都冒出 `等控制器应答超时（8000ms）`（`core-manager.ts:245`），
+  而「自愈打满 3 次」早在 +0.1s 就已落账——旧的 `launch()` 在 `waitReady` 到点后照常 `killOwn()` + `settle(not-ready)`，
+  把更新的原因盖掉；那时 `child` 可能已经是自愈换上的**下一颗**，它会顺手杀掉那颗（可能还有救）。
+  那份沙盒日志已被随后绿的那次重跑重建；现存证据是失败截图与下面这条测试，这条账不把「日志还在盘上」说成事实。
+- 修法：`launch()` 记住自己 spawn 的那颗，`await waitReady` 回来后先 `if (child !== spawned) return status();`
+  （`core-manager.ts:238-242`）——一次 launch 只对自己的那颗负责。同一刀也堵上「自愈在途时按停止/点重启」
+  会被旧超时回调覆盖 `stopped`、或杀掉重启那颗的窗口。
+- 测试：`core-manager.test.ts:416`（harness 新增 `gatedSleep` 闸门）。第 1 颗崩 → 自愈起第 2 颗；只把第 1 颗的 deadline
+  推过点，断言第 2 颗 `killCount === 0`、状态仍 `starting`；再放第 2 颗自己到点，才允许 kill 与 `not-ready`，
+  且全日志只有 **1** 行超时。**变异验牙**：拆掉守卫，测试正好红在 `expected 1 to be +0`（第 2 颗被旧那次杀了）；
+  装回去 31/31 绿。
+
+**四条腿为什么没量**：用户今天 07:14:13 起把 `clash-verge.exe`（PID 8312）开着。实跑四档，全部 `EXIT=2`：
+
+- `--gate`：「clash-verge.exe 已经在跑，闸门档正对照那半（拆掉同名映像后必须能起）没法做；这一趟没开 app、一个字节都没写。」
+- `--heal` / `--update` / `--no-config`：「clash-verge.exe 在跑（tasklist 读不出结论也按在跑处理）。…这一趟没开 app、没造目录、一个字节都没写。」
+
+`.tmp/reports/` 仍只有上面两份，没多出任何报告；`assertSandbox()` 只读不写。要量这四档得**用户本人**退出 Clash Verge——
+我不会去动用户在用的程序。其中 `update` 还包含真 GitHub 的 22 MB 下载与摘要核对（T11 只量过假 GitHub），
+`gate` 还包含「拆掉同名映像后必须真起得来」的正对照。
+
+**门**：定向 `core-manager.test.ts` 31/31；修后全量 `CI=true npx vitest run` **792 文件 / 8708 passed | 2 skipped（8710）**、
+257.12s、exit 0（`.tmp/gate-vitest-postfix.txt`，比修前多 1 条就是新守卫那条）。`check:main` / `check:preload` / `check:renderer`
+三路 `tsc` 全 exit 0，`check:brand` 一致。
+
+**没做 / 记下来**：① `external` 档收尾时 `Browser.close` 15s 没退，尺子强杀了 app（`closes[0].forced=true`；
+`start` 档是 `forced=false`）。只有这一趟出现，尚无解释，不影响读数（报告 ok、端口与进程都清干净）；
+下一次跑这几档时留意是否复现。② `plantLeftovers` 改名 `clashVergeImageAtEnd`（`core-card-cdp.mjs:1556`）：
+用户自己的 Verge 在跑时这个读数本来就是 true，旧名字等于把用户的应用记成我们的残留。
+③ `start` 档借的是安装目录里的 `verge-mihomo.exe`（设计如此）；自托管那颗的下载/换装属于 `update` 档，仍等闸门。
+④ 本轮没动用户的 Verge / 服务 / 桌宠任何进程。
+
+
 
