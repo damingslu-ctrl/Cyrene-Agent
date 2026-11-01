@@ -221,8 +221,9 @@ export function createCoreManager(deps: CoreManagerDeps): CoreManager {
       return status();
     }
     settle({ state: "starting", mode, reason: null, detail: null });
+    let spawned: CoreChild | null = null;
     try {
-      const spawned = deps.spawn(exePath, buildCoreArgs(deps.coreDir(), configPath));
+      spawned = deps.spawn(exePath, buildCoreArgs(deps.coreDir(), configPath));
       child = spawned;
       ownPorts = ports;
       attach(spawned, mode);
@@ -234,7 +235,12 @@ export function createCoreManager(deps: CoreManagerDeps): CoreManager {
       return status();
     }
     const controller = `http://127.0.0.1:${ports.controller}`;
-    if (!(await waitReady(controller))) {
+    const ready = await waitReady(controller);
+    // 这 8s 里这颗可能已经崩了、自愈换了下一颗，或者用户按了停止。我的结论只属于
+    // 「我 spawn 的那颗」：再往下走，超时分支会 kill 掉现在手上那颗（可能还有救），
+    // 并把更新的原因（self-heal-exhausted／stopped）盖回 not-ready。
+    if (child !== spawned) return status();
+    if (!ready) {
       // 起来了但不应答：多半是端口或配置被内核拒了。kill 掉，别留一颗僵尸占着端口。
       log(`等控制器应答超时（${readyTimeoutMs}ms）`);
       stopping = true;

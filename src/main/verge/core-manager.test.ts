@@ -47,6 +47,8 @@ interface HarnessInput {
   platform?: NodeJS.Platform;
   readyTimeoutMs?: number;
   nowStart?: number;
+  /** 让 sleep 停在闸门上，好让测试在两轮探测之间插进一次「进程退出」或一次「停止」。 */
+  gatedSleep?: boolean;
 }
 
 function makeChild(pid: number) {
@@ -79,6 +81,7 @@ function harness(input: HarnessInput = {}) {
   const configs: Array<{ mixed: number; controller: number }> = [];
   const logs: string[] = [];
   const ownProbes: number[] = [];
+  const sleepers: Array<() => void> = [];
   let externalProbes = 0;
   let nextPid = 4100;
 
@@ -118,7 +121,11 @@ function harness(input: HarnessInput = {}) {
       return fake.child;
     },
     appendLog: (line) => { logs.push(line); },
-    sleep: async (ms) => { clock.now += ms; },
+    sleep: async (ms) => {
+      clock.now += ms;
+      if (!input.gatedSleep) return;
+      await new Promise<void>((resolve) => { sleepers.push(resolve); });
+    },
     now: () => clock.now,
   };
   const spawns: Array<{ exePath: string; args: string[] }> = [];
@@ -132,6 +139,8 @@ function harness(input: HarnessInput = {}) {
     spawned,
     ownProbes,
     externalProbeCount: () => externalProbes,
+    releaseSleepers: () => { for (const release of sleepers.splice(0)) release(); },
+    sleeperCount: () => sleepers.length,
     /** 所有 await 链都只走微任务（sleep 是假的），一个宏任务边界即可排空。 */
     flush: async () => { for (let i = 0; i < 3; i += 1) await new Promise<void>((resolve) => setTimeout(resolve, 0)); },
   };
@@ -402,6 +411,39 @@ describe("core-manager：崩溃自愈有预算", () => {
     await h.flush();
     expect(h.spawns).toHaveLength(2);
     expect(h.manager.status().healAttempts).toBe(1);
+  });
+
+  it("等应答那 8s 里被换掉的那颗：不许杀新进程、也不许盖掉更新的原因", async () => {
+    // 自愈在崩溃后立刻换了一颗，而旧那次 launch 的 waitReady 还挂在它自己的 8s 窗口里。
+    // 旧的那次到点后若照常 kill + settle，就会杀掉现在手上这颗（可能还有救），
+    // 并把更新的账（healAttempts、stopped）盖成 not-ready。
+    const h = harness({ neverReady: true, gatedSleep: true });
+    const t0 = h.clock.now;
+    const first = h.manager.start();
+    await h.flush();
+    expect(h.spawns).toHaveLength(1);
+    h.spawned[0].fireExit(1);
+    await h.flush();
+    expect(h.spawns).toHaveLength(2);
+    expect(h.manager.status().healAttempts).toBe(1);
+
+    // 只让第 1 颗的 deadline 到点：第 2 颗的窗口还差 200ms。
+    h.clock.now = t0 + CORE_READY_TIMEOUT_MS;
+    h.releaseSleepers();
+    await h.flush();
+    // 第 2 颗不该被旧那次顺手杀掉。
+    expect(h.spawned[1].killCount()).toBe(0);
+    expect(h.manager.status().state).toBe("starting");
+
+    // 第 2 颗自己到点：这一次 kill 与 not-ready 才是它自己的账。
+    h.releaseSleepers();
+    await h.flush();
+    await first;
+    expect(h.spawned[0].killCount()).toBe(0);
+    expect(h.spawned[1].killCount()).toBe(1);
+    expect(h.manager.status()).toMatchObject({ state: "exited", reason: "not-ready", healAttempts: 1 });
+    expect(h.logs.filter((line) => line.includes("等控制器应答超时")).length).toBe(1);
+    expect(h.sleeperCount()).toBe(0);
   });
 });
 
