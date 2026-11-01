@@ -37,15 +37,21 @@ jobs:
 
       # 钉子失效有两条路：镜像改了默认，或有人加 `.gitattributes` 把 eol 设成 crlf。
       # 与其让「读盘原文」的断言在几千条里再猜一次，不如在任何一个断言跑之前先把 CR 数出来。
+      # 2026-11-02 起这里数两层：三份文件逐字节数 CR（读数跨趟可比），
+      # 再用 `git ls-files --eol` 做全仓普查——判据是「解包后一个 `i/lf → w/crlf` 都不许有」，
+      # 抽样的天花板在这里说清：全仓 2923 行里只点过 3 份，剩下 2920 份没人看过；而这把尺量的正是 checkout 这个动作。
       # 这一位的存在与位次由 src/main/eol-fragile-assertion.test.ts 的 D 档钉着。
       - name: Census the checked-out line endings
         run: >-
-          node -e "const fs=require('fs');
+          node -e "const fs=require('fs');const cp=require('child_process');
           const names=['src/main/verge/core-bootstrap.ts','src/main/eol-fragile-assertion.test.ts','.github/workflows/test.yml'];
           let bad=0; for(const n of names){ const cr=fs.readFileSync(n,'utf8').split('\r').length-1;
           console.log('CR='+cr+'  '+n); if(cr>0) bad++; }
-          if(bad){ console.error('checked-out tree has CRLF: the autocrlf pin is not holding'); process.exit(1); }
-          console.log('EOL CENSUS OK '+names.length+' files CR=0')"
+          const rows=cp.execSync('git ls-files --eol',{maxBuffer:67108864}).toString('utf8').split(/\r?\n/).filter((x) => x.trim());
+          let flip=0; for(const r of rows){ const t=r.trim().split(/\s+/); if(t[0]==='i/lf'&&t[1]==='w/crlf') flip++; }
+          console.log('TREE rows='+rows.length+'  i/lf->w/crlf='+flip);
+          if(bad||flip){ console.error('checked-out tree has CRLF: the autocrlf pin is not holding'); process.exit(1); }
+          console.log('EOL CENSUS OK '+names.length+' files CR=0 tree='+rows.length)"
 
       - uses: pnpm/action-setup@v4
         with:

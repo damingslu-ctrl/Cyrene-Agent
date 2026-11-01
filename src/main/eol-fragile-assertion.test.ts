@@ -195,6 +195,29 @@ const STRICT_FIXTURES = [
 const CENSUS_TOKEN = "Census the checked-out line endings";
 
 /**
+ * 全仓普查那一半的锚：命令、它要数的两颗指针，以及**它们出现的位置形状**。
+ * 2026-11-02 之前那一步只逐字节读三份文件——三份绿不等于第 2032 份绿，
+ * 而这把尺量的恰好是 checkout 这个动作本身，所以判据升到「全仓一个 `i/lf → w/crlf` 都不许有」。
+ * 只钉命令不钉指针也是一种空跑：换成 `git ls-files` 数不出行尾，读数照样绿。
+ *
+ * 光在块内 `includes` 还不够——变异 B 就是这么逃掉的：把判定里的 `w/crlf` 换成 `w/lf`，
+ * 同一步下面那句 `console.log('TREE rows=… i/lf->w/crlf=')` 的**标签**里还有 `w/crlf`，
+ * includes 于是继续绿。标签也是 prose。所以三样都得长成的士形状：命令要在 `execSync(` 的引号里，
+ * 两颗指针要作为 `===` 的右值、用 `&&` 前后成对出现（顺序也算判据：i/ 是入库值，w/ 是解包后的工作树）。
+ */
+const TREE_CENSUS_TOKEN = "git ls-files --eol";
+const TREE_NEEDLE_FROM = "i/lf";
+const TREE_NEEDLE_TO = "w/crlf";
+/** 命令必须真的被调用：出现在 `execSync('git ls-files --eol'` 这个开口里才算。 */
+const TREE_CENSUS_CALL_RE = new RegExp(`execSync\\(\\s*['"\`]${TREE_CENSUS_TOKEN}`);
+/** 两颗指针必须是判定式两边的右值，且 i/lf 在前、w/crlf 在后，中间只许隔一个 `&&` 的与项。 */
+const TREE_PAIR_RE = new RegExp(
+  `===\\s*(['"])${TREE_NEEDLE_FROM}\\1\\s*&&[^)]*?===\\s*(['"])${TREE_NEEDLE_TO}\\2`
+);
+/** 合成档里那一行普查命令的替身：写法可以变，但必须是上面两种的士形状，否则 D 档自己先红。 */
+const TREE_CENSUS_LINE = `    run: node -e "cp.execSync('${TREE_CENSUS_TOKEN}'); if(t==='${TREE_NEEDLE_FROM}'&&u==='${TREE_NEEDLE_TO}') flip++"`;
+
+/**
  * 钉子步骤里那三条 echo 的锚。为什么要有这一档，是 2026-11-02 第一趟现场教出来的：
  * `git config --global core.autocrlf` 打出来是**空的**（镜像那颗 true 钉在 system 层，global 看不见），
  * 只留 global 读数的话，日志会把「镜像没设过」当成结论——那是条会误导下一个人的读数。
@@ -211,6 +234,7 @@ const SYNTHETIC_WORKFLOW_OK = [
   `    run: echo "${ECHO_PINNED} x"`,
   "  - uses: actions/checkout@v7",
   `  - name: ${CENSUS_TOKEN}`,
+  TREE_CENSUS_LINE,
 ].join("\n");
 
 const SYNTHETIC_WORKFLOW_SWAPPED = [
@@ -230,10 +254,76 @@ const SYNTHETIC_WORKFLOW_ECHO_LATE = [
   `    run: echo "${ECHO_EFFECTIVE} x" && echo "${ECHO_GLOBAL} x" && echo "${ECHO_PINNED} x"`,
   "  - uses: actions/checkout@v7",
   `  - name: ${CENSUS_TOKEN}`,
+  TREE_CENSUS_LINE,
 ].join("\n");
 
 /**
- * 环境侧那三条位次判据抽成纯函数——D 档要用它同时读真文件和三副合成档。
+ * 第四副只少掉全仓普查那一行，其余与 OK 一模一样：它代表的正是升级前的那一步——
+ * 三份文件逐字节数 CR，位次全对，唯独没数过第 2032 份。前三位仍为真，第四位必须为假。
+ */
+const SYNTHETIC_WORKFLOW_SAMPLE_ONLY = [
+  "  - name: Pin",
+  `    run: echo "${ECHO_EFFECTIVE} x" && echo "${ECHO_GLOBAL} x"`,
+  "    run: git config --global core.autocrlf false",
+  `    run: echo "${ECHO_PINNED} x"`,
+  "  - uses: actions/checkout@v7",
+  `  - name: ${CENSUS_TOKEN}`,
+  '    run: node -e "count CR in three files"',
+].join("\n");
+
+/**
+ * 第五副把「注释替实现干活」摆出来：三样锚点全写在上一步尾巴的注释里，
+ * 数 CR 那一步自己只做三份文件的抽样。块内判据必须只认步骤正文——
+ * 这一副就是 2026-11-02 变异 A/B 那两颗绿的形状，第四位不给它绿。
+ */
+const SYNTHETIC_WORKFLOW_PROSE_ONLY = [
+  "  - name: Pin",
+  `    run: echo "${ECHO_EFFECTIVE} x" && echo "${ECHO_GLOBAL} x"`,
+  "    run: git config --global core.autocrlf false",
+  `    run: echo "${ECHO_PINNED} x"`,
+  "  - uses: actions/checkout@v7",
+  `  # 注释里说满了 ${TREE_CENSUS_TOKEN}，${TREE_NEEDLE_FROM} 变 ${TREE_NEEDLE_TO}`,
+  `  - name: ${CENSUS_TOKEN}`,
+  '    run: node -e "count CR in three files"',
+].join("\n");
+
+/**
+ * 第六副就是变异 B 的形状：命令真的调了、第一颗指针真的在判定式里，但第二颗比错了靶，
+ * 而 `${TREE_NEEDLE_TO}` 只剩同一块里那句日志的**标签**还在写。块内 includes 会放过这一副，
+ * 只认「指针得长成 `===` 的右值」才咬得住——标签也是 prose。
+ */
+const SYNTHETIC_WORKFLOW_LABEL_ONLY = [
+  "  - name: Pin",
+  `    run: echo "${ECHO_EFFECTIVE} x" && echo "${ECHO_GLOBAL} x"`,
+  "    run: git config --global core.autocrlf false",
+  `    run: echo "${ECHO_PINNED} x"`,
+  "  - uses: actions/checkout@v7",
+  `  - name: ${CENSUS_TOKEN}`,
+  `    run: node -e "cp.execSync('${TREE_CENSUS_TOKEN}'); if(t==='${TREE_NEEDLE_FROM}'&&u==='w/lf') flip++; console.log('${TREE_NEEDLE_FROM} -> ${TREE_NEEDLE_TO}='+flip)"`,
+].join("\n");
+
+/**
+ * 把 workflow 切成步骤块：每一步从它自己的 `- ` 行起，到下一个 `- ` 行为止。
+ * 位次判据必须在块内做。2026-11-02 变异 A/B 教的教训很具体：全文 `indexOf` 的读数会被
+ * 上一步尾部那段注释喂饱——注释里写着 `git ls-files --eol` 与 `i/lf → w/crlf`，
+ * 于是把真代码整段删掉，判据照样绿。 prose 不是实现。
+ */
+function stepBlocks(text: string): string[] {
+  const out: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (/^\s*- /.test(line)) out.push(line);
+    else if (out.length > 0) out[out.length - 1] += `\n${line}`;
+  }
+  return out;
+}
+
+/** 第一块含该锚点的步骤正文；找不到就是空串（空串里什么读数都取不出来，判据会自己红）。 */
+function blockWith(text: string, needle: string): string {
+  return stepBlocks(text).find((b) => b.includes(needle)) ?? "";
+}
+
+/**
+ * 环境侧那三条位次判据抽成纯函数——D 档要用它同时读真文件和几副合成档。
  * 要防的假绿很具体：钉子与 checkout 两颗锚都在，但钉子排在 checkout **之后**，
  * 解包已经完成，那一趟 `git config` 改动对这批文件一个字都管不着。
  */
@@ -241,16 +331,29 @@ function pins(text: string): {
   pinBeforeCheckout: boolean;
   censusAfterCheckout: boolean;
   echoesStraddlePin: boolean;
+  treeCensusAfterCheckout: boolean;
 } {
-  const pin = text.indexOf("core.autocrlf false");
-  const checkout = text.search(/- (?:name:[^\r\n]*\r?\n\s*)?uses: actions\/checkout@/);
-  const census = text.indexOf(CENSUS_TOKEN);
-  const before = [text.indexOf(ECHO_EFFECTIVE), text.indexOf(ECHO_GLOBAL)];
-  const after = text.indexOf(ECHO_PINNED);
+  const blocks = stepBlocks(text);
+  const at = (pred: (b: string) => boolean) => blocks.findIndex(pred);
+  const pinIdx = at((b) => b.includes("core.autocrlf false"));
+  const checkoutIdx = at((b) => /uses: actions\/checkout@/.test(b));
+  const censusIdx = at((b) => b.includes(CENSUS_TOKEN));
+  const pinBlock = pinIdx > -1 ? blocks[pinIdx] : "";
+  const censusBlock = censusIdx > -1 ? blocks[censusIdx] : "";
+  const pinLine = pinBlock.indexOf("core.autocrlf false");
+  const before = [pinBlock.indexOf(ECHO_EFFECTIVE), pinBlock.indexOf(ECHO_GLOBAL)];
+  const after = pinBlock.indexOf(ECHO_PINNED);
   return {
-    pinBeforeCheckout: pin > -1 && checkout > -1 && pin < checkout,
-    censusAfterCheckout: checkout > -1 && census > checkout,
-    echoesStraddlePin: pin > -1 && before.every((k) => k > -1 && k < pin) && after > pin,
+    pinBeforeCheckout: pinIdx > -1 && checkoutIdx > -1 && pinIdx < checkoutIdx,
+    censusAfterCheckout: checkoutIdx > -1 && censusIdx > checkoutIdx,
+    echoesStraddlePin: pinLine > -1 && before.every((k) => k > -1 && k < pinLine) && after > pinLine,
+    // 命令与两颗指针都只能在数 CR 那一步的块里、以的士形状在场：只钉命令的话 `git ls-files` 数不出
+    // 行尾也算绿；只认 includes 的话，同一块里 console.log 的标签就能替判定干活（变异 B 抓到的那颗）。
+    treeCensusAfterCheckout:
+      checkoutIdx > -1 &&
+      censusIdx > checkoutIdx &&
+      TREE_CENSUS_CALL_RE.test(censusBlock) &&
+      TREE_PAIR_RE.test(censusBlock),
   };
 }
 
@@ -306,16 +409,31 @@ describe("读盘原文的断言不许写死行尾（EOL 脆弱锁）", () => {
 
   it("D CI 在 checkout 之前把 autocrlf 钉成 false，并在 checkout 之后数 CR", () => {
     const workflow = readFileSync(path.join(repoRoot, ".github/workflows/test.yml"), "utf8");
-    // 两颗锚点都得存在，否则「pin 在 checkout 之前」会在「两者都不存在」上空跑成绿。
-    expect(workflow.indexOf("core.autocrlf false")).toBeGreaterThan(-1);
-    expect(pins(workflow)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: true });
+    // 锚点都得在「那一步自己的正文」里，否则「pin 在 checkout 之前」会在「两者都不存在」上空跑成绿。
+    // 这里一律走块内读数：真文件的注释里本来就写着 `git ls-files --eol`、`i/lf → w/crlf` 与生效值那句，
+    // 全文 indexOf 会被它们喂饱（2026-11-02 变异 A/B 的两颗绿就是这么来的）。
+    const pinBlock = blockWith(workflow, "core.autocrlf false");
+    expect(pinBlock).not.toBe("");
+    expect(pins(workflow)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: true, treeCensusAfterCheckout: true });
     // 钉的是 global：checkout 用的是 git 自己的进程，仓库级配置在它解包之后才生效，管不到这批文件。
-    expect(workflow).toMatch(/git config --global core\.autocrlf false/);
+    expect(pinBlock).toMatch(/git config --global core\.autocrlf false/);
     // 合成档给排序判据装牙：真文件将来被搬错位置时，这一档要能提前红，而不是只认现在这一副。
-    expect(pins(SYNTHETIC_WORKFLOW_OK)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: true });
-    expect(pins(SYNTHETIC_WORKFLOW_SWAPPED)).toEqual({ pinBeforeCheckout: false, censusAfterCheckout: false, echoesStraddlePin: false });
+    expect(pins(SYNTHETIC_WORKFLOW_OK)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: true, treeCensusAfterCheckout: true });
+    expect(pins(SYNTHETIC_WORKFLOW_SWAPPED)).toEqual({ pinBeforeCheckout: false, censusAfterCheckout: false, echoesStraddlePin: false, treeCensusAfterCheckout: false });
     // 第三副只搬 echo：三条读数都在，但 effective/global 落在钉子之后——那条「生效值」就废了。
-    expect(pins(SYNTHETIC_WORKFLOW_ECHO_LATE)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: false });
+    expect(pins(SYNTHETIC_WORKFLOW_ECHO_LATE)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: false, treeCensusAfterCheckout: true });
+    // 第四副只搬抽样：前三位全对，第四位红——这一位管的不是位次，是射程。
+    expect(pins(SYNTHETIC_WORKFLOW_SAMPLE_ONLY)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: true, treeCensusAfterCheckout: false });
+    // 指针也要单独有牙：只留命令、把 `w/crlf` 换成数不到的写法，第四位必须跟着红。
+    expect(pins(SYNTHETIC_WORKFLOW_OK.replace(TREE_NEEDLE_TO, "w/lf"))).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: true, treeCensusAfterCheckout: false });
+    // 注释不算实现：三样锚点全在注释里、步骤正文没做普查，这一档必须跟上一副同面。
+    expect(pins(SYNTHETIC_WORKFLOW_PROSE_ONLY)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: true, treeCensusAfterCheckout: false });
+    // 同一块里的日志标签也不算实现：命令与第一颗指针都在，第二颗比错靶，第四位必须红。
+    expect(pins(SYNTHETIC_WORKFLOW_LABEL_ONLY)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: true, treeCensusAfterCheckout: false });
+    // 顺序也是判据：i/ 是入库值、w/ 是解包后的工作树，两列对调就不叫「被换行尾污染」。
+    expect(pins(SYNTHETIC_WORKFLOW_OK.replace(`t==='${TREE_NEEDLE_FROM}'&&u==='${TREE_NEEDLE_TO}'`, `t==='${TREE_NEEDLE_TO}'&&u==='${TREE_NEEDLE_FROM}'`))).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: true, treeCensusAfterCheckout: false });
+    // 拆块这件事自己也得有正对照：真文件应切成 23 块（YAML 里的步骤数），少一块就是走查读不到东西。
+    expect(stepBlocks(workflow).length).toBe(23);
   });
 
   it("E 同一颗断言在两副行尾的正文上必须给出同一个答案（真字节）", () => {
