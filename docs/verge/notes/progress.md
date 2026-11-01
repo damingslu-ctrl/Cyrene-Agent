@@ -3864,6 +3864,78 @@ E 靶换成 `w/none`、`w/crlf` 只活在标签里（就是变异 B 的形状，
 ② 普查用 `maxBuffer` 64 MB 是按 2923 行估的；仓要长到几十万行，先撞 buffer 再撞判据。登记不追。
 ③ `!cancelled()` 的「前置红」半颗仍无现场（这趟又是全绿）。
 ④ 步 23 名不副实（packages+skills+poc 实为空跑）仍按原样。
+⑤ 上游 `verge.yaml` 实测 60 把键，我们只暴露 7 把（`src/shared/verge-settings-types.ts:10-18`）——
+   这一条本轮只数了差，没逐把读上游语义就动手只会造出「键名对、行为错」的新洞。见下一账 ④。
+
+### Wave 4 收口账·拾：全仓普查第一次打在 CI 上——rows 两边同数，flip 一边 2032 一边 0（#286 收）
+
+**现场**
+
+run `41331529103`（`.tmp/ci-41331529103-watch.txt:3`；job `124922488246`；`workflow_dispatch`，master = `eacdec48`），
+`gh run view --json conclusion` 回 `success`。这一趟是 `c947c70a` 那把普查第一次在真 CI 上出声。
+
+**① 判据那行读到了，而且是 0**
+
+- `.github/workflows/test.yml` 数 CR 那一步（本趟步 4）：`TREE rows=2923  i/lf->w/crlf=0`（`.tmp/ci-41331529103-job-log.txt:134`），
+  尾行 `EOL CENSUS OK 3 files CR=0 tree=2923`（`:135`），三份抽样 `CR=0`（`:131`-`:133`）。
+- 上一账 ③ 写的「CI 侧要的是同一行报 `flip=0`」——到手。`i/lf -> w/crlf` 零条＝解包后没有一份 LF 入库文件被换成 CRLF 工作树，
+  钉子（步 2 `git config --global core.autocrlf false`，生效值三条读数 `:46`-`:48` 复现）在 checkout 之前就把住了。
+
+**② 两副行尾的对照是同一把尺的两次读数，不是两份不同的尺**
+
+本机把同一段正文（`.tmp/census-body.cjs`）在 autocrlf=true 的工作树里重跑一遍，存 `.tmp/census-local-control.txt`：
+`TREE rows=2923 i/lf->w/crlf=2032`（`:4`）、rc=1（`:6`）。
+**rows 两边都是 2923**——tracked 文件账一模一样，差异全在「解包」这一步：CI 0 条被换、本机 2032 条被换。
+这一条比单看 `flip=0` 强：它排除了「CI 那边根本没跑到普查、所以是 0」和「普查把 0 行读成 0 条」两种空跑。
+本机这趟 rc=1 是两半一起红的（抽样里 `test.yml` 自己 `CR=144`，`.tmp/census-local-control.txt:3`），
+所以「全仓那一半会不会单独红」这条凭据得看变异，而不是看这次退出码——变异五颗在上一账 ④ 已录。
+
+**③ 锁自己在 CI 的 LF 正文上也绿**
+
+`Test · main / core（其余）` 里 `src/main/eol-fragile-assertion.test.ts (5 tests)` 通过（`.tmp/ci-41331529103-job-log.txt:7440`）——
+D 档那把新尺（调用形状锚点 + `stepBlocks(...)===23`）读的是 CI 检出的 LF 正文，与本机混行尾正文各过一遍，
+两副行尾同判这件事这轮不用推断。
+八条泳道 `Test Files` 相加 = 52+246+154+31+30+34+77+172 = **796**（`:1295`、`:2170`、`:5351`、`:5813`、`:6149`、`:6441`、`:7350`、`:8824`），
+与本机全量门的 `Test Files 796 passed`（上一账 ⑥）同一颗数——覆盖面对齐，CI 没少跑文件。
+skip 仍是 1 颗（`:8825` `2095 passed | 1 skipped (2096)`），与上一账 ② 的权限解释一致；
+`Test · main / orchestrator` 这趟 154 颗全绿（`:5351`），#282 那条 30 s 超时没复现，仍未定因。
+`X Process completed with exit code 1.`（`.tmp/ci-41331529103-watch.txt:617`）来自 `continue-on-error: true` 的 audit 步，
+job 侧 `steps[].conclusion` 无一条非 success——登记，不追（与上一账同一型）。
+
+**④ 下一轮的工作面（本轮新量出来的，不是待办复述）**
+
+顺手把「整合还剩什么」数了一遍，读的是上游源码原文而不是我的印象：
+
+- 本客户端合成 runtime config 时只认 `type === "merge"` 的附件（`src/main/verge/runtime-config.ts:33-36`），
+  `profiles-store.ts:22` 自己写着「附件（rules/proxies/groups/merge/script）改了不生效」。
+  上游不是这样：`clash-verge-rev@dev` 的 `src-tauri/src/enhance/mod.rs:286-305` 把 profile 自己的
+  rules/proxies/groups 三件喂给 `use_seq`，分别落 `rules` / `proxies` / **`proxy-groups`**（`:301`）；
+  `enhance/chain.rs:56-76` 按 `itype` 读文件，merge 走 `read_mapping`、rules/proxies/groups 走 `read_yaml::<SeqMap>`；
+  `enhance/seq.rs:5-10` 的 `SeqMap` 是 `{prepend: Sequence, append: Sequence, delete: Vec<String>}`——
+  **是带三个键的映射，不是裸列表**；`seq.rs:52-77` 的顺序是 `[...prepend, 过滤 delete 的原有项, ...append]`；
+  `seq.rs:83-117` 还有一半：field 是 `proxies` 时，delete 的名字要从每个组的 `proxies` 里剔掉，
+  新增的代理名要塞进**第一个** select/selector 组（`appended_to_selector` 只吃一次，`is_selector_group` 认 `select`/`selector`）。
+  位次也要照抄：`mod.rs:916` 的 `process_seq_items` 排在应用自身设置（`:920`）、内置脚本（`:932`）、TUN（`:933`）、
+  DNS（`:934`）、全局 Merge/Script（`:938`）**之前**。
+  后果：用户从 Verge 迁过来的规则/代理/分组增强在本客户端**静默失效**，而订阅页还把这三类摊成看得见、点不动的一行
+  （`profiles-store.ts:106-126`：`builtin` 只认 merge/script，`selectable` 只给 SELECTABLE_TYPES）——
+  「界面上写出来的就是承诺」那一型。这是 Wave 5 的第一颗。
+- 同一条路上第二颗：`enable_builtin_enhanced` 在上游是喂给 `apply_builtin_scripts(config, clash_core, enable_builtin)`
+  （`mod.rs:658`，跑 `enhance/builtin/*.js` 两颗内置脚本），我们既不跑脚本也没读这把键。
+  这条要么实现要么在界面上说清「本客户端不执行脚本型增强」，不许静默。
+- 第三颗是纯账：上游 `verge.yaml` 60 把键（本机盘上实测，`%APPDATA%\io.github.clash-verge-rev.clash-verge-rev\verge.yaml`）
+  对 我们 7 把。像 `verge_socks_enabled` / `verge_http_enabled` / `enable_proxy_guard` / `enable_dns_settings`
+  这几把，名字看着自解释，判据得回上游源码逐把读——`src-tauri/src/config/verge.rs` 已在 `.tmp/` 备着。
+
+**没做（下一轮）**
+
+① 上面 ④ 的第一颗（rules/proxies/groups 生效）——契约已取到，代码未动。
+② 内置脚本那一半（`enable_builtin_enhanced`）与「不执行要明说」的 UI 措辞。
+③ 其余 53 把键逐把定射程，并按射程加白名单/控件/回执。
+④ `!cancelled()` 的「前置红」半颗、步 23 名不副实、`maxBuffer` 64 MB——三条照旧登记。
+
+**#286 的裁决**：普查判据在 CI 侧有了第一条读数，且与本机读数同 rows、异 flip，判据成立；
+锁在 CI 检出正文上同步跑绿。任务关闭。
 
 
 
