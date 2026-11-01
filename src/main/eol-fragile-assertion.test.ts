@@ -191,6 +191,38 @@ const STRICT_FIXTURES = [
   "const RE = /a\\nb/;",
 ];
 
+/** 数 CR 那一步在 workflow 里唯一的锚：步名改了这里必须一起改，否则 D 档是在空气上排序。 */
+const CENSUS_TOKEN = "Census the checked-out line endings";
+
+/** 两副合成档：同一批锚点换个位次，判据必须跟着换面，否则「排序」只是照抄当下的文件。 */
+const SYNTHETIC_WORKFLOW_OK = [
+  "  - name: Pin",
+  "    run: git config --global core.autocrlf false",
+  "  - uses: actions/checkout@v7",
+  `  - name: ${CENSUS_TOKEN}`,
+].join("\n");
+
+const SYNTHETIC_WORKFLOW_SWAPPED = [
+  `  - name: ${CENSUS_TOKEN}`,
+  "  - uses: actions/checkout@v7",
+  "    run: git config --global core.autocrlf false",
+].join("\n");
+
+/**
+ * 环境侧那两条位次判据抽成纯函数——D 档要用它同时读真文件和两副合成档。
+ * 要防的假绿很具体：钉子与 checkout 两颗锚都在，但钉子排在 checkout **之后**，
+ * 解包已经完成，那一趟 `git config` 改动对这批文件一个字都管不着。
+ */
+function pins(text: string): { pinBeforeCheckout: boolean; censusAfterCheckout: boolean } {
+  const pin = text.indexOf("core.autocrlf false");
+  const checkout = text.search(/- (?:name:[^\r\n]*\r?\n\s*)?uses: actions\/checkout@/);
+  const census = text.indexOf(CENSUS_TOKEN);
+  return {
+    pinBeforeCheckout: pin > -1 && checkout > -1 && pin < checkout,
+    censusAfterCheckout: checkout > -1 && census > checkout,
+  };
+}
+
 describe("读盘原文的断言不许写死行尾（EOL 脆弱锁）", () => {
   it("A 走查真爬得动，且扫描器认得出正则字面量", () => {
     const files = testFiles();
@@ -241,16 +273,16 @@ describe("读盘原文的断言不许写死行尾（EOL 脆弱锁）", () => {
     expect(offenders, `这些断言在 CRLF 工作树上会读成另一副样子：\n${offenders.join("\n")}`).toEqual([]);
   });
 
-  it("D CI 在 checkout 之前把 autocrlf 钉成 false", () => {
+  it("D CI 在 checkout 之前把 autocrlf 钉成 false，并在 checkout 之后数 CR", () => {
     const workflow = readFileSync(path.join(repoRoot, ".github/workflows/test.yml"), "utf8");
-    const pin = workflow.indexOf("core.autocrlf false");
-    const checkout = workflow.search(/- (?:name:[^\r\n]*\r?\n\s*)?uses: actions\/checkout@/);
     // 两颗锚点都得存在，否则「pin 在 checkout 之前」会在「两者都不存在」上空跑成绿。
-    expect(pin).toBeGreaterThan(-1);
-    expect(checkout).toBeGreaterThan(-1);
-    expect(pin).toBeLessThan(checkout);
+    expect(workflow.indexOf("core.autocrlf false")).toBeGreaterThan(-1);
+    expect(pins(workflow)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true });
     // 钉的是 global：checkout 用的是 git 自己的进程，仓库级配置在它解包之后才生效，管不到这批文件。
     expect(workflow).toMatch(/git config --global core\.autocrlf false/);
+    // 合成档给排序判据装牙：真文件将来被搬错位置时，这一档要能提前红，而不是只认现在这一副。
+    expect(pins(SYNTHETIC_WORKFLOW_OK)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true });
+    expect(pins(SYNTHETIC_WORKFLOW_SWAPPED)).toEqual({ pinBeforeCheckout: false, censusAfterCheckout: false });
   });
 
   it("E 同一颗断言在两副行尾的正文上必须给出同一个答案（真字节）", () => {
