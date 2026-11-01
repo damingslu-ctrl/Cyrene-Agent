@@ -194,10 +194,21 @@ const STRICT_FIXTURES = [
 /** 数 CR 那一步在 workflow 里唯一的锚：步名改了这里必须一起改，否则 D 档是在空气上排序。 */
 const CENSUS_TOKEN = "Census the checked-out line endings";
 
+/**
+ * 钉子步骤里那三条 echo 的锚。为什么要有这一档，是 2026-11-02 第一趟现场教出来的：
+ * `git config --global core.autocrlf` 打出来是**空的**（镜像那颗 true 钉在 system 层，global 看不见），
+ * 只留 global 读数的话，日志会把「镜像没设过」当成结论——那是条会误导下一个人的读数。
+ */
+const ECHO_EFFECTIVE = "effective value:";
+const ECHO_GLOBAL = "global value:";
+const ECHO_PINNED = "pinned value:";
+
 /** 两副合成档：同一批锚点换个位次，判据必须跟着换面，否则「排序」只是照抄当下的文件。 */
 const SYNTHETIC_WORKFLOW_OK = [
   "  - name: Pin",
+  `    run: echo "${ECHO_EFFECTIVE} x" && echo "${ECHO_GLOBAL} x"`,
   "    run: git config --global core.autocrlf false",
+  `    run: echo "${ECHO_PINNED} x"`,
   "  - uses: actions/checkout@v7",
   `  - name: ${CENSUS_TOKEN}`,
 ].join("\n");
@@ -209,17 +220,37 @@ const SYNTHETIC_WORKFLOW_SWAPPED = [
 ].join("\n");
 
 /**
- * 环境侧那两条位次判据抽成纯函数——D 档要用它同时读真文件和两副合成档。
+ * 第三副只动 echo 的位次：钉子先落下、三条读数后打印。
+ * 这样「三条都在」依旧成立，但标着 effective/global 的那两条其实读的是钉过之后的值——
+ * 少了这一副，位次判据就只验了「有没有」，没验「谁在前」。
+ */
+const SYNTHETIC_WORKFLOW_ECHO_LATE = [
+  "  - name: Pin",
+  "    run: git config --global core.autocrlf false",
+  `    run: echo "${ECHO_EFFECTIVE} x" && echo "${ECHO_GLOBAL} x" && echo "${ECHO_PINNED} x"`,
+  "  - uses: actions/checkout@v7",
+  `  - name: ${CENSUS_TOKEN}`,
+].join("\n");
+
+/**
+ * 环境侧那三条位次判据抽成纯函数——D 档要用它同时读真文件和三副合成档。
  * 要防的假绿很具体：钉子与 checkout 两颗锚都在，但钉子排在 checkout **之后**，
  * 解包已经完成，那一趟 `git config` 改动对这批文件一个字都管不着。
  */
-function pins(text: string): { pinBeforeCheckout: boolean; censusAfterCheckout: boolean } {
+function pins(text: string): {
+  pinBeforeCheckout: boolean;
+  censusAfterCheckout: boolean;
+  echoesStraddlePin: boolean;
+} {
   const pin = text.indexOf("core.autocrlf false");
   const checkout = text.search(/- (?:name:[^\r\n]*\r?\n\s*)?uses: actions\/checkout@/);
   const census = text.indexOf(CENSUS_TOKEN);
+  const before = [text.indexOf(ECHO_EFFECTIVE), text.indexOf(ECHO_GLOBAL)];
+  const after = text.indexOf(ECHO_PINNED);
   return {
     pinBeforeCheckout: pin > -1 && checkout > -1 && pin < checkout,
     censusAfterCheckout: checkout > -1 && census > checkout,
+    echoesStraddlePin: pin > -1 && before.every((k) => k > -1 && k < pin) && after > pin,
   };
 }
 
@@ -277,12 +308,14 @@ describe("读盘原文的断言不许写死行尾（EOL 脆弱锁）", () => {
     const workflow = readFileSync(path.join(repoRoot, ".github/workflows/test.yml"), "utf8");
     // 两颗锚点都得存在，否则「pin 在 checkout 之前」会在「两者都不存在」上空跑成绿。
     expect(workflow.indexOf("core.autocrlf false")).toBeGreaterThan(-1);
-    expect(pins(workflow)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true });
+    expect(pins(workflow)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: true });
     // 钉的是 global：checkout 用的是 git 自己的进程，仓库级配置在它解包之后才生效，管不到这批文件。
     expect(workflow).toMatch(/git config --global core\.autocrlf false/);
     // 合成档给排序判据装牙：真文件将来被搬错位置时，这一档要能提前红，而不是只认现在这一副。
-    expect(pins(SYNTHETIC_WORKFLOW_OK)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true });
-    expect(pins(SYNTHETIC_WORKFLOW_SWAPPED)).toEqual({ pinBeforeCheckout: false, censusAfterCheckout: false });
+    expect(pins(SYNTHETIC_WORKFLOW_OK)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: true });
+    expect(pins(SYNTHETIC_WORKFLOW_SWAPPED)).toEqual({ pinBeforeCheckout: false, censusAfterCheckout: false, echoesStraddlePin: false });
+    // 第三副只搬 echo：三条读数都在，但 effective/global 落在钉子之后——那条「生效值」就废了。
+    expect(pins(SYNTHETIC_WORKFLOW_ECHO_LATE)).toEqual({ pinBeforeCheckout: true, censusAfterCheckout: true, echoesStraddlePin: false });
   });
 
   it("E 同一颗断言在两副行尾的正文上必须给出同一个答案（真字节）", () => {

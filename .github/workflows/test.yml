@@ -23,9 +23,13 @@ jobs:
       # 断言就在 CI 上与本机读成两副样子。2026-11-01 实测到第一颗：
       # `src/main/verge/core-ipc.test.ts` 里 `canSwap,\n coreDir,` 那条本机绿、CI 红
       # （收到的正文是 `/**\r\n * 内核宿主的装配层…`）。判据在 src/main/eol-fragile-assertion.test.ts。
+      # 2026-11-02 第一趟现场（run 41325952342）读出两件：镜像那颗 true 钉在 **system 层**，
+      # `--global` 那行打出来是空的——所以只看 global 读数会误以为「镜像没设过」；真正能看见它的是
+      # 不带 `--global` 的生效值。echo 只当诊断用，起作用的门是下一步数 CR。
       - name: Pin checkout EOL to the stored blobs
         run: |
-          echo "image value: $(git config --global core.autocrlf)"
+          echo "effective value: $(git config core.autocrlf)"
+          echo "global value: $(git config --global core.autocrlf)"
           git config --global core.autocrlf false
           echo "pinned value: $(git config --global core.autocrlf)"
 
